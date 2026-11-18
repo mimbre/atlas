@@ -7,6 +7,8 @@ import { StringDecoder } from 'node:string_decoder';
 
 const execute = promisify(execFile);
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+// The ended values of the history contract's `turn.state` (the four native outcomes), named
+// as the journal's terminal events are; a differently named ended state would be mapped here.
 const terminal = new Set(['finished', 'failed', 'stopped', 'killed']);
 const terminalEvents = new Map([['execution_finished', 'finished'], ['execution_failed', 'failed'],
   ['execution_stopped', 'stopped'], ['execution_killed', 'killed']]);
@@ -14,6 +16,14 @@ const terminalEvents = new Map([['execution_finished', 'finished'], ['execution_
 const safe = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
 const maxLine = 1024 * 1024;
 const sameKeys = (value, keys) => Object.keys(value).sort().join() === keys.join();
+// The journal replay reads `events` pages of this size, from the oldest retained entry on.
+const replayPage = ['events', '--limit', '100'];
+const modes = new Set(['open', 'paused', 'draining', 'stopping']);
+// `service status` answers the operations contract's runtime info; a stopped Runtime answers
+// {"service":"stopped"} with exit 0. Only the runtime info means reachable.
+const runtimeInfo = value => !!value && typeof value === 'object' && typeof value.runtime_build === 'string' &&
+  typeof value.incarnation === 'string' && modes.has(value.mode) && Number.isInteger(value.policy_version) &&
+  Array.isArray(value.slots);
 
 // Followers still running when this process exits are terminated; close() is the orderly path.
 const followers = new Set();
@@ -28,7 +38,8 @@ function track(child) {
 
 // Delivery is not resolution: only an explicit acknowledgement clears an event.
 // Runtime discovery is pushed by one long-running `events --follow` child; the work queue
-// (question/handoff/turns/service status inspections), inbox scan and nudges run in check().
+// (question/handoff/turns/service status inspections and the journal replay), inbox scan and
+// nudges run in check().
 export function createWatch(home, { spawn = spawnProcess } = {}) {
   const root = join(home, 'agent-reports/atlas/inbox');
   const defaultHome = resolve(process.env.ATLAS_RUNTIME_HOME || join(home, '.local/state/atlas-runtime'));
@@ -85,7 +96,9 @@ export function createWatch(home, { spawn = spawnProcess } = {}) {
     }
     return found;
   }
-  const fresh = () => ({ cursor: null, work: [['service', 'status'], ['turns']], retryAt: 0 });
+  // Reconcile: `service status` probes reachability, `turns` lists terminal turns, and the
+  // journal replay finds pending questions, handoffs and terminal turns.
+  const fresh = () => ({ cursor: null, work: [['service', 'status'], ['turns'], replayPage], retryAt: 0 });
   async function load() {
     if (state) return;
     try {
@@ -151,15 +164,25 @@ export function createWatch(home, { spawn = spawnProcess } = {}) {
   function enqueue(runtime, args) {
     if (!runtime.work.some(item => JSON.stringify(item) === JSON.stringify(args))) runtime.work.push(args);
   }
+  // A turn as {worker_id, id, state}: from a journal terminal event, or a history turn,
+  // whose slot is the guidance worker name.
   function inspectTurn(target, turn) {
     const runtime = state.runtimes[target];
     const { worker_id: worker, id, state: outcome } = turn;
     if (!worker || !id) return;
-    if (terminal.has(outcome)) record(target, `turn:${id}`, ['output', '--worker', worker, '--turn', id],
+    if (terminal.has(outcome)) record(target, `turn:${id}`, ['output', '--turn', id],
       { worker_id: worker, turn_id: id, state: outcome });
-    if (turn.pending_question) enqueue(runtime,
-      ['question', '--worker', worker, '--turn', id, '--question', turn.pending_question.id]);
     enqueue(runtime, ['handoff', '--worker', worker, '--turn', id]);
+  }
+  // One turn of `turns` (the history contract: turn_id, slot, state, ...). It carries no
+  // pending question; those come from the journal.
+  function historyTurn(target, turn) {
+    const ids = [turn?.slot, turn?.turn_id].filter(id => id !== undefined && id !== null);
+    if (ids.some(id => typeof id !== 'string' || !safe.test(id))) {
+      return record(target, 'turns', ['turns'], { error: 'Unrecognized Runtime history turn (unsafe identifier)',
+        turn: JSON.stringify(turn).slice(0, 512) });
+    }
+    inspectTurn(target, { worker_id: turn.slot, id: turn.turn_id, state: turn.state });
   }
   function gap(target, evidence) {
     const runtime = state.runtimes[target];
@@ -168,6 +191,17 @@ export function createWatch(home, { spawn = spawnProcess } = {}) {
     });
     enqueue(runtime, ['service', 'status']);
     enqueue(runtime, ['turns']);
+    enqueue(runtime, replayPage);
+  }
+  // Question inspections the journal replay queued: one that finds no record is recorded,
+  // never answered with gap(), whose replay would queue it again.
+  const replayKey = args => JSON.stringify(args);
+  function replayed(runtime, args, add) {
+    runtime.replayed ??= [];
+    const key = replayKey(args), index = runtime.replayed.indexOf(key);
+    if (add && index < 0) runtime.replayed.push(key);
+    if (!add && index >= 0) runtime.replayed.splice(index, 1);
+    return index >= 0;
   }
   function unavailable(target, evidence) {
     const runtime = state.runtimes[target];
@@ -183,14 +217,19 @@ export function createWatch(home, { spawn = spawnProcess } = {}) {
   function invalid(target, line, problem) {
     record(target, 'stream', ['events', '--limit', '50'], { error: `Unrecognized Runtime follow line (${problem})`, line: line.slice(0, 512) });
   }
-  function event(target, line, value) {
+  // An event from the live follow, or from a replayed `events` page (replay true).
+  function event(target, line, value, replay = false) {
     const runtime = state.runtimes[target];
     const ids = [value.worker_id, value.turn_id, value.question_id].filter(id => id !== undefined && id !== null);
     if (ids.some(id => typeof id !== 'string' || !safe.test(id))) return invalid(target, line, 'unsafe identifier');
-    // Unattributed journal entries predate workers; turns/service status reconcile those.
+    // Unattributed journal entries predate workers; turns reconciles those.
     if (!value.worker_id || !value.turn_id) return;
     const selectors = ['--worker', value.worker_id, '--turn', value.turn_id];
-    if (value.question_id) enqueue(runtime, ['question', ...selectors, '--question', value.question_id]);
+    if (value.question_id) {
+      const args = ['question', ...selectors, '--question', value.question_id];
+      if (replay) replayed(runtime, args, true);
+      enqueue(runtime, args);
+    }
     if (value.kind === 'handoff_submitted') enqueue(runtime, ['handoff', ...selectors]);
     if (terminalEvents.has(value.kind)) inspectTurn(target, { worker_id: value.worker_id, id: value.turn_id, state: terminalEvents.get(value.kind) });
   }
@@ -296,16 +335,35 @@ export function createWatch(home, { spawn = spawnProcess } = {}) {
           }
           if (args[0] === 'question' && /^Question record unavailable;/.test(error.message)) {
             runtime.work.shift();
-            gap(runtimeHome, { selectors: args, error: error.message });
+            const [, , worker, , turn, , question] = args;
+            if (replayed(runtime, args, false)) record(runtimeHome, `missing_question:${turn}:${question}`, args,
+              { worker_id: worker, turn_id: turn, question_id: question, error: error.message });
+            else gap(runtimeHome, { selectors: args, error: error.message });
             continue;
           }
           throw error;
         }
         if (args[0] === 'service') {
-          for (const turn of Object.values(value.workers)) inspectTurn(runtimeHome, turn);
+          // Reachability only; a stopped Runtime is unreachable.
+          if (!runtimeInfo(value)) {
+            throw new Error(value?.service === 'stopped' ? 'Runtime service is stopped (service status)'
+              : 'service status answered no runtime info');
+          }
+        } else if (args[0] === 'events') {
+          // One journal page: {events, cursor, more[, reset]}. The replay starts at the oldest
+          // retained entry, so its reset is expected, not a gap. It ends on more: false.
+          if (!value || !Array.isArray(value.events) || typeof value.more !== 'boolean' ||
+              typeof value.cursor !== 'string' || !safe.test(value.cursor)) throw new Error('Unrecognized Runtime events page');
+          for (const entry of value.events) {
+            const text = JSON.stringify(entry);
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry) || typeof entry.kind !== 'string') invalid(runtimeHome, text, 'events page entry');
+            else event(runtimeHome, text, entry, true);
+          }
+          if (value.more) enqueue(runtime, [...replayPage, '--cursor', value.cursor]);
         } else if (args[0] === 'turns') {
-          for (const turn of value.turns) inspectTurn(runtimeHome, turn);
+          for (const turn of value.turns) historyTurn(runtimeHome, turn);
         } else if (args[0] === 'question') {
+          replayed(runtime, args, false);
           if (value.active && value.admission === 'pending') record(runtimeHome, `question:${value.turn_id}:${value.question_id}`, args,
             { worker_id: value.worker_id, turn_id: value.turn_id, question_id: value.question_id,
               revision: value.revision, record_ref: value.record_ref });

@@ -5,7 +5,7 @@ FROM hexpm/elixir:1.18.4-erlang-28.5.0.2-debian-bookworm-20260610-slim AS build
 
 ENV MIX_ENV=prod
 # What the umbrella (products/software_factory, its apps in platform/) reads to compile:
-# Control and Runtime the contract (platform/atlas_control/bff/contract, a path dependency
+# Control and Runtime the contract (platform/atlas_control/backend/contract, a path dependency
 # inside Control's folder, which compiles with its generator); the release the model
 # (products/software_factory/model/contract, which Facts, Flow, Gates, Runtime and Control are wired
 # to) and the Rela DSL it is written in (products/software_factory/model/generator). No generated JSON: the model is
@@ -20,10 +20,19 @@ COPY platform/atlas_flow /src/platform/atlas_flow
 COPY platform/atlas_gates /src/platform/atlas_gates
 COPY platform/atlas_learn /src/platform/atlas_learn
 COPY platform/atlas_runtime /src/platform/atlas_runtime
-COPY products/software_factory/mix.exs products/software_factory/.formatter.exs products/software_factory/.gitignore products/software_factory/runtime-node.exs /src/products/software_factory/
+# The Runtime's path dependency: the neutral change-set library (D42).
+COPY platform/frameworks/changeset /src/platform/frameworks/changeset
+# Flow's path dependency: the shared request-body limit (M3 A3).
+COPY platform/frameworks/body_limit /src/platform/frameworks/body_limit
+COPY products/software_factory/mix.exs products/software_factory/.formatter.exs products/software_factory/.gitignore /src/products/software_factory/
 COPY products/software_factory/config /src/products/software_factory/config
 COPY products/software_factory/integration /src/products/software_factory/integration
+# The umbrella's Hex dependencies (Plug and Bandit, which the Runtime's backend in
+# platform/atlas_runtime/backend compiles against; the release never starts its listener),
+# exactly as mix.lock pins them. Hex and rebar first: telemetry builds with rebar3.
+COPY products/software_factory/mix.lock /src/products/software_factory/mix.lock
 WORKDIR /src/products/software_factory
+RUN mix local.hex --force && mix local.rebar --force && mix deps.get --only prod --check-locked
 RUN mix compile --warnings-as-errors && mix release atlas
 
 # Optional Control ingress binaries, pinned and checksum verified for each architecture.
@@ -52,9 +61,16 @@ RUN arch="${TARGETARCH:-amd64}" \
 
 FROM debian:bookworm-slim
 
+# git for the core's Code service (AtlasCode.Core), pinned: it reads base repositories
+# anonymously ("credentials": "none"), so no gh. perl, which Code's home lock
+# (AtlasCode.Lock) runs, comes with Debian's essential perl-base. A pin apt no longer
+# offers fails the build here; update GIT_VERSION to bookworm's current one.
+ARG GIT_VERSION=1:2.39.5-0+deb12u2
 RUN apt-get update \
   && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 ca-certificates python3 \
-  && rm -rf /var/lib/apt/lists/*
+       "git=${GIT_VERSION}" \
+  && rm -rf /var/lib/apt/lists/* \
+  && git --version && perl -e 'use Fcntl qw(:flock); exit 0'
 
 COPY --from=tailscale /tailscale/tailscale /tailscale/tailscaled /usr/local/bin/
 

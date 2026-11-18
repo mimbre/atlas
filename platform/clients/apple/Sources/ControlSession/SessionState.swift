@@ -547,6 +547,11 @@ public struct SessionState: Sendable, Equatable {
 
     // MARK: Checks
 
+    /// The index pages a tab may open: the ones Control's shell serves as tabs
+    /// (`AtlasControl.Shell`): what is assigned, a kind's list, the workers and the
+    /// supervision screens (Open for you, Supervised by you; M3b P4).
+    static let tabPages: Set<Page> = [.home, .list, .workers, .openForYou, .supervisedByYou]
+
     /// What is wrong with `shell` for `env`, if anything (the TUI's `validate_shell`).
     static func check(_ shell: Shell, env: String) -> ShellProblem? {
         guard shell.env == env else { return .env }
@@ -556,7 +561,7 @@ public struct SessionState: Sendable, Equatable {
         guard (1...tabLimit).contains(shell.tabs.count) else { return .tabCount }
         for (index, tab) in shell.tabs.enumerated() {
             guard text(tab.id, limit: 64), text(tab.label, limit: 128), path(tab.to),
-                  let page = Page.match(tab.to)?.page, [.home, .list, .workers].contains(page)
+                  let page = Page.match(tab.to)?.page, tabPages.contains(page)
             else { return .tab(index: index) }
         }
         guard Set(shell.tabs.map(\.id)).count == shell.tabs.count,

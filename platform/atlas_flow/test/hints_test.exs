@@ -2,7 +2,8 @@ defmodule AtlasFlow.HintsTest do
   # What a hint reaches (AtlasFlow.Engine): the runs and the presentation of the facts it
   # is about, read around those facts only; everything else is the round's. Settlement
   # requests wait for completed Bus hints; `:sys.get_state/1` only reads engine state.
-  # No time passes but the manual clock's.
+  # No time passes but the manual clock's, and no wait has a deadline (ExUnit's own test
+  # timeout is the only backstop): a test waits for the Bus answer it needs.
   use ExUnit.Case, async: false
 
   alias AtlasFlow.{Engine, FakeFacts, ManualClock, Settled, Talk, TestModel}
@@ -22,22 +23,30 @@ defmodule AtlasFlow.HintsTest do
     request.id
   end
 
-  # A Bus barrier makes the no-answer check deterministic: Flow must process both
-  # requests, and the Router must deliver any earlier answer before this one.
+  # Flow's answer to the request `id`, however long Flow takes.
+  defp answer(id) do
+    receive do
+      {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"}, content} -> content
+    end
+  end
+
+  # Flow has handled every hint of a fact this test put. The Router acknowledges a fact
+  # to its writer before it hints Flow (AtlasBus.Router.deliver/3), so a `:sys.get_state/1`
+  # from this process can reach Flow before the hint does. This request is routed after
+  # that hint by the same Router process, so Flow takes it after the hint; it is answered
+  # at once (every position is at or past 0).
+  defp barrier, do: answer(ask(0))
+
+  # The barrier also makes the no-answer check deterministic: Flow answers through the
+  # Router before it takes the next message, so an earlier answer is here already.
   defp pending(engine, position, id) do
-    barrier = ask(0)
-    assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^barrier, class: "answer"}, _}, 1_000
+    barrier()
     refute_received {:atlas_bus, %AtlasBus.Envelope{id: ^id}, _}
     assert Settled.value(:sys.get_state(engine).settled) < position
   end
 
   defp settled(position) do
-    id = ask(position)
-
-    assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"},
-                    %{"settled" => settled}},
-                   1_000
-
+    assert %{"settled" => settled} = answer(ask(position))
     assert settled >= position
   end
 
@@ -119,9 +128,7 @@ defmodule AtlasFlow.HintsTest do
       GenServer.call(FakeFacts, {:allow_read, "shelf", projection})
       Engine.round(engine)
 
-      assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"},
-                      %{"settled" => settled}},
-                     1_000
+      assert %{"settled" => settled} = answer(id)
 
       assert settled >= p
       assert FakeFacts.get("shelf", "S-1")["values"]["items"] == 0
@@ -192,9 +199,7 @@ defmodule AtlasFlow.HintsTest do
     GenServer.call(FakeFacts, {:allow_read, "shelf", %{}})
     Engine.round(engine)
 
-    assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"},
-                    %{"settled" => settled}},
-                   1_000
+    assert %{"settled" => settled} = answer(id)
 
     assert settled >= p
     assert FakeFacts.get("shelf", "S-1")["values"]["items"] == 1
@@ -222,9 +227,7 @@ defmodule AtlasFlow.HintsTest do
     GenServer.call(FakeFacts, {:allow_read, "widget", read})
     Engine.round(c.engine)
 
-    assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"},
-                    %{"settled" => settled}},
-                   1_000
+    assert %{"settled" => settled} = answer(id)
 
     assert settled >= p
     assert todo("W-1") == "Tend it"
@@ -243,14 +246,12 @@ defmodule AtlasFlow.HintsTest do
 
     id = ask(p)
 
-    assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"}, %{"settled" => ^p}},
-                   1_000
+    assert %{"settled" => ^p} = answer(id)
 
     {:stored, q} = Talk.put("maker", %{"op" => "change", "key" => "mia", "values" => %{}})
     id = ask(q)
 
-    assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"}, %{"settled" => ^q}},
-                   1_000
+    assert %{"settled" => ^q} = answer(id)
 
     assert todo("W-1") == "stale"
     :sys.get_state(c.engine)
@@ -266,8 +267,7 @@ defmodule AtlasFlow.HintsTest do
         "links" => %{"of_widget" => ["W-1"]}
       })
 
-    ready = ask(created)
-    assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^ready, class: "answer"}, _}, 1_000
+    answer(ask(created))
     stale("W-1")
     read = %{"key" => "W-1", "plain" => true}
     GenServer.call(FakeFacts, {:block_read, "widget", read})
@@ -279,9 +279,7 @@ defmodule AtlasFlow.HintsTest do
     GenServer.call(FakeFacts, {:allow_read, "widget", read})
     Engine.round(c.engine)
 
-    assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"},
-                    %{"settled" => settled}},
-                   1_000
+    assert %{"settled" => settled} = answer(id)
 
     assert settled >= p
     assert todo("W-1") == "Tend it"
@@ -310,9 +308,7 @@ defmodule AtlasFlow.HintsTest do
 
     id = ask(p)
 
-    assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"},
-                    %{"settled" => settled}},
-                   1_000
+    assert %{"settled" => settled} = answer(id)
 
     assert settled >= p
     assert todo("W-1") == "Tend it"
@@ -339,9 +335,7 @@ defmodule AtlasFlow.HintsTest do
     {:stored, q} = Talk.put("part", %{"op" => "delete", "key" => "P-move"})
     id = ask(q)
 
-    assert_receive {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"},
-                    %{"settled" => deleted}},
-                   1_000
+    assert %{"settled" => deleted} = answer(id)
 
     assert deleted >= q
     assert todo("W-2") == "Tend it"
@@ -373,11 +367,11 @@ defmodule AtlasFlow.HintsTest do
   end
 
   # One hint and everything it causes: `{reads, facts read}` by Flow meanwhile.
-  defp cost(c, fun) do
+  defp cost(fun) do
     {reads, _} = FakeFacts.reads()
     facts = FakeFacts.facts_read()
     fun.()
-    :sys.get_state(c.engine)
+    barrier()
     {after_reads, _} = FakeFacts.reads()
     {after_reads - reads, FakeFacts.facts_read() - facts}
   end
@@ -390,12 +384,12 @@ defmodule AtlasFlow.HintsTest do
       Talk.put("part", %{"op" => "create", "key" => key, "links" => %{"of_widget" => [widget]}})
     end
 
-    few = cost(c, fn -> part.("P-1", "W-1") end)
+    few = cost(fn -> part.("P-1", "W-1") end)
     for n <- 11..200, do: widget("W-#{n}")
     Engine.round(c.engine)
     assert todo("W-200") == "Tend it"
 
-    many = cost(c, fn -> part.("P-2", "W-2") end)
+    many = cost(fn -> part.("P-2", "W-2") end)
     assert many == few
   end
 
@@ -405,11 +399,12 @@ defmodule AtlasFlow.HintsTest do
     {:stored, _} =
       Talk.put("part", %{"op" => "create", "key" => "P-1", "links" => %{"of_widget" => ["W-1"]}})
 
-    :sys.get_state(c.engine)
+    barrier()
     stale("W-1")
     stale("W-2")
 
     {:stored, p} = Talk.put("part", %{"op" => "delete", "key" => "P-1"})
+    barrier()
     state = :sys.get_state(c.engine)
     assert todo("W-1") == "Tend it"
     assert todo("W-2") == "stale"
@@ -427,10 +422,11 @@ defmodule AtlasFlow.HintsTest do
 
     # Another maker: nobody waits for it.
     {:stored, _} = Talk.put("maker", %{"op" => "create", "key" => "bob"})
-    :sys.get_state(c.engine)
+    barrier()
     assert FakeFacts.get("widget", "W-1")["links"]["tended_by"] == nil
 
     {:stored, _} = Talk.put("maker", %{"op" => "create", "key" => "mia"})
+    barrier()
     state = :sys.get_state(c.engine)
     assert FakeFacts.get("widget", "W-1")["links"]["tended_by"] == ["mia"]
     assert FakeFacts.get("widget", "W-2")["links"]["tended_by"] == ["mia"]
@@ -478,7 +474,7 @@ defmodule AtlasFlow.HintsTest do
         "values" => %{"phase" => "first", "result" => "ok"}
       })
 
-    :sys.get_state(engine)
+    barrier()
     assert {:ok, %{"status" => "completed"}} = run.("B-1")
     assert run.("B-2") == {:ok, other}
   end

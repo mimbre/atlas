@@ -183,6 +183,41 @@ defmodule AtlasFacts.PresentationTest do
              ])
   end
 
+  # -- Its human supervisor (work acquisition design 2026-11-17, §5.6) -----------------
+
+  defp watched(run, keys), do: Map.put(run, "supervisor", keys)
+
+  test "the supervisor is the presenting run's link; none is []" do
+    target = label(%{"step" => "weigh"})
+
+    assert %{"supervisor" => ["bob"]} =
+             view(target, [watched(run("sorting", 1, "active", "weigh"), ["bob"])])
+
+    assert %{"supervisor" => []} =
+             view(target, [watched(run("sorting", 1, "active", "weigh"), [])])
+
+    assert %{"supervisor" => []} = view(target, [run("sorting", 1, "active", "weigh")])
+    assert %{"supervisor" => [], "run" => nil} = view(target, [])
+  end
+
+  test "a newer generation without the link presents none, whatever an older one held" do
+    runs = [
+      watched(run("sorting", 1, "active", "weigh"), ["bob"]),
+      watched(run("sorting", 2, "active", "weigh"), [])
+    ]
+
+    assert %{"run" => "sorting-2", "supervisor" => []} = view(label(%{"step" => "weigh"}), runs)
+  end
+
+  test "another subflow's run never lends its supervisor to the presenting one" do
+    runs = [
+      watched(run("sorting", 1, "active", "weigh"), []),
+      watched(run("shipping", 1, "active", "track"), ["bob"])
+    ]
+
+    assert %{"flow" => "sorting", "supervisor" => []} = view(label(%{"step" => "weigh"}), runs)
+  end
+
   test "no run: nothing to do" do
     assert %{"run" => nil, "actionable" => false, "reopened" => false} =
              view(label(%{"step" => "weigh"}), [])

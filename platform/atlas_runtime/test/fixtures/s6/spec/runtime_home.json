@@ -1,0 +1,1005 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "home.folder-scope-equal",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "folder": "{home}/turns/t1",
+        "harness": "codex",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_folder\"",
+            "-c",
+            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
+            "-c",
+            "features.network_proxy=true",
+            "-c",
+            "web_search=\"disabled\""
+          ]
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/dest",
+                "write"
+              ],
+              [
+                "{home}/scratch/t1",
+                "write"
+              ],
+              [
+                "{user}",
+                "none"
+              ],
+              [
+                "{home}",
+                "none"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/backend.sock",
+                "none"
+              ],
+              [
+                "{home}/materializations/m1.json",
+                "read"
+              ],
+              [
+                "{home}/snapshots/s1/baseline.json",
+                "read"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{user}/.asdf/shims",
+                "read"
+              ],
+              [
+                "{user}/missing/bin",
+                "read"
+              ],
+              [
+                "{user}/.asdf",
+                "read"
+              ],
+              [
+                "{user}/.tool-versions",
+                "read"
+              ],
+              [
+                "{user}/.hex",
+                "read"
+              ],
+              [
+                "{user}/go/pkg/mod",
+                "read"
+              ],
+              [
+                "{user}/.codex",
+                "none"
+              ],
+              [
+                "{user}/.config/gh",
+                "none"
+              ],
+              [
+                "{user}/.ssh",
+                "none"
+              ],
+              [
+                "{user}/.aws",
+                "none"
+              ],
+              [
+                "{user}/.docker",
+                "none"
+              ],
+              [
+                "{user}/Library/Keychains",
+                "none"
+              ],
+              [
+                "{user}/.git-credentials",
+                "none"
+              ],
+              [
+                "{user}/.config/git",
+                "none"
+              ],
+              [
+                "{user}/.netrc",
+                "none"
+              ],
+              [
+                "{user}/.claude",
+                "none"
+              ],
+              [
+                "{user}/.claude.json",
+                "none"
+              ],
+              [
+                "{user}/.local/state/atlas-runtime",
+                "none"
+              ],
+              [
+                "{user}/.gitconfig",
+                "none"
+              ],
+              [
+                "{user}/.erlang.cookie",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": true,
+              "mode": "loopback",
+              "unix_sockets": [
+                "{home}/scratch/t1"
+              ]
+            },
+            "network_proxy": true,
+            "profile": "atlas_folder",
+            "web_search": "disabled"
+          },
+          "env": {
+            "mkdirs": [
+              "{home}/scratch/t1/tmp",
+              "{home}/scratch/t1/go-build",
+              "{home}/scratch/t1/go-tmp",
+              "{home}/scratch/t1/cache",
+              "{home}/scratch/t1/npm"
+            ],
+            "prefix_path": "{tmp}/bin",
+            "set": [
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "TMPDIR",
+                "{home}/scratch/t1/tmp"
+              ],
+              [
+                "GOCACHE",
+                "{home}/scratch/t1/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "{home}/scratch/t1/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "{home}/scratch/t1/cache"
+              ],
+              [
+                "npm_config_cache",
+                "{home}/scratch/t1/npm"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "{home}/scratch/t1",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "home.folder-scope-other",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/other-home",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "ATLAS_RUNTIME_HOME": "{tmp}/other-home",
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "folder": "{home}/turns/t1",
+        "harness": "codex",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "legacy": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_folder\"",
+            "-c",
+            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
+            "-c",
+            "features.network_proxy=true",
+            "-c",
+            "web_search=\"disabled\""
+          ]
+        },
+        "rendered": {
+          "error": "Runtime spec denies another home"
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/dest",
+                "write"
+              ],
+              [
+                "{home}/scratch/t1",
+                "write"
+              ],
+              [
+                "{user}",
+                "none"
+              ],
+              [
+                "{home}",
+                "none"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/backend.sock",
+                "none"
+              ],
+              [
+                "{home}/materializations/m1.json",
+                "read"
+              ],
+              [
+                "{home}/snapshots/s1/baseline.json",
+                "read"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{user}/.asdf/shims",
+                "read"
+              ],
+              [
+                "{user}/missing/bin",
+                "read"
+              ],
+              [
+                "{user}/.asdf",
+                "read"
+              ],
+              [
+                "{user}/.tool-versions",
+                "read"
+              ],
+              [
+                "{user}/.hex",
+                "read"
+              ],
+              [
+                "{user}/go/pkg/mod",
+                "read"
+              ],
+              [
+                "{user}/.codex",
+                "none"
+              ],
+              [
+                "{user}/.config/gh",
+                "none"
+              ],
+              [
+                "{user}/.ssh",
+                "none"
+              ],
+              [
+                "{user}/.aws",
+                "none"
+              ],
+              [
+                "{user}/.docker",
+                "none"
+              ],
+              [
+                "{user}/Library/Keychains",
+                "none"
+              ],
+              [
+                "{user}/.git-credentials",
+                "none"
+              ],
+              [
+                "{user}/.config/git",
+                "none"
+              ],
+              [
+                "{user}/.netrc",
+                "none"
+              ],
+              [
+                "{user}/.claude",
+                "none"
+              ],
+              [
+                "{user}/.claude.json",
+                "none"
+              ],
+              [
+                "{user}/.local/state/atlas-runtime",
+                "none"
+              ],
+              [
+                "{user}/.gitconfig",
+                "none"
+              ],
+              [
+                "{user}/.erlang.cookie",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": true,
+              "mode": "loopback",
+              "unix_sockets": [
+                "{home}/scratch/t1"
+              ]
+            },
+            "network_proxy": true,
+            "profile": "atlas_folder",
+            "web_search": "disabled"
+          },
+          "env": {
+            "mkdirs": [
+              "{home}/scratch/t1/tmp",
+              "{home}/scratch/t1/go-build",
+              "{home}/scratch/t1/go-tmp",
+              "{home}/scratch/t1/cache",
+              "{home}/scratch/t1/npm"
+            ],
+            "prefix_path": "{tmp}/bin",
+            "set": [
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "TMPDIR",
+                "{home}/scratch/t1/tmp"
+              ],
+              [
+                "GOCACHE",
+                "{home}/scratch/t1/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "{home}/scratch/t1/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "{home}/scratch/t1/cache"
+              ],
+              [
+                "npm_config_cache",
+                "{home}/scratch/t1/npm"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "{home}/scratch/t1",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      },
+      "change": "B8c",
+      "note": "N1: legacy denies the scope's home (host.go:644-646); render refuses a home other than the helper's own"
+    },
+    {
+      "id": "home.env-absolute",
+      "fs": [
+        {
+          "path": "{tmp}/proj/.git",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/state",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "ATLAS_RUNTIME_HOME": "{tmp}/state"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "codex",
+        "origin": "client_named",
+        "scope": {
+          "git_dir": "{tmp}/proj/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/proj",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_repository\"",
+            "-c",
+            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{tmp}/proj\"=\"write\",\"{tmp}/proj/.git\"=\"write\",\"{tmp}/proj/.agents\"=\"read\",\"{tmp}/proj/.codex\"=\"read\",\"{tmp}/proj/.aws\"=\"read\",\"{tmp}/state\"=\"none\",\"{tmp}/state/runtime.sock\"=\"none\",\"{tmp}/state/backend.sock\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
+            "-c",
+            "features.network_proxy=true",
+            "-c",
+            "web_search=\"live\""
+          ]
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ],
+              [
+                "{tmp}/proj/.git",
+                "write"
+              ],
+              [
+                "{tmp}/proj/.agents",
+                "read"
+              ],
+              [
+                "{tmp}/proj/.codex",
+                "read"
+              ],
+              [
+                "{tmp}/proj/.aws",
+                "read"
+              ],
+              [
+                "{tmp}/state",
+                "none"
+              ],
+              [
+                "{tmp}/state/runtime.sock",
+                "none"
+              ],
+              [
+                "{tmp}/state/backend.sock",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [
+                "github.com",
+                "api.github.com"
+              ],
+              "local_binding": false,
+              "mode": "domains",
+              "unix_sockets": []
+            },
+            "network_proxy": true,
+            "profile": "atlas_repository",
+            "web_search": "live"
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{tmp}/state",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      }
+    },
+    {
+      "id": "home.env-symlink",
+      "fs": [
+        {
+          "path": "{tmp}/proj/.git",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/home-link",
+          "target": "{home}",
+          "type": "symlink"
+        }
+      ],
+      "env": {
+        "ATLAS_RUNTIME_HOME": "{tmp}/home-link"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "codex",
+        "origin": "client_named",
+        "scope": {
+          "git_dir": "{tmp}/proj/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/proj",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_repository\"",
+            "-c",
+            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{tmp}/proj\"=\"write\",\"{tmp}/proj/.git\"=\"write\",\"{tmp}/proj/.agents\"=\"read\",\"{tmp}/proj/.codex\"=\"read\",\"{tmp}/proj/.aws\"=\"read\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
+            "-c",
+            "features.network_proxy=true",
+            "-c",
+            "web_search=\"live\""
+          ]
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/proj",
+                "write"
+              ],
+              [
+                "{tmp}/proj/.git",
+                "write"
+              ],
+              [
+                "{tmp}/proj/.agents",
+                "read"
+              ],
+              [
+                "{tmp}/proj/.codex",
+                "read"
+              ],
+              [
+                "{tmp}/proj/.aws",
+                "read"
+              ],
+              [
+                "{home}",
+                "none"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/backend.sock",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [
+                "github.com",
+                "api.github.com"
+              ],
+              "local_binding": false,
+              "mode": "domains",
+              "unix_sockets": []
+            },
+            "network_proxy": true,
+            "profile": "atlas_repository",
+            "web_search": "live"
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "note": "the denied home is the resolved one"
+    },
+    {
+      "id": "home.env-relative",
+      "fs": [
+        {
+          "path": "{tmp}/proj/.git",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "ATLAS_RUNTIME_HOME": "relative/home"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "codex",
+        "origin": "client_named",
+        "scope": {
+          "git_dir": "{tmp}/proj/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/proj",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "ATLAS_RUNTIME_HOME must be an absolute path"
+      }
+    },
+    {
+      "id": "home.env-unset",
+      "fs": [
+        {
+          "path": "{tmp}/proj",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "ATLAS_RUNTIME_HOME": ""
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "codex",
+        "origin": "client_named",
+        "sandbox": "read-only",
+        "workspace": "{tmp}/proj"
+      },
+      "expect": {
+        "rendered": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_read_only\"",
+            "-c",
+            "permissions={atlas_read_only={extends=\":read-only\",filesystem={\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.local/state/atlas-runtime/runtime.sock\"=\"none\",\"{user}/.local/state/atlas-runtime/backend.sock\"=\"none\"},network={enabled=false}}}"
+          ]
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{user}/.local/state/atlas-runtime",
+                "none"
+              ],
+              [
+                "{user}/.local/state/atlas-runtime/runtime.sock",
+                "none"
+              ],
+              [
+                "{user}/.local/state/atlas-runtime/backend.sock",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_read_only",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{user}/.local/state/atlas-runtime",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "note": "the default home {user}/.local/state/atlas-runtime"
+    },
+    {
+      "id": "home.claude-env-absolute",
+      "fs": [
+        {
+          "path": "{tmp}/proj",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/state",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "ATLAS_RUNTIME_HOME": "{tmp}/state"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "sandbox": "read-only",
+        "workspace": "{tmp}/proj"
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Read,Glob,Grep",
+              "--allowedTools",
+              "Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"permissions\":{\"deny\":[\"Read(/{tmp}/state)\",\"Read(/{tmp}/state/runtime.sock)\",\"Read(/{tmp}/state/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{tmp}/state)",
+                  "Read(/{tmp}/state/runtime.sock)",
+                  "Read(/{tmp}/state/backend.sock)"
+                ]
+              }
+            },
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{tmp}/state",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      }
+    }
+  ]
+}

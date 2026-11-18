@@ -2,7 +2,7 @@
 
 Native Swift/SwiftUI apps with the same functions as the TUI (`platform/clients/tui`), talking to
 Control the way the TUI does: JSON lines over TCP, `hello`/`welcome`, `boot`, `open`,
-`submit`, `refresh`, and the pushed `page`, `notice` and `bye` ([platform/atlas_control/bff/README.md](../../platform/atlas_control/bff/README.md)).
+`submit`, `refresh`, and the pushed `page`, `notice` and `bye` ([platform/atlas_control/backend/README.md](../../platform/atlas_control/backend/README.md)).
 macOS comes first; iOS comes after it and shares everything except a thin platform shell.
 
 The rule does not change: **a client has no semantics.** It shows blocks and markup and
@@ -12,13 +12,13 @@ means. Every rule below is about blocks, markup, pages and messages.
 
 ## 1. What exists: the generated package (slice 0)
 
-`platform/atlas_control/bff/targets/swift/` is the Swift package `AtlasControlKit`, a file target of the contract
-(`AtlasBFF.Targets.Swift`, written by `cd platform/atlas_control/bff/contract && mix atlas.gen`, checked by
+`platform/atlas_control/backend/targets/swift/` is the Swift package `AtlasControlKit`, a file target of the contract
+(`AtlasBFF.Targets.Swift`, written by `cd platform/atlas_control/backend/contract && mix atlas.gen`, checked by
 `mix atlas.gen --check`). Platforms `.macOS(.v14)` and `.iOS(.v17)`, Swift 6 language mode,
 Foundation only (no AppKit, UIKit, SwiftUI or Network), so one package serves both apps.
 
 ```
-platform/atlas_control/bff/targets/swift/
+platform/atlas_control/backend/targets/swift/
   Package.swift                      library AtlasControlKit, test target AtlasControlKitTests
   Sources/AtlasControlKit/
     Contract.swift                   Contract.version ("0.16.0")
@@ -75,7 +75,7 @@ hand-written `platform/clients/apple` package has its own job, `apple` (macos-la
 
 1. **Worker operations are not endpoints yet.** The TUI's worker pages use eight
    `worker_*` operations (inspect, output subscribe/next/unsubscribe, submit, query,
-   history, receipts) declared as wire descriptors in `platform/atlas_control/bff/contract/lib/wire/control/workers.ex`.
+   history, receipts) declared as wire descriptors in `platform/atlas_control/backend/contract/lib/wire/control/workers.ex`.
    No `defendpoint` names them, so the package (which follows the endpoints, as asked)
    has no Swift messages for them. Declaring endpoints for them in the contract is enough:
    a trial generation with them builds and its 107 generated tests pass, with no
@@ -96,7 +96,7 @@ hand-written `platform/clients/apple` package has its own job, `apple` (macos-la
 ## 2. Shared and platform code
 
 ```
-platform/atlas_control/bff/targets/swift/            AtlasControlKit (generated): the contract
+platform/atlas_control/backend/targets/swift/            AtlasControlKit (generated): the contract
 platform/clients/apple/                hand-written Swift package (+ app targets from S8)
   Package.swift               products: ControlSession, BlockViews, AtlasMac (S1);
                               ConsoleKit (S5), WorkerViews (S6)

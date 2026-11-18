@@ -30,7 +30,7 @@ defmodule AtlasFlow.Subflow do
               {:to, state} | :stay
   @doc "The state's timers: `%{\"name\", \"period\", \"to\", \"since\"}`."
   @callback timers(state) :: [map]
-  @callback mechanism(state) :: nil | {:pass | :gate | :effect, map}
+  @callback mechanism(state) :: nil | {:gate | :effect | :task, map}
   @callback waiting_for(state) :: [String.t()]
   @doc "The subflow's owner: `%{\"via\", \"relation\", \"default\", \"preserve_kind\"}`."
   @callback owner() :: map

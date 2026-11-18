@@ -7,6 +7,35 @@ types:
     labels:
       running: Running
       ended: Ended
+  task_kind:
+    values:
+    - plan
+    - author
+    - review
+    - fix
+    - diagnose
+    labels:
+      plan: Plan
+      author: Author
+      review: Review
+      fix: Fix
+      diagnose: Diagnose
+  task_role:
+    values:
+    - architect
+    - developer
+    - investigator
+    labels:
+      architect: Architect
+      developer: Developer
+      investigator: Investigator
+  task_verdict:
+    values:
+    - approved
+    - changes_required
+    labels:
+      approved: Approved
+      changes_required: Changes required
   decision_category:
     values:
     - product
@@ -101,6 +130,19 @@ types:
     descriptions:
       uncertain: The gate could not tell; its policy took the safe outcome
       error: The evaluation failed or timed out; never a pass
+  flow_input_operation:
+    values:
+    - choice
+    - pickup
+    - hand_over
+    labels:
+      choice: Choice
+      pickup: Pick up
+      hand_over: Hand over
+    descriptions:
+      choice: A choice its owner makes, written on the subject (the default when empty)
+      pickup: Makes the person who sends it the run's human supervisor
+      hand_over: Clears the run's human supervisor and gives hand_to a To-Do to pick it up
 entities:
   person:
     label: Person
@@ -129,9 +171,6 @@ entities:
       cannot_run:
         type: string
         description: Where and since when it cannot run, and why (3 crashes in 10 minutes); Runtime writes and clears it (IS-Atlas-18)
-      machine:
-        type: string
-        description: 'The machine whose Runtime runs it (its runtime settings name it); Flow sends its passes there. Empty: it works by hand'
   assignment:
     label: Assignment
     plural: assignments
@@ -200,6 +239,197 @@ entities:
       model:
         type: string
         description: 'The model the agent runs: the one its harness reports, else the one Runtime asked for'
+  machinery:
+    label: Machinery
+    plural: machineries
+    id_type: manual
+    description: |
+      A machinery assignee: the Runtimes of a flow's human supervisor, which pull its
+      tasks as work. The id is short and lower case, its name in Flow's configuration,
+      e.g. mac-mini.
+    properties:
+      name:
+        type: string
+        required: true
+        description: As it is shown; its name in Flow's configuration
+  task:
+    label: Task
+    plural: tasks
+    id_type: manual
+    id_prefix: TK-
+    description: |
+      One unit of work Flow defines for an assignee and submits to its machinery as
+      Runtime work. Flow names it TK-<package>-<n>; the key is the work's client key.
+    properties:
+      kind:
+        type: task_kind
+        required: true
+        description: Plan, author, review, fix or diagnose
+      role:
+        type: task_role
+        description: Architect, developer or investigator
+      profile:
+        type: string
+        description: 'The abstract profile it needs: deep_coding, deep_coding_max or independent_review'
+      input:
+        type: string
+        description: 'What it starts from: the base, or the result of a task, read or write (JSON)'
+      client_key:
+        type: string
+        description: 'The Runtime work''s client key: the task''s own key'
+      work_id:
+        type: string
+        description: The Runtime's id of its work
+      attempt:
+        type: integer
+        description: The Runtime attempt it is on
+      state:
+        type: string
+        description: Where the task is, as Flow keeps it
+      result_kind:
+        type: string
+        description: How its work ended, as the Runtime says
+      reason:
+        type: string
+        description: Why it ended so
+      check_exit_status:
+        type: integer
+        description: The check's exit status
+      check_ending:
+        type: string
+        description: 'How the check ended when it did not exit: timed out, cancelled or interrupted'
+      check_output_tail:
+        type: string
+        description: The tail of the check's output
+      verdict:
+        type: task_verdict
+        description: 'A review task''s verdict: approved or changes required'
+      answer:
+        type: string
+        description: The worker's answer, at most 8 KB
+      result_fingerprints:
+        type: string
+        description: The fingerprints of its frozen result (JSON)
+      based_on:
+        type: string
+        description: The fingerprint of the result a review task reviewed
+      published_revision:
+        type: string
+        description: 'The revision in Code its result was published as: an author''s or a fix''s'
+      reviewed_revision:
+        type: string
+        description: 'The revision a review task reviewed: the published revision of that result'
+      code_change_id:
+        type: string
+        description: The Code change its result was published as
+      review_id:
+        type: string
+        description: The Code review its result was published on
+      review_url:
+        type: string
+        description: The link of that review, as Code gave it
+      published_fingerprint:
+        type: string
+        description: The fpr_ fingerprint of the change it was published as
+      review_ci:
+        type: string
+        description: 'The review''s CI at its published revision: success, failure, pending or none'
+      marked_ready_at:
+        type: datetime
+        description: When Flow marked the review ready
+      base_id:
+        type: string
+        description: The Runtime base it started from
+      base_snapshot:
+        type: string
+        description: The Code snapshot its base was made from
+      base_revision:
+        type: string
+        description: The revision of that snapshot
+      lease_id:
+        type: string
+        description: 'The current lease of its work: opaque to the Runtime, never reused'
+      runtime:
+        type: string
+        description: The Runtime that holds the current lease
+      expires_at:
+        type: datetime
+        description: When the current lease expires, as granted; renewals are not written
+      granted_at:
+        type: datetime
+        description: When the current lease was granted
+      lease_state:
+        type: string
+        description: 'Where the current lease is: offered, accepted, started, ended, done, expired, lost or cancel requested'
+      lease_end_cause:
+        type: string
+        description: 'Why Flow ended the lease: supervision, expired or late accept'
+      lease_revision:
+        type: integer
+        description: The revision of the last report recorded on the lease
+      lease_report:
+        type: string
+        description: The sha256 of the last recorded report
+      result_manifest:
+        type: string
+        description: The sha256 of its result's stored manifest
+      result_state:
+        type: string
+        description: 'Whether its result is stored: incomplete, complete, too large or invalid'
+  task_attempt:
+    label: Task attempt
+    plural: task_attempts
+    id_type: manual
+    id_prefix: TA-
+    description: |
+      One Runtime attempt of a task and what ran it: provider, harness, model and the
+      reason they were chosen. Flow names it TA-<task>-<n> and never overwrites one.
+    properties:
+      turn_id:
+        type: string
+        description: The Runtime turn of the attempt
+      state:
+        type: string
+        description: Where the attempt is, as the Runtime says
+      result_kind:
+        type: string
+        description: How the attempt ended
+      provider:
+        type: string
+        description: The vendor that ran it
+      harness:
+        type: string
+        description: The harness that ran it
+      harness_version:
+        type: string
+        description: The harness's version
+      configured_model:
+        type: string
+        description: The model the Runtime asked for
+      reported_model:
+        type: string
+        description: The model the harness reports it ran; kept when it differs
+      selection_reason:
+        type: string
+        description: Why the Runtime chose this slot, harness and model
+      conversation_id:
+        type: string
+        description: The harness's conversation
+      machine:
+        type: string
+        description: The machine it ran on (detail)
+      slot:
+        type: string
+        description: The slot it ran in (detail)
+      started_at:
+        type: datetime
+        description: When it started
+      ended_at:
+        type: datetime
+        description: When it ended
+      lease_id:
+        type: string
+        description: The lease of its task the attempt ran under
   worker_execution:
     label: Worker execution
     plural: worker_executions
@@ -621,15 +851,22 @@ entities:
         type: string
       applied_at:
         type: string
+      operation:
+        type: flow_input_operation
+        description: 'What it asks of the run: a choice (when empty), a pickup or a hand-over'
+      hand_to:
+        type: string
+        description: A hand-over's person, who is given a To-Do to pick the run up
 relations:
   assigned_to:
     label: assigned to
-    description: Who is next in line to do something with it; one, a person or an agent.
+    description: Who is next in line to do something with it; one, a person, an agent or a machinery.
     from:
     - assignment
     to:
     - person
     - agent
+    - machinery
     max_outgoing: 1
     inverse:
       id: assignments
@@ -656,6 +893,39 @@ relations:
     inverse:
       id: turns_by
       label: turns
+  done_for:
+    label: done for
+    description: The human supervisor of its flow when Flow offered it, copied for audit. Only Flow sets it.
+    from:
+    - task
+    to:
+    - person
+    max_outgoing: 1
+    inverse:
+      id: tasks_done_for
+      label: tasks done for
+  attempt_of:
+    label: attempt of
+    description: An attempt belongs to one task; a task has its attempts.
+    from:
+    - task_attempt
+    to:
+    - task
+    max_outgoing: 1
+    inverse:
+      id: attempts
+      label: attempts
+  ran_on:
+    label: ran on
+    description: The machinery the attempt ran on.
+    from:
+    - task_attempt
+    to:
+    - machinery
+    max_outgoing: 1
+    inverse:
+      id: attempts_run
+      label: attempts run
   decided_by:
     label: decided by
     description: Who accepted or rejected the decision; one, a person or an agent.
@@ -732,3 +1002,14 @@ relations:
     inverse:
       id: reviewed_verdicts
       label: confirmed verdicts
+  supervised_by:
+    label: supervised by
+    description: 'The human supervisor of a run in a supervised span: who picked it up. Only Flow sets it.'
+    from:
+    - flow_run
+    to:
+    - person
+    max_outgoing: 1
+    inverse:
+      id: supervises
+      label: supervises

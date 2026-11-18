@@ -15,25 +15,25 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 
 ## Main parts
 
-- **Bus**: the only way the layers talk to each other. A layer depends on the Bus and on nothing else.
+- **Bus**: carries work between the layers. It is not the only way they talk: per [ADR 0006](docs/adr/0006-system-structure.md), co-located systems call each other's boundary target, never each other's internals, and remote clients call a backend.
 - **Facts**: stores facts in rela. Connectors to outside systems sit at its edge.
 - **Flow**: moves each open fact on, following a flow definition, and says what its owner should do.
-- **Control**: the one interface for clients. It serves pages and forms, described by the BFF contract.
+- **Control**: serves clients pages and forms, described by the backend contract. It is not the only interface for clients: they call the Runtime's backend directly.
 - **Runtime**: runs agent workers and their executions on a machine.
 - **Code**: holds the repositories. It gives Runtime snapshots and takes back changes.
-- **Clients**: the terminal Console (TUI), the agents' command line and a read-only Runtime viewer. Clients render what Control sends. They know no entity.
+- **Clients**: the terminal Console (TUI), the agents' command line and a read-only Runtime viewer. Clients render what Control or the Runtime's backend sends. They know no entity.
 
 ## Repository layout
 
 | Path | What |
 |---|---|
 | `platform/atlas_*/` | The platform's parts, one application per layer (`atlas_bus`, `atlas_facts`, `atlas_flow`, `atlas_control`, `atlas_gates`, `atlas_runtime`, `atlas_code`, `atlas_learn`), apps of the umbrella in `products/software_factory/`. |
-| `platform/atlas_control/bff/` | Control's contract: the generator, the contract itself, and the generated targets. See [platform/atlas_control/bff/README.md](platform/atlas_control/bff/README.md). |
+| `platform/atlas_control/backend/` | Control's contract: the generator, the contract itself, and the generated targets. See [platform/atlas_control/backend/README.md](platform/atlas_control/backend/README.md). |
 | `platform/atlas_facts/rela/` | How Facts runs rela: its scripts and their tests. See [platform/atlas_facts/rela/README.md](platform/atlas_facts/rela/README.md). |
 | `platform/atlas_runtime/host/` | The Runtime CLI in Go ([platform/atlas_runtime/host/README.md](platform/atlas_runtime/host/README.md)). |
 | `platform/atlas_runtime/viewer/` | The Runtime viewer ([its README](platform/atlas_runtime/viewer/README.md)). |
 | `platform/clients/` | The Console (`tui/`), the agents' command line (`agent/`), the Apple clients (`apple/`) and the optional verified TLS socket transport shared only by the Control CLI and TUI clients (`platform/clients/transport/`). |
-| `platform/ops/` | Images and deploy scripts for the hosted environments, and supporting tools (CI's tested-tree record in `ci/`, the local Runtime node helpers, `plan/`, `orchestrator/`, `tests/`). |
+| `platform/ops/` | Images and deploy scripts for the hosted environments, and supporting tools (CI's tested-tree record in `ci/`, `plan/`, `orchestrator/`, `tests/`). |
 | `products/software_factory/` | The software factory: the umbrella that builds the release (`mix.exs`, `config/`, `integration/`), the model (`model/`, below), the settings per environment (`environments/`) and the end-to-end test (`products/software_factory/e2e/`). |
 | `products/software_factory/model/` | The model, one intent folder: `generator/` (the Rela DSL), `contract/` (Atlas's domain written in the Rela DSL, by module and concept: kinds, relations, subflows and gates) and `targets/`, the files generated from it (`targets/rela/`: rela's description of every entity Atlas knows, see `platform/atlas_facts/rela/README.md`; `targets/{atlas,diagrams,proof,test}/`). |
 | `bin/atlas` | The `atlas` command, Control's client: the Console, the commands on facts during a turn, and provisioning. `atlas help` lists them. |
@@ -51,8 +51,8 @@ cd products/software_factory && mix test                   # the BEAM layers
 go -C platform/atlas_runtime/host test ./...               # the Runtime CLI
 cd platform/clients/tui && mix test                        # the Console
 cd platform/clients/agent && mix test                      # the agents' command line
-cd platform/atlas_control/bff/generator && mix test        # the contract generator
-cd platform/atlas_control/bff/contract && mix atlas.gen    # after changing the contract: regenerate platform/atlas_control/bff/targets/
+cd platform/atlas_control/backend/generator && mix test        # the contract generator
+cd platform/atlas_control/backend/contract && mix atlas.gen    # after changing the contract: regenerate platform/atlas_control/backend/targets/
 cd products/software_factory/model/generator && mix test   # the Rela DSL
 cd products/software_factory/model/contract && mix model.gen # after changing the model: regenerate products/software_factory/model/targets/
 cd products/software_factory/e2e && mix test               # the atlas launcher's own rules
@@ -65,7 +65,7 @@ Four commands, each with its own purpose:
 - `atlas`: Control's client. The Console (`atlas tui`), the agents' commands on facts, and provisioning (`atlas help`).
 - `atlas-ops`: operating an environment: its processes, logs, tunnel and data.
 - `bin/atlas-dev`: development and test tooling, from the checkout.
-- `atlas-runtime`: the Runtime CLI ([platform/atlas_runtime/host/README.md](platform/atlas_runtime/host/README.md)); `atlas-runtime node` runs this machine as a node of an environment.
+- `atlas-runtime`: the Runtime CLI ([platform/atlas_runtime/host/README.md](platform/atlas_runtime/host/README.md)).
 
 They work on prod by default. Pass `--env test` to work on test. Scripts, tests and agents must always pass `--env test` or a private `ATLAS_ENV_FILE`.
 

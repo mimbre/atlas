@@ -11,14 +11,24 @@ defmodule AtlasLearn.MixProject do
       lockfile: "../../products/software_factory/mix.lock",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
-      deps: []
+      deps: deps()
     ]
   end
 
   # No application callback and no store: Learn runs when the coordinator runs
   # `mix atlas_learn.report`, reads the other components through their own read surfaces
-  # and writes one report. It depends on no layer.
+  # and writes one report. It depends on no layer; inets carries its HTTP reads.
   def application do
-    [extra_applications: [:logger]]
+    [extra_applications: [:logger, :inets]]
   end
+
+  # Test only: a Bandit listener stands in for Runtime's backend socket (the versions
+  # products/software_factory/mix.lock already pins).
+  defp deps,
+    do: [
+      {:plug, "~> 1.19", only: :test},
+      {:bandit, "~> 1.10", only: :test},
+      # Tests wait on events, never on the clock (platform/frameworks/test_await).
+      {:atlas_test_await, path: "../frameworks/test_await", only: :test}
+    ]
 end

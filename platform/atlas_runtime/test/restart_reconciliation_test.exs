@@ -1,7 +1,7 @@
 defmodule AtlasRuntime.RestartReconciliationTest do
   use ExUnit.Case, async: true
 
-  alias AtlasRuntime.{BackendPolicy, ExecutionEvents, Service}
+  alias AtlasRuntime.{ExecutionEvents, Service}
   alias AtlasRuntime.Execution.RestartReconciliation
 
   @moduletag :tmp_dir
@@ -177,7 +177,6 @@ defmodule AtlasRuntime.RestartReconciliationTest do
 
     state = %{
       dir: dir,
-      policy: BackendPolicy.empty(),
       events: events,
       workers: %{},
       stopping: false

@@ -27,14 +27,33 @@ defmodule AtlasFlow.Engine do
     read any more: what was above a fact it removed is found from the links its `changes`
     name (before and after). The runs of those facts are reconciled, then their subjects
     and those of all returned runs are projected, including composition parents and
-    recursive ancestors absent from hint discovery. Every required projection must
-    succeed. A new fact of a kind that owns work projects again the facts whose
+    recursive ancestors absent from hint discovery. A spanned run whose supervisor
+    changed (a pickup, a hand-over, leaving its span) projects the subjects of the runs
+    its span names in `with:` right under its subject too, found downwards through the
+    model's parent relations, as their owner is its supervisor's. Every required
+    projection must succeed. A new fact of a kind that owns work projects again the facts whose
     owner waited for it. A hint reads only around the facts it is about, never every
     fact: finding kinds, facts that changed without a hint about them, and every other
-    run is the round's. A hint of Flow's own write is passed over: Flow writes only what
-    no state depends on (Facts checks that). A lost hint only waits for the round.
+    run is the round's. A hint of Flow's own write is passed over: the run writer's
+    writes change nothing a state depends on (Facts checks that), and the task facts the
+    work source writes, which a run's task result is read from, come as
+    `{:reconcile, kind, key}` (below). A lost hint only waits for the round.
 
   It reaches Facts only over the Bus, as the endpoint `flow`.
+
+  **Landing (F3-L).** Once a reconcile stored a task result whose check passed (exit 0)
+  in a run, it casts `{:publish, task_key}` to `AtlasFlow.Landing` (option `landing:`),
+  once per newly stored result. A cast, never a call: Landing talks to Code, and the
+  Engine never waits on it (lesson 1). A cast lost while Landing is down is Landing's boot
+  read to find.
+
+  Tasks go through Flow's work source (`AtlasFlow.Activities.Task`, plan m3 A4). The
+  Engine reads only what Facts and `AtlasFlow.Bases`' table hold, and never calls Code or a
+  Runtime. `{:reconcile, kind, key}` reconciles that subject's runs now and projects them:
+  `AtlasFlow.Delivery` casts it once a task's result is recorded (its writes are Flow's, so
+  their hints are passed over), and Bases sends it as a plain message once a base a task
+  waits for is cached. Both reach one function. Before the runs were read whole once, or
+  when the reconcile fails, it waits for the round, which reads every task back anyway.
 
   It keeps Flow's settled position (`AtlasFlow.Settled`): a hint is settled once the
   engine reconciled and projected what it is about, through the writes it made for it
@@ -93,6 +112,7 @@ defmodule AtlasFlow.Engine do
      %{
        every: Keyword.get(opts, :every, 60_000),
        clock: Keyword.get(opts, :clock, {Clock, nil}),
+       landing: Keyword.get(opts, :landing, AtlasFlow.Landing),
        runner: runner,
        runs: [],
        refusal: nil,
@@ -160,7 +180,8 @@ defmodule AtlasFlow.Engine do
   def handle_info(:round_step, %{round: nil} = state), do: {:noreply, state}
   def handle_info(:round_step, state), do: {:noreply, round_step(state)}
 
-  # Its own write changes nothing any state depends on.
+  # Its own write: the run writer's change nothing a state depends on; Delivery's, which a
+  # task's result is read from, come as `{:reconcile, kind, key}`.
   def handle_info({:atlas_bus, %Envelope{class: "stored"} = hint, %{"by" => "flow"}}, state),
     do: {:noreply, settle(state, Settled.seen(state.settled, position(hint)))}
 
@@ -168,7 +189,9 @@ defmodule AtlasFlow.Engine do
     {{state, reconciled, projected}, wrote} =
       Talk.writing(fn ->
         with {:ok, facts} <- affected(state, kind, content) do
+          known = state.runs
           {state, reconciled, runs} = reconcile_runs(state, facts)
+          {belonging, found} = belonging(state, known, runs)
 
           subjects = for {k, key, _} <- facts, k in state.kinds, uniq: true, do: {k, key}
 
@@ -188,10 +211,11 @@ defmodule AtlasFlow.Engine do
           {state, projected} =
             project_all(
               %{state | waiting: waiting},
-              Enum.uniq(subjects ++ run_subjects(runs) ++ MapSet.to_list(waited))
+              Enum.uniq(subjects ++ run_subjects(runs) ++ belonging ++ MapSet.to_list(waited))
             )
 
-          {state, reconciled, projected}
+          # Runs whose supervision moved with their parent's must be projected too.
+          {state, reconciled, if(found == :ok, do: projected, else: :failed)}
         else
           {:error, why} ->
             Logger.warning(
@@ -242,8 +266,75 @@ defmodule AtlasFlow.Engine do
     {:noreply, state}
   end
 
+  # A subject to reconcile now, as Bases' notify (a plain message).
+  def handle_info({:reconcile, kind, key}, state) when is_binary(kind) and is_binary(key),
+    do: {:noreply, reconcile_subject(state, kind, key)}
+
   # Answers that came after their wait, and anything else.
   def handle_info(_message, state), do: {:noreply, state}
+
+  # A subject to reconcile now, as Delivery casts it.
+  @impl true
+  def handle_cast({:reconcile, kind, key}, state) when is_binary(kind) and is_binary(key),
+    do: {:noreply, reconcile_subject(state, kind, key)}
+
+  def handle_cast(_message, state), do: {:noreply, state}
+
+  # One subject's runs reconciled now and projected, with those the reconcile returned; a
+  # failure waits for the round, which reads every task back.
+  defp reconcile_subject(state, kind, key) do
+    known = state.runs
+    {state, _reconciled, runs} = reconcile_runs(state, [{kind, key, :ensure}])
+    {belonging, _found} = belonging(state, known, runs)
+
+    {state, _projected} =
+      project_all(state, Enum.uniq([{kind, key} | run_subjects(runs)] ++ belonging))
+
+    state
+  end
+
+  # A run of a subflow a span names in its `with:` takes its owner from the spanned run
+  # above it (`AtlasFlow.Runs.Projection`). When a reconcile changed a spanned run's
+  # supervisor (a pickup, a hand-over, the run leaving its span), the subjects of those
+  # runs are projected again with it: `{subjects, :ok | {:error, why}}`. Found downwards,
+  # as hint discovery (which goes up) does not: the facts of a `with:` subflow's subject
+  # kind that link to the spanned run's subject through a parent relation of the model.
+  defp belonging(%{runner: %{config: config, relations: relations}}, known, runs)
+       when is_map(config) do
+    spans = get_in(config, ["supervision", "spans"]) || %{}
+
+    lookups =
+      for run <- runs,
+          with = Enum.flat_map(spans[run["flow"]] || [], &(&1["with"] || [])),
+          with != [],
+          supervisor_changed?(known, run),
+          name <- with,
+          kind = get_in(config, ["selection", name, "subject"]),
+          is_binary(kind),
+          {relation, %{"parent" => true, "from" => from, "to" => [to]}} <- relations || %{},
+          to == run["subject_kind"] and kind in from,
+          uniq: true,
+          do: {{kind, relation}, run["subject_key"]}
+
+    case discover(lookups, fn {of, key} -> component_subjects(of, key) end) do
+      {:ok, subjects} -> {Enum.uniq(subjects), :ok}
+      {:error, _} = error -> {[], error}
+    end
+  end
+
+  defp belonging(_state, _known, _runs), do: {[], :ok}
+
+  # Whether `run`'s supervisor differs from the one of its run as last known.
+  defp supervisor_changed?(known, run) do
+    same =
+      &(&1["flow"] == run["flow"] and &1["subject_kind"] == run["subject_kind"] and
+          &1["subject_key"] == run["subject_key"])
+
+    case Enum.find(known, same) do
+      nil -> run["supervised_by"] != nil
+      before -> before["supervised_by"] != run["supervised_by"]
+    end
+  end
 
   defp position(%Envelope{position: position}) when is_integer(position), do: position
   defp position(_hint), do: 0
@@ -405,6 +496,7 @@ defmodule AtlasFlow.Engine do
         {state, :ok, []}
 
       {:ok, runs} ->
+        checked(state, state.runs, runs)
         {sooner(%{state | runs: Store.merge(state.runs, runs)}), :ok, runs}
 
       {:error, why} ->
@@ -412,6 +504,25 @@ defmodule AtlasFlow.Engine do
         {state, :failed, []}
     end
   end
+
+  # The task results whose check passed that `runs` hold and the runs as last `known` did
+  # not: Landing publishes each (F3-L). A cast, so a blocked Landing delays nothing here.
+  defp checked(state, known, runs) do
+    before = MapSet.new(for run <- known, t <- tasks(run), do: t["key"])
+
+    keys =
+      for run <- runs,
+          t <- tasks(run),
+          get_in(t, ["check", "exit_status"]) == 0,
+          is_binary(t["key"]),
+          not MapSet.member?(before, t["key"]),
+          uniq: true,
+          do: t["key"]
+
+    Enum.each(keys, &GenServer.cast(state.landing, {:publish, &1}))
+  end
+
+  defp tasks(run), do: (run["pending"] || %{})["tasks"] || []
 
   defp run_subjects(runs),
     do: Enum.uniq(for run <- runs, do: {run["subject_kind"], run["subject_key"]})
@@ -552,6 +663,7 @@ defmodule AtlasFlow.Engine do
         # Parents returned by composition are required projections too. Keep each
         # projection as its own mailbox step, including subjects absent from the plan.
         projects = for {k, key} <- run_subjects(runs), do: {:project, k, key}
+        checked(state, state.runs, runs)
         state = %{state | runs: Store.merge(state.runs, runs)}
         update_in(state.round.steps, &Enum.uniq(&1 ++ projects))
 

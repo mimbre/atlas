@@ -26,10 +26,25 @@ defmodule AtlasRuntime.MixProject do
   # Runtime reaches other layers only over Bus; the shared contract supplies wire codecs.
   # It runs the model it is wired to by configuration (AtlasRuntime.Model) and depends on
   # none; its tests write a neutral model in the Rela DSL.
+  # Its own contracts (design 2026-11-16-runtime-backend §1.2): the boundary, the private
+  # model behind it (the facade AtlasRuntime.Boundary.Work and AtlasRuntime.Model.Work), and
+  # the backend that carries it, served by Plug on Bandit (the umbrella's first Hex
+  # dependencies, locked in products/software_factory/mix.lock). The boundary contract is
+  # also the backend contract's dependency; `override: true` makes this one count when a
+  # linked checkout (the e2e copies) resolves the two paths to different places.
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true},
-      {:atlas_bff_contract, path: "../atlas_control/bff/contract"},
-      {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}
+      {:atlas_bff_contract, path: "../atlas_control/backend/contract"},
+      {:atlas_runtime_boundary, path: "boundary/contract", override: true},
+      {:atlas_runtime_model, path: "model/contract"},
+      {:atlas_runtime_backend, path: "backend/contract"},
+      # The neutral change set (D42): the frozen result's shape and its csf_ fingerprints.
+      {:atlas_changeset, path: "../frameworks/changeset"},
+      {:plug, "~> 1.19"},
+      {:bandit, "~> 1.10"},
+      {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test},
+      # Tests wait on events, never on the clock (platform/frameworks/test_await).
+      {:atlas_test_await, path: "../frameworks/test_await", only: :test}
     ]
 end

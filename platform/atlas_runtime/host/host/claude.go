@@ -32,8 +32,8 @@ func claudeValidate(scope any, sandbox, session string, model, expectedContext a
 	if scope == nil && sandbox != "read-only" {
 		return errors.New("Claude requires read-only, dedicated-repository or materialized-folder execution")
 	}
-	if fields, _ := scope.(map[string]any); scope != nil && !slices.Contains([]string{"dedicated-repository", "materialized-folder", "review-packet"}, fmt.Sprint(fields["profile"])) {
-		return errors.New("Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles")
+	if fields, _ := scope.(map[string]any); scope != nil && !slices.Contains([]string{"dedicated-repository", "materialized-folder"}, fmt.Sprint(fields["profile"])) {
+		return errors.New("Claude supports only the dedicated-repository and materialized-folder permission profiles")
 	}
 	if session == "" {
 		return nil
@@ -251,7 +251,11 @@ type claudeSettings struct {
 }
 
 // claudeRepositorySettings is the native sandbox for a dedicated repository plus its private temp.
-func claudeRepositorySettings(scope any, temporary string) (string, error) {
+// The Runtime home and the Code token with its directory are denied to Bash reads and writes and to
+// the file tools' Read rules. Claude's denies win over its allows, so a home containing the repository
+// (a managed one) is denied to Bash reads only, with the repository re-allowed there; Bash writes stay
+// limited to allowWrite and --restricted confines the file tools to the repository.
+func claudeRepositorySettings(scope any, temporary, home string) (string, error) {
 	fields, _ := scope.(map[string]any)
 	root, ok := fields["root"].(string)
 	if !ok {
@@ -265,9 +269,24 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 	for _, name := range []string{".agents", ".codex", ".aws", ".claude", ".git/config", ".git/hooks"} {
 		deny = append(deny, filepath.Join(root, name))
 	}
+	denied, err := runtimeEntries(home, root)
+	if err != nil {
+		return "", err
+	}
+	var denyRead, allowRead, rules []string
+	for _, entry := range denied {
+		denyRead = append(denyRead, entry[0])
+		if contained := slices.DeleteFunc([]string{root, temporary}, func(path string) bool { return !within(entry[0], path) }); len(contained) > 0 {
+			allowRead = append(allowRead, contained...)
+			continue
+		}
+		deny = append(deny, entry[0])
+		rules = append(rules, "Read(/"+entry[0]+")") // `//` marks an absolute path in Claude rules.
+	}
 	settings := claudeSettings{Sandbox: claudeSandbox{true, true, false, []string{},
-		claudeFilesystem{AllowWrite: []string{root, temporary}, DenyWrite: deny},
-		claudeNetwork{AllowedDomains: fields["network_hosts"]}, false}}
+		claudeFilesystem{AllowWrite: []string{root, temporary}, DenyWrite: deny, DenyRead: denyRead, AllowRead: allowRead},
+		claudeNetwork{AllowedDomains: fields["network_hosts"]}, false},
+		Permissions: &claudePermissions{rules}}
 	if platform == "darwin" {
 		settings.Sandbox.Network.AllowMachLookup = []string{"com.apple.trustd.agent"}
 	}
@@ -283,30 +302,54 @@ func claudeRepositorySettings(scope any, temporary string) (string, error) {
 // Read deny rules cover the native Read/Glob/Grep tools; Claude also merges them into the
 // sandbox's denyRead, which is listed explicitly for the Bash sandbox as well. Bash may
 // read (and so execute) the inspector even inside a denied path. Bash may open pseudo-terminals,
-// so tmux panes (the e2e TUIs) run in the worker; a review pass may not.
+// so tmux panes (the e2e TUIs) run in the worker.
 func claudeFolderSettings(scope map[string]any, temporary, user, inspector string) (string, error) {
 	root, _ := scope["root"].(string)
 	return claudeWorkerSettings(scope, temporary, user, inspector, []string{root}, nil, true)
 }
 
-// claudePacketSettings is the native sandbox and file-tool policy of a review pass: the policy of the
-// materialized packet tree, except that the tree, packet.json and diff.json are read-only to the Bash
-// sandbox and denied to the file-editing tools, and the findings folder beside the tree is the one
-// written project path; a deny inside an allowed write would win, so findings is never below the tree.
-func claudePacketSettings(scope map[string]any, temporary, user, inspector string) (string, error) {
-	root, _ := scope["root"].(string)
-	packet, _ := scope["packet"].(string)
-	findings, _ := scope["findings"].(string)
-	if packet == "" || root != filepath.Join(packet, "tree") || findings != filepath.Join(packet, "findings") {
-		return "", errors.New("Review packet scope is incomplete")
-	}
-	return claudeWorkerSettings(scope, temporary, user, inspector, []string{findings},
-		[]string{root, filepath.Join(packet, "packet.json"), filepath.Join(packet, "diff.json")}, false)
+// runtimeWorkName is the name of a Runtime-chosen folder below <home>/workers: "work-" and a
+// worker-id-shaped name (the work folder of §3.9 is work-<work_id>, so work-work-<hex>).
+var runtimeWorkName = regexp.MustCompile(`\Awork-[a-z][a-z0-9_-]{0,63}\z`)
+
+// runtimeWorkFolder reports whether root is exactly <home>/workers/work-<name>, the one place below the
+// Runtime home where a materialized-folder worker may run.
+func runtimeWorkFolder(home, root string) bool {
+	name := filepath.Base(root)
+	return home != "" && root == filepath.Join(home, "workers", name) && runtimeWorkName.MatchString(name)
 }
+
+// claudeHomeTopPatterns are the Read-rule patterns (gitignore syntax: `*` stays inside one directory)
+// for names directly in the Runtime home that a work folder's file tools are denied even when they are
+// created after launch: every dot name (the snapshot store's .record-*/.claim- temps), the atomic
+// <name>.tmp temps (mode.json.tmp, availability.json.tmp, policy.json.tmp, …), and every JSON record,
+// socket, lock and log. None matches workers, the one home entry on the chain to the folder, so these
+// Claude denies (which win over allows) never deny the folder. Claude has no complement pattern, so a
+// later top-level name of another shape (a new store directory such as submissions/) is covered only by
+// the home's Bash read deny (claudeWorkerSettings) and, for the file tools, by --restricted.
+var claudeHomeTopPatterns = []string{".*", "*.tmp", "*.json", "*.sock", "*.lock", "*.log"}
+
+// claudeHomeTopRules are the claudeHomeTopPatterns of home as Read rules.
+func claudeHomeTopRules(home string) []string {
+	var rules []string
+	for _, pattern := range claudeHomeTopPatterns {
+		rules = append(rules, "Read(/"+filepath.Join(home, pattern)+")")
+	}
+	return rules
+}
+
+// workerHomeNames are the Runtime home entries a worker in a Runtime-chosen folder is denied by path,
+// even when they are absent at launch: the workFolderHomeNames of the Codex profiles (the
+// sensitiveHomeNames, the frozen results, the bases and the work store).
+var workerHomeNames = workFolderHomeNames
 
 // claudeWorkerSettings is the policy described at claudeFolderSettings with writable as the written
 // project paths, frozen as project paths that are read but never written, and pty whether Bash may
-// open pseudo-terminals.
+// open pseudo-terminals. A root that is exactly <home>/workers/work-<name> lies below the Runtime home:
+// as in claudeRepositorySettings, the home is then denied to Bash reads only (a denyWrite or Read rule
+// on it would deny the folder), and every entry of the home and of <home>/workers off the chain to the
+// folder, the workerHomeNames, the sockets and the Code token are denied by path to Bash reads and
+// writes and to the file tools. Any other project path inside the home stays refused.
 func claudeWorkerSettings(scope map[string]any, temporary, user, inspector string, writable, frozen []string, pty bool) (string, error) {
 	root, _ := scope["root"].(string)
 	home, _ := scope["home"].(string)
@@ -328,7 +371,38 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 	if err = writableInspector(inspector, append(slices.Clone(writable), temporary)...); err != nil {
 		return "", err
 	}
-	protected := []string{home, filepath.Join(root, ".git")}
+	worker := runtimeWorkFolder(home, root)
+	protected := []string{home}
+	if worker {
+		protected = nil
+	}
+	sockets, err := socketEntries(home, append(slices.Clone(project), temporary)...)
+	if err != nil {
+		return "", err
+	}
+	for _, socket := range sockets {
+		protected = append(protected, socket[0])
+	}
+	// Each other worker existing at launch is denied by path; one created later stays under the home's
+	// Bash read deny and outside --restricted.
+	protect := func(path string) {
+		if !slices.Contains(protected, path) {
+			protected = append(protected, path)
+		}
+	}
+	if worker {
+		entries, err := offChainEntries(home, root)
+		if err != nil {
+			return "", err
+		}
+		for _, name := range workerHomeNames {
+			entries = append(entries, [2]string{filepath.Join(home, name), "none"})
+		}
+		for _, entry := range entries {
+			protect(entry[0])
+		}
+	}
+	protected = append(protected, filepath.Join(root, ".git"))
 	for _, repository := range repositories {
 		path, ok := repository.(string)
 		if !ok {
@@ -340,7 +414,10 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 	if err != nil {
 		return "", err
 	}
-	if token != "" {
+	if token != "" && worker {
+		protect(token)
+		protect(filepath.Dir(token))
+	} else if token != "" {
 		protected = append(protected, token, filepath.Dir(token))
 	}
 	configuration := os.Getenv("CLAUDE_CONFIG_DIR")
@@ -359,6 +436,11 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 		if err != nil {
 			return "", err
 		}
+		// A credential location that is the home itself (the default ~/.local/state/atlas-runtime) is the
+		// home's Bash read deny.
+		if worker && path == home {
+			continue
+		}
 		if !slices.Contains(protected, path) {
 			protected = append(protected, path)
 		}
@@ -371,11 +453,24 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 			}
 		}
 	}
+	// The home denies Bash reads only, and that only around the work folder: no other path below it is allowed.
+	denied := protected
+	if worker {
+		for _, allowed := range append(slices.Clone(project), temporary) {
+			if within(home, allowed) && !within(root, allowed) {
+				return "", fmt.Errorf("Protected path %s contains %s", home, allowed)
+			}
+		}
+		denied = append(slices.Clone(protected), home)
+	}
 	// shortcut: absolute paths go into rules unescaped; a path with glob characters or
 	// parentheses would need Claude's rule escaping, add it if Runtime homes ever contain them.
 	var rules []string
 	for _, path := range protected {
 		rules = append(rules, "Read(/"+path+")") // `//` marks an absolute path in Claude rules.
+	}
+	if worker {
+		rules = append(rules, claudeHomeTopRules(home)...)
 	}
 	// The file-editing tools may not touch a frozen path, whatever tools a later Runtime enables.
 	for _, tool := range []string{"Edit", "Write"} {
@@ -403,19 +498,23 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 	// The home is denied to the Bash sandbox only: a Read rule or denyWrite on it would also deny the
 	// folder below it. The file tools stay confined to the folder by --restricted. A protected path
 	// inside a re-allowed one stays denied: the sandbox re-applies a nested deny after its allows.
-	readable, err := homeReadable(user, protected, append(slices.Clone(project), temporary))
+	readable, err := homeReadable(user, denied, append(slices.Clone(project), temporary))
 	if err != nil {
 		return "", err
 	}
 	allowRead = append(append(append(allowRead, project...), temporary), readable...)
 	// The sandbox's allowRead wins over its denyRead; grant only the inspector itself.
-	if within(user, inspector) || slices.ContainsFunc(protected, func(path string) bool { return within(path, inspector) }) {
+	if within(user, inspector) || slices.ContainsFunc(denied, func(path string) bool { return within(path, inspector) }) {
 		allowRead = append(allowRead, inspector)
+	}
+	denyRead := append([]string{user}, protected...)
+	if worker {
+		denyRead = append([]string{user, home}, protected...)
 	}
 	settings := claudeSettings{
 		Sandbox: claudeSandbox{true, true, false, []string{},
 			claudeFilesystem{AllowWrite: append(slices.Clone(writable), temporary),
-				DenyWrite: append(append(roots, protected...), readOnly...), DenyRead: append([]string{user}, protected...), AllowRead: allowRead},
+				DenyWrite: append(append(roots, protected...), readOnly...), DenyRead: denyRead, AllowRead: allowRead},
 			claudeNetwork{AllowedDomains: []string{}, StrictAllowlist: true, AllowUnixSockets: []string{temporary},
 				AllowLocalBinding: true}, pty},
 		Permissions: &claudePermissions{rules},
@@ -453,7 +552,42 @@ func claudeTemporaryRoots(root, temporary, subject string) ([]string, error) {
 	return roots, nil
 }
 
-func encodeSettings(settings claudeSettings) (string, error) {
+// claudeReadOnlySettings denies a plain read-only turn's file tools (it has no Bash) the Runtime home
+// (for the work folder, every home entry off the chain to it) and the Code token with its directory. A Read rule on a home containing the workspace (resolved
+// through symlinks) would also deny the workspace, so there only --restricted, which confines the file
+// tools to the workspace, keeps them out of the rest of the home.
+func claudeReadOnlySettings(project, home string) (string, error) {
+	project, err := resolvePath(project)
+	if err != nil {
+		return "", err
+	}
+	// The work folder <home>/workers/work-<work_id> gets the chain and sibling denies (homeEntries) as
+	// paths, never the home itself, plus the claudeHomeTopRules for names created later at the home's top
+	// level. Claude rules have no complement pattern, so a sibling worker created later stays outside
+	// --restricted only.
+	denied, err := homeEntries(home, project)
+	if err != nil {
+		return "", err
+	}
+	globs, err := siblingWorkerGlobs(home, project)
+	if err != nil {
+		return "", err
+	}
+	rules := []string{}
+	for _, entry := range denied {
+		if !within(entry[0], project) && !slices.Contains(globs, entry) {
+			rules = append(rules, "Read(/"+entry[0]+")")
+		}
+	}
+	if workspace.RuntimeWorkFolder(home, project) {
+		rules = append(rules, claudeHomeTopRules(home)...)
+	}
+	return encodeSettings(struct {
+		Permissions claudePermissions `json:"permissions"`
+	}{claudePermissions{rules}})
+}
+
+func encodeSettings(settings any) (string, error) {
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)
 	encoder.SetEscapeHTML(false)
@@ -565,10 +699,10 @@ func makeTemporary(directory string) (string, error) {
 
 // saveContext records the working directory, repository identity and permission scope,
 // refusing a continuation whose saved context drifted; it never writes on failure.
-// A materialized folder or packet tree runs no Git: its verified scope is its whole identity.
+// A materialized folder runs no Git: its verified scope is its whole identity.
 func saveContext(workspacePath string, scope any, folder string, expected any) error {
 	actual := map[string]any{"cwd": workspacePath, "git": nil}
-	if fields, _ := scope.(map[string]any); fields["profile"] != "materialized-folder" && fields["profile"] != "review-packet" {
+	if fields, _ := scope.(map[string]any); fields["profile"] != "materialized-folder" {
 		var err error
 		if actual, err = workspace.Context(workspacePath); err != nil {
 			return err

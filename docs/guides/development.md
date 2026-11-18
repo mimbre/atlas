@@ -8,7 +8,7 @@ The umbrella (`products/software_factory`) runs every app's tests with `mix test
 
 - Layers talk only over the Bus: no layer depends on, calls or names another (`platform/atlas_bus/test/boundary_test.exs`).
 - Nothing on the BEAM side, in the TUI or in the agents' command line names an entity; entities live in the model (`products/software_factory/model/contract`) and the description it generates (`products/software_factory/model/targets/rela/`) only (same test).
-- The generated files match the contract, and none is left over (`mix atlas.gen --check` in `platform/atlas_control/bff/contract`).
+- The generated files match the contract, and none is left over (`mix atlas.gen --check` in `platform/atlas_control/backend/contract`).
 - The generator holds none of Atlas's values and compiles without the contract; its targets read only `__schema__/0`.
 
 ## The end-to-end test

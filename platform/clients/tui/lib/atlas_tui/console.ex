@@ -475,10 +475,15 @@ defmodule AtlasTui.Console do
       else: {:error, "Invalid Console boot response"}
   end
 
+  # The index pages a tab may open: the ones Control's shell serves as tabs
+  # (`AtlasControl.Shell`): what is assigned, a kind's list, the workers and the
+  # supervision screens (Open for you, Supervised by you; M3b P4).
+  @tab_pages [:home, :list, :workers, :open_for_you, :supervised_by_you]
+
   defp valid_tab?(%{"id" => id, "label" => label, "to" => to}) do
     text?(id, 64) and text?(label, 128) and path?(to) and
       case Blocks.match(to) do
-        {:ok, page, _} -> page in [:home, :list, :workers]
+        {:ok, page, _} -> page in @tab_pages
         _ -> false
       end
   end

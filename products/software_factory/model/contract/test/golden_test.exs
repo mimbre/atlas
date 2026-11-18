@@ -44,6 +44,10 @@ defmodule Model.GoldenTest do
   # Slice 12: test_and_accept_scene loses its passes; the decider's verdict ends to_test,
   # and a new open use case sends it back from to_test (was 8dc48c7180394ded).
   # Slice 14: follow_through, new, takes an accepted decision until work is based on it.
+  # F1.4: package, new, authors a package on its machinery. Its version is the pinned
+  # rela's (26.11.3), drawn with `mix model.gen` and ATLAS_RELA_BIN.
+  # F2-P: package runs the review → fix loop (was 5987474d0b335c85). Its new version is
+  # the pinned rela's, drawn with ATLAS_RELA_BIN by the rela-pinned worker.
   @versions [
     {"issue", [issue: "de930a7511675ac8"]},
     {"pull_request", [pull_request: "0ef9fa7df6aab982"]},
@@ -54,7 +58,8 @@ defmodule Model.GoldenTest do
     {"scene", [test_and_accept_scene: "b3c10271c51b8945"]},
     {"decision", [decide: "e2ad1048cd8a4748"]},
     {"follow_through", [follow_through: "c78849a1df469267"]},
-    {"to_do", [to_do: "c8e174fc1ec59364"]}
+    {"to_do", [to_do: "c8e174fc1ec59364"]},
+    {"package", [package: "4c665df5ef84d793"]}
   ]
 
   defp below_header(text),
@@ -83,7 +88,16 @@ defmodule Model.GoldenTest do
     assert generated() == approved()
   end
 
-  test "the composition holds the ten subflows, in order" do
+  # The pinned rela parses no `!` in a condition (CI run 44037654839 refused `!=`): a
+  # negation is `not (…)`. Checked here, as the `:rela` test needs the binary.
+  test "no condition in the flows.yaml carries a `!`, which the pinned rela refuses" do
+    conditions = Regex.scan(~r/when: "([^"]*)"/, generated(), capture: :all_but_first)
+    assert conditions != []
+    assert for([c] <- conditions, String.contains?(c, "!"), do: c) == []
+    assert ["not (entity.instructions == '')"] in conditions
+  end
+
+  test "the composition holds the eleven subflows, in order" do
     names = for {_, flows} <- @versions, {name, _} <- flows, do: name
     assert Enum.map(AtlasEyra.__flows__(), & &1.name) == names
   end
@@ -160,6 +174,7 @@ defmodule Model.GoldenTest do
                "design_and_accept",
                "follow_through",
                "issue",
+               "package",
                "pr_review",
                "pr_test",
                "pull_request",

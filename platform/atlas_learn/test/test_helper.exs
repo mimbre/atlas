@@ -1,4 +1,4 @@
-ExUnit.start()
+ExUnit.start(AtlasTestAwait.exunit_options())
 
 defmodule AtlasLearn.Fixtures do
   @moduledoc "Recorded source data for Learn's tests: a window, Runtime turns, a Code home, ledger facts."
@@ -7,10 +7,13 @@ defmodule AtlasLearn.Fixtures do
   def until, do: ~U[2026-11-11 06:00:00Z]
   def window, do: AtlasLearn.Window.ending(until(), 24)
 
-  @doc "A read function answering Runtime's `turns` read from the recorded reply."
+  @doc "Runtime's recorded history: one `list_turns` page in the history contract's shape."
+  def runtime_turns, do: read_json("runtime_turns.json")
+
+  @doc "A read function answering every history page query with the recorded page."
   def runtime_read do
-    reply = @dir |> Path.join("runtime_turns.json") |> File.read!() |> JSON.decode!()
-    fn "turns" -> {:ok, reply} end
+    page = runtime_turns()
+    fn %{"limit" => _} -> {:ok, page} end
   end
 
   @doc """

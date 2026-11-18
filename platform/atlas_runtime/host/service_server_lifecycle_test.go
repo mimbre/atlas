@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -45,6 +47,17 @@ func TestServiceStartsWithServerLifecycleAndItsModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	build, run := serviceCommands(dir, executable)
+	// The service runs without Mix: `mix run` starts Mix's PubSub, a loopback TCP listener,
+	// and service.exs fails its start on any IP listener before it reports ready. Neither
+	// `mix …` nor `elixir -S mix …` is accepted.
+	if filepath.Base(run.Path) != "elixir" || len(run.Args) < 2 {
+		t.Fatalf("service command = %q, want elixir without mix", run.Args)
+	}
+	for _, arg := range run.Args[1:] {
+		if arg == "-S" || arg == "mix" || filepath.Base(arg) == "mix" {
+			t.Fatalf("service command = %q, want elixir without mix", run.Args)
+		}
+	}
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("Runtime build: %v\n%s", err, output)
 	}
@@ -70,16 +83,20 @@ func TestServiceStartsWithServerLifecycleAndItsModel(t *testing.T) {
 	for lines := bufio.NewScanner(reader); lines.Scan(); {
 		output = append(output, lines.Text())
 		if lines.Text() == "Runtime ready; Atlas core services remain stopped" {
-			status, err := request(dir, map[string]any{"command": "service-status"})
-			if err != nil {
-				t.Fatalf("service-status: %v", err)
+			// runtime.sock keeps guidance only: the operations moved to backend.sock (S2).
+			if _, err := request(dir, map[string]any{"command": "service-status"}); err == nil ||
+				!strings.Contains(err.Error(), "backend.sock") {
+				t.Fatalf("runtime.sock service-status: %v", err)
 			}
-			if status["service"] != "running" {
-				t.Fatalf("service-status = %v", status)
+			// The work contract is served on backend.sock.
+			capacity, err := callBackend(dir, workCall{method: "GET", path: "/v1/capacity"})
+			if err != nil || capacity["accepting"] != true {
+				t.Fatalf("backend.sock capacity = %v, %v", capacity, err)
 			}
-			// Flow's pass receiver runs beside it, its journal under the same home.
-			if info, err := os.Stat(filepath.Join(dir, "passes")); err != nil || !info.IsDir() {
-				t.Fatalf("no pass receiver journal: %v", err)
+			// Flow no longer delivers passes: no pass receiver runs beside it, so nothing
+			// creates a pass journal under the home.
+			if _, err := os.Lstat(filepath.Join(dir, "passes")); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("pass journal present after start: %v", err)
 			}
 			return
 		}

@@ -16,7 +16,7 @@ defmodule Mix.Tasks.AtlasCode.Migrate do
       System.get_env("ATLAS_CODE_HOME") ||
         Mix.raise("Set ATLAS_CODE_HOME to the Code home directory")
 
-    # Not app.start: the umbrella's runtime.exs belongs to the core and Runtime nodes.
+    # Not app.start: the umbrella's runtime.exs belongs to the core.
     Mix.Task.run("compile")
     {:ok, _} = Application.ensure_all_started(:atlas_code)
     IO.puts(JSON.encode!(AtlasCode.Migration.run(home)))

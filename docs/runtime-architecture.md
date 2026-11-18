@@ -84,7 +84,7 @@ Decisions that this contract follows:
 | Directory ownership | `workspace.Lock` (`workspace.go:394`), held by `native-host` until the group is reaped (`host.go:179`) | Runtime (unchanged) |
 | Worker GitHub network access | Codex profile `github.com`/`api.github.com` (`host/codex.go:50`); Claude `allowedDomains` from `network_hosts` plus the macOS trustd allowance (`host/claude.go:245–273`). Workers use the user's `gh` login | Removed once Code publishes |
 | Handoff identity | `handoff_records.ex:11,193`: `repository_url`, `branch`, `base_sha`, `head_sha`, `pr_url` declared by the coordinator and bound to saved repository metadata | Orchestrator declares; Code later verifies against the change and publication |
-| Atlas-connected path | `integrations/atlas_server/*` and `providers/claude.ex` contain no Git or GitHub calls (searched) | No change |
+| Atlas-connected path | `integrations/atlas_server/*` contains no Git or GitHub calls (searched) | No change |
 | Run metadata | Saved `repository: {url, branch, base_sha}` (`command_admissions.ex:200–207`); `runtime.repository_prepared` (`host/native.ex:217`) | Adds `snapshot_id` |
 | CLI | `atlas-runtime start --repo URL --branch NAME --permissions dedicated-repository` (`platform/atlas_runtime/host/main.go`) | Unchanged in step 2 |
 | Credentials | Only the user's existing `gh` login, read through Git's credential helper. No token is stored by Runtime | Code only |
@@ -121,7 +121,7 @@ There are two tokens, each in an owner-only (0600) regular file under the Code h
 
 Runtime never passes either token to native workers; `Agent.Native` already strips all but a fixed environment list.
 
-**Known limit:** a same-user token file is not hidden from a worker that can read the user's home directory, e.g. a Codex read-only sandbox. This contract does not claim worker isolation from Code; that belongs to the later isolation work.
+**Known limit:** every worker profile (Codex and Claude read-only, Codex workspace-write, dedicated-repository, materialized-folder) denies the Runtime home and the runtime token file named by its `code.json`, with that file's directory (normally the Code home, so an orchestrator token beside it as well). A Codex managed repository below the Runtime home is the exception to a whole-home deny: Git needs its ancestors, so only the home entries beside that ancestor chain, the known sensitive entries and, through Codex deny-read globs, every other `workers/<id>` directory (also one created after launch) are denied (host README, dedicated-repository). A same-user token file elsewhere is not hidden from a worker that can read the user's home directory, e.g. a Codex read-only sandbox. This contract does not claim further worker isolation from Code; that belongs to the later isolation work.
 
 Every error response is `{"error": {"code": "<code>", "message": "<text>", "details": {}}}` with the HTTP status shown:
 
@@ -390,7 +390,7 @@ Review findings and the packet chain (implemented, `platform/atlas_runtime/host/
 - **Order:**
   1. Resolve `P` and `P/tree`, whose materialization record must name a packet.
   2. Return an existing `<home>/packets/<id>/findings/REVIEW_TURN.json` if the file still has its `sha256`.
-  3. Read `<home>/turns/REVIEW_TURN/turn.json`. Its `cwd` must be `P/tree`, `permissions.profile` must be `review-packet` with this `packet_id`, and its `state` must be `finished`, `stopped` or `killed`.
+  3. Read `<home>/turns/REVIEW_TURN/turn.json`, a saved review-packet turn (the Runtime no longer starts that profile; such turns predate its removal). Its `cwd` must be `P/tree`, `permissions.profile` must be `review-packet` with this `packet_id`, and its `state` must be `finished`, `stopped` or `killed`.
   4. Take the tree's `flock` (`folder … has an active Runtime owner; nothing was recorded`). Under it, a `packets/<id>/discarded.json` refuses with code `packet_discarded`.
   5. Verify the packet as the profile scope does (`VerifiedPacket`). The scope's `fingerprint` must equal the packet's.
   6. Read `P/findings/findings.json` without following symlinks, at most 64 KiB.
@@ -416,7 +416,7 @@ Review packet discard (implemented, `platform/atlas_runtime/host/snapshot/discar
 - **Limits:** a folder left by a freeze that died before `packets/<id>/` was published is not found and must be removed by hand. One unreadable `packets/*/packet.json` fails a lookup by path.
 
 Materialized-folder profile (implemented for Codex and Claude):
-- **Command:** `atlas-runtime start --worker W --backend codex|claude --cwd DEST --permissions materialized-folder ASSIGNMENT`, where `DEST` is a folder produced by `snapshot materialize` **outside the Runtime home**. It cannot be combined with `--sandbox` or `--repo`/`--branch`. Claude also accepts `--questions` with it. There is no fallback to broader permissions, and legacy `dedicated-repository` is unchanged.
+- **Command:** `atlas-runtime start --profile PROFILE --cost-class CLASS [--slot W] --cwd DEST --permissions materialized-folder ASSIGNMENT` (a work on `backend.sock`; the profile's policy picks Codex or Claude), where `DEST` is a folder produced by `snapshot materialize` **outside the Runtime home**. It cannot be combined with `--repo`/`--branch`. There is no fallback to broader permissions, and legacy `dedicated-repository` is unchanged. Before the cutover the command was `start --worker W --backend codex|claude …`, where Claude also accepted `--questions`; `runtime.sock` now refuses it.
 - **Supported layout:** the folder scope refuses a `DEST` that equals, lies inside or contains the Runtime home: `Materialized folder <DEST> overlaps the Runtime home <HOME>; materialize it outside the Runtime home`. Because start, continuation and the native host all compute the scope, this happens before any native process. A saved turn in such a folder fails to continue with the same message, and nothing is moved. (Inside the denied home, the sandbox blocks `lstat` of the folder's parent, so offline inspection could not work.)
 - **Inspector contract:** worker commands get `ATLAS_RUNTIME_EXECUTABLE`, the resolved absolute path of the `atlas-runtime` that launched them. Workers inspect with `"$ATLAS_RUNTIME_EXECUTABLE" snapshot status|diff --dest DEST`. A bare `atlas-runtime` is not part of the contract: a login shell can select another installation earlier on `PATH`, and older CLIs fail inside the sandbox.
   - If the executable lies inside a path the profile denies (for example a deployment that keeps it in the Runtime home), that single file gets read access: a Codex `"<exe>"="read"` entry, or a Claude `allowRead` entry. The rest of the home stays denied.
@@ -433,16 +433,21 @@ Materialized-folder profile (implemented for Codex and Claude):
 - **Network boundary (both backends, always on, no per-assignment switch):** workers get local loopback networking; external network stays blocked.
   - Codex: workers may listen on and connect to loopback. Direct external connections fail with `EPERM`, and Codex's network proxy, which allows no domain, answers 403. Under the proxy Codex sets `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` and `NO_PROXY=localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16` in worker commands; Runtime adds no environment overrides.
   - Claude: `allowLocalBinding` with an empty strict domain allowlist (see the Claude settings below).
-  - Loopback listen/connect has so far been verified only for Codex on macOS. Claude's loopback-connect behaviour is pending proof, and no behaviour is claimed for Linux.
-- **Unix-domain sockets (both backends, always on):** workers may bind, listen on and connect to Unix sockets only inside their own scratch folder, which contains their `TMPDIR`; every other socket path stays denied (`EPERM`), and there is no all-sockets allowance.
+  - Local binding is on by design for both backends: Claude `AllowLocalBinding: true` at `platform/atlas_runtime/host/host/claude.go:518-519` (mirror `platform/atlas_runtime/lib/atlas_runtime/sandbox/spec.ex:817-822`), Codex `allow_local_binding=true` at `host/host/codex.go:485-492` (mirror `spec.ex:966-971`). Turning it off would break every `mix compile`/`mix test` in workers: Elixir 1.18.4 always starts Mix PubSub (`mix/tasks/deps.loadpaths.ex:46`), whose listener on 127.0.0.1 raises when it cannot bind (`mix/sync/pubsub.ex:208-209`).
+  - Loopback listen/connect is verified for Codex on macOS (`host/host/folder_test.go:751-753`) and for Claude on macOS (probe from a real Claude materialized-folder worker on macOS, 2026-11-17, assignment `sandbox-loopback-check-20261117`): connect to every host loopback TCP listener, IPv4 and IPv6, and bind/listen on 127.0.0.1, `::1` and `0.0.0.0`. No behaviour is claimed for Linux.
+- **Unix-domain sockets (both backends, always on):** workers may bind, listen on and connect to Unix sockets only inside their own scratch folder, which contains their `TMPDIR`; every other socket path stays denied (`EPERM`), and there is no all-sockets allowance. Under Claude on macOS this is verified: bind in `TMPDIR` works, bind in `DEST` and connect to the live `runtime.sock` get `EPERM` (same 2026-11-17 probe).
   - Codex: `unix_sockets={"<scratch>"="allow"}` in the network table, where scratch is `HOME/scratch/<turn>`.
   - Claude: `allowUnixSockets: ["<private temp>"]` with `allowAllUnixSockets: false`. Claude scopes Unix sockets by path on macOS only; on Linux its seccomp filter cannot filter by path and ignores `allowUnixSockets`, so Claude workers there still get `EPERM` for every Unix socket.
   - macOS limits a socket path to 104 bytes. Scratch paths fit with a short Runtime home (`~/.local/state/atlas-runtime/scratch/<turn>/tmp/...`, or Claude's `~/.ac-XXXXXXXX/tmp/...`), but a deep path below `TMPDIR` can still exceed it; that fails with a path-length error, not a sandbox denial.
-- **Accepted network limit:** every host loopback service is reachable from a worker, not only the worker's own listeners.
-  - Code is reachable over loopback, but its token stays denied.
-  - Erlang cookies passed in process arguments or environment (`-setcookie`, `RELEASE_COOKIE`) are visible through `ps`; only `~/.erlang.cookie` is denied. A worker that learns a cookie can reach a local node over loopback EPMD and distribution.
+- **Accepted network limit:** every host loopback service is reachable from a worker, not only the worker's own listeners; the 2026-11-17 Claude probe connected to a listener of the Code VM (the Code httpd or that VM's Mix PubSub port, not identified), the mini Runtime's Mix PubSub port, another worker's test server, Claude Code and desktop-app ports. Loopback TCP is not scoped by user, and workers run as the same uid, so file modes do not protect a service. What does, per service:
+  - Code API (TCP 127.0.0.1): bearer token on every request, health included (`platform/atlas_code/lib/atlas_code.ex:7-8`), with the token file and its directory denied by the sandbox (`host/host/claude.go:413-421`, `host/host/codex.go:452`). This holds only while the token stays denied and never appears in argv or environment.
+  - Runtime `backend.sock` and `runtime.sock`: the sandbox path deny on the Runtime home and its sockets (`host/host/claude.go:375-384`, `host/host/codex.go:425-429`) plus the Unix-socket scope above; their 0600 mode and owner check do not stop a same-uid peer.
+  - Mix PubSub listeners in build VMs (any `mix` VM, including the mini Runtime's and other workers'): no authentication, frames decoded with `:erlang.binary_to_term` without `:safe` (Elixir 1.18.4 `mix/sync/pubsub.ex:265-267`). Accepted upstream risk.
+  - rela (Facts) test and live servers (TCP on `ATLAS_RELA_BIND`, default 127.0.0.1; test port default 7690, live 7612; `platform/atlas_facts/rela/scripts/start-test.sh:20-22,55`): no access control (`products/software_factory/model/targets/rela/acl.yaml:5-7`), so a worker can read and write the store over HTTP while one runs. Neither was listening during the probe; closing this hole (auth or ACL on the bind) is open (same probe).
+  - Erlang cookies: only `~/.erlang.cookie` is denied. `ps` and `pgrep` are blocked in the Claude worker sandbox (`operation not permitted: ps`, `Cannot get process list`; same probe), so a Claude worker cannot read `-setcookie` or `RELEASE_COOKIE` from other processes through them. Other ways of reading process arguments, and `ps` under Codex, were not probed. A worker that learns a cookie can reach a local node over loopback EPMD and distribution.
+  - `lsof` still works in the Claude worker sandbox and lists every process with its listeners and working directory, which reveals other workers' folders and the Runtime home path (same probe).
   - Unauthenticated local services are reachable, for example Postgres with trust auth or the Chrome DevTools endpoint of a running automation browser. While such a browser runs, the external-network block is not a guarantee, because a worker can drive the browser to fetch for it.
-  - Planned future isolation (phase 2) runs workers as a separate macOS user; until then this limit stands.
+  - Planned real fix (phase 2): run workers as a separate macOS user plus a firewall (`pf`) rule matching that user on loopback. The separate user alone does not close loopback TCP; until then this limit stands.
 - **Worker environment:** the existing minimal environment, plus `ATLAS_RUNTIME_EXECUTABLE` (the inspector contract), `ATLAS_RUNTIME_HOME`, the executable's directory prepended to `PATH` (convenience only), and `TMPDIR`/`GOCACHE`/`GOTMPDIR`/`XDG_CACHE_HOME`/`npm_config_cache` in the scratch folder, which is removed after reaping. `snapshot status|diff` do not create or chmod the Runtime home, so they work read-only inside the sandbox.
 - **Limits:**
   - The user home is denied except the home read allow-list, and the credential deny-list applies on top. Secrets inside a re-allowed toolchain path, and world-readable data outside the home (`/opt/homebrew`, `/Users/Shared`, `/tmp`), stay readable. Shell startup files in the home are unreadable.
@@ -460,7 +465,7 @@ Claude with the materialized-folder profile:
   - `denyWrite` = system temp roots, the protected paths, and the record and baseline;
   - `denyRead` = the user home (Bash sandbox only: it is not in `denyWrite` or the `Read` rules, which would also deny `DEST` below it), then the protected paths: the Runtime home, `DEST/.git` and each `DEST/<repo>/.git`, the Code token file and its directory, `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/gh`, `~/.ssh`, `~/.aws`, `~/.docker`, `~/Library/Keychains`, `~/.git-credentials`, `~/.config/git`, `~/.netrc`, `~/.gitconfig`, `~/.erlang.cookie` and the default Runtime home;
   - `allowRead` = this snapshot's record and baseline, `~/.claude/shell-snapshots` and `~/.claude/session-env` (which Claude's Bash needs), the rebind's done marker when the folder was rebound (also in `denyWrite`), `DEST`, the private temp, the home read allow-list as for Codex, and the inspector executable when it lies inside the user home or a protected path. The sandbox re-applies a protected path nested inside an `allowRead` path after its allows, so `DEST/.git` and credential paths stay denied;
-  - network: empty `allowedDomains` with `strictAllowlist`, `allowLocalBinding` for loopback, `allowUnixSockets` = the private temp only (macOS only; `allowAllUnixSockets` stays false), no trustd allowance. The shared network and Unix-socket boundaries and the accepted limit apply; loopback connect and Unix sockets under Claude are not yet verified;
+  - network: empty `allowedDomains` with `strictAllowlist`, `allowLocalBinding` for loopback, `allowUnixSockets` = the private temp only (macOS only; `allowAllUnixSockets` stays false), no trustd allowance. The shared network and Unix-socket boundaries and the accepted limit apply; loopback connect, `0.0.0.0` bind and the Unix-socket scope under Claude on macOS are verified (2026-11-17 probe, see the network boundary);
   - `permissions.deny` holds a `Read(//path)` rule for each protected path, which also governs Read/Glob/Grep.
 - **Limits (in addition to the shared deny-list limits):**
   - The trusted native Claude CLI itself runs `git remote`/`git ls-files` probes in `DEST` at each launch. They find no repository, but they are Git invocations by the provider, not by Runtime.
@@ -603,29 +608,39 @@ The CLI and Atlas Server-facing transport translate requests into the same appli
 
 Transport-specific parsing and presentation remain at the edge. A truncated status summary must not substitute for full output or a structured handoff record.
 
-The one `atlas-runtime` command has two meanings: its service, worker, turn and snapshot commands drive the standalone service, and `atlas-runtime node start|stop|status` operates this machine as a node of an Atlas environment ([Runtime node](guides/runtime-node.md)). The node group is only a launcher: the node's lifecycle, environment resolution, Fly tunnel and keychain access stay in the checkout's `platform/ops/runtime.py` and `platform/ops/runtime_process.py`, and Go learns none of them. Discovery of a registered node is a Control read, so it is `atlas discover`, not part of `atlas-runtime`.
+The standalone service has two owner-only Unix sockets in its home (slice S1 of the 2026-11-16 Runtime backend design):
+
+- **`backend.sock`: work and operations.** The work contract (`platform/atlas_runtime/boundary/contract/lib/work.ex`) over HTTP/1.1, as its backend contract declares it (`platform/atlas_runtime/backend/contract/lib/work_api.ex`). The CLI's `start`, `continue`, `status`, `capacity`, `retry`, `stop`, `kill` and `output` are requests there; the Runtime validates them. Since S2 also the operations contract (`boundary/contract/lib/operations.ex`, `backend/contract/lib/operations_api.ex`): `service status` (`GET /v1/runtime`), `service pause|resume|drain` (`POST /v1/control/<action>`), `service stop [--force]` (`POST /v1/control/stop`; the CLI returns once `backend.sock` is gone), `preferences` (`GET /v1/policy`), `preferences --reenable HARNESS` (`POST /v1/harnesses/HARNESS/clear-quota-mark`) and `release --slot SLOT` (`POST /v1/slots/SLOT/release`). `service start` checks `backend.sock` for a running service and for readiness, and keeps `service.lock`.
+- **History on `backend.sock`.** The history contract's `list_turns` and `get_turn` (`GET /v1/turns`, `GET /v1/turns/{turn_id}`): the CLI's `turns`, Learn (over OTP `:httpc`) and the viewer, which also reads `GET /v1/runtime` and work's turn output. Each reader translates the history `turn` on its side (`slot`, `harness`, `configured_model`/`reported_model`); the watcher takes `slot` as the guidance worker name. Turns from before work moved to `backend.sock` are visible only with `read_all`.
+- **`runtime.sock`: guidance and the journal.** Questions, answers, handoffs and peer correlation (§13.1 Q10). The journal (S2 §13.1 Q3): the CLI's `events [--follow]` are the `runtime.read/1` operations `events` and `follow`, with the `epoch:sequence` cursor and `reset`. It refuses `start`, `continue`, `stop`, `kill`, `status`, `turns` and `output`, and since S2 also `service-status`, `service-stop`, `preferences` and `release`, and names where each went; every other `runtime.read/1` operation is refused with `not_journal`, so history is not read there. The Service keeps those clauses for its in-process callers (the work core, the operations implementation).
+
+Discovery of a registered Runtime machine is a Control read, so it is `atlas discover`, not part of `atlas-runtime`.
 
 ## Current implementation versus this target
 
-The current layout groups both execution paths by responsibility without treating their different contracts as interchangeable:
+The current layout groups the standalone execution path by responsibility:
 
 ```text
 platform/atlas_runtime/lib/atlas_runtime/
   application.ex
-  entrypoints/{socket,read_socket}.ex
+  entrypoints/socket.ex
+  backend/{rest,listener,events}.ex
+  boundary/work.ex
+  model/work.ex
+  work.ex, work/{server,store,queue,turns,notifications,restart,prune,translation}.ex
   inspection/reads.ex
-  execution/{service,command_admissions,backend_policy,identity,engine,turn,settings,faults}.ex
-  interactions/{commands,native_question,question_records,peer_question_records,guidance,output}.ex
+  execution/{service,command_admissions,backend_policy,identity,restart_reconciliation,settings}.ex
+  interactions/{commands,native_question,question_records,peer_question_records,output}.ex
   handoffs/{commands,handoff_records}.ex
   persistence/{history,execution_events}.ex
   workspaces/workspace.ex
   host/native.ex
-  providers/{agent,input,native_events,claude,fake_inbox,stub}.ex
-  integrations/atlas_server/{talk,output_endpoint,broker,commands}.ex
+  providers/{agent,input,native_events,codex,fake_inbox}.ex
+  integrations/atlas_server/{talk,lifecycle,output_endpoint}.ex
 
 platform/atlas_runtime/host/
   go.mod
-  main.go
+  main.go, work.go
   host/{host,protocol,codex,claude,claude_questions}.go and their tests
   workspace/{workspace,workspace_test}.go
 ```
@@ -634,8 +649,9 @@ Existing public Elixir module names remain stable where their contracts remain v
 
 Dependencies and responsibilities:
 
-- The Go CLI sends commands through `Entrypoints.Socket` to `Service`. Socket framing, connection ownership and response-before-shutdown remain at the edge.
-- Viewers read through `Entrypoints.ReadSocket` (`read.sock`, `docs/contracts/runtime-read.md`). It admits only `Inspection.Reads` operations, which `Service` answers from its state without dispatching a command. Reads project explicit fields from the existing state, history, journal and output buffers; they add no store. A `follow` connection is registered with `Service`, which only signals it after each callback that grew the journal; the connection reads its pages itself, so `Service` never waits on a follower.
+- The Go CLI (`host/work.go`) sends the work commands as HTTP requests to `backend.sock`. `Backend.Listener` (Bandit, mode 0600, the socket's owner as client) serves the router `Backend.Rest`, generated from the backend contract; it calls only the facade `AtlasRuntime.Boundary.Work`, whose implementation `AtlasRuntime.Work` queues work and starts, continues, stops and kills turns through `Service`'s own commands in process. `host/service.exs` starts `Work`, then the listener, after `Service`; `AtlasRuntime.Application` starts neither.
+- The CLI sends operations and guidance commands through `Entrypoints.Socket` (`runtime.sock`) to `Service`; the socket refuses the work commands before `Service` sees them. Socket framing, connection ownership and response-before-shutdown remain at the edge.
+- `Inspection.Reads` operations (`{:read, op, args}`) are answered by `Service` from its state without dispatching a command; the work core reads through them in process. The CLI's `events` and `events --follow` read the journal through `Entrypoints.Socket` (`runtime.sock`), which admits only the operations `events` and `follow`; history readers (the CLI's `turns`, Learn, the viewer) use the history contract on `backend.sock`. Reads project explicit fields from the existing state, history, journal and output buffers; they add no store. A follower (a `runtime.sock` follow connection, or the work core) is registered with `Service`, which only signals it after each callback that grew the journal; the follower reads its pages itself, so `Service` never waits on it. At most 32 followers are open; more are refused with `too_many_followers`.
 - `Service` selects backends and admits, starts and stops executions. Interaction commands own question admission, native delivery and peer correlation; handoff commands own declaration submission and inspection. Neither operation module calls back into `Service`.
 - `Persistence.History` owns recovery, saved-turn ownership checks, historical projections, output reads and ordered terminal checkpoints. Record modules retain their bounded storage, outboxes and publication rules. Persistence does not dispatch commands.
 - `Workspaces` calls the launching executable's Go workspace command directly. Admission no longer depends on the native provider host for path, scope or repository-request validation.
@@ -644,11 +660,11 @@ Dependencies and responsibilities:
 - `Agent.Native` spawns every native execution through the launching executable's internal `atlas-runtime native-host` (Go package `platform/atlas_runtime/host/host`). Python is no longer part of Runtime execution. The host receives positional arguments and speaks stdout records, stop/kill/answer control and `Native runner:` diagnostics. Stop sends one SIGINT and never escalates. Kill sends SIGKILL and wins over stop. `runtime.process_ended` follows only once the leader is reaped and its group is empty, and the lock is released after that. Only parent loss and natural-completion cleanup keep the bounded 3 s force. It owns the process group, control transport, JSONL framing, sandbox arguments and settings, Claude private temp, pre-exec workspace preparation, scope and saved-context checks, directory-lock lifetime, cleanup and launch metadata. In its single event loop, each native record goes through the Claude question transport first and provider session/model confirmation second, and is forwarded only after both. Refusals therefore never reach Elixir. Answers from Elixir are handled in the same loop and written to native stdin under the existing 1 MiB bound and 3 s stall deadline. The host calls the `workspace` package in process, including cwd/Git identity discovery. It removes Claude's private temp and only then releases the lock, after the group is reaped.
 - The Go CLI imports the dependency-free local `workspace` package. That package does not import the CLI or choose a provider.
 
-`Engine`, `Turn`, engine settings and test-environment fault injection belong to execution lifecycle, not a `connected/` mode bucket. `Guidance` owns exact-attempt queued-input reconciliation; `Output` owns bounded ephemeral public-output retention, not durable history. Server-reported standalone turns keep output in `Output` under their Server identity; other standalone turns use a separate `LocalOutput` buffer that no Bus endpoint reads. They live under `interactions/`. The existing provider and proof adapters live beside the `Agent` contract in `providers/`.
+`Output` owns bounded ephemeral public-output retention, not durable history. Server-reported standalone turns keep output in `Output` under their Server identity; other standalone turns use a separate `LocalOutput` buffer that no Bus endpoint reads. They live under `interactions/`. The existing provider and proof adapters live beside the `Agent` contract in `providers/`.
 
-Only actual Atlas communication remains under `integrations/atlas_server/`: Facts read/fact transport (`Talk`), the address-validated Bus/BFF output endpoint, the Atlas command broker, and Atlas-only command setup. `Commands` owns Atlas prompts, help discovery, bridge configuration and the confined command environment/wrapper/profile previously embedded in the Claude adapter. The adapter retains Claude argv, event interpretation and process lifecycle, consumes that setup, and has no forwarding copies of the extracted helpers. The command setup uses the broker and never calls the provider; the output endpoint reads the independent output buffer.
+Only actual Atlas communication remains under `integrations/atlas_server/`: Facts read/fact transport (`Talk`), the optional turn mirror (`Lifecycle`) and the address-validated Bus/BFF output endpoint, which reads the independent output buffer.
 
-These execution paths remain distinct. `Engine` reconciles ownership and leases through Atlas facts and starts `Turn`; standalone `Service` admits explicitly requested native executions and stores its own history. Grouping them by responsibility does not add a shared workflow engine, unify queued guidance with native questions, or enable either protocol on the other adapter. Existing module APIs for unchanged responsibilities remain stable. Standalone startup still requires neither Atlas Server nor Flow.
+`Service` admits explicitly requested native executions and stores its own history. Grouping by responsibility does not add a shared workflow engine or unify queued guidance with native questions. Existing module APIs for unchanged responsibilities remain stable. Standalone startup still requires neither Atlas Server nor Flow.
 
 ## Implemented workspace boundary
 

@@ -10,7 +10,17 @@
     "kind": "flow_run",
     "writer": {
       "sender": "flow",
-      "by": "flow"
+      "by": "flow",
+      "senders": {
+        "task": [
+          "flow/dispatch",
+          "flow/delivery",
+          "flow/landing"
+        ],
+        "task_attempt": [
+          "flow/delivery"
+        ]
+      }
     },
     "fields": {
       "flow": "flow",
@@ -90,7 +100,9 @@
       "to_do": {
         "choices": ["status"],
         "choice_states": ["open"],
-        "migrations": [],
+        "migrations": [
+          {"from":"8e387a008256b3c65947e0063dd48fbd4ab70417021cd1bc6cb54d947d59156b","to":"1e2e70b748c304b99eeba9643baf4ab745fdd11e7d8285642b9461b5ba3e5dfc","states":{"done":"done","open":"open","wont_do":"wont_do"},"preserve_entry":true,"reason":"M3 S3: a To-Do is owned by its assignee, whoever wrote the link"}
+        ],
         "subject": "to_do",
         "projection": {
           "on": "assignment",
@@ -145,6 +157,24 @@
             "state": "done"
           }
         ]
+      },
+      "package": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [
+          {"from":"ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c","to":"457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747","preserve_entry":true,"states":{"authored":"authored","authoring":"authoring","check_failed":"check_failed","stuck":"stuck","waiting":"waiting"},"reason":"The author task's input is a Code repository and reference; same states"},
+          {"from":"457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747","to":"ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214","states":{"authored":"stuck","authoring":"authoring","check_failed":"stuck","stuck":"stuck","waiting":"waiting"},"reason":"The review and fix loop: each task is a ladder step; a run that ended authored or check_failed is stuck"}
+        ],
+        "subject": "package",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": []
       },
       "pull_request": {
         "choices": [],
@@ -213,7 +243,9 @@
         "choice_states": ["working", "escalated"],
         "migrations": [
           {"from":"ee1314e80a41b4d4102923cc46d08126403ea5fc3c58bcf49d88617823acd86b","to":"7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"reason":"Slice 7: selected without its pass; superseded taken as written"},
-          {"from":"7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e","to":"05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"preserve_entry":true,"reason":"The review pass for a reviewer with a Runtime; live entries and timers kept"}
+          {"from":"7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e","to":"05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"preserve_entry":true,"reason":"The review pass for a reviewer with a Runtime; live entries and timers kept"},
+          {"from":"05019b5d840dc936ea1f6f59f7be2849967f321a975b62bba01dacde16fa1682","to":"2b5680643a5f8b8add93dd9f25d545901110dfe4ef1688ee5d3a6fd4a52ce86b","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"preserve_entry":true,"reason":"F0: the review pass removed; verdict by hand; live entries and timers kept"},
+          {"from":"7291ab5579991c4083ad2d1f18c211a7cc7c85ec27735c8d00d0d99e8752542e","to":"2b5680643a5f8b8add93dd9f25d545901110dfe4ef1688ee5d3a6fd4a52ce86b","states":{"approved":"approved","changes_requested":"changes_requested","escalated":"escalated","superseded":"superseded","working":"working"},"preserve_entry":true,"reason":"F0: from before the review pass straight to without it; entries and timers kept"}
         ],
         "subject": "pr_review",
         "admission": [],
@@ -470,7 +502,9 @@
         "status": "status",
         "position": "position",
         "prepared_at": "prepared_at",
-        "applied_at": "applied_at"
+        "applied_at": "applied_at",
+        "operation": "operation",
+        "hand_to": "hand_to"
       },
       "acl": {
         "decider": {
@@ -531,6 +565,39 @@
         "maintainer": "verdict_by",
         "tester": "verdict_by",
         "maintainer": "verdict_by"
+      }
+    },
+    "supervision": {
+      "version": 1,
+      "relation": "supervised_by",
+      "inputs": {
+        "operation": "operation",
+        "operations": [
+          "pickup",
+          "hand_over"
+        ],
+        "hand_to": "hand_to"
+      },
+      "spans": {
+        "issue": [
+          {
+            "name": "build",
+            "label": "Build",
+            "states": [
+              "author"
+            ],
+            "with": [
+              "package",
+              "pull_request"
+            ]
+          }
+        ]
+      },
+      "work": {
+        "kind": "task",
+        "of": "task_of",
+        "for": "done_for",
+        "ended": "result_kind"
       }
     }
   }

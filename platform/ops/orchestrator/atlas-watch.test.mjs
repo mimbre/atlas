@@ -13,7 +13,9 @@ const question = 'question-2222222222222222';
 const worker = 'research';
 const pending = (id = question) => ({ worker_id: worker, turn_id: turn, question_id: id, active: true, admission: 'pending', revision: 1, record_ref: `turns/${turn}/questions/${id}.json` });
 const handoff = { worker_id: worker, turn_id: turn, provenance: 'coordinator_submitted_declaration', handoff: { kind: 'completion', result: 'Actual declaration' } };
-// Finite CLI queries only; `events` is refused so any polling shows up as a failure.
+const runtimeInfo = { runtime_build: 'b1', incarnation: 'inc-1', mode: 'open', policy_version: 1, slots: [{ name: worker, busy: false }] };
+// Finite CLI queries only. `service status` answers the runtime info (or data.service);
+// `events --limit N [--cursor c:OFFSET]` pages data.events as the Runtime's journal does.
 const fixtureProgram = `#!/usr/bin/env node
 const {readFileSync,appendFileSync}=require('node:fs');
 const {join}=require('node:path');
@@ -26,7 +28,8 @@ if(data.failure==='timeout'){setTimeout(()=>{},10000);return}
 if(data.failure==='output'){console.log('x'.repeat(2*1024*1024));process.exit(0)}
 if(data.failure) error(data.failure);
 let value;
-if(args[0]==='service' && args[1]==='status') value={workers:data.workers||{}};
+if(args[0]==='service' && args[1]==='status') value=data.service||${JSON.stringify(runtimeInfo)};
+else if(args[0]==='events' && !args.includes('--follow')) {const events=data.events||[], limit=Number(flag('--limit')), from=args.includes('--cursor')?Number(flag('--cursor').slice(2)):0, to=Math.min(from+limit,events.length);value={events:events.slice(from,to),cursor:'c:'+to,more:to<events.length,...(from===0?{reset:{reason:'retention_gap',from_sequence:1,to_sequence:3}}:{})};}
 else if(args[0]==='turns') value={turns:data.turns||[]};
 else if(args[0]==='question') {value=data.questions?.[flag('--question')];if(!value)error('Question record unavailable; no matching recorded question');}
 else if(args[0]==='handoff') {value=data.handoffs?.[flag('--turn')];if(!value)error('No handoff recorded for this turn');}
@@ -53,8 +56,9 @@ function follow() {
   return { spawn, spawned, get child() { return spawned.at(-1).child; } };
 }
 
-function scenario(name, run) {
-  test(name, async () => {
+// options: `todo` is passed to node:test.
+function scenario(name, run, { todo } = {}) {
+  test(name, { todo }, async () => {
     const home = await mkdtemp(join(tmpdir(), 'atlas-watch-'));
     const root = join(home, 'agent-reports/atlas/inbox');
     const runtimeHome = join(home, '.local/state/atlas-runtime');
@@ -86,7 +90,10 @@ function scenario(name, run) {
       };
       await c.fixture({});
       await run(c);
-      for (const call of await c.calls()) assert.notEqual(call[0], 'events', 'no events polling subprocess');
+      // The only finite `events` reads are bounded replay pages; the follower is the stream.
+      for (const call of await c.calls()) {
+        if (call[0] === 'events') assert.deepEqual(call.slice(0, 3), ['events', '--limit', '100'], 'events replay page');
+      }
     } finally {
       for (const watcher of watchers) await watcher.close();
       process.env.PATH = originalPath;
@@ -115,14 +122,14 @@ for (const [kind, outcome] of [['execution_finished', 'finished'], ['execution_f
     await watcher.check(c.ctx, c.pi, 200001);
     const item = (await c.items()).find(x => x.selectors[0] === 'output');
     assert.deepEqual(item.evidence, { worker_id: worker, turn_id: turn, state: outcome });
-    assert.deepEqual(item.selectors, ['output', '--worker', worker, '--turn', turn]);
+    assert.deepEqual(item.selectors, ['output', '--turn', turn]);
     assert.equal((await c.state()).runtimes[c.runtimeHome].cursor, 'e1:7');
     assert.equal(c.messages.length, 1);
   });
 }
 
 scenario('killed turn from reconciliation is terminal too', async c => {
-  await c.fixture({ turns: [{ id: turn, worker_id: worker, state: 'killed' }] });
+  await c.fixture({ turns: [{ turn_id: turn, slot: worker, state: 'killed' }] });
   const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
   assert.equal((await c.items()).find(x => x.selectors[0] === 'output').evidence.state, 'killed');
 });
@@ -161,7 +168,7 @@ scenario('saved polling cursor is reused without a gap item', async c => {
 
 for (const reset of [{ reason: 'retention_gap', from_sequence: 1, to_sequence: 9 }, { reason: 'epoch_changed' }]) {
   scenario(`reset ${reset.reason} records one gap and reconciles`, async c => {
-    await c.fixture({ turns: [{ id: turn, worker_id: worker, state: 'finished' }], handoffs: { [turn]: handoff } });
+    await c.fixture({ turns: [{ turn_id: turn, slot: worker, state: 'finished' }], handoffs: { [turn]: handoff } });
     const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
     await c.ackAll(watcher);
     const before = (await c.calls()).length;
@@ -171,7 +178,7 @@ for (const reset of [{ reason: 'retention_gap', from_sequence: 1, to_sequence: 9
     assert.equal(gaps.length, 1);
     assert.deepEqual(gaps[0].evidence.reset, reset);
     const calls = (await c.calls()).slice(before).map(x => x.join(' '));
-    assert.ok(calls.includes('service status') && calls.includes('turns'));
+    assert.ok(calls.includes('service status') && calls.includes('turns') && calls.includes('events --limit 100'));
     assert.deepEqual(await c.items(), gaps, 'already acknowledged records are not re-raised');
   });
 }
@@ -297,7 +304,7 @@ scenario('invalid target stops following but still delivers inbox work', async c
 });
 
 scenario('live target change switches follower, cursor and acknowledgement identity', async c => {
-  await c.fixture({ turns: [{ id: turn, worker_id: worker, state: 'finished' }] });
+  await c.fixture({ turns: [{ turn_id: turn, slot: worker, state: 'finished' }] });
   const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
   c.stream.child.send({ cursor: 'e1:9' });
   await c.ackAll(watcher);
@@ -305,7 +312,7 @@ scenario('live target change switches follower, cursor and acknowledgement ident
   const other = join(c.home, 'dedicated-runtime'), executable = join(c.home, 'dedicated-cli');
   await mkdir(other);
   await writeFile(executable, fixtureProgram); await chmod(executable, 0o700);
-  await c.fixture({ turns: [{ id: turn, worker_id: worker, state: 'finished' }] }, other);
+  await c.fixture({ turns: [{ turn_id: turn, slot: worker, state: 'finished' }] }, other);
   await writeFile(join(c.root, '.delivery/runtime-target.json'), JSON.stringify({ runtimeHome: other, executable }));
   process.env.PATH = originalPath;
   await watcher.check(c.ctx, c.pi, 200001);
@@ -353,8 +360,8 @@ scenario('inbox busy/restart/reminders/exact ack and edited message', async c =>
 });
 
 scenario('bootstrap pending native question and existing handoff survive acknowledged restart', async c => {
-  await c.fixture({ workers: { research: { id: turn, worker_id: worker, state: 'running', pending_question: { id: question } } },
-    turns: [{ id: turn, worker_id: worker, state: 'running' }], questions: { [question]: pending() }, handoffs: { [turn]: handoff } });
+  await c.fixture({ events: [{ sequence: 1, kind: 'question_available', worker_id: worker, turn_id: turn, question_id: question, revision: 1 }],
+    turns: [{ turn_id: turn, slot: worker, state: 'running' }], questions: { [question]: pending() }, handoffs: { [turn]: handoff } });
   let watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
   const items = await c.items();
   assert.equal(items.filter(x => x.selectors[0] === 'question').length, 1);
@@ -364,11 +371,68 @@ scenario('bootstrap pending native question and existing handoff survive acknowl
   assert.deepEqual((await c.state()).pending, {}); assert.equal(c.messages.length, 1);
 });
 
+// History turns (C2b, I-W): `turns` answers the history contract's turn shape; its slot is the
+// guidance worker name the question/handoff selectors take (P20).
+const slot = 'dev1';
+const historyTurn = (state, id = turn) => ({ turn_id: id, slot, state, native_outcome: null, started_at: '2026-11-16T10:00:00Z',
+  ended_at: null, harness: 'codex', configured_model: 'gpt-5', reported_model: null, conversation_id: null });
+
+for (const outcome of ['finished', 'failed', 'stopped', 'killed']) {
+  scenario(`history turn in state ${outcome} becomes output and handoff items on its slot`, async c => {
+    await c.fixture({ turns: [historyTurn(outcome)], handoffs: { [turn]: { ...handoff, worker_id: slot } } });
+    const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
+    const items = await c.items();
+    const output = items.filter(x => x.selectors[0] === 'output');
+    assert.equal(output.length, 1);
+    assert.deepEqual(output[0].selectors, ['output', '--turn', turn]);
+    assert.deepEqual(output[0].evidence, { worker_id: slot, turn_id: turn, state: outcome });
+    assert.deepEqual(items.filter(x => x.selectors[0] === 'handoff').map(x => x.selectors), [['handoff', '--worker', slot, '--turn', turn]]);
+    assert.ok((await c.calls()).some(x => x.join(' ') === `handoff --worker ${slot} --turn ${turn}`));
+  });
+}
+
+scenario('a history turn that has not ended gets no output item, only the handoff inspection', async c => {
+  const other = 'turn-4444444444444444';
+  await c.fixture({ turns: [historyTurn('running'), historyTurn('unknown', other)] });
+  const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
+  assert.deepEqual(await c.items(), []);
+  const calls = (await c.calls()).map(x => x.join(' '));
+  assert.ok(calls.includes(`handoff --worker ${slot} --turn ${turn}`) && calls.includes(`handoff --worker ${slot} --turn ${other}`));
+});
+
+scenario('turns contributes no question: a pending field on a history turn is not read', async c => {
+  await c.fixture({ turns: [{ ...historyTurn('running'), pending_question: { id: question, question_id: question } }],
+    questions: { [question]: pending() } });
+  const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
+  assert.deepEqual((await c.calls()).filter(x => x[0] === 'question'), []);
+  assert.deepEqual(await c.items(), []);
+});
+
+scenario('a history turn with an unsafe identifier is surfaced once and never becomes a selector', async c => {
+  await c.fixture({ turns: [{ ...historyTurn('finished'), slot: '$(id)' }, { ...historyTurn('killed'), turn_id: 'turn x' }] });
+  const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
+  const items = await c.items();
+  assert.equal(items.length, 1);
+  assert.match(items[0].evidence.error, /unsafe identifier/);
+  assert.deepEqual(items[0].selectors, ['turns']);
+  assert.deepEqual((await c.calls()).filter(x => !['service', 'turns', 'events'].includes(x[0])), []);
+});
+
+// C2b 3 rests on C1's journal reconcile step (I-W: `events --limit 100` pages in fresh()/gap(),
+// each event through event()).
+scenario('a pending question absent from turns is found through the journal reconcile', async c => {
+  await c.fixture({ turns: [historyTurn('running')], questions: { [question]: { ...pending(), worker_id: slot } },
+    events: [{ sequence: 1, kind: 'question_available', worker_id: slot, turn_id: turn, question_id: question, revision: 1 }] });
+  const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
+  const items = (await c.items()).filter(x => x.selectors[0] === 'question');
+  assert.deepEqual(items.map(x => x.selectors), [['question', '--worker', slot, '--turn', turn, '--question', question]]);
+});
+
 scenario('legacy state preserves unresolved events and acknowledged terminal work', async c => {
   await mkdir(join(c.root, '.delivery'));
   await writeFile(join(c.root, '.delivery/coordinator-watch.json'), JSON.stringify({ version: 1,
     seen: { [`turn:${turn}`]: 'old-signature' }, pending: { 'inbox:legacy.md': { path: 'legacy', signature: 'keep' } }, lastNudge: 0 }));
-  await c.fixture({ turns: [{ id: turn, worker_id: worker, state: 'finished' }], handoffs: { [turn]: handoff } });
+  await c.fixture({ turns: [{ turn_id: turn, slot: worker, state: 'finished' }], handoffs: { [turn]: handoff } });
   const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
   const state = await c.state();
   assert.equal(state.pending['inbox:legacy.md'].signature, 'keep');
@@ -427,3 +491,80 @@ for (const failure of ['timeout', 'output']) {
     assert.ok(Object.values((await c.state()).pending).some(x => x.evidence?.error));
   });
 }
+
+// The operations cutover (S2 C1): `service status` is the runtime info, a reachability probe only;
+// pending questions come from the journal replay.
+const eventsCalls = async c => (await c.calls()).filter(x => x[0] === 'events');
+const filler = (from, count) => Array.from({ length: count }, (_, i) => ({ sequence: from + i, kind: 'capacity_available' }));
+const kinds = async c => (await c.items()).map(x => x.selectors[0]);
+
+scenario('runtime-info service status and a finished turn give output and handoff items, no unavailable', async c => {
+  await c.fixture({ turns: [{ turn_id: turn, slot: worker, state: 'finished' }], handoffs: { [turn]: handoff } });
+  const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
+  const state = await c.state();
+  assert.deepEqual((await kinds(c)).sort(), ['handoff', 'output']);
+  assert.equal(state.runtimes[c.runtimeHome].unavailable, false);
+  assert.ok(!Object.keys(state.pending).some(id => id.endsWith(':unavailable')));
+});
+
+scenario('a pending question known only from the journal is recorded', async c => {
+  await c.fixture({ events: [{ sequence: 4, kind: 'question_available', worker_id: worker, turn_id: turn, question_id: question, revision: 1 }],
+    turns: [{ turn_id: turn, slot: worker, state: 'running' }], questions: { [question]: pending() } });
+  const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
+  const [[id, item]] = Object.entries((await c.state()).pending);
+  assert.ok(id.endsWith(`:question:${turn}:${question}`), 'question item recorded');
+  assert.deepEqual(item.selectors, ['question', '--worker', worker, '--turn', turn, '--question', question]);
+  assert.deepEqual(await eventsCalls(c), [['events', '--limit', '100']]);
+});
+
+scenario('a journal question that was answered records nothing', async c => {
+  await c.fixture({ events: [{ sequence: 4, kind: 'question_available', worker_id: worker, turn_id: turn, question_id: question, revision: 1 }],
+    questions: { [question]: { ...pending(), active: false, admission: 'accepted' } } });
+  const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
+  assert.deepEqual(await c.items(), []);
+  assert.ok((await c.calls()).some(x => x[0] === 'question'), 'the question was inspected');
+});
+
+scenario('the replay pages to the end: 250 events are three pages, and page 3 is read', async c => {
+  const late = 'turn-4444444444444444';
+  const events = [...filler(1, 240), { sequence: 241, kind: 'handoff_submitted', worker_id: worker, turn_id: late }, ...filler(242, 9)];
+  await c.fixture({ events, handoffs: { [late]: { ...handoff, turn_id: late } } });
+  const watcher = c.watch();
+  for (let i = 0; i < 3; i++) await watcher.check(c.ctx, c.pi, 200000 + i);
+  assert.deepEqual(await eventsCalls(c), [['events', '--limit', '100'], ['events', '--limit', '100', '--cursor', 'c:100'],
+    ['events', '--limit', '100', '--cursor', 'c:200']]);
+  assert.ok((await c.items()).some(x => x.selectors[0] === 'handoff' && x.evidence.turn_id === late));
+});
+
+scenario('the replay stops on more: false, not on a short page: 200 events are two pages', async c => {
+  await c.fixture({ events: filler(1, 200) });
+  const watcher = c.watch();
+  for (let i = 0; i < 3; i++) await watcher.check(c.ctx, c.pi, 200000 + i);
+  assert.deepEqual(await eventsCalls(c), [['events', '--limit', '100'], ['events', '--limit', '100', '--cursor', 'c:100']]);
+  assert.deepEqual(await c.items(), [], 'the first page\'s reset is no gap');
+  assert.deepEqual((await c.state()).runtimes[c.runtimeHome].work, []);
+});
+
+scenario('a stopped Runtime answering service status with exit 0 is unavailable', async c => {
+  await c.fixture({ service: { service: 'stopped' } });
+  const watcher = c.watch(); await watcher.check(c.ctx, c.pi, 200000);
+  const state = await c.state();
+  assert.equal(state.runtimes[c.runtimeHome].unavailable, true);
+  const items = await c.items();
+  assert.equal(items.length, 1);
+  assert.deepEqual(items[0].selectors, ['service', 'status']);
+  assert.match(items[0].evidence.error, /stopped/);
+});
+
+scenario('a replayed question without a record is recorded once and never replays again', async c => {
+  await c.fixture({ events: [{ sequence: 1, kind: 'question_available', worker_id: worker, turn_id: turn, question_id: question, revision: 1 }] });
+  const watcher = c.watch();
+  for (let i = 0; i < 5; i++) await watcher.check(c.ctx, c.pi, 200000 + i);
+  assert.equal((await eventsCalls(c)).length, 1, 'one replay, not one per cycle');
+  const items = await c.items();
+  assert.equal(items.length, 1);
+  assert.deepEqual(items[0].evidence, { worker_id: worker, turn_id: turn, question_id: question,
+    error: 'Question record unavailable; no matching recorded question' });
+  assert.ok(Object.keys((await c.state()).pending)[0].endsWith(`:missing_question:${turn}:${question}`));
+  assert.deepEqual((await c.state()).runtimes[c.runtimeHome].work, []);
+});

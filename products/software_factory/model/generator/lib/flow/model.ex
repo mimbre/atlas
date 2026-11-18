@@ -8,6 +8,11 @@ defmodule RelaDSL.Flow.Model do
       an environment it does not declare raises;
     * `runs/0`: where runs are kept (`kind`, `fields`, `writer`, `inputs`), nil when no
       concept declares `flow_runtime`;
+    * `supervision/0`: who supervises a run (work acquisition design 2026-11-17, §5.6): `relation`
+      (run → its human supervisor, set by the run's writer alone), `inputs` (the
+      `operation` and `hand_to` fields of a pickup or hand-over input) and `spans` (by
+      subflow, each span's `name`, `label`, `states` and `with`); nil when no concept's
+      `flow_runtime` declares `supervision:`;
     * `selection(subflow)`: how the runs of a subflow are selected, imported and
       projected (`select`), with its approved `migrations`; nil when it is not selected;
     * `migrations/0`: every approved migration, with its `subflow`;
@@ -56,6 +61,8 @@ defmodule RelaDSL.Flow.Model do
 
     runs =
       runtime && Map.take(runtime, ["kind", "fields", "writer", "inputs"])
+
+    supervision = runtime && runtime["supervision"]
 
     migrations =
       for {name, s} <- Enum.sort(selection),
@@ -106,6 +113,9 @@ defmodule RelaDSL.Flow.Model do
 
       @doc "Where the runs are kept, or nil."
       def runs, do: unquote(Macro.escape(runs))
+
+      @doc "Who supervises a run: its relation, the pickup and hand-over inputs' fields, and each subflow's spans; nil when the model declares none."
+      def supervision, do: unquote(Macro.escape(supervision))
 
       @doc "How a subflow's runs are selected, or nil when they are not."
       unquote_splicing(

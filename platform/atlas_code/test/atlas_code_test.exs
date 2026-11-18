@@ -1299,6 +1299,37 @@ defmodule AtlasCodeTest do
       assert {413, %{"error" => %{"code" => "payload_too_large"}}} =
                raw(port, :post, "/v1/changes", :binary.copy(" ", 1024 * 1024 + 1))
     end
+
+    test "chunked bodies are refused before they are read; Content-Length bodies keep their limits",
+         %{port: port, change: change} do
+      id = uuid(160)
+      big = :binary.copy(<<1>>, 64 * 1024 * 1024)
+      digest = hex(big)
+      blob = "/v1/changes/#{id}/blobs/#{digest}"
+
+      assert {200, %{"state" => "open", "missing" => [^digest]} = open} =
+               submit(port, change.(id, [write("big.bin", big)]))
+
+      # Each request sends its headers and 1 KiB of a 32 KiB first chunk, then nothing. The
+      # answer arrives and the connection closes while the rest is unsent, so the server did not
+      # wait for (or buffer) the body. Without a token the answer is the same, not a 401 after
+      # buffering.
+      for {method, path} <- [{"POST", "/v1/snapshots"}, {"PUT", blob}], token <- [@token, nil] do
+        assert {:closed, {:ok, {:http_response, _, 501, _}, _}} =
+                 chunked(port, method, path, token)
+      end
+
+      assert {200, ^open} = submit(port, change.(id, [write("big.bin", big)]))
+
+      # Content-Length bodies are unchanged: JSON endpoints answer 413 over 16 KiB, a request
+      # without the token 401, and a blob may be exactly 64 MiB.
+      assert {413, %{"error" => %{"code" => "payload_too_large"}}} =
+               raw(port, :post, "/v1/snapshots", :binary.copy(" ", 20_000))
+
+      assert {401, reply} = send_request(port, :post, "/v1/snapshots", "{}", [])
+      assert %{"error" => %{"code" => "unauthorized"}} = JSON.decode!(reply)
+      assert {200, %{"missing" => []}} = upload(port, id, digest, big)
+    end
   end
 
   test "repository fingerprints match Runtime's golden fixture byte for byte" do
@@ -2909,6 +2940,33 @@ defmodule AtlasCodeTest do
     do: raw(port, :put, "/v1/changes/#{id}/blobs/#{digest}", bytes)
 
   defp seal(port, id), do: raw(port, :post, "/v1/changes/#{id}/seal", "")
+
+  # Sends a chunked request's headers and 1 KiB of a 32 KiB first chunk in one write, and no
+  # more. Returns how the connection ended and the parsed status line of what was received.
+  defp chunked(port, method, path, token) do
+    {:ok, socket} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false])
+    auth = if token, do: "authorization: Bearer #{token}\r\n", else: ""
+
+    :ok =
+      :gen_tcp.send(
+        socket,
+        "#{method} #{path} HTTP/1.1\r\nhost: 127.0.0.1\r\n#{auth}" <>
+          "content-type: application/json\r\ntransfer-encoding: chunked\r\n\r\n" <>
+          "8000\r\n" <> :binary.copy(" ", 1024)
+      )
+
+    {ended, reply} = receive_all(socket, "")
+    :ok = :gen_tcp.close(socket)
+    {ended, :erlang.decode_packet(:http_bin, reply, [])}
+  end
+
+  # Reads until the server closes; the timeout only bounds a server that waits for the body.
+  defp receive_all(socket, received) do
+    case :gen_tcp.recv(socket, 0, 10_000) do
+      {:ok, data} -> receive_all(socket, received <> data)
+      {:error, reason} -> {reason, received}
+    end
+  end
 
   defp fixture(dir, name, build) do
     source = Path.join(dir, name)

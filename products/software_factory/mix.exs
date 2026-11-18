@@ -27,10 +27,12 @@ defmodule Atlas.MixProject do
             model: :permanent,
             atlas_facts: :permanent,
             atlas_gates: :permanent,
-            atlas_flow: :permanent,
-            # Code's receiver of Flow's integrate effect, on the Bus started above (code.* in
-            # the core's settings); not the local Code service, which this release never runs.
+            # Code's receiver of Flow's integrate effect, on the Bus started above, and the
+            # core's registered Code service (AtlasCode.Core), both from code.* in the core's
+            # settings; before Flow, so Flow's work source finds Code registered. Not the
+            # local Code service (AtlasCode.Server), which this release never runs.
             atlas_code: :permanent,
+            atlas_flow: :permanent,
             atlas_runtime: :permanent,
             atlas_control: :permanent
           ],
@@ -38,7 +40,7 @@ defmodule Atlas.MixProject do
         ],
         # Code alone, for a process supervisor: `bin/atlas_code eval "AtlasCode.Server.run()"`
         # starts it like `mix atlas_code.server` without Mix's startup (platform/atlas_runtime/host/README.md).
-        # No runtime.exs: it belongs to the core and Runtime nodes, as for the mix task.
+        # No runtime.exs: it belongs to the core, as for the mix task.
         atlas_code: [
           applications: [atlas_code: :permanent],
           runtime_config_path: false,

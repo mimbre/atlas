@@ -1,0 +1,1635 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "setup.npm-ci-network",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        },
+        {
+          "path": "{home}/scratch/prepare-s6",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "argv": [
+          "{tmp}/bin/npm",
+          "ci",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund"
+        ],
+        "decision": "codex_sandbox",
+        "dir": "{tmp}/dest/app",
+        "kind": "setup",
+        "origin": "client_named",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        },
+        "scratch": "{home}/scratch/prepare-s6",
+        "step": "npm-ci",
+        "writable": [
+          "{tmp}/dest/app/node_modules"
+        ]
+      },
+      "expect": {
+        "rendered": {
+          "codex_sandbox": [
+            "{tmp}/bin/codex",
+            "sandbox",
+            "-P",
+            "atlas_setup",
+            "-C",
+            "{tmp}/dest/app",
+            "-c",
+            "default_permissions=\"atlas_setup\"",
+            "-c",
+            "permissions={atlas_setup={extends=\":read-only\",filesystem={\"{tmp}/dest/app/node_modules\"=\"write\",\"{home}/scratch/prepare-s6\"=\"write\",\"{home}\"=\"none\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\",\"{user}/.npmrc\"=\"none\"},network={enabled=true,domains={\"registry.npmjs.org\"=\"allow\"}}}}",
+            "-c",
+            "features.network_proxy=true",
+            "--",
+            "{tmp}/bin/npm",
+            "ci",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund"
+          ]
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/dest/app/node_modules",
+                "write"
+              ],
+              [
+                "{home}/scratch/prepare-s6",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{user}/.codex",
+                "none"
+              ],
+              [
+                "{user}/.config/gh",
+                "none"
+              ],
+              [
+                "{user}/.ssh",
+                "none"
+              ],
+              [
+                "{user}/.aws",
+                "none"
+              ],
+              [
+                "{user}/.docker",
+                "none"
+              ],
+              [
+                "{user}/Library/Keychains",
+                "none"
+              ],
+              [
+                "{user}/.git-credentials",
+                "none"
+              ],
+              [
+                "{user}/.config/git",
+                "none"
+              ],
+              [
+                "{user}/.netrc",
+                "none"
+              ],
+              [
+                "{user}/.claude",
+                "none"
+              ],
+              [
+                "{user}/.claude.json",
+                "none"
+              ],
+              [
+                "{user}/.local/state/atlas-runtime",
+                "none"
+              ],
+              [
+                "{user}/.gitconfig",
+                "none"
+              ],
+              [
+                "{user}/.erlang.cookie",
+                "none"
+              ],
+              [
+                "{user}/.npmrc",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [
+                "registry.npmjs.org"
+              ],
+              "local_binding": false,
+              "mode": "domains",
+              "unix_sockets": []
+            },
+            "network_proxy": true,
+            "profile": "atlas_setup",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "kind": "setup",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "{home}/scratch/prepare-s6",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "setup.npm-run-no-network",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        },
+        {
+          "path": "{home}/scratch/prepare-s6",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "argv": [
+          "{tmp}/bin/npm",
+          "run",
+          "--ignore-scripts",
+          "--offline",
+          "build"
+        ],
+        "decision": "codex_sandbox",
+        "dir": "{tmp}/dest/app",
+        "kind": "setup",
+        "origin": "client_named",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        },
+        "scratch": "{home}/scratch/prepare-s6",
+        "script": "build",
+        "step": "npm-run",
+        "writable": [
+          "{tmp}/dest/app/dist",
+          "{tmp}/dest/app/gen"
+        ]
+      },
+      "expect": {
+        "rendered": {
+          "codex_sandbox": [
+            "{tmp}/bin/codex",
+            "sandbox",
+            "-P",
+            "atlas_setup",
+            "-C",
+            "{tmp}/dest/app",
+            "-c",
+            "default_permissions=\"atlas_setup\"",
+            "-c",
+            "permissions={atlas_setup={extends=\":read-only\",filesystem={\"{tmp}/dest/app/dist\"=\"write\",\"{tmp}/dest/app/gen\"=\"write\",\"{home}/scratch/prepare-s6\"=\"write\",\"{home}\"=\"none\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\",\"{user}/.npmrc\"=\"none\"},network={enabled=false}}}",
+            "--",
+            "{tmp}/bin/npm",
+            "run",
+            "--ignore-scripts",
+            "--offline",
+            "build"
+          ]
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/dest/app/dist",
+                "write"
+              ],
+              [
+                "{tmp}/dest/app/gen",
+                "write"
+              ],
+              [
+                "{home}/scratch/prepare-s6",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{user}/.codex",
+                "none"
+              ],
+              [
+                "{user}/.config/gh",
+                "none"
+              ],
+              [
+                "{user}/.ssh",
+                "none"
+              ],
+              [
+                "{user}/.aws",
+                "none"
+              ],
+              [
+                "{user}/.docker",
+                "none"
+              ],
+              [
+                "{user}/Library/Keychains",
+                "none"
+              ],
+              [
+                "{user}/.git-credentials",
+                "none"
+              ],
+              [
+                "{user}/.config/git",
+                "none"
+              ],
+              [
+                "{user}/.netrc",
+                "none"
+              ],
+              [
+                "{user}/.claude",
+                "none"
+              ],
+              [
+                "{user}/.claude.json",
+                "none"
+              ],
+              [
+                "{user}/.local/state/atlas-runtime",
+                "none"
+              ],
+              [
+                "{user}/.gitconfig",
+                "none"
+              ],
+              [
+                "{user}/.erlang.cookie",
+                "none"
+              ],
+              [
+                "{user}/.npmrc",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": false,
+              "mode": "none",
+              "unix_sockets": []
+            },
+            "network_proxy": false,
+            "profile": "atlas_setup",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "kind": "setup",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "{home}/scratch/prepare-s6",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "setup.npm-ci-code-token",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        },
+        {
+          "path": "{home}/scratch/prepare-s6",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "CODEX_HOME": "{tmp}/codex-home"
+      },
+      "input": {
+        "argv": [
+          "{tmp}/bin/npm",
+          "ci",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund"
+        ],
+        "code_json": {
+          "token_file": "{user}/code-home/runtime.token"
+        },
+        "decision": "codex_sandbox",
+        "dir": "{tmp}/dest/app",
+        "kind": "setup",
+        "origin": "client_named",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        },
+        "scratch": "{home}/scratch/prepare-s6",
+        "step": "npm-ci",
+        "writable": [
+          "{tmp}/dest/app/node_modules"
+        ]
+      },
+      "expect": {
+        "rendered": {
+          "codex_sandbox": [
+            "{tmp}/bin/codex",
+            "sandbox",
+            "-P",
+            "atlas_setup",
+            "-C",
+            "{tmp}/dest/app",
+            "-c",
+            "default_permissions=\"atlas_setup\"",
+            "-c",
+            "permissions={atlas_setup={extends=\":read-only\",filesystem={\"{tmp}/dest/app/node_modules\"=\"write\",\"{home}/scratch/prepare-s6\"=\"write\",\"{home}\"=\"none\",\"{tmp}/dest/.git\"=\"none\",\"{user}/code-home/runtime.token\"=\"none\",\"{user}/code-home\"=\"none\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\",\"{user}/.npmrc\"=\"none\",\"{tmp}/codex-home\"=\"none\"},network={enabled=true,domains={\"registry.npmjs.org\"=\"allow\"}}}}",
+            "-c",
+            "features.network_proxy=true",
+            "--",
+            "{tmp}/bin/npm",
+            "ci",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund"
+          ]
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/dest/app/node_modules",
+                "write"
+              ],
+              [
+                "{home}/scratch/prepare-s6",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{user}/code-home/runtime.token",
+                "none"
+              ],
+              [
+                "{user}/code-home",
+                "none"
+              ],
+              [
+                "{user}/.codex",
+                "none"
+              ],
+              [
+                "{user}/.config/gh",
+                "none"
+              ],
+              [
+                "{user}/.ssh",
+                "none"
+              ],
+              [
+                "{user}/.aws",
+                "none"
+              ],
+              [
+                "{user}/.docker",
+                "none"
+              ],
+              [
+                "{user}/Library/Keychains",
+                "none"
+              ],
+              [
+                "{user}/.git-credentials",
+                "none"
+              ],
+              [
+                "{user}/.config/git",
+                "none"
+              ],
+              [
+                "{user}/.netrc",
+                "none"
+              ],
+              [
+                "{user}/.claude",
+                "none"
+              ],
+              [
+                "{user}/.claude.json",
+                "none"
+              ],
+              [
+                "{user}/.local/state/atlas-runtime",
+                "none"
+              ],
+              [
+                "{user}/.gitconfig",
+                "none"
+              ],
+              [
+                "{user}/.erlang.cookie",
+                "none"
+              ],
+              [
+                "{user}/.npmrc",
+                "none"
+              ],
+              [
+                "{tmp}/codex-home",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [
+                "registry.npmjs.org"
+              ],
+              "local_binding": false,
+              "mode": "domains",
+              "unix_sockets": []
+            },
+            "network_proxy": true,
+            "profile": "atlas_setup",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "kind": "setup",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "{home}/scratch/prepare-s6",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "setup.codex-absent",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        },
+        {
+          "path": "{home}/scratch/prepare-s6",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "argv": [
+          "{tmp}/bin/npm",
+          "ci",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund"
+        ],
+        "decision": "codex_sandbox",
+        "dir": "{tmp}/dest/app",
+        "kind": "setup",
+        "origin": "client_named",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        },
+        "scratch": "{home}/scratch/prepare-s6",
+        "step": "npm-ci",
+        "writable": [
+          "{tmp}/dest/app/node_modules"
+        ]
+      },
+      "expect": {
+        "rendered": {
+          "error": "Preparation requires the installed Codex sandbox (codex on PATH)"
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/dest/app/node_modules",
+                "write"
+              ],
+              [
+                "{home}/scratch/prepare-s6",
+                "write"
+              ],
+              [
+                "{home}",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{user}/.codex",
+                "none"
+              ],
+              [
+                "{user}/.config/gh",
+                "none"
+              ],
+              [
+                "{user}/.ssh",
+                "none"
+              ],
+              [
+                "{user}/.aws",
+                "none"
+              ],
+              [
+                "{user}/.docker",
+                "none"
+              ],
+              [
+                "{user}/Library/Keychains",
+                "none"
+              ],
+              [
+                "{user}/.git-credentials",
+                "none"
+              ],
+              [
+                "{user}/.config/git",
+                "none"
+              ],
+              [
+                "{user}/.netrc",
+                "none"
+              ],
+              [
+                "{user}/.claude",
+                "none"
+              ],
+              [
+                "{user}/.claude.json",
+                "none"
+              ],
+              [
+                "{user}/.local/state/atlas-runtime",
+                "none"
+              ],
+              [
+                "{user}/.gitconfig",
+                "none"
+              ],
+              [
+                "{user}/.erlang.cookie",
+                "none"
+              ],
+              [
+                "{user}/.npmrc",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [
+                "registry.npmjs.org"
+              ],
+              "local_binding": false,
+              "mode": "domains",
+              "unix_sockets": []
+            },
+            "network_proxy": true,
+            "profile": "atlas_setup",
+            "web_search": ""
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "kind": "setup",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "{home}/scratch/prepare-s6",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      },
+      "note": "B8 (d): no codex on PATH, nothing runs"
+    },
+    {
+      "id": "setup.output-is-root",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        },
+        {
+          "path": "{home}/scratch/prepare-s6",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "argv": [
+          "{tmp}/bin/npm",
+          "ci",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund"
+        ],
+        "decision": "codex_sandbox",
+        "dir": "{tmp}/dest/app",
+        "kind": "setup",
+        "origin": "client_named",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        },
+        "scratch": "{home}/scratch/prepare-s6",
+        "step": "npm-ci",
+        "writable": [
+          "{tmp}/dest"
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder scope is incomplete"
+      },
+      "note": "a writable output equal to the folder root: Materialized folder scope is incomplete"
+    },
+    {
+      "id": "pre_exec.claude-managed",
+      "fs": [
+        {
+          "path": "{home}/workers/w1/repositories/r/.git",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "path": "{home}/workers/w2",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "argv": [],
+        "decision": "codex_sandbox",
+        "dir": "{home}/workers/w1/repositories/r",
+        "kind": "pre_exec",
+        "origin": "runtime_chosen",
+        "scope": {
+          "git_dir": "{home}/workers/w1/repositories/r/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{home}/workers/w1/repositories/r",
+          "version": 1
+        },
+        "workspace": "{home}/workers/w1/repositories/r"
+      },
+      "expect": {
+        "rendered": {
+          "codex_sandbox": [
+            "{tmp}/bin/codex",
+            "sandbox",
+            "-P",
+            "atlas_repository",
+            "-C",
+            "{home}/workers/w1/repositories/r",
+            "-c",
+            "default_permissions=\"atlas_repository\"",
+            "-c",
+            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/w1/repositories/r\"=\"write\",\"{home}/workers/w1/repositories/r/.git\"=\"write\",\"{home}/workers/w1/repositories/r/.agents\"=\"read\",\"{home}/workers/w1/repositories/r/.codex\"=\"read\",\"{home}/workers/w1/repositories/r/.aws\"=\"read\",\"{home}/workers/w2\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/work\"=\"none\",\"{home}/admissions\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/sources\"=\"none\",\"{home}/local-source\"=\"none\",\"{home}/bases\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/workers/[!w]*\"=\"none\",\"{home}/workers/[!w]*/**\"=\"none\",\"{home}/workers/w[!1]*\"=\"none\",\"{home}/workers/w[!1]*/**\"=\"none\",\"{home}/workers/[w]\"=\"none\",\"{home}/workers/[w]/**\"=\"none\",\"{home}/workers/w1[!/]*\"=\"none\",\"{home}/workers/w1[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
+            "-c",
+            "features.network_proxy=true",
+            "-c",
+            "web_search=\"live\"",
+            "--"
+          ]
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}/workers/w1/repositories/r",
+                "write"
+              ],
+              [
+                "{home}/workers/w1/repositories/r/.git",
+                "write"
+              ],
+              [
+                "{home}/workers/w1/repositories/r/.agents",
+                "read"
+              ],
+              [
+                "{home}/workers/w1/repositories/r/.codex",
+                "read"
+              ],
+              [
+                "{home}/workers/w1/repositories/r/.aws",
+                "read"
+              ],
+              [
+                "{home}/workers/w2",
+                "none"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/backend.sock",
+                "none"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/backend.sock",
+                "none"
+              ],
+              [
+                "{home}/turns",
+                "none"
+              ],
+              [
+                "{home}/code.json",
+                "none"
+              ],
+              [
+                "{home}/server.json",
+                "none"
+              ],
+              [
+                "{home}/backends.json",
+                "none"
+              ],
+              [
+                "{home}/policy.json",
+                "none"
+              ],
+              [
+                "{home}/availability.json",
+                "none"
+              ],
+              [
+                "{home}/service.log",
+                "none"
+              ],
+              [
+                "{home}/service.lock",
+                "none"
+              ],
+              [
+                "{home}/passes",
+                "none"
+              ],
+              [
+                "{home}/snapshots",
+                "none"
+              ],
+              [
+                "{home}/materializations",
+                "none"
+              ],
+              [
+                "{home}/scratch",
+                "none"
+              ],
+              [
+                "{home}/work",
+                "none"
+              ],
+              [
+                "{home}/admissions",
+                "none"
+              ],
+              [
+                "{home}/preparations",
+                "none"
+              ],
+              [
+                "{home}/packets",
+                "none"
+              ],
+              [
+                "{home}/submissions",
+                "none"
+              ],
+              [
+                "{home}/rebinds",
+                "none"
+              ],
+              [
+                "{home}/frozen",
+                "none"
+              ],
+              [
+                "{home}/execution-events.json",
+                "none"
+              ],
+              [
+                "{home}/mode.json",
+                "none"
+              ],
+              [
+                "{home}/clients.json",
+                "none"
+              ],
+              [
+                "{home}/sources",
+                "none"
+              ],
+              [
+                "{home}/local-source",
+                "none"
+              ],
+              [
+                "{home}/bases",
+                "none"
+              ],
+              [
+                "{home}/code.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/server.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/backends.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/policy.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/availability.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/execution-events.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/mode.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/clients.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/workers/[!w]*",
+                "none"
+              ],
+              [
+                "{home}/workers/[!w]*/**",
+                "none"
+              ],
+              [
+                "{home}/workers/w[!1]*",
+                "none"
+              ],
+              [
+                "{home}/workers/w[!1]*/**",
+                "none"
+              ],
+              [
+                "{home}/workers/[w]",
+                "none"
+              ],
+              [
+                "{home}/workers/[w]/**",
+                "none"
+              ],
+              [
+                "{home}/workers/w1[!/]*",
+                "none"
+              ],
+              [
+                "{home}/workers/w1[!/]*/**",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [
+                "github.com",
+                "api.github.com"
+              ],
+              "local_binding": false,
+              "mode": "domains",
+              "unix_sockets": []
+            },
+            "network_proxy": true,
+            "profile": "atlas_repository",
+            "web_search": "live"
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "home_names": [
+            "runtime.sock",
+            "backend.sock",
+            "turns",
+            "code.json",
+            "server.json",
+            "backends.json",
+            "policy.json",
+            "availability.json",
+            "service.log",
+            "service.lock",
+            "passes",
+            "snapshots",
+            "materializations",
+            "scratch",
+            "work",
+            "admissions",
+            "preparations",
+            "packets",
+            "submissions",
+            "rebinds",
+            "frozen",
+            "execution-events.json",
+            "mode.json",
+            "clients.json",
+            "sources",
+            "local-source",
+            "bases",
+            "code.json.tmp",
+            "server.json.tmp",
+            "backends.json.tmp",
+            "policy.json.tmp",
+            "availability.json.tmp",
+            "execution-events.json.tmp",
+            "mode.json.tmp",
+            "clients.json.tmp"
+          ],
+          "kind": "pre_exec",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "runtime_chosen",
+            "root": "{home}/workers/w1/repositories/r"
+          }
+        }
+      }
+    },
+    {
+      "id": "pre_exec.codex-absent",
+      "fs": [
+        {
+          "path": "{home}/workers/w1/repositories/r/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "argv": [],
+        "decision": "codex_sandbox",
+        "dir": "{home}/workers/w1/repositories/r",
+        "kind": "pre_exec",
+        "origin": "runtime_chosen",
+        "scope": {
+          "git_dir": "{home}/workers/w1/repositories/r/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{home}/workers/w1/repositories/r",
+          "version": 1
+        },
+        "workspace": "{home}/workers/w1/repositories/r"
+      },
+      "expect": {
+        "rendered": {
+          "error": "Managed repository preparation requires the installed Codex sandbox"
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{home}/workers/w1/repositories/r",
+                "write"
+              ],
+              [
+                "{home}/workers/w1/repositories/r/.git",
+                "write"
+              ],
+              [
+                "{home}/workers/w1/repositories/r/.agents",
+                "read"
+              ],
+              [
+                "{home}/workers/w1/repositories/r/.codex",
+                "read"
+              ],
+              [
+                "{home}/workers/w1/repositories/r/.aws",
+                "read"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/backend.sock",
+                "none"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/backend.sock",
+                "none"
+              ],
+              [
+                "{home}/turns",
+                "none"
+              ],
+              [
+                "{home}/code.json",
+                "none"
+              ],
+              [
+                "{home}/server.json",
+                "none"
+              ],
+              [
+                "{home}/backends.json",
+                "none"
+              ],
+              [
+                "{home}/policy.json",
+                "none"
+              ],
+              [
+                "{home}/availability.json",
+                "none"
+              ],
+              [
+                "{home}/service.log",
+                "none"
+              ],
+              [
+                "{home}/service.lock",
+                "none"
+              ],
+              [
+                "{home}/passes",
+                "none"
+              ],
+              [
+                "{home}/snapshots",
+                "none"
+              ],
+              [
+                "{home}/materializations",
+                "none"
+              ],
+              [
+                "{home}/scratch",
+                "none"
+              ],
+              [
+                "{home}/work",
+                "none"
+              ],
+              [
+                "{home}/admissions",
+                "none"
+              ],
+              [
+                "{home}/preparations",
+                "none"
+              ],
+              [
+                "{home}/packets",
+                "none"
+              ],
+              [
+                "{home}/submissions",
+                "none"
+              ],
+              [
+                "{home}/rebinds",
+                "none"
+              ],
+              [
+                "{home}/frozen",
+                "none"
+              ],
+              [
+                "{home}/execution-events.json",
+                "none"
+              ],
+              [
+                "{home}/mode.json",
+                "none"
+              ],
+              [
+                "{home}/clients.json",
+                "none"
+              ],
+              [
+                "{home}/sources",
+                "none"
+              ],
+              [
+                "{home}/local-source",
+                "none"
+              ],
+              [
+                "{home}/bases",
+                "none"
+              ],
+              [
+                "{home}/code.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/server.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/backends.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/policy.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/availability.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/execution-events.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/mode.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/clients.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/workers/[!w]*",
+                "none"
+              ],
+              [
+                "{home}/workers/[!w]*/**",
+                "none"
+              ],
+              [
+                "{home}/workers/w[!1]*",
+                "none"
+              ],
+              [
+                "{home}/workers/w[!1]*/**",
+                "none"
+              ],
+              [
+                "{home}/workers/[w]",
+                "none"
+              ],
+              [
+                "{home}/workers/[w]/**",
+                "none"
+              ],
+              [
+                "{home}/workers/w1[!/]*",
+                "none"
+              ],
+              [
+                "{home}/workers/w1[!/]*/**",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [
+                "github.com",
+                "api.github.com"
+              ],
+              "local_binding": false,
+              "mode": "domains",
+              "unix_sockets": []
+            },
+            "network_proxy": true,
+            "profile": "atlas_repository",
+            "web_search": "live"
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "home_names": [
+            "runtime.sock",
+            "backend.sock",
+            "turns",
+            "code.json",
+            "server.json",
+            "backends.json",
+            "policy.json",
+            "availability.json",
+            "service.log",
+            "service.lock",
+            "passes",
+            "snapshots",
+            "materializations",
+            "scratch",
+            "work",
+            "admissions",
+            "preparations",
+            "packets",
+            "submissions",
+            "rebinds",
+            "frozen",
+            "execution-events.json",
+            "mode.json",
+            "clients.json",
+            "sources",
+            "local-source",
+            "bases",
+            "code.json.tmp",
+            "server.json.tmp",
+            "backends.json.tmp",
+            "policy.json.tmp",
+            "availability.json.tmp",
+            "execution-events.json.tmp",
+            "mode.json.tmp",
+            "clients.json.tmp"
+          ],
+          "kind": "pre_exec",
+          "runner": "codex-sandbox",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "runtime_chosen",
+            "root": "{home}/workers/w1/repositories/r"
+          }
+        }
+      },
+      "note": "B8 (d): no codex on PATH, nothing runs"
+    }
+  ]
+}

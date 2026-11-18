@@ -3,7 +3,7 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   Optional lifecycle mirror of the standalone Runtime service, opted into with `server.json`
   in the Runtime home before the service starts. For each turn of a listed worker it creates
   the Server turn `TU-<machine>-<local turn ID>` on the configured machine, registers that
-  exact attempt's execution, renews its activity and lease as `AtlasRuntime.Turn` does, and
+  exact attempt's execution, renews its activity and lease while the turn runs, and
   ends it with why: `finished`, `failed: …` or `stopped`. When the model names them, the turn
   also says what it is about (`title`: the assignment's first heading and line) and which
   model runs it (`model`: the requested one at once, the one the harness reports when it
@@ -21,7 +21,7 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
   running by a daemon that died keeps a lease that runs out.
 
   `server.json` is `{"environment", "machine", "host", "port", "token_file", "workers"}`:
-  `machine` is this service's own dedicated machine name, never one a connected Engine uses;
+  `machine` is this service's own dedicated machine name, never one another Bus client uses;
   `workers` lists the local worker IDs that are reported (each must be a Server agent), and
   other workers run as before without any Facts write. `token_file` names a regular file in
   the Runtime home, owned by the home's owner and readable by nobody else. The token goes
@@ -398,7 +398,7 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
     end
   end
 
-  # As `AtlasRuntime.Guidance.register/1`, with nothing invented: no queued input, and an
+  # The execution record, with nothing invented: no queued input, and an
   # unknown harness version; the model is the requested one, or unknown.
   defp register(state, run, server) do
     values = %{
@@ -496,7 +496,7 @@ defmodule AtlasRuntime.Integrations.AtlasServer.Lifecycle do
     _, _ -> nil
   end
 
-  # The model's names for the turn and its execution, as the engine uses them.
+  # The model's names for the turn and its execution.
   defp names(%{attached: {:error, why}}), do: {:error, why}
 
   defp names(%{names: names, execution: execution} = state) do

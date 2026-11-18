@@ -177,6 +177,24 @@ stand-in instead. An unfinished request already in the journal is paused as `wor
 while its repository is disabled, with no GitHub call and no invented refusal; reconcile
 its existing id once access is intentionally restored.
 
+#### Before changing `code.repositories`
+
+A repository that leaves prod's allow-list pauses its unfinished integrate requests as
+`working`, with no GitHub call, until it is allowed again. Before deploying such a change
+(for example eyra/atlas → mimbre/atlas), list them from this Mac. The script reads the
+journal over `fly ssh console` and changes nothing:
+
+```sh
+platform/ops/pending-integrations.sh --repository eyra/atlas
+```
+
+It reads the core app from `environments/prod.json` (`--app` to override) and
+`/data/code/effects` (`--data` for another `code.data`). It prints one line per request
+(`id`, `phase`, `merge_attempted`, `run`, `subject`, `target`, `head`) and exits 0 when
+there are none, 1 when it listed some and 2 when it could not read the journal whole.
+Settle each listed run first, or keep the repository in the list until they are settled.
+`--journal <folder>` reads a local copy instead, for a dry run.
+
 There is no Flux connector yet: `flux_id` and `flux_ref` are described as set by a connector, but no code reads Flux, so nothing needs a Flux secret. When one is built, its secret goes on `eyra-atlas` the same way.
 
 ### Back up prod's data
@@ -222,6 +240,18 @@ an environment with integration requests. Keep the destination's stopped journal
 do not combine a different environment's journal with moved runs or release the core
 until the matching data has been restored.
 
+**Code's service home is on the core volume too.** With `code.home` (prod:
+`/data/code-home`) and Flow's `flow.work_source` both set, the core runs a registered Code
+service (`AtlasCode.Core`) that reads
+base repositories from `code.sources`, anonymously for an entry with
+`"credentials": "none"` (no gh in the image). Its bare clones can be fetched again, but its
+revision handles (`revisions/`) and snapshot manifests (`snapshots/`) exist only there:
+without them, the handles and snapshot IDs Flow already holds are unknown to Code. The
+move scripts do not copy it either; preserve it with `/data/code`. A home whose owner
+crashed is recovered at the next boot through its OS lock (`service.lock`), without `ps`.
+Without `flow.work_source` (prod today) the core runs no Code service and writes nothing
+there, even with `code.home` set; remove either key to run the core without it.
+
 GitHub can supply the current pull state after a move, but cannot rebuild the original
 request ids and update ancestry. With a lost journal, `merged_elsewhere` can mean Code
 merged at an update head that is no longer in the rebuilt ancestry; `stale_revision`
@@ -266,8 +296,8 @@ Preserve both `rela/` and `beam/`, including Facts' provenance and answered-fact
    copy the complete environment to a new timestamped backup, then restart the old
    build. Never start new-schema rela over data that still needs a migration.
 1. **Freeze every source writer using the OLD client settings.** Keep the operational
-   checkout on `fly.in_use=false` through verification. Stop independent Runtime nodes
-   on every agent machine (`atlas-runtime node stop --env prod`, when IS-91 is installed),
+   checkout on `fly.in_use=false` through verification. Stop the Runtime service on
+   every agent machine that links to the core (`atlas-runtime service stop`),
    close ordinary clients and stop other automated writers. Core stop alone does not
    stop Runtime. Run `atlas-ops stop --rela --env prod` (the core, then rela) on the
    source. Prevent clients, supervisors and unattended deploys from restarting either
@@ -321,33 +351,51 @@ Preserve both `rela/` and `beam/`, including Facts' provenance and answered-fact
 
 ### Runtime after the client switch (IS-Atlas-91)
 
-Coordinate with #78 and `docs/guides/runtime-node.md` when available. Runtime is an
-independent process with its own PID, log and optional Bus proxy. Core stop/restart
-does not stop it. A disconnected node retries its configured endpoint; it does not
-retarget automatically from the Mac to Fly. Settings are read when the node starts.
+Runtime is the standalone service (`platform/atlas_runtime/host/README.md`), started
+explicitly with `atlas-runtime service start`. It is an independent process: it never
+starts Atlas core services, and stopping or restarting the core does not stop it.
+
+Its only link to the core is the optional `server.json` in its Runtime home, read once when
+the service starts (`AtlasRuntime.Integrations.AtlasServer.Lifecycle`). Without that file
+nothing connects and the service runs purely locally. With it, the file must contain exactly
+these keys, or the service refuses to start:
+
+| Key | Meaning |
+| --- | --- |
+| `environment` | `test` or `prod` |
+| `host`, `port` | The core's Bus listener this service connects to. It never retargets on its own, for example from the Mac to Fly |
+| `machine` | This service's own dedicated machine name, never one another Bus client uses |
+| `token_file` | A regular file inside the Runtime home, owned by the home's owner, mode `0600` or stricter, no symbolic link, at most 4 KiB, holding this machine's Bus token |
+| `workers` | Nonempty list of distinct local worker IDs whose turns are reported. Each must be a Server agent. Other workers run without any Facts write |
+
+The token is read only from `token_file` and passed only to the Bus link. It never reaches
+native agents, status, history or log messages, and the repository never stores it. Keep
+test and prod homes, settings and tokens separate.
 
 Activated on 2026-11-13 (IS-91 approval). `products/software_factory/environments/prod/core.json` enables the private Bus
-listener on `::`, port `7594`; `products/software_factory/environments/prod/core.toml` declares no public service for it.
-The core secret `ATLAS_BUS_LINK_TOKEN` (a JSON object from machine name to a distinct
+listener (`bus_link`) on `::`, port `7594`. `products/software_factory/environments/prod/core.toml` declares no public service for it.
+The core secret `ATLAS_BUS_LINK_TOKEN` (a JSON object mapping each machine name to its own
 random token) must be set on `eyra-atlas` before this configuration deploys: the core
-refuses to boot when it is missing or malformed. The first node is machine
-`melle-mac-mini` on the Mac mini; it reaches the listener through prod's Bus tunnel
-`7595:7594`, independent of Control's `7593:7591`. That machine's Bus token and Fly
-WireGuard token come from Infisical (project Atlas, environment `prod`, path
-`/runtimes/melle-mac-mini`), read at Runtime start through the machine identity
-`melle-mac-mini` and passed to the node as environment variables; neither is stored in
-the repository. Each machine's local `runtime.json`
-names its machine and the tunnel; Runtime is then started explicitly. Agents' CLI calls
-use the ordinary client environment file and therefore Fly Control. Keep test/prod
-settings and credentials separate.
+refuses to boot when it is missing or malformed. A machine's `token_file` holds that
+machine's entry. Agents' CLI calls use the ordinary client environment file, so they go
+through Fly Control.
 
 Prod's settings also add the Workers tab and its grants (`control.tabs`,
 `control.workers`): `melle` may read and submit.
 
-Verify Bus registration and stub-turn leases/logs before real agent work. A Runtime
-PID alone does not prove a connected Bus. IS-91 retries dropped Bus connections; it
-does not promise indefinite recovery of a dead flyctl proxy, cross-machine failover or
-a durable outbox.
+What the link does: for each turn of a listed worker, the service creates the Server turn
+`TU-<machine>-<local turn ID>`, registers that attempt's execution, renews its activity and
+lease while it runs, and ends it as `finished`, `failed: …` or `stopped`. It sets no item
+and no Flow outcome, and it gives Server no start, stop or guidance over the native agent.
+
+This is a best-effort mirror. Each write is one bounded exchange, and the native turn never
+waits for it. The outcome of each write, confirmed or the last failure, is kept on the turn
+as `server.report`. A dropped Bus connection is retried, but there is no retry queue,
+replay, crash reconciliation, cross-machine failover or durable outbox. An unconfirmed
+write stays unconfirmed, and a turn left running by a service that died keeps a lease
+until it runs out. A Runtime PID alone does not prove a connected Bus: before real agent
+work, check that a listed worker's turn shows up on the Server and that its
+`server.report` is confirmed.
 
 ### Rollback preserves the latest authority
 

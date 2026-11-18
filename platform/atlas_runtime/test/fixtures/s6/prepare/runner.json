@@ -1,0 +1,3009 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "runner.ci-runs",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        }
+      ],
+      "env": {
+        "GH_TOKEN": "GH-SENTINEL",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C",
+        "NODE_OPTIONS": "--require /x",
+        "NPM_TOKEN": "NPM-SENTINEL",
+        "USER": "s6",
+        "npm_config__authToken": "CONFIG-SENTINEL",
+        "npm_config_registry": "https://evil.example/"
+      },
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "step": "npm-ci"
+      },
+      "expect": {
+        "run": {
+          "argv": [
+            "{tmp}/bin/npm",
+            "ci",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund"
+          ],
+          "codex": "{tmp}/bin/codex",
+          "dir": "{tmp}/dest/repo/app",
+          "env": [
+            "HOME={user}",
+            "USER=s6",
+            "PATH={tmp}/bin",
+            "LANG=C.UTF-8",
+            "LC_ALL=C",
+            "TMPDIR=$SCRATCH/tmp",
+            "XDG_CACHE_HOME=$SCRATCH/cache",
+            "npm_config_cache=$SCRATCH/npm-cache",
+            "npm_config_userconfig=$SCRATCH/user-npmrc",
+            "npm_config_globalconfig=$SCRATCH/global-npmrc",
+            "npm_config_registry=https://registry.npmjs.org/",
+            "npm_config_update_notifier=false"
+          ],
+          "record": {
+            "destination": "{tmp}/dest",
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "{now}",
+            "state": "running",
+            "version": 1
+          },
+          "scratch": {
+            "dirs": [
+              "tmp",
+              "cache",
+              "npm-cache"
+            ],
+            "files": [
+              "user-npmrc",
+              "global-npmrc"
+            ]
+          },
+          "setup_row": "setup.npm-ci-network",
+          "writable": [
+            "{tmp}/dest/repo/app/node_modules"
+          ]
+        }
+      },
+      "note": "only preparationKept passes; npm_config_* and tokens never do"
+    },
+    {
+      "id": "runner.ci-runs-codex-home",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        }
+      ],
+      "env": {
+        "CODEX_HOME": "{user}/.codex-home",
+        "LC_CTYPE": "UTF-8",
+        "LOGNAME": "s6"
+      },
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "step": "npm-ci"
+      },
+      "expect": {
+        "run": {
+          "argv": [
+            "{tmp}/bin/npm",
+            "ci",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund"
+          ],
+          "codex": "{tmp}/bin/codex",
+          "dir": "{tmp}/dest/repo/app",
+          "env": [
+            "HOME={user}",
+            "LOGNAME=s6",
+            "PATH={tmp}/bin",
+            "LC_CTYPE=UTF-8",
+            "CODEX_HOME={user}/.codex-home",
+            "TMPDIR=$SCRATCH/tmp",
+            "XDG_CACHE_HOME=$SCRATCH/cache",
+            "npm_config_cache=$SCRATCH/npm-cache",
+            "npm_config_userconfig=$SCRATCH/user-npmrc",
+            "npm_config_globalconfig=$SCRATCH/global-npmrc",
+            "npm_config_registry=https://registry.npmjs.org/",
+            "npm_config_update_notifier=false"
+          ],
+          "record": {
+            "destination": "{tmp}/dest",
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "{now}",
+            "state": "running",
+            "version": 1
+          },
+          "scratch": {
+            "dirs": [
+              "tmp",
+              "cache",
+              "npm-cache"
+            ],
+            "files": [
+              "user-npmrc",
+              "global-npmrc"
+            ]
+          },
+          "setup_row": "setup.npm-ci-network",
+          "writable": [
+            "{tmp}/dest/repo/app/node_modules"
+          ]
+        }
+      }
+    },
+    {
+      "id": "runner.ci-runs-without-node",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "step": "npm-ci"
+      },
+      "expect": {
+        "run": {
+          "argv": [
+            "{tmp}/bin/npm",
+            "ci",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund"
+          ],
+          "codex": "{tmp}/bin/codex",
+          "dir": "{tmp}/dest/repo/app",
+          "env": [
+            "HOME={user}",
+            "PATH={tmp}/bin",
+            "TMPDIR=$SCRATCH/tmp",
+            "XDG_CACHE_HOME=$SCRATCH/cache",
+            "npm_config_cache=$SCRATCH/npm-cache",
+            "npm_config_userconfig=$SCRATCH/user-npmrc",
+            "npm_config_globalconfig=$SCRATCH/global-npmrc",
+            "npm_config_registry=https://registry.npmjs.org/",
+            "npm_config_update_notifier=false"
+          ],
+          "record": {
+            "destination": "{tmp}/dest",
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "{now}",
+            "state": "running",
+            "version": 1
+          },
+          "scratch": {
+            "dirs": [
+              "tmp",
+              "cache",
+              "npm-cache"
+            ],
+            "files": [
+              "user-npmrc",
+              "global-npmrc"
+            ]
+          },
+          "setup_row": "setup.npm-ci-network",
+          "writable": [
+            "{tmp}/dest/repo/app/node_modules"
+          ]
+        }
+      },
+      "note": "node is required only for an npm-run"
+    },
+    {
+      "id": "runner.run-runs",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/node",
+          "type": "file"
+        }
+      ],
+      "env": {
+        "GH_TOKEN": "GH-SENTINEL",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C",
+        "NODE_OPTIONS": "--require /x",
+        "NPM_TOKEN": "NPM-SENTINEL",
+        "USER": "s6",
+        "npm_config__authToken": "CONFIG-SENTINEL",
+        "npm_config_registry": "https://evil.example/"
+      },
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "outputs": [
+          "repo/app/dist",
+          "repo/app/build"
+        ],
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        },
+        "script": "build",
+        "step": "npm-run"
+      },
+      "expect": {
+        "run": {
+          "argv": [
+            "{tmp}/bin/npm",
+            "run",
+            "--ignore-scripts",
+            "--offline",
+            "build"
+          ],
+          "codex": "{tmp}/bin/codex",
+          "dir": "{tmp}/dest/repo/app",
+          "env": [
+            "HOME={user}",
+            "USER=s6",
+            "PATH={tmp}/bin",
+            "LANG=C.UTF-8",
+            "LC_ALL=C",
+            "TMPDIR=$SCRATCH/tmp",
+            "XDG_CACHE_HOME=$SCRATCH/cache",
+            "npm_config_cache=$SCRATCH/npm-cache",
+            "npm_config_userconfig=$SCRATCH/user-npmrc",
+            "npm_config_globalconfig=$SCRATCH/global-npmrc",
+            "npm_config_registry=https://registry.npmjs.org/",
+            "npm_config_update_notifier=false",
+            "npm_config_offline=true"
+          ],
+          "record": {
+            "destination": "{tmp}/dest",
+            "kind": "npm-run",
+            "outputs": [
+              "repo/app/build",
+              "repo/app/dist"
+            ],
+            "path": "repo/app",
+            "previous": {
+              "destination": "{tmp}/dest",
+              "ended_at": "2026-11-17T00:01:00Z",
+              "exit_code": 0,
+              "kind": "npm-ci",
+              "outputs": [
+                "repo/app/node_modules"
+              ],
+              "path": "repo/app",
+              "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+              "started_at": "2026-11-17T00:00:00Z",
+              "state": "succeeded",
+              "version": 1
+            },
+            "script": "build",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "{now}",
+            "state": "running",
+            "version": 2
+          },
+          "scratch": {
+            "dirs": [
+              "tmp",
+              "cache",
+              "npm-cache"
+            ],
+            "files": [
+              "user-npmrc",
+              "global-npmrc"
+            ]
+          },
+          "setup_row": "setup.npm-run-no-network",
+          "writable": [
+            "{tmp}/dest/repo/app/build",
+            "{tmp}/dest/repo/app/dist"
+          ]
+        }
+      }
+    },
+    {
+      "id": "runner.ci-repeat-succeeded",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        },
+        "step": "npm-ci"
+      },
+      "expect": {
+        "repeat": {
+          "error": null,
+          "result": {
+            "destination": "{tmp}/dest",
+            "diagnostics": "{home}/preparations/{sha256:{tmp}/dest}/private",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "ready": true,
+            "reason": null,
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded"
+          }
+        }
+      },
+      "note": "a repeat reports the recorded outcome and needs no tool"
+    },
+    {
+      "id": "runner.ci-repeat-failed",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 1,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "reason": "exit",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "failed",
+          "version": 1
+        },
+        "step": "npm-ci"
+      },
+      "expect": {
+        "repeat": {
+          "error": "Materialized folder {tmp}/dest is not ready: its npm-ci preparation of repo/app failed (exit). The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/dest}/private are kept; materialize the snapshot into a fresh folder and prepare that one",
+          "result": {
+            "destination": "{tmp}/dest",
+            "diagnostics": "{home}/preparations/{sha256:{tmp}/dest}/private",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 1,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "ready": false,
+            "reason": "exit",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "failed"
+          }
+        }
+      }
+    },
+    {
+      "id": "runner.ci-repeat-running",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "running",
+          "version": 1
+        },
+        "step": "npm-ci"
+      },
+      "expect": {
+        "repeat": {
+          "error": "Materialized folder {tmp}/dest is not ready: its npm-ci preparation of repo/app has no recorded outcome: it is still running or was interrupted. The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/dest}/private are kept; materialize the snapshot into a fresh folder and prepare that one",
+          "result": {
+            "destination": "{tmp}/dest",
+            "diagnostics": "{home}/preparations/{sha256:{tmp}/dest}/private",
+            "ended_at": null,
+            "exit_code": null,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "ready": false,
+            "reason": null,
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "running"
+          }
+        }
+      }
+    },
+    {
+      "id": "runner.ci-repeat-after-run",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        },
+        "step": "npm-ci"
+      },
+      "expect": {
+        "repeat": {
+          "error": null,
+          "result": {
+            "destination": "{tmp}/dest",
+            "diagnostics": "{home}/preparations/{sha256:{tmp}/dest}/private",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "ready": true,
+            "reason": null,
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded"
+          }
+        }
+      },
+      "note": "the npm-ci an npm-run follows"
+    },
+    {
+      "id": "runner.ci-other-path",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/web",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        },
+        "step": "npm-ci"
+      },
+      "expect": {
+        "error": "{tmp}/dest already has a npm-ci preparation of repo/app; a folder is prepared once, with one npm-ci and at most one npm-run after it; materialize the snapshot into a fresh folder for another"
+      }
+    },
+    {
+      "id": "runner.run-repeat",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "outputs": [
+          "repo/app/dist"
+        ],
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        },
+        "script": "build",
+        "step": "npm-run"
+      },
+      "expect": {
+        "repeat": {
+          "error": null,
+          "result": {
+            "destination": "{tmp}/dest",
+            "diagnostics": "{home}/preparations/{sha256:{tmp}/dest}/private/npm-run",
+            "ended_at": "2026-11-17T00:03:00Z",
+            "exit_code": 0,
+            "kind": "npm-run",
+            "outputs": [
+              "repo/app/dist"
+            ],
+            "path": "repo/app",
+            "ready": true,
+            "reason": null,
+            "script": "build",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:02:00Z",
+            "state": "succeeded"
+          }
+        }
+      }
+    },
+    {
+      "id": "runner.run-repeat-failed",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "outputs": [
+          "repo/app/dist"
+        ],
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 1,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "reason": "changed",
+          "script": "build",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "failed",
+          "version": 2
+        },
+        "script": "build",
+        "step": "npm-run"
+      },
+      "expect": {
+        "repeat": {
+          "error": "Materialized folder {tmp}/dest is not ready: its npm-run preparation of repo/app (script build) failed (changed). The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/dest}/private/npm-run are kept; materialize the snapshot into a fresh folder and prepare that one",
+          "result": {
+            "destination": "{tmp}/dest",
+            "diagnostics": "{home}/preparations/{sha256:{tmp}/dest}/private/npm-run",
+            "ended_at": "2026-11-17T00:03:00Z",
+            "exit_code": 1,
+            "kind": "npm-run",
+            "outputs": [
+              "repo/app/dist"
+            ],
+            "path": "repo/app",
+            "ready": false,
+            "reason": "changed",
+            "script": "build",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:02:00Z",
+            "state": "failed"
+          }
+        }
+      }
+    },
+    {
+      "id": "runner.run-other-outputs",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "outputs": [
+          "repo/app/out"
+        ],
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        },
+        "script": "build",
+        "step": "npm-run"
+      },
+      "expect": {
+        "error": "{tmp}/dest already has a npm-run preparation of repo/app (script build); a folder is prepared once, with one npm-ci and at most one npm-run after it; materialize the snapshot into a fresh folder for another"
+      }
+    },
+    {
+      "id": "runner.run-other-script",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "outputs": [
+          "repo/app/dist"
+        ],
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        },
+        "script": "test",
+        "step": "npm-run"
+      },
+      "expect": {
+        "error": "{tmp}/dest already has a npm-run preparation of repo/app (script build); a folder is prepared once, with one npm-ci and at most one npm-run after it; materialize the snapshot into a fresh folder for another"
+      }
+    },
+    {
+      "id": "runner.run-repeat-unsorted",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "outputs": [
+          "repo/app/dist",
+          "repo/app/build"
+        ],
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:03:00Z",
+          "exit_code": 0,
+          "kind": "npm-run",
+          "outputs": [
+            "repo/app/build",
+            "repo/app/dist"
+          ],
+          "path": "repo/app",
+          "previous": {
+            "destination": "{tmp}/dest",
+            "ended_at": "2026-11-17T00:01:00Z",
+            "exit_code": 0,
+            "kind": "npm-ci",
+            "outputs": [
+              "repo/app/node_modules"
+            ],
+            "path": "repo/app",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:00:00Z",
+            "state": "succeeded",
+            "version": 1
+          },
+          "script": "build",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:02:00Z",
+          "state": "succeeded",
+          "version": 2
+        },
+        "script": "build",
+        "step": "npm-run"
+      },
+      "expect": {
+        "repeat": {
+          "error": null,
+          "result": {
+            "destination": "{tmp}/dest",
+            "diagnostics": "{home}/preparations/{sha256:{tmp}/dest}/private/npm-run",
+            "ended_at": "2026-11-17T00:03:00Z",
+            "exit_code": 0,
+            "kind": "npm-run",
+            "outputs": [
+              "repo/app/build",
+              "repo/app/dist"
+            ],
+            "path": "repo/app",
+            "ready": true,
+            "reason": null,
+            "script": "build",
+            "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+            "started_at": "2026-11-17T00:02:00Z",
+            "state": "succeeded"
+          }
+        }
+      }
+    },
+    {
+      "id": "runner.codex-absent",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "step": "npm-ci"
+      },
+      "expect": {
+        "error": "Preparation requires the installed Codex sandbox (codex on PATH)"
+      }
+    },
+    {
+      "id": "runner.npm-absent",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "step": "npm-ci"
+      },
+      "expect": {
+        "error": "Preparation requires npm on PATH"
+      }
+    },
+    {
+      "id": "runner.node-absent",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "outputs": [
+          "repo/app/dist"
+        ],
+        "path": "repo/app",
+        "recorded": {
+          "destination": "{tmp}/dest",
+          "ended_at": "2026-11-17T00:01:00Z",
+          "exit_code": 0,
+          "kind": "npm-ci",
+          "outputs": [
+            "repo/app/node_modules"
+          ],
+          "path": "repo/app",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073",
+          "started_at": "2026-11-17T00:00:00Z",
+          "state": "succeeded",
+          "version": 1
+        },
+        "script": "build",
+        "step": "npm-run"
+      },
+      "expect": {
+        "error": "Preparation requires node on PATH"
+      }
+    },
+    {
+      "id": "runner.tool-inside-folder",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/dest/repo/tools:{tmp}/bin"
+      },
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "step": "npm-ci"
+      },
+      "expect": {
+        "error": "npm {tmp}/dest/repo/tools/npm is inside the folder being prepared"
+      }
+    },
+    {
+      "id": "runner.tool-resolves-inside-folder",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "path": "{tmp}/bin/npm",
+          "target": "{tmp}/dest/repo/tools/npm",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "step": "npm-ci"
+      },
+      "expect": {
+        "error": "npm {tmp}/bin/npm is inside the folder being prepared"
+      }
+    },
+    {
+      "id": "runner.tool-not-executable",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/codex",
+          "type": "file"
+        },
+        {
+          "content": "x",
+          "mode": "0644",
+          "path": "{tmp}/bin/npm",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/app",
+        "step": "npm-ci"
+      },
+      "expect": {
+        "error": "Preparation requires npm on PATH"
+      }
+    },
+    {
+      "id": "runner.plan-refused-before-tools",
+      "fs": [
+        {
+          "path": "{tmp}/dest/repo",
+          "type": "dir"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "app\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/README.md",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"private\":true,\"scripts\":{\"build\":\"node build.js\",\"blank\":\"  \",\"nbsp\":\" \",\"num\":1}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/app/package.json",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/dest/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/tools/npm",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"name\":\"app\",\"lockfileVersion\":3,\"requires\":true,\"packages\":{\"\":{\"name\":\"app\",\"devDependencies\":{\"left-pad\":\"1.3.0\"}},\"node_modules/left-pad\":{\"version\":\"1.3.0\",\"resolved\":\"https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz\",\"integrity\":\"sha512-AAAA\",\"dev\":true}}}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package-lock.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{tmp}/dest/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{}\n",
+          "mode": "0644",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/tree/repo/web/package.json",
+          "type": "file"
+        },
+        {
+          "content": "{\"entries\":[{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/README.md\",\"repository\":\"github.com/test/repo\",\"sha256\":\"8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901\",\"size\":4},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/app/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"d5a84d522cb51fa400b1faf3a91df5e710ce9178de2bc4fdf65af9a3c36ef274\",\"size\":99},{\"kind\":\"file\",\"mode\":\"100755\",\"path\":\"repo/tools/npm\",\"repository\":\"github.com/test/repo\",\"sha256\":\"306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb\",\"size\":17},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package-lock.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"509545b23e6eae4891f7720f53ea09a88842ab56c6a191249035473696f4fc50\",\"size\":272},{\"kind\":\"file\",\"mode\":\"100644\",\"path\":\"repo/web/package.json\",\"repository\":\"github.com/test/repo\",\"sha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"size\":3}],\"repositories\":[{\"path\":\"repo\",\"repository\":\"github.com/test/repo\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073\n",
+          "mode": "0444",
+          "path": "{home}/snapshots/61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073/complete",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/dest",
+        "home": "{home}",
+        "materialized": {
+          "dest": "{tmp}/dest",
+          "snapshot_id": "sha256:61a88800e76da60b42c5045f26b2f3d8ffea0226a50f639e3135c787043f5073"
+        },
+        "path": "repo/nope",
+        "step": "npm-ci"
+      },
+      "expect": {
+        "error": "repo/nope is not a directory in {tmp}/dest"
+      },
+      "note": "the plan refuses before any tool is looked up"
+    }
+  ]
+}

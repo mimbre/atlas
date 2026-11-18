@@ -37,7 +37,7 @@ defmodule RelaDSL.Example do
 
     state :draft, label: "Write the draft" do
       present(expected: "Write it")
-      pass :writer, mode: :draft, on: [delivered: :proofread, failed: :stuck]
+      wait_for [:writer], on: :draft_result, delivered: :proofread, failed: :stuck
       timer :slow, "1d", to: :stuck, label: "The writer did not finish"
     end
 

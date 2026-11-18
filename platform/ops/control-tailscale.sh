@@ -1,5 +1,6 @@
 # Sourced only by core-run after apply-move, hold and Rela verification.
-# Foreground Serve owns only Control ingress; userspace networking adds no kernel routes.
+# Foreground Serve owns Control ingress and, when the settings configure Flow's work source
+# with a port, the work source's ingress; userspace networking adds no kernel routes.
 fail() { echo "control-tailscale: $*" >&2; exit 1; }
 umask 077
 state_dir="${ATLAS_CONTROL_TS_STATE_DIR:-/data/control-tailscale}"
@@ -8,21 +9,21 @@ mkdir -p "$state_dir" "$sock_dir"
 chmod 700 "$state_dir" "$sock_dir"
 sock="$sock_dir/tailscaled.sock"
 [ ! -e "$sock" ] || fail "socket already exists; refusing to adopt another daemon"
-daemon_pid=""; serve_pid=""; core_pid=""; key_file=""
+daemon_pid=""; serve_pid=""; source_pid=""; core_pid=""; key_file=""
 cleanup() {
   trap - TERM INT
-  for pid in "$serve_pid" "$core_pid" "$daemon_pid"; do
+  for pid in "$serve_pid" "$source_pid" "$core_pid" "$daemon_pid"; do
     [ -z "$pid" ] || kill -TERM "$pid" 2>/dev/null || true
   done
   for _ in {1..30}; do
     alive=""
-    for pid in "$serve_pid" "$core_pid" "$daemon_pid"; do
+    for pid in "$serve_pid" "$source_pid" "$core_pid" "$daemon_pid"; do
       if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then alive=1; fi
     done
     [ -n "$alive" ] || break
     sleep 0.1
   done
-  for pid in "$serve_pid" "$core_pid" "$daemon_pid"; do
+  for pid in "$serve_pid" "$source_pid" "$core_pid" "$daemon_pid"; do
     [ -z "$pid" ] || kill -KILL "$pid" 2>/dev/null || true
     [ -z "$pid" ] || wait "$pid" 2>/dev/null || true
   done
@@ -46,10 +47,19 @@ assert c["host"] in ("::", "0.0.0.0", "::1", "127.0.0.1")
 p=c["port"]; assert type(p) is int and 1 <= p <= 65535
 print(p)
 ' "$settings" "$ATLAS_ENV")" || fail "settings require an existing loopback-reachable Control listener"
+# Flow's work source port, when the settings give one (it listens on loopback only).
+source_port="$(python3 -c '
+import json,sys
+w=json.load(open(sys.argv[1])).get("flow",{}).get("work_source",{})
+p=w.get("port")
+print(p if type(p) is int and 1 <= p <= 65535 else "")
+' "$settings")" || fail "cannot read the work source settings"
+hostname="${ATLAS_CONTROL_TS_HOSTNAME:-atlas-$ATLAS_ENV}"
 tls_port="${ATLAS_CONTROL_TLS_PORT:-443}"
 [[ "$tls_port" =~ ^[0-9]{1,5}$ ]] || fail "invalid TLS port"
 (( 10#$tls_port >= 1 && 10#$tls_port <= 65535 )) || fail "invalid TLS port"
-tailscaled --tun=userspace-networking --statedir="$state_dir" --socket="$sock" &
+daemon_args=(--tun=userspace-networking --statedir="$state_dir" --socket="$sock")
+tailscaled "${daemon_args[@]}" &
 daemon_pid=$!
 state=""
 for _ in {1..100}; do
@@ -79,7 +89,7 @@ esac
 control_ts_key=""
 [ "$(backend_state)" = Running ] || fail "node is not Running"
 # Restate the restricted preferences for persisted nodes as well. No tags, routes or SSH.
-ts set --accept-dns=false --accept-routes=false --ssh=false \
+ts set --accept-dns=false --accept-routes=false --ssh=false --hostname="$hostname" \
   --advertise-routes= --advertise-tags= --advertise-exit-node=false ||
   fail "cannot restrict node preferences"
 "$app/release/bin/atlas" start &
@@ -97,9 +107,14 @@ done
 # No --bg: the route lives only with this supervised process. No Funnel.
 tailscale --socket="$sock" serve --tls-terminated-tcp="$tls_port" "tcp://localhost:$control_port" &
 serve_pid=$!
+if [ -n "$source_port" ]; then
+  tailscale --socket="$sock" serve --tls-terminated-tcp="$source_port" "tcp://localhost:$source_port" &
+  source_pid=$!
+fi
 while :; do
   kill -0 "$daemon_pid" 2>/dev/null || fail "owned tailscaled exited"
   kill -0 "$serve_pid" 2>/dev/null || fail "Serve exited"
+  [ -z "$source_pid" ] || kill -0 "$source_pid" 2>/dev/null || fail "work source Serve exited"
   kill -0 "$core_pid" 2>/dev/null || fail "core exited"
   sleep 0.2
 done

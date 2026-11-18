@@ -66,6 +66,16 @@ type manifest struct {
 // Materialize downloads snapshot id from Code into the new folder dest, keeps its baseline
 // under <home>/snapshots/<hex>/ and records the pair under <home>/materializations/.
 func Materialize(home, id, dest string) (map[string]any, error) {
+	return materialize(home, id, dest, false)
+}
+
+// MaterializeReadOnly is Materialize with dest sealed as compose --read-only seals a folder: files
+// without write bits and directories 0555. The baseline and the record are the same.
+func MaterializeReadOnly(home, id, dest string) (map[string]any, error) {
+	return materialize(home, id, dest, true)
+}
+
+func materialize(home, id, dest string, sealed bool) (map[string]any, error) {
 	match := snapshotID.FindStringSubmatch(id)
 	if match == nil {
 		return nil, errors.New("snapshot must be sha256:<64 lowercase hex characters>")
@@ -102,7 +112,7 @@ func Materialize(home, id, dest string) (map[string]any, error) {
 		return nil, err
 	}
 	defer remove(staging)
-	work, err := newTree(filepath.Join(staging, "tree"), false)
+	work, err := newTree(filepath.Join(staging, "tree"), sealed)
 	if err != nil {
 		return nil, err
 	}
@@ -171,17 +181,29 @@ func Materialize(home, id, dest string) (map[string]any, error) {
 		}
 	}
 
+	// A read-only tree is sealed below its root already; the root itself only after the rename,
+	// because macOS 15 refuses to move a directory without write permission to another parent.
+	if sealed {
+		if err = os.Chmod(work.root, 0700); err != nil {
+			return nil, err
+		}
+	}
 	if err = renameExclusive(work.root, dest); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return nil, fmt.Errorf("destination %s already exists", dest)
 		}
 		return nil, fmt.Errorf("cannot publish %s: %v", dest, err)
 	}
+	if sealed {
+		if err = os.Chmod(dest, 0555); err != nil {
+			return nil, fmt.Errorf("published %s but could not seal it: %v", dest, err)
+		}
+	}
 	// The folder is the user's now: a failed record is reported, never cleaned up.
 	if err = record(home, dest, id); err != nil {
 		return nil, fmt.Errorf("published %s but could not record its snapshot: %v", dest, err)
 	}
-	return map[string]any{"snapshot_id": id, "destination": dest, "baseline": baseline, "repositories": m.Repositories}, nil
+	return map[string]any{"snapshot_id": id, "destination": dest, "baseline": baseline, "repositories": m.Repositories, "read_only": sealed}, nil
 }
 
 // destination is dest's absolute path below its resolved parent; anything already there is refused.
@@ -399,11 +421,17 @@ func (m *manifest) check(id string, canonical []byte) (map[string]*entry, error)
 	if len(m.Repositories) == 0 {
 		return nil, errors.New("snapshot has no repositories")
 	}
+	return m.safety()
+}
+
+// safety checks the repositories and entries of a version 2 manifest or of an uploaded base's
+// version 3 one (whose repositories are its roots, without revisions) and indexes the entries by path.
+func (m *manifest) safety() (map[string]*entry, error) {
 	for i, r := range m.Repositories {
 		if !safe(r.Path) {
 			return nil, fmt.Errorf("unsafe repository path %q", r.Path)
 		}
-		if !revisionID.MatchString(r.Revision) {
+		if m.Version != 3 && !revisionID.MatchString(r.Revision) {
 			return nil, fmt.Errorf("repository %q has no valid revision", r.Path)
 		}
 		for _, other := range m.Repositories[:i] {
@@ -675,7 +703,7 @@ func (t *tree) mkdirs(dir string) error {
 			continue
 		}
 		if err := os.Mkdir(filepath.Join(t.root, dir[:i]), 0700); err != nil {
-			return fmt.Errorf("cannot create directory %q: %v", dir[:i], err)
+			return fmt.Errorf("cannot create directory %q: %w", dir[:i], err)
 		}
 		t.dirs[dir[:i]] = true
 	}

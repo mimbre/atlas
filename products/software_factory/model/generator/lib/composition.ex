@@ -288,7 +288,13 @@ defmodule RelaDSL.Composition do
         defined ++
         ends(schema, all, file) ++
         merged ++
-        checked ++ strays ++ subflow_problems ++ select_problems ++ run_problems ++ acl_problems,
+        checked ++
+        strays ++
+        subflow_problems ++
+        select_problems ++
+        run_problems ++
+        acl_problems ++
+        Build.supervision_problems(concept_items ++ own, flows, schema),
       file
     )
 

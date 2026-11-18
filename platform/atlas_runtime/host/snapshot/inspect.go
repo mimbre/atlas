@@ -255,7 +255,8 @@ func recorded(home, dest string) (string, error) {
 	return r.SnapshotID, nil
 }
 
-// loadBaseline verifies the completion marker, the manifest identity and its entries.
+// loadBaseline verifies the completion marker, the manifest identity and its entries, for a
+// version 2 manifest (Code's) or a version 3 one (an uploaded base's).
 func loadBaseline(baseline, id string) (*manifest, map[string]*entry, error) {
 	marker, err := os.ReadFile(filepath.Join(baseline, "complete"))
 	if err != nil || string(marker) != id+"\n" {
@@ -273,6 +274,9 @@ func loadBaseline(baseline, id string) (*manifest, map[string]*entry, error) {
 	}
 	if json.Unmarshal(raw, &version) == nil && version.Version == nil {
 		return nil, nil, errPredates
+	} else if version.Version != nil && *version.Version == 3 {
+		// An uploaded base (S5c): the Runtime-owned version 3 manifest.
+		return loadBaseManifest(raw, id)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()

@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "note": "The Runtime home's top-level names and their class (S6 SP2, B13; review Y4). denied: denied in every spec, by path in deny order when the home contains the workspace. chain: on a managed repository's ancestor chain; its other entries are denied. own: a turn's own entry below a denied name, re-allowed. atomic_temps: the atomic-write temps in the home, class denied, denied by path after the denied names in a managed repository (P0 fix decision); kept apart from denied, which is the census class; denied followed by atomic_temps is sensitiveHomeNames (fixed P0). Asserted by TestS6HomeLayout (Go: censusHome, sensitiveHomeNames) and home_layout_test.exs (AtlasRuntime.Sandbox.HomeLayout).",
+  "sockets": [
+    "runtime.sock",
+    "backend.sock"
+  ],
+  "denied": [
+    "runtime.sock",
+    "backend.sock",
+    "turns",
+    "code.json",
+    "server.json",
+    "backends.json",
+    "policy.json",
+    "availability.json",
+    "service.log",
+    "service.lock",
+    "passes",
+    "snapshots",
+    "materializations",
+    "scratch",
+    "work",
+    "admissions",
+    "preparations",
+    "packets",
+    "submissions",
+    "rebinds",
+    "frozen",
+    "execution-events.json",
+    "mode.json",
+    "clients.json",
+    "sources",
+    "local-source",
+    "bases"
+  ],
+  "atomic_temps": [
+    "code.json.tmp",
+    "server.json.tmp",
+    "backends.json.tmp",
+    "policy.json.tmp",
+    "availability.json.tmp",
+    "execution-events.json.tmp",
+    "mode.json.tmp",
+    "clients.json.tmp"
+  ],
+  "chain": [
+    "workers"
+  ],
+  "own": [
+    "scratch/<turn>"
+  ]
+}

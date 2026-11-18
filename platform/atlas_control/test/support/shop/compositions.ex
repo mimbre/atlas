@@ -418,3 +418,54 @@ defmodule Shop.ShelledKeepers do
     ]
   )
 end
+
+defmodule Shop.Supervised do
+  @moduledoc """
+  Members supervise the work on widgets (`Shop.Supervision`): the two supervision screens
+  beside what is checked by the client, in that order, opening on the latter (the
+  shell's `default`), and the jobs a supervisor has running.
+  """
+  use Shop.Composition,
+    name: "shop-supervised",
+    concepts: Shop.Base.concepts() ++ [Shop.Supervision],
+    subflows: [Shop.Supervision]
+
+  start_page(
+    assigned: [relation: :checked_by, title: "Checked", count: "{count} checked"],
+    open_for_you: [title: "Free", count: "{count} free", empty: "Nothing is free."],
+    supervised_by_you: [title: "Watched", count: "{count} watched", empty: "Nothing watched."]
+  )
+
+  supervised_work(kind: :job, of: :job_of, for: :job_for, ended: :outcome)
+
+  shell(
+    title: "Private Console",
+    tabs: [
+      [id: "free", label: "Free", to: "/_open"],
+      [id: "watched", label: "Watched", to: "/_supervised"],
+      [id: "checked", label: "Checked", to: "/", assigned: true],
+      [id: "widgets", label: "Widgets", to: "/k/widget"],
+      [id: "parts", label: "Parts", to: "/k/part"]
+    ],
+    default: "checked"
+  )
+end
+
+defmodule Shop.SupervisedOnCard do
+  @moduledoc """
+  As `Shop.Supervised`, but the supervised work is written on the widget's card
+  (`Shop.SupervisionOnCard`): Facts presents it on the card, not on the widget.
+  """
+  use Shop.Composition,
+    name: "shop-supervised-on-card",
+    concepts: Shop.Base.concepts() ++ [Shop.Card, Shop.SupervisionOnCard],
+    subflows: [Shop.SupervisionOnCard]
+
+  start_page(
+    assigned: [relation: :checked_by, title: "Checked", count: "{count} checked"],
+    open_for_you: [title: "Free", count: "{count} free", empty: "Nothing is free."],
+    supervised_by_you: [title: "Watched", count: "{count} watched", empty: "Nothing watched."]
+  )
+
+  supervised_work(kind: :job, of: :job_of, for: :job_for, ended: :outcome)
+end

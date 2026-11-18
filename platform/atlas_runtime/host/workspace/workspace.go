@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"unicode"
@@ -22,11 +23,13 @@ import (
 
 func Run(args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("use workspace path|scope|folder-scope|packet-scope|request")
+		return errors.New("use workspace path|scope|folder-scope|request|facts")
 	}
 	var result any
 	var err error
 	switch args[0] {
+	case "facts":
+		return RunFacts(args[1:], os.Stdin, output)
 	case "path", "scope":
 		if len(args) != 2 {
 			return fmt.Errorf("workspace %s requires one path", args[0])
@@ -41,11 +44,16 @@ func Run(args []string, output io.Writer) error {
 			return errors.New("workspace folder-scope requires destination and Runtime home")
 		}
 		result, err = FolderScope(args[1], args[2])
-	case "packet-scope":
-		if len(args) != 3 {
-			return errors.New("workspace packet-scope requires packet tree and Runtime home")
+	case "base-import":
+		var values map[string]string
+		if values, err = options(args[1:], "home", "staging"); err == nil {
+			result, err = snapshot.ImportBase(values["home"], values["staging"])
 		}
-		result, err = PacketScope(args[1], args[2])
+	case "materialize":
+		var values map[string]string
+		if values, err = options(args[1:], "home", "baseline", "dest"); err == nil {
+			result, err = Materialize(values["home"], values["baseline"], values["dest"])
+		}
 	case "request":
 		if len(args) != 4 {
 			return errors.New("workspace request requires home, URL and branch")
@@ -58,6 +66,55 @@ func Run(args []string, output io.Writer) error {
 		return err
 	}
 	return json.NewEncoder(output).Encode(result)
+}
+
+// options reads exactly the flags --name VALUE (or --name=VALUE) of names, each once and nonempty.
+func options(args []string, names ...string) (map[string]string, error) {
+	usage := "requires " + strings.Join(names, ", ") + " as --" + strings.Join(names, " VALUE --") + " VALUE"
+	values := map[string]string{}
+	for i := 0; i < len(args); i++ {
+		name, value, inline := strings.Cut(strings.TrimPrefix(args[i], "--"), "=")
+		if !strings.HasPrefix(args[i], "--") || !slices.Contains(names, name) || values[name] != "" {
+			return nil, fmt.Errorf("unexpected argument %q: %s", args[i], usage)
+		}
+		if !inline {
+			if i++; i == len(args) {
+				return nil, fmt.Errorf("--%s needs a value: %s", name, usage)
+			}
+			value = args[i]
+		}
+		if value == "" {
+			return nil, fmt.Errorf("--%s needs a value: %s", name, usage)
+		}
+		values[name] = value
+	}
+	for _, name := range names {
+		if values[name] == "" {
+			return nil, fmt.Errorf("missing --%s: %s", name, usage)
+		}
+	}
+	return values, nil
+}
+
+// Materialize builds the work folder dest from the Runtime home's complete baseline id (B10,
+// called only by the core). dest must be exactly the Runtime work folder <home>/workers/work-<work_id>
+// (RuntimeWorkFolder of the canonical home, spelled as its canonical path, the shape of the core's
+// Folders.path/2) and must not exist yet; anything else is refused before anything is written.
+// Every refusal is a *snapshot.Failure with MaterializeBaseline's codes: destination_not_allowed,
+// destination_exists, baseline_missing or io.
+func Materialize(home, id, dest string) (map[string]any, error) {
+	if !filepath.IsAbs(home) || !filepath.IsAbs(dest) {
+		return nil, snapshot.Fail("destination_not_allowed", errors.New("workspace materialize requires an absolute Runtime home and destination"))
+	}
+	home, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return nil, snapshot.Fail("io", fmt.Errorf("Runtime home: %v", err))
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(dest))
+	if err != nil || dest != filepath.Join(parent, filepath.Base(dest)) || !RuntimeWorkFolder(home, dest) {
+		return nil, snapshot.Fail("destination_not_allowed", fmt.Errorf("destination %s is not the Runtime work folder %s/workers/work-<work_id>", dest, home))
+	}
+	return snapshot.MaterializeBaseline(home, id, dest)
 }
 
 // Pathlib collapses dots and separators but retains '..' until resolution.
@@ -433,11 +490,11 @@ func FolderScope(dest, home string) (map[string]any, error) {
 		return nil, err
 	}
 	home, root := scope["home"].(string), scope["root"].(string)
-	// A packet tree stays as frozen: only the review-packet profile runs in it.
+	// A packet tree stays as frozen: no worker runs in it.
 	if id, err := snapshot.RecordedPacket(home, root); err != nil {
 		return nil, err
 	} else if id != "" {
-		return nil, fmt.Errorf("Materialized folder %s is the tree of review packet %s; review it with --permissions review-packet", root, id)
+		return nil, fmt.Errorf("Materialized folder %s is the tree of frozen packet %s; it cannot be a worker folder", root, id)
 	}
 	return readyScope(scope)
 }
@@ -455,8 +512,31 @@ func readyScope(scope map[string]any) (map[string]any, error) {
 	return scope, nil
 }
 
+// workFolderName is the name of a Runtime-chosen work folder: "work-" and a work_id, itself "work-"
+// and 16 lowercase hex digits (design §3.9 RQ7, `<home>/workers/work-<work_id>`).
+var workFolderName = regexp.MustCompile(`\Awork-work-[0-9a-f]{16}\z`)
+
+// RuntimeWorkFolder reports whether root, a canonical path, is exactly the work folder
+// <home>/workers/work-<work_id> of the canonical Runtime home: a direct child of <home>/workers
+// named work- and a valid work_id. It is the one Runtime-home path a worker may run in; its
+// profiles deny every other entry along the chain home → workers → folder.
+func RuntimeWorkFolder(home, root string) bool {
+	return home != "" && filepath.Dir(root) == filepath.Join(home, "workers") && workFolderName.MatchString(filepath.Base(root))
+}
+
+// runtimeWorkFolder is the exemption of FolderScopeBeforePreparation: dest is spelled exactly as its
+// canonical path (no ".", "..", doubled or trailing separator, and no symlink in any parent) and that
+// path is RuntimeWorkFolder of the canonical home; dest itself is a real directory, not a symlink.
+func runtimeWorkFolder(dest, canonical, home string) bool {
+	if dest != canonical || !RuntimeWorkFolder(home, canonical) {
+		return false
+	}
+	info, err := os.Lstat(dest)
+	return err == nil && info.IsDir()
+}
+
 // FolderScopeBeforePreparation is the materialized-folder permission scope of dest, materialized
-// outside the Runtime home, whatever its preparation. It verifies the record and baseline like
+// outside the Runtime home (or exactly the work folder RuntimeWorkFolder names), whatever its preparation. It verifies the record and baseline like
 // snapshot status, without Git.
 func FolderScopeBeforePreparation(dest, home string) (map[string]any, error) {
 	if !filepath.IsAbs(dest) || !filepath.IsAbs(home) {
@@ -474,7 +554,9 @@ func FolderScopeBeforePreparation(dest, home string) (map[string]any, error) {
 	within := func(dir, path string) bool {
 		return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, "/")+"/")
 	}
-	if within(home, canonical) || within(canonical, home) {
+	// The one exception is the Runtime-chosen work folder (§3.9 RQ7), named exactly: its profiles deny
+	// the rest of the home along the chain to it instead of the home whole (I8).
+	if (within(home, canonical) || within(canonical, home)) && !runtimeWorkFolder(dest, canonical, home) {
 		return nil, fmt.Errorf("Materialized folder %s overlaps the Runtime home %s; materialize it outside the Runtime home", dest, home)
 	}
 	scope, err := snapshot.Verified(home, dest)
@@ -500,29 +582,6 @@ func FolderScopeBeforePreparation(dest, home string) (map[string]any, error) {
 		return nil, err
 	}
 	scope["profile"], scope["version"], scope["home"] = "materialized-folder", json.Number("1"), home
-	return scope, nil
-}
-
-// PacketScope is the review-packet permission scope of the packet tree dest: its materialized-folder
-// scope plus the packet folder, its findings folder, the packet ID and the fingerprint. It refuses a
-// tree, packet.json or diff.json that changed after the freeze, so a review never runs on other
-// content than the packet it names.
-func PacketScope(dest, home string) (map[string]any, error) {
-	scope, err := FolderScopeBeforePreparation(dest, home)
-	if err != nil {
-		return nil, err
-	}
-	if scope, err = readyScope(scope); err != nil {
-		return nil, err
-	}
-	packet, err := snapshot.VerifiedPacket(scope["home"].(string), scope["root"].(string))
-	if err != nil {
-		return nil, err
-	}
-	for key, value := range packet {
-		scope[key] = value
-	}
-	scope["profile"] = "review-packet"
 	return scope, nil
 }
 

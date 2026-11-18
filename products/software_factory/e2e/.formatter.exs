@@ -1,4 +1,4 @@
 [
-  inputs: ["{mix,.formatter}.exs", "{lib,scenarios,test}/**/*.{ex,exs}"],
+  inputs: ["{mix,.formatter}.exs", "{lib,scenarios,test}/**/*.{ex,exs}", "pull/**/*.{ex,exs}"],
   locals_without_parens: [step: 2, scenario: 2]
 ]

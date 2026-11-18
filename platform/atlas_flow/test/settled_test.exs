@@ -134,6 +134,19 @@ defmodule AtlasFlow.SettledTest do
       request.id
     end
 
+    # Flow has handled every hint of a fact this test put, with no deadline. The Router
+    # acknowledges a fact to its writer before it hints Flow (AtlasBus.Router.deliver/3),
+    # so a `:sys.get_state/1` from this process can reach Flow before the hint does. This
+    # request is routed after that hint by the same Router process, so Flow takes it after
+    # the hint, and answers it at once (every position is at or past 0).
+    defp barrier do
+      id = ask(0)
+
+      receive do
+        {:atlas_bus, %Envelope{id: ^id, class: "answer"}, _} -> :ok
+      end
+    end
+
     # Something the widget's subflow presents changed behind it: its next projection
     # writes again.
     defp stale(key) do
@@ -222,13 +235,14 @@ defmodule AtlasFlow.SettledTest do
       stale("W-1")
       {:stored, p} = Talk.put("widget", %{"op" => "change", "key" => "W-1", "values" => %{}})
       id = ask(p)
-      :sys.get_state(c.engine)
+      # Hint p was looked at (and held) while the projection read was still blocked.
+      barrier()
       refute_received {:atlas_bus, %Envelope{id: ^id}, _}
 
       GenServer.call(FakeFacts, {:allow_read, "widget", read})
       # A later hint repairs the fact, but only a complete round can release the hold.
       {:stored, q} = Talk.put("widget", %{"op" => "change", "key" => "W-1", "values" => %{}})
-      :sys.get_state(c.engine)
+      barrier()
       assert FakeFacts.get("widget", "W-1")["values"]["todo"] == "Tend it"
       GenServer.call(FakeFacts, {:block_read, "widget", %{}})
       Engine.round(c.engine)
@@ -239,8 +253,9 @@ defmodule AtlasFlow.SettledTest do
       writes = FakeFacts.sent()
       Engine.round(c.engine)
 
-      assert_receive {:atlas_bus, %Envelope{id: ^id, class: "answer"}, %{"settled" => settled}},
-                     1_000
+      # The round answers its waiters through the Router (a call) before it answers
+      # `round/1`: the answer is here already.
+      assert_received {:atlas_bus, %Envelope{id: ^id, class: "answer"}, %{"settled" => settled}}
 
       assert settled >= q
       assert FakeFacts.sent() == writes

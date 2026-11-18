@@ -12,11 +12,11 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
     try do
       assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o600
       {:ok, socket} = :gen_tcp.connect({:local, path}, 0, [:binary, active: false, packet: :line])
-      :ok = :gen_tcp.send(socket, "{\"command\":\"service-status\"}\n")
-      assert_receive {:"$gen_call", from, %{"command" => "service-status"}}
-      GenServer.reply(from, {%{service: "running"}, false})
+      :ok = :gen_tcp.send(socket, "{\"command\":\"handoff\"}\n")
+      assert_receive {:"$gen_call", from, %{"command" => "handoff"}}
+      GenServer.reply(from, {%{handoff: "recorded"}, false})
       assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
-      assert JSON.decode!(reply) == %{"service" => "running"}
+      assert JSON.decode!(reply) == %{"handoff" => "recorded"}
       assert String.ends_with?(reply, "\n")
       assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
 
@@ -32,8 +32,9 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
       end
 
       {:ok, socket} = :gen_tcp.connect({:local, path}, 0, [:binary, active: false, packet: :line])
-      :ok = :gen_tcp.send(socket, "{\"command\":\"service-stop\"}\n")
-      assert_receive {:"$gen_call", from, %{"command" => "service-stop"}}
+      # The Service may ask for shutdown with its reply; the socket sends the reply first.
+      :ok = :gen_tcp.send(socket, "{\"command\":\"question\"}\n")
+      assert_receive {:"$gen_call", from, %{"command" => "question"}}
       GenServer.reply(from, {%{service: "stopping"}, true})
       assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
       assert JSON.decode!(reply) == %{"service" => "stopping"}
@@ -45,9 +46,145 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
     end
   end
 
-  describe "streams" do
-    alias AtlasRuntime.Entrypoints.ReadSocket
+  test "runtime.sock refuses the work commands and the operations, and forwards guidance" do
+    dir = TestHost.short_dir!("ars", "/runtime.sock")
+    acceptor = Socket.start(dir, self())
+    path = Path.join(dir, "runtime.sock")
 
+    send_line = fn request ->
+      {:ok, socket} = :gen_tcp.connect({:local, path}, 0, [:binary, active: false, packet: :line])
+      :ok = :gen_tcp.send(socket, JSON.encode!(request) <> "\n")
+      socket
+    end
+
+    try do
+      for {command, place} <- [
+            {"start", "backend.sock"},
+            {"continue", "backend.sock"},
+            {"stop", "backend.sock"},
+            {"kill", "backend.sock"},
+            {"status", "backend.sock"},
+            {"output", "backend.sock"},
+            {"turns", "backend.sock (GET /v1/turns)"},
+            # The operations contract (S2): runtime.sock keeps only guidance (Q10).
+            {"service-status", "backend.sock (GET /v1/runtime)"},
+            {"service-stop", "backend.sock (POST /v1/control/stop)"},
+            {"preferences", "backend.sock (GET /v1/policy"},
+            {"release", "backend.sock (POST /v1/slots/{slot}/release)"}
+          ] do
+        socket = send_line.(%{"command" => command, "worker_id" => "w1"})
+        assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
+        assert %{"command_error" => error} = JSON.decode!(reply)
+        assert error =~ "#{command} is not served on runtime.sock"
+        assert error =~ place
+        assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
+        # Refused before the Service is asked: it never sees the command.
+        refute_received {:"$gen_call", _, _}
+      end
+
+      # Each operation also as the CLI sent it before S2.
+      for request <- [
+            %{"command" => "service-status"},
+            %{"command" => "service-stop"},
+            %{"command" => "preferences", "reenable" => "claude"},
+            %{"command" => "release", "worker_id" => "w1"}
+          ] do
+        socket = send_line.(request)
+        assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
+        assert %{"command_error" => error} = JSON.decode!(reply)
+
+        assert error =~
+                 "is not served on runtime.sock: use the operations contract on backend.sock"
+
+        refute_received {:"$gen_call", _, _}
+      end
+
+      target = %{"worker_id" => "w1", "turn_id" => "t"}
+      question = Map.put(target, "question_id", "q")
+
+      # Every guidance command (Q10) still reaches the Service.
+      for request <- [
+            Map.put(question, "command", "question"),
+            Map.merge(question, %{"command" => "answer", "answers" => %{"Which?" => "A"}}),
+            Map.put(target, "command", "handoff"),
+            Map.merge(target, %{
+              "command" => "submit-handoff",
+              "handoff" => %{"kind" => "completion"}
+            }),
+            Map.put(question, "command", "peer-question"),
+            Map.merge(question, %{
+              "command" => "route-peer-question",
+              "peer_worker_id" => "w2",
+              "peer_source_turn_id" => "p"
+            }),
+            Map.merge(question, %{"command" => "bind-peer-reply", "response_turn_id" => "r"})
+          ] do
+        socket = send_line.(request)
+        assert_receive {:"$gen_call", from, ^request}
+        GenServer.reply(from, {%{forwarded: request["command"]}, false})
+        assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
+        assert JSON.decode!(reply) == %{"forwarded" => request["command"]}
+      end
+    after
+      Process.unlink(acceptor)
+      Process.exit(acceptor, :kill)
+    end
+  end
+
+  test "runtime.sock answers the journal reads and refuses every other runtime.read/1 operation" do
+    dir = TestHost.short_dir!("ars", "/runtime.sock")
+    acceptor = Socket.start(dir, self())
+    path = Path.join(dir, "runtime.sock")
+
+    request = fn line ->
+      {:ok, socket} = :gen_tcp.connect({:local, path}, 0, [:binary, active: false, packet: :line])
+      :ok = :gen_tcp.send(socket, line <> "\n")
+      socket
+    end
+
+    try do
+      socket = request.(~s({"api":"runtime.read/1","op":"events","limit":2}))
+      # A read, never a command.
+      assert_receive {:"$gen_call", from, {:read, "events", %{"limit" => 2}}}
+      GenServer.reply(from, %{"api" => "runtime.read/1", "op" => "events", "cursor" => "e:2"})
+      assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
+
+      assert JSON.decode!(reply) == %{
+               "api" => "runtime.read/1",
+               "op" => "events",
+               "cursor" => "e:2"
+             }
+
+      for line <- [
+            ~s({"api":"runtime.read/1","op":"turns"}),
+            ~s({"api":"runtime.read/1","op":"turn","turn_id":"turn-0000000000000001"}),
+            ~s({"api":"runtime.read/1","op":"workers"}),
+            ~s({"api":"runtime.read/1","op":"output","turn_id":"turn-0000000000000001"}),
+            ~s({"api":"runtime.read/1"})
+          ] do
+        socket = request.(line)
+        assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
+
+        assert %{"error" => %{"code" => "not_journal", "message" => message}} =
+                 JSON.decode!(reply)
+
+        assert message =~ "events and follow"
+        assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
+        refute_received {:"$gen_call", _, _}
+      end
+
+      # A journal request is validated before the Service sees it.
+      socket = request.(~s({"api":"runtime.read/1","op":"events","limit":0}))
+      assert {:ok, reply} = :gen_tcp.recv(socket, 0, 1_000)
+      assert %{"error" => %{"code" => "invalid_request"}} = JSON.decode!(reply)
+      refute_received {:"$gen_call", _, _}
+    after
+      Process.unlink(acceptor)
+      Process.exit(acceptor, :kill)
+    end
+  end
+
+  describe "streams" do
     setup do
       # Short: socket paths must fit a Unix socket name.
       dir =
@@ -83,16 +220,17 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
         "recording_started_at" => "2026-11-10T00:00:00Z"
       }
 
-    # read.sock against this test process as the service; `timing` in milliseconds.
+    # runtime.sock's follow stream against this test process as the service; `timing` in
+    # milliseconds.
     defp follow(dir, timing, fields \\ %{}) do
-      acceptor = ReadSocket.start(dir, self(), timing)
+      acceptor = Socket.start(dir, self(), timing)
 
       on_exit(fn ->
         Process.unlink(acceptor)
         Process.exit(acceptor, :kill)
       end)
 
-      socket = connect(Path.join(dir, "read.sock"))
+      socket = connect(Path.join(dir, "runtime.sock"))
       request = Map.merge(%{"api" => "runtime.read/1", "op" => "follow"}, fields)
       :ok = :gen_tcp.send(socket, JSON.encode!(request) <> "\n")
       socket
@@ -201,14 +339,15 @@ defmodule AtlasRuntime.Entrypoints.SocketTest do
       assert {:error, :closed} = :gen_tcp.recv(socket, 0, 5_000)
     end
 
-    test "a refused follow is one error line; a stopping service ends the stream", %{dir: dir} do
+    test "a refused follow is one error line; a stopping service ends the stream",
+         %{dir: dir} do
       refused = follow(dir, [], %{"cursor" => "e:9"})
       assert_receive {:"$gen_call", from, {:follow, _, "e:9"}}, 5_000
       GenServer.reply(from, AtlasRuntime.Inspection.Reads.error("invalid_cursor"))
       assert %{"error" => %{"code" => "invalid_cursor"}} = line(refused)
       assert {:error, :closed} = :gen_tcp.recv(refused, 0, 5_000)
 
-      socket = connect(Path.join(dir, "read.sock"))
+      socket = connect(Path.join(dir, "runtime.sock"))
       :ok = :gen_tcp.send(socket, ~s({"api":"runtime.read/1","op":"follow"}\n))
       assert_receive {:"$gen_call", from, {:follow, follower, nil}}, 5_000
       GenServer.reply(from, page([], "e:0"))

@@ -1,0 +1,3832 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "claude.plain-read-only-outside",
+      "fs": [
+        {
+          "path": "{tmp}/proj",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "sandbox": "read-only",
+        "workspace": "{tmp}/proj"
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Read,Glob,Grep",
+              "--allowedTools",
+              "Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)"
+                ]
+              }
+            },
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.plain-read-only-below-home",
+      "fs": [
+        {
+          "path": "{home}/workers/w1",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "sandbox": "read-only",
+        "workspace": "{home}/workers/w1"
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Read,Glob,Grep",
+              "--allowedTools",
+              "Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"permissions\":{\"deny\":[\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)"
+                ]
+              }
+            },
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "home_names": [
+            "runtime.sock",
+            "backend.sock"
+          ],
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{home}/workers/w1"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.plain-read-only-code-token",
+      "fs": [
+        {
+          "path": "{tmp}/proj",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "code_json": {
+          "token_file": "{tmp}/code-home/runtime.token"
+        },
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "sandbox": "read-only",
+        "workspace": "{tmp}/proj"
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Read,Glob,Grep",
+              "--allowedTools",
+              "Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{tmp}/code-home/runtime.token)\",\"Read(/{tmp}/code-home)\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{tmp}/code-home/runtime.token)",
+                  "Read(/{tmp}/code-home)",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)"
+                ]
+              }
+            },
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.folder-code-token",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "code_json": {
+          "token_file": "{tmp}/code-home/runtime.token"
+        },
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "darwin",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{tmp}/code-home/runtime.token\",\"{tmp}/code-home\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{tmp}/code-home/runtime.token\",\"{tmp}/code-home\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/code-home/runtime.token)\",\"Read(/{tmp}/code-home)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{tmp}/code-home/runtime.token)",
+                  "Read(/{tmp}/code-home)",
+                  "Read(/{user}/.claude)",
+                  "Read(/{user}/.codex)",
+                  "Read(/{user}/.config/gh)",
+                  "Read(/{user}/.ssh)",
+                  "Read(/{user}/.aws)",
+                  "Read(/{user}/.docker)",
+                  "Read(/{user}/Library/Keychains)",
+                  "Read(/{user}/.git-credentials)",
+                  "Read(/{user}/.config/git)",
+                  "Read(/{user}/.netrc)",
+                  "Read(/{user}/.claude.json)",
+                  "Read(/{user}/.local/state/atlas-runtime)",
+                  "Read(/{user}/.gitconfig)",
+                  "Read(/{user}/.erlang.cookie)"
+                ]
+              },
+              "sandbox": {
+                "allowPty": true,
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowRead": [
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json",
+                    "{user}/.claude/shell-snapshots",
+                    "{user}/.claude/session-env",
+                    "{tmp}/dest",
+                    "$TEMPORARY",
+                    "{user}/.asdf/shims",
+                    "{user}/missing/bin",
+                    "{user}/.asdf",
+                    "{user}/.tool-versions",
+                    "{user}/.hex",
+                    "{user}/go/pkg/mod"
+                  ],
+                  "allowWrite": [
+                    "{tmp}/dest",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{user}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{tmp}/code-home/runtime.token",
+                    "{tmp}/code-home",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{tmp}/code-home/runtime.token",
+                    "{tmp}/code-home",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie",
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": true,
+                  "allowUnixSockets": [
+                    "$TEMPORARY"
+                  ],
+                  "allowedDomains": [],
+                  "strictAllowlist": true
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [
+              "$TEMPORARY/tmp",
+              "$TEMPORARY/go-build",
+              "$TEMPORARY/go-tmp",
+              "$TEMPORARY/cache",
+              "$TEMPORARY/npm"
+            ],
+            "prefix_path": "{tmp}/bin",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ],
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "TMPDIR",
+                "$TEMPORARY/tmp"
+              ],
+              [
+                "GOCACHE",
+                "$TEMPORARY/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "$TEMPORARY/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "$TEMPORARY/cache"
+              ],
+              [
+                "npm_config_cache",
+                "$TEMPORARY/npm"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "$TEMPORARY",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.plain-read-only-questions",
+      "fs": [
+        {
+          "path": "{tmp}/proj",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "questions": true,
+        "sandbox": "read-only",
+        "workspace": "{tmp}/proj"
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Read,Glob,Grep,AskUserQuestion",
+              "--allowedTools",
+              "Read,Glob,Grep",
+              "--input-format",
+              "stream-json",
+              "--permission-mode",
+              "manual",
+              "--permission-prompts",
+              "host",
+              "--permission-prompt-tool",
+              "stdio"
+            ],
+            "settings": "{\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "manual",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)"
+                ]
+              }
+            },
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.dedicated-darwin",
+      "fs": [
+        {
+          "path": "{tmp}/proj/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "platform": "darwin",
+        "scope": {
+          "git_dir": "{tmp}/proj/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/proj",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false,\"allowMachLookup\":[\"com.apple.trustd.agent\"]}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)"
+                ]
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowWrite": [
+                    "{tmp}/proj",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{tmp}/proj/.agents",
+                    "{tmp}/proj/.codex",
+                    "{tmp}/proj/.aws",
+                    "{tmp}/proj/.claude",
+                    "{tmp}/proj/.git/config",
+                    "{tmp}/proj/.git/hooks",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowMachLookup": [
+                    "com.apple.trustd.agent"
+                  ],
+                  "allowedDomains": [
+                    "github.com",
+                    "api.github.com"
+                  ]
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.dedicated-linux",
+      "fs": [
+        {
+          "path": "{tmp}/proj/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "platform": "linux",
+        "scope": {
+          "git_dir": "{tmp}/proj/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/proj",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)"
+                ]
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowWrite": [
+                    "{tmp}/proj",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{tmp}/proj/.agents",
+                    "{tmp}/proj/.codex",
+                    "{tmp}/proj/.aws",
+                    "{tmp}/proj/.claude",
+                    "{tmp}/proj/.git/config",
+                    "{tmp}/proj/.git/hooks",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowedDomains": [
+                    "github.com",
+                    "api.github.com"
+                  ]
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.dedicated-html-characters",
+      "fs": [
+        {
+          "path": "{tmp}/a&b<c>/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "platform": "linux",
+        "scope": {
+          "git_dir": "{tmp}/a&b<c>/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/a&b<c>",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/a&b<c>\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{tmp}/a&b<c>/.agents\",\"{tmp}/a&b<c>/.codex\",\"{tmp}/a&b<c>/.aws\",\"{tmp}/a&b<c>/.claude\",\"{tmp}/a&b<c>/.git/config\",\"{tmp}/a&b<c>/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)"
+                ]
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowWrite": [
+                    "{tmp}/a&b<c>",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{tmp}/a&b<c>/.agents",
+                    "{tmp}/a&b<c>/.codex",
+                    "{tmp}/a&b<c>/.aws",
+                    "{tmp}/a&b<c>/.claude",
+                    "{tmp}/a&b<c>/.git/config",
+                    "{tmp}/a&b<c>/.git/hooks",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowedDomains": [
+                    "github.com",
+                    "api.github.com"
+                  ]
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/a&b<c>"
+          }
+        }
+      },
+      "note": "Claude settings are written without HTML escaping"
+    },
+    {
+      "id": "claude.dedicated-managed",
+      "fs": [
+        {
+          "path": "{home}/workers/w1/repositories/r/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "runtime_chosen",
+        "platform": "darwin",
+        "scope": {
+          "git_dir": "{home}/workers/w1/repositories/r/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{home}/workers/w1/repositories/r",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{home}/workers/w1/repositories/r\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}/workers/w1/repositories/r/.agents\",\"{home}/workers/w1/repositories/r/.codex\",\"{home}/workers/w1/repositories/r/.aws\",\"{home}/workers/w1/repositories/r/.claude\",\"{home}/workers/w1/repositories/r/.git/config\",\"{home}/workers/w1/repositories/r/.git/hooks\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"allowRead\":[\"{home}/workers/w1/repositories/r\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false,\"allowMachLookup\":[\"com.apple.trustd.agent\"]}},\"permissions\":{\"deny\":[\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)"
+                ]
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowRead": [
+                    "{home}/workers/w1/repositories/r"
+                  ],
+                  "allowWrite": [
+                    "{home}/workers/w1/repositories/r",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{home}/workers/w1/repositories/r/.agents",
+                    "{home}/workers/w1/repositories/r/.codex",
+                    "{home}/workers/w1/repositories/r/.aws",
+                    "{home}/workers/w1/repositories/r/.claude",
+                    "{home}/workers/w1/repositories/r/.git/config",
+                    "{home}/workers/w1/repositories/r/.git/hooks",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowMachLookup": [
+                    "com.apple.trustd.agent"
+                  ],
+                  "allowedDomains": [
+                    "github.com",
+                    "api.github.com"
+                  ]
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "runtime_chosen",
+            "root": "{home}/workers/w1/repositories/r"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.dedicated-questions",
+      "fs": [
+        {
+          "path": "{tmp}/proj/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "platform": "linux",
+        "questions": true,
+        "scope": {
+          "git_dir": "{tmp}/proj/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/proj",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep,AskUserQuestion",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--input-format",
+              "stream-json",
+              "--permission-mode",
+              "manual",
+              "--permission-prompts",
+              "host",
+              "--permission-prompt-tool",
+              "stdio"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "manual",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)"
+                ]
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowWrite": [
+                    "{tmp}/proj",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{tmp}/proj/.agents",
+                    "{tmp}/proj/.codex",
+                    "{tmp}/proj/.aws",
+                    "{tmp}/proj/.claude",
+                    "{tmp}/proj/.git/config",
+                    "{tmp}/proj/.git/hooks",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowedDomains": [
+                    "github.com",
+                    "api.github.com"
+                  ]
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.dedicated-temp-44-bytes",
+      "fs": [
+        {
+          "path": "{tmp}/proj/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "platform": "linux",
+        "scope": {
+          "git_dir": "{tmp}/proj/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/proj",
+          "version": 1
+        },
+        "temporary_bytes": 44
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)"
+                ]
+              },
+              "sandbox": {
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowWrite": [
+                    "{tmp}/proj",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{tmp}/proj/.agents",
+                    "{tmp}/proj/.codex",
+                    "{tmp}/proj/.aws",
+                    "{tmp}/proj/.claude",
+                    "{tmp}/proj/.git/config",
+                    "{tmp}/proj/.git/hooks",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": false,
+                  "allowedDomains": [
+                    "github.com",
+                    "api.github.com"
+                  ]
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [],
+            "prefix_path": "",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/proj"
+          }
+        }
+      },
+      "note": "{temporary}/claude-<uid> is exactly 44 bytes: accepted"
+    },
+    {
+      "id": "claude.dedicated-temp-45-bytes",
+      "fs": [
+        {
+          "path": "{tmp}/proj/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "platform": "linux",
+        "scope": {
+          "git_dir": "{tmp}/proj/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/proj",
+          "version": 1
+        },
+        "temporary_bytes": 45
+      },
+      "expect": {
+        "error": "Claude private native temp path exceeds the 44-byte child-temp limit"
+      }
+    },
+    {
+      "id": "claude.dedicated-in-system-temp",
+      "fs": [
+        {
+          "path": "{tmp}/systmp/proj/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "platform": "linux",
+        "scope": {
+          "git_dir": "{tmp}/systmp/proj/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/systmp/proj",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "Claude dedicated repositories must be outside system temporary directories"
+      }
+    },
+    {
+      "id": "claude.folder-darwin",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "darwin",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{user}/.claude)",
+                  "Read(/{user}/.codex)",
+                  "Read(/{user}/.config/gh)",
+                  "Read(/{user}/.ssh)",
+                  "Read(/{user}/.aws)",
+                  "Read(/{user}/.docker)",
+                  "Read(/{user}/Library/Keychains)",
+                  "Read(/{user}/.git-credentials)",
+                  "Read(/{user}/.config/git)",
+                  "Read(/{user}/.netrc)",
+                  "Read(/{user}/.claude.json)",
+                  "Read(/{user}/.local/state/atlas-runtime)",
+                  "Read(/{user}/.gitconfig)",
+                  "Read(/{user}/.erlang.cookie)"
+                ]
+              },
+              "sandbox": {
+                "allowPty": true,
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowRead": [
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json",
+                    "{user}/.claude/shell-snapshots",
+                    "{user}/.claude/session-env",
+                    "{tmp}/dest",
+                    "$TEMPORARY",
+                    "{user}/.asdf/shims",
+                    "{user}/missing/bin",
+                    "{user}/.asdf",
+                    "{user}/.tool-versions",
+                    "{user}/.hex",
+                    "{user}/go/pkg/mod"
+                  ],
+                  "allowWrite": [
+                    "{tmp}/dest",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{user}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie",
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": true,
+                  "allowUnixSockets": [
+                    "$TEMPORARY"
+                  ],
+                  "allowedDomains": [],
+                  "strictAllowlist": true
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [
+              "$TEMPORARY/tmp",
+              "$TEMPORARY/go-build",
+              "$TEMPORARY/go-tmp",
+              "$TEMPORARY/cache",
+              "$TEMPORARY/npm"
+            ],
+            "prefix_path": "{tmp}/bin",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ],
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "TMPDIR",
+                "$TEMPORARY/tmp"
+              ],
+              [
+                "GOCACHE",
+                "$TEMPORARY/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "$TEMPORARY/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "$TEMPORARY/cache"
+              ],
+              [
+                "npm_config_cache",
+                "$TEMPORARY/npm"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "$TEMPORARY",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.folder-linux",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "linux",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{user}/.claude)",
+                  "Read(/{user}/.codex)",
+                  "Read(/{user}/.config/gh)",
+                  "Read(/{user}/.ssh)",
+                  "Read(/{user}/.aws)",
+                  "Read(/{user}/.docker)",
+                  "Read(/{user}/Library/Keychains)",
+                  "Read(/{user}/.git-credentials)",
+                  "Read(/{user}/.config/git)",
+                  "Read(/{user}/.netrc)",
+                  "Read(/{user}/.claude.json)",
+                  "Read(/{user}/.local/state/atlas-runtime)",
+                  "Read(/{user}/.gitconfig)",
+                  "Read(/{user}/.erlang.cookie)"
+                ]
+              },
+              "sandbox": {
+                "allowPty": true,
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowRead": [
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json",
+                    "{user}/.claude/shell-snapshots",
+                    "{user}/.claude/session-env",
+                    "{tmp}/dest",
+                    "$TEMPORARY",
+                    "{user}/.asdf/shims",
+                    "{user}/missing/bin",
+                    "{user}/.asdf",
+                    "{user}/.tool-versions",
+                    "{user}/.hex",
+                    "{user}/go/pkg/mod"
+                  ],
+                  "allowWrite": [
+                    "{tmp}/dest",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{user}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie",
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": true,
+                  "allowUnixSockets": [
+                    "$TEMPORARY"
+                  ],
+                  "allowedDomains": [],
+                  "strictAllowlist": true
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [
+              "$TEMPORARY/tmp",
+              "$TEMPORARY/go-build",
+              "$TEMPORARY/go-tmp",
+              "$TEMPORARY/cache",
+              "$TEMPORARY/npm"
+            ],
+            "prefix_path": "{tmp}/bin",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ],
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "TMPDIR",
+                "$TEMPORARY/tmp"
+              ],
+              [
+                "GOCACHE",
+                "$TEMPORARY/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "$TEMPORARY/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "$TEMPORARY/cache"
+              ],
+              [
+                "npm_config_cache",
+                "$TEMPORARY/npm"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "$TEMPORARY",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.folder-markers",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "create_markers": [
+          "rebind",
+          "preparation"
+        ],
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "darwin",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{home}/rebinds/{sha256:{tmp}/dest}/done\",\"{home}/preparations/{sha256:{tmp}/dest}/result.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{home}/rebinds/{sha256:{tmp}/dest}/done\",\"{home}/preparations/{sha256:{tmp}/dest}/result.json\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{user}/.claude)",
+                  "Read(/{user}/.codex)",
+                  "Read(/{user}/.config/gh)",
+                  "Read(/{user}/.ssh)",
+                  "Read(/{user}/.aws)",
+                  "Read(/{user}/.docker)",
+                  "Read(/{user}/Library/Keychains)",
+                  "Read(/{user}/.git-credentials)",
+                  "Read(/{user}/.config/git)",
+                  "Read(/{user}/.netrc)",
+                  "Read(/{user}/.claude.json)",
+                  "Read(/{user}/.local/state/atlas-runtime)",
+                  "Read(/{user}/.gitconfig)",
+                  "Read(/{user}/.erlang.cookie)"
+                ]
+              },
+              "sandbox": {
+                "allowPty": true,
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowRead": [
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json",
+                    "{user}/.claude/shell-snapshots",
+                    "{user}/.claude/session-env",
+                    "{home}/rebinds/{sha256:{tmp}/dest}/done",
+                    "{home}/preparations/{sha256:{tmp}/dest}/result.json",
+                    "{tmp}/dest",
+                    "$TEMPORARY",
+                    "{user}/.asdf/shims",
+                    "{user}/missing/bin",
+                    "{user}/.asdf",
+                    "{user}/.tool-versions",
+                    "{user}/.hex",
+                    "{user}/go/pkg/mod"
+                  ],
+                  "allowWrite": [
+                    "{tmp}/dest",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{user}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie",
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json",
+                    "{home}/rebinds/{sha256:{tmp}/dest}/done",
+                    "{home}/preparations/{sha256:{tmp}/dest}/result.json"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": true,
+                  "allowUnixSockets": [
+                    "$TEMPORARY"
+                  ],
+                  "allowedDomains": [],
+                  "strictAllowlist": true
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [
+              "$TEMPORARY/tmp",
+              "$TEMPORARY/go-build",
+              "$TEMPORARY/go-tmp",
+              "$TEMPORARY/cache",
+              "$TEMPORARY/npm"
+            ],
+            "prefix_path": "{tmp}/bin",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ],
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "TMPDIR",
+                "$TEMPORARY/tmp"
+              ],
+              [
+                "GOCACHE",
+                "$TEMPORARY/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "$TEMPORARY/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "$TEMPORARY/cache"
+              ],
+              [
+                "npm_config_cache",
+                "$TEMPORARY/npm"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "$TEMPORARY",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.folder-questions",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "darwin",
+        "questions": true,
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep,AskUserQuestion",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--input-format",
+              "stream-json",
+              "--permission-mode",
+              "manual",
+              "--permission-prompts",
+              "host",
+              "--permission-prompt-tool",
+              "stdio"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "manual",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{user}/.claude)",
+                  "Read(/{user}/.codex)",
+                  "Read(/{user}/.config/gh)",
+                  "Read(/{user}/.ssh)",
+                  "Read(/{user}/.aws)",
+                  "Read(/{user}/.docker)",
+                  "Read(/{user}/Library/Keychains)",
+                  "Read(/{user}/.git-credentials)",
+                  "Read(/{user}/.config/git)",
+                  "Read(/{user}/.netrc)",
+                  "Read(/{user}/.claude.json)",
+                  "Read(/{user}/.local/state/atlas-runtime)",
+                  "Read(/{user}/.gitconfig)",
+                  "Read(/{user}/.erlang.cookie)"
+                ]
+              },
+              "sandbox": {
+                "allowPty": true,
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowRead": [
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json",
+                    "{user}/.claude/shell-snapshots",
+                    "{user}/.claude/session-env",
+                    "{tmp}/dest",
+                    "$TEMPORARY",
+                    "{user}/.asdf/shims",
+                    "{user}/missing/bin",
+                    "{user}/.asdf",
+                    "{user}/.tool-versions",
+                    "{user}/.hex",
+                    "{user}/go/pkg/mod"
+                  ],
+                  "allowWrite": [
+                    "{tmp}/dest",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{user}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie",
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": true,
+                  "allowUnixSockets": [
+                    "$TEMPORARY"
+                  ],
+                  "allowedDomains": [],
+                  "strictAllowlist": true
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ]
+          },
+          "env": {
+            "mkdirs": [
+              "$TEMPORARY/tmp",
+              "$TEMPORARY/go-build",
+              "$TEMPORARY/go-tmp",
+              "$TEMPORARY/cache",
+              "$TEMPORARY/npm"
+            ],
+            "prefix_path": "{tmp}/bin",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ],
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "TMPDIR",
+                "$TEMPORARY/tmp"
+              ],
+              [
+                "GOCACHE",
+                "$TEMPORARY/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "$TEMPORARY/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "$TEMPORARY/cache"
+              ],
+              [
+                "npm_config_cache",
+                "$TEMPORARY/npm"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "$TEMPORARY",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.folder-config-dir",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/claude-config",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "CLAUDE_CONFIG_DIR": "{tmp}/claude-config",
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "darwin",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{tmp}/claude-config\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{tmp}/claude-config\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{tmp}/claude-config/shell-snapshots\",\"{tmp}/claude-config/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/claude-config)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{tmp}/claude-config)",
+                  "Read(/{user}/.codex)",
+                  "Read(/{user}/.config/gh)",
+                  "Read(/{user}/.ssh)",
+                  "Read(/{user}/.aws)",
+                  "Read(/{user}/.docker)",
+                  "Read(/{user}/Library/Keychains)",
+                  "Read(/{user}/.git-credentials)",
+                  "Read(/{user}/.config/git)",
+                  "Read(/{user}/.netrc)",
+                  "Read(/{user}/.claude)",
+                  "Read(/{user}/.claude.json)",
+                  "Read(/{user}/.local/state/atlas-runtime)",
+                  "Read(/{user}/.gitconfig)",
+                  "Read(/{user}/.erlang.cookie)"
+                ]
+              },
+              "sandbox": {
+                "allowPty": true,
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowRead": [
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json",
+                    "{tmp}/claude-config/shell-snapshots",
+                    "{tmp}/claude-config/session-env",
+                    "{tmp}/dest",
+                    "$TEMPORARY",
+                    "{user}/.asdf/shims",
+                    "{user}/missing/bin",
+                    "{user}/.asdf",
+                    "{user}/.tool-versions",
+                    "{user}/.hex",
+                    "{user}/go/pkg/mod"
+                  ],
+                  "allowWrite": [
+                    "{tmp}/dest",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{user}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{tmp}/claude-config",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{tmp}/claude-config",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie",
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": true,
+                  "allowUnixSockets": [
+                    "$TEMPORARY"
+                  ],
+                  "allowedDomains": [],
+                  "strictAllowlist": true
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [
+              "$TEMPORARY/tmp",
+              "$TEMPORARY/go-build",
+              "$TEMPORARY/go-tmp",
+              "$TEMPORARY/cache",
+              "$TEMPORARY/npm"
+            ],
+            "prefix_path": "{tmp}/bin",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ],
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "TMPDIR",
+                "$TEMPORARY/tmp"
+              ],
+              [
+                "GOCACHE",
+                "$TEMPORARY/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "$TEMPORARY/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "$TEMPORARY/cache"
+              ],
+              [
+                "npm_config_cache",
+                "$TEMPORARY/npm"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "$TEMPORARY",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.folder-codex-home",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/codex-home",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "CODEX_HOME": "{tmp}/codex-home",
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "darwin",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{tmp}/codex-home\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{tmp}/codex-home\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\",\"Read(/{tmp}/codex-home)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{user}/.claude)",
+                  "Read(/{user}/.codex)",
+                  "Read(/{user}/.config/gh)",
+                  "Read(/{user}/.ssh)",
+                  "Read(/{user}/.aws)",
+                  "Read(/{user}/.docker)",
+                  "Read(/{user}/Library/Keychains)",
+                  "Read(/{user}/.git-credentials)",
+                  "Read(/{user}/.config/git)",
+                  "Read(/{user}/.netrc)",
+                  "Read(/{user}/.claude.json)",
+                  "Read(/{user}/.local/state/atlas-runtime)",
+                  "Read(/{user}/.gitconfig)",
+                  "Read(/{user}/.erlang.cookie)",
+                  "Read(/{tmp}/codex-home)"
+                ]
+              },
+              "sandbox": {
+                "allowPty": true,
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowRead": [
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json",
+                    "{user}/.claude/shell-snapshots",
+                    "{user}/.claude/session-env",
+                    "{tmp}/dest",
+                    "$TEMPORARY",
+                    "{user}/.asdf/shims",
+                    "{user}/missing/bin",
+                    "{user}/.asdf",
+                    "{user}/.tool-versions",
+                    "{user}/.hex",
+                    "{user}/go/pkg/mod"
+                  ],
+                  "allowWrite": [
+                    "{tmp}/dest",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{user}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie",
+                    "{tmp}/codex-home"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie",
+                    "{tmp}/codex-home",
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": true,
+                  "allowUnixSockets": [
+                    "$TEMPORARY"
+                  ],
+                  "allowedDomains": [],
+                  "strictAllowlist": true
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [
+              "$TEMPORARY/tmp",
+              "$TEMPORARY/go-build",
+              "$TEMPORARY/go-tmp",
+              "$TEMPORARY/cache",
+              "$TEMPORARY/npm"
+            ],
+            "prefix_path": "{tmp}/bin",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ],
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "TMPDIR",
+                "$TEMPORARY/tmp"
+              ],
+              [
+                "GOCACHE",
+                "$TEMPORARY/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "$TEMPORARY/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "$TEMPORARY/cache"
+              ],
+              [
+                "npm_config_cache",
+                "$TEMPORARY/npm"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "$TEMPORARY",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.folder-inspector-in-user",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{user}/bin/atlas-runtime",
+          "type": "file"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{user}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "darwin",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "claude": {
+            "args": [
+              "--tools",
+              "Bash,Read,Glob,Grep",
+              "--allowedTools",
+              "Bash,Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none"
+            ],
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\",\"{user}/bin/atlas-runtime\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+          }
+        },
+        "spec": {
+          "claude": {
+            "allowed_tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "permission_mode": "dontAsk",
+            "settings": {
+              "permissions": {
+                "deny": [
+                  "Read(/{home})",
+                  "Read(/{home}/runtime.sock)",
+                  "Read(/{home}/backend.sock)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{tmp}/dest/.git)",
+                  "Read(/{user}/.claude)",
+                  "Read(/{user}/.codex)",
+                  "Read(/{user}/.config/gh)",
+                  "Read(/{user}/.ssh)",
+                  "Read(/{user}/.aws)",
+                  "Read(/{user}/.docker)",
+                  "Read(/{user}/Library/Keychains)",
+                  "Read(/{user}/.git-credentials)",
+                  "Read(/{user}/.config/git)",
+                  "Read(/{user}/.netrc)",
+                  "Read(/{user}/.claude.json)",
+                  "Read(/{user}/.local/state/atlas-runtime)",
+                  "Read(/{user}/.gitconfig)",
+                  "Read(/{user}/.erlang.cookie)"
+                ]
+              },
+              "sandbox": {
+                "allowPty": true,
+                "allowUnsandboxedCommands": false,
+                "enabled": true,
+                "excludedCommands": [],
+                "failIfUnavailable": true,
+                "filesystem": {
+                  "allowRead": [
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json",
+                    "{user}/.claude/shell-snapshots",
+                    "{user}/.claude/session-env",
+                    "{tmp}/dest",
+                    "$TEMPORARY",
+                    "{user}/.asdf/shims",
+                    "{user}/missing/bin",
+                    "{user}/.asdf",
+                    "{user}/.tool-versions",
+                    "{user}/.hex",
+                    "{user}/go/pkg/mod",
+                    "{user}/bin/atlas-runtime"
+                  ],
+                  "allowWrite": [
+                    "{tmp}/dest",
+                    "$TEMPORARY"
+                  ],
+                  "denyRead": [
+                    "{user}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie"
+                  ],
+                  "denyWrite": [
+                    "{tmp}/systmp",
+                    "{/tmp}",
+                    "{/var/tmp}",
+                    "{home}",
+                    "{home}/runtime.sock",
+                    "{home}/backend.sock",
+                    "{tmp}/dest/.git",
+                    "{tmp}/dest/.git",
+                    "{user}/.claude",
+                    "{user}/.codex",
+                    "{user}/.config/gh",
+                    "{user}/.ssh",
+                    "{user}/.aws",
+                    "{user}/.docker",
+                    "{user}/Library/Keychains",
+                    "{user}/.git-credentials",
+                    "{user}/.config/git",
+                    "{user}/.netrc",
+                    "{user}/.claude.json",
+                    "{user}/.local/state/atlas-runtime",
+                    "{user}/.gitconfig",
+                    "{user}/.erlang.cookie",
+                    "{home}/materializations/m1.json",
+                    "{home}/snapshots/s1/baseline.json"
+                  ]
+                },
+                "network": {
+                  "allowAllUnixSockets": false,
+                  "allowLocalBinding": true,
+                  "allowUnixSockets": [
+                    "$TEMPORARY"
+                  ],
+                  "allowedDomains": [],
+                  "strictAllowlist": true
+                }
+              }
+            },
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "env": {
+            "mkdirs": [
+              "$TEMPORARY/tmp",
+              "$TEMPORARY/go-build",
+              "$TEMPORARY/go-tmp",
+              "$TEMPORARY/cache",
+              "$TEMPORARY/npm"
+            ],
+            "prefix_path": "{user}/bin",
+            "set": [
+              [
+                "CLAUDE_CODE_TMPDIR",
+                "$TEMPORARY"
+              ],
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{user}/bin/atlas-runtime"
+              ],
+              [
+                "TMPDIR",
+                "$TEMPORARY/tmp"
+              ],
+              [
+                "GOCACHE",
+                "$TEMPORARY/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "$TEMPORARY/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "$TEMPORARY/cache"
+              ],
+              [
+                "npm_config_cache",
+                "$TEMPORARY/npm"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "claude",
+          "runtime_home": "{home}",
+          "scratch": "$TEMPORARY",
+          "temporary": {
+            "parent": "{user}"
+          },
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
+      "id": "claude.folder-protected-contains-project",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude/dest",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "darwin",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{user}/.claude/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "Protected path {user}/.claude contains {user}/.claude/dest"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "claude.folder-temp-45-bytes",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "darwin",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        },
+        "temporary_bytes": 45
+      },
+      "expect": {
+        "error": "Claude private native temp path exceeds the 44-byte child-temp limit"
+      }
+    },
+    {
+      "id": "claude.plain-read-only-in-socket",
+      "fs": [
+        {
+          "path": "{home}/backend.sock/w",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "sandbox": "read-only",
+        "workspace": "{home}/backend.sock/w"
+      },
+      "expect": {
+        "error": "Workspace {home}/backend.sock/w is inside the Runtime socket {home}/backend.sock"
+      },
+      "detail_has_path": true,
+      "note": "R2: socketEntries refuses a workspace inside a Runtime socket path"
+    },
+    {
+      "id": "claude.dedicated-no-root",
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "origin": "client_named",
+        "platform": "linux",
+        "scope": {
+          "profile": "dedicated-repository",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "Dedicated repository scope requires a root path"
+      }
+    },
+    {
+      "id": "claude.folder-incomplete",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "harness": "claude",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "platform": "darwin",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "error": "Materialized folder scope is incomplete"
+      }
+    }
+  ]
+}

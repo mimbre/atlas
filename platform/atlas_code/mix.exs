@@ -32,5 +32,13 @@ defmodule AtlasCode.MixProject do
   # The Bus for the effect receiver's endpoint and the digests of Flow's requests. Not a
   # runtime dependency: the local Code service neither ships nor starts it; the core, which
   # configures the receiver, starts it before Code (the `atlas` release).
-  defp deps, do: [{:atlas_bus, in_umbrella: true, runtime: false}]
+  # Code's own boundary contract (boundary/contract), which the facade AtlasCode.Boundary is
+  # generated from; it brings its generator (boundary/generator).
+  defp deps,
+    do: [
+      {:atlas_bus, in_umbrella: true, runtime: false},
+      {:atlas_code_boundary, path: "boundary/contract"},
+      # Tests wait on events, never on the clock (platform/frameworks/test_await).
+      {:atlas_test_await, path: "../frameworks/test_await", only: :test}
+    ]
 end

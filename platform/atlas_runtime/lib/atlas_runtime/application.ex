@@ -4,42 +4,20 @@ defmodule AtlasRuntime.Application do
 
   @impl true
   def start(_type, _args) do
-    # The model is wired by configuration (`config :atlas, model: …`); without one, or
-    # with a module that is no model, the engine does not start.
-    engine =
-      if Application.get_env(:atlas_runtime, :start, true) and
-           Keyword.get(AtlasRuntime.Settings.get(), :agents) != %{},
-         do: [
-           {AtlasRuntime.Engine,
-            AtlasRuntime.Settings.get() ++
-              [name: AtlasRuntime.Engine, model: AtlasRuntime.Model.configured!()]}
-         ],
-         else: []
-
-    # One process per running turn, under its own supervisor: a turn whose process dies is
-    # ended by the engine's next round (it reads the turn as running, with no process).
+    # The source stores' one-writer lock (Import.base/5) comes first, so it outlives every
+    # import started afterwards.
     children =
-      [{Registry, keys: :unique, name: AtlasRuntime.Turns}, AtlasRuntime.Output, local_output()] ++
+      [AtlasRuntime.Sources.StoreLock, AtlasRuntime.Output, local_output()] ++
         output_endpoint(
           Application.get_env(:atlas_runtime, :server_lifecycle, false),
           AtlasRuntime.Settings.get()
-        ) ++
-        [{DynamicSupervisor, name: AtlasRuntime.Supervisor, strategy: :one_for_one}] ++
-        flow_passes() ++ engine
+        )
 
     Supervisor.start_link(children, strategy: :one_for_one, name: AtlasRuntime.Root)
   end
 
-  # Explicit opt-in: the directory must be the native Service's durable home.
-  defp flow_passes do
-    case Application.get_env(:atlas_runtime, :flow_passes) do
-      nil -> []
-      opts -> [{AtlasRuntime.FlowPasses, opts}]
-    end
-  end
-
-  # Standalone turns' public output, read only through read.sock; the Bus endpoint below
-  # serves Output alone, so it is never forwarded to Server.
+  # Standalone turns' public output, read only through the work contract's turn output;
+  # the Bus endpoint below serves Output alone, so it is never forwarded to Server.
   defp local_output,
     do:
       Supervisor.child_spec({AtlasRuntime.Output, name: AtlasRuntime.LocalOutput},

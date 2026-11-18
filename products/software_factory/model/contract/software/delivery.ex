@@ -3,6 +3,13 @@ defmodule Model.Delivery do
   Delivery of an issue through its pull request, and work a pull request of another
   issue also did. The subflow keeps its durable name `issue`; Model.Issue holds its
   kind, gates, selection and migration policy, with the slice 9 parity rationale.
+
+  Building an issue is a supervised flow (decision 2026-11-17 §5.6): its span `build`
+  is the state `author`, and the runs of its packages (`package`, under it through
+  `package_of`) and of its pull requests (`pull_request`, through `in_issue`) belong to
+  it: a person item of theirs goes to its supervisor (rule S3). Picking it up makes a
+  person its human supervisor until the run leaves `author`; the span sits beside the
+  subflow, so it changes no digest.
   """
   use RelaDSL
 
@@ -21,6 +28,7 @@ defmodule Model.Delivery do
     channel :work
     start :create
     initial :author
+    supervise :build, label: "Build", states: [:author], with: [:package, :pull_request]
 
     state :author, label: "Building" do
       present(

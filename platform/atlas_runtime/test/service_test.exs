@@ -1,7 +1,7 @@
 defmodule AtlasRuntime.ServiceTest do
   use ExUnit.Case, async: true
 
-  alias AtlasRuntime.{BackendPolicy, ExecutionEvents, QuestionRecords, Service}
+  alias AtlasRuntime.{Availability, ExecutionEvents, QuestionRecords, Service}
   alias AtlasRuntime.Workspaces
 
   @moduletag :tmp_dir
@@ -48,7 +48,6 @@ defmodule AtlasRuntime.ServiceTest do
     %{
       state: %{
         dir: dir,
-        policy: BackendPolicy.empty(),
         events: ExecutionEvents.open(dir),
         workers: %{},
         stopping: false
@@ -470,11 +469,40 @@ defmodule AtlasRuntime.ServiceTest do
              Service.handle_info({:agent, state.workers["alpha"].agent, message}, state)
 
     {:noreply, next} = Service.handle_info({:agent, state.workers["beta"].agent, message}, state)
-    assert next.policy["claude_quota"]["turn_id"] == state.workers["beta"].run.id
-    assert next.workers["beta"].run.quota == next.policy["claude_quota"]
+    quota = Availability.load(state.dir)["quota"]["claude"]
+    assert quota["turn_id"] == state.workers["beta"].run.id
+    assert quota["evidence"] == evidence["rate_limit_info"]
+    assert next.workers["beta"].run.quota == quota
     assert next.workers["alpha"] == state.workers["alpha"]
-    assert JSON.decode!(File.read!(Path.join(state.dir, "backends.json"))) == next.policy
+    refute File.exists?(Path.join(state.dir, "backends.json"))
     assert events(next) == []
+  end
+
+  test "a quota that cannot be recorded is visible on the turn, not only in the log", %{
+    state: state
+  } do
+    state = worker(state, "beta", 2, backend: "claude")
+
+    evidence =
+      Path.join(__DIR__, "fixtures/claude_weekly_quota.json") |> File.read!() |> JSON.decode!()
+
+    File.write!(Availability.path(state.dir), "corrupt")
+    message = {:quota, evidence["rate_limit_info"]}
+
+    {:noreply, next} =
+      ExUnit.CaptureLog.with_log(fn ->
+        Service.handle_info({:agent, state.workers["beta"].agent, message}, state)
+      end)
+      |> elem(0)
+
+    {status, _, false} = call(next, %{"command" => "status", "worker_id" => "beta"})
+    assert status.quota_error["evidence"] == evidence["rate_limit_info"]
+    assert status.quota_error["error"] =~ "Invalid availability.json"
+    refute Map.has_key?(status, :quota)
+
+    saved = JSON.decode!(File.read!(Path.join(status.artifacts, "turn.json")))
+    assert saved["quota_error"] == status.quota_error
+    assert File.read!(Availability.path(state.dir)) == "corrupt"
   end
 
   test "targeted stop changes one worker and service-stop stops all without duplicate events", %{
@@ -692,7 +720,7 @@ defmodule AtlasRuntime.ServiceTest do
       error(
         state,
         request,
-        "Worker alpha is latched after stopping turn #{id}; run atlas-runtime release --worker alpha first"
+        "Worker alpha is latched after stopping turn #{id}; run atlas-runtime release --slot alpha first"
       )
     end
 
@@ -709,7 +737,7 @@ defmodule AtlasRuntime.ServiceTest do
           %{"command" => "release"},
           %{"command" => "release", "worker_id" => "alpha", "turn_id" => id}
         ] do
-      error(restarted, request, "Release requires exactly --worker")
+      error(restarted, request, "Release requires exactly --slot")
     end
 
     turns = File.ls!(Path.join(state.dir, "turns"))
@@ -734,6 +762,27 @@ defmodule AtlasRuntime.ServiceTest do
     File.write!(Path.join([state.dir, "workers", "alpha", "admission-latch.json"]), "not JSON")
     error(restarted, start, "Invalid admission latch")
     error(restarted, %{"command" => "release", "worker_id" => "alpha"}, "Invalid admission latch")
+  end
+
+  test "release without a latch leaves a turn this service still runs untouched", %{
+    state: state
+  } do
+    state = worker(state, "alpha", 1)
+    %{agent: agent, run: run} = state.workers["alpha"]
+    record = Path.join([state.dir, "turns", run.id, "turn.json"])
+    before = events(state)
+
+    assert {%{worker_id: "alpha", released: nil, admission_latch: nil}, released, false} =
+             call(state, %{"command" => "release", "worker_id" => "alpha"})
+
+    # The live turn stays owned and running, on disk too, and no failure is recorded for it.
+    assert released.workers["alpha"].agent == agent
+    assert released.workers["alpha"].run.state == "running"
+    assert %{"state" => "running"} = record |> File.read!() |> JSON.decode!()
+    assert events(released) == before
+    refute Enum.any?(events(released), &(&1["kind"] == "execution_failed"))
+    refute_received {:control_write, _, _}
+    assert Process.alive?(agent)
   end
 
   test "signalling errors stay recorded and the execution stays owned", %{state: state} do
@@ -1435,5 +1484,25 @@ defmodule AtlasRuntime.ServiceTest do
              ]
 
     refute_received {:answer_write, _, _}
+  end
+end
+
+defmodule AtlasRuntime.ServiceTest.NoTcp do
+  @moduledoc """
+  Work acquisition M0 (decision 2026-11-17, §6.1): the S3 loopback TCP listener was removed
+  before it was ever activated. The service serves the backend on `backend.sock` only, and
+  no network listener is started, whatever files the Runtime home holds.
+  """
+  use ExUnit.Case, async: true
+
+  @service Path.expand("../host/service.exs", __DIR__)
+
+  test "service.exs starts the backend on backend.sock only, with no TCP listener" do
+    script = File.read!(@service)
+    assert script =~ "AtlasRuntime.Backend.Listener.start_link"
+    refute script =~ "TcpListener"
+    refute script =~ "clients.json"
+    refute Code.ensure_loaded?(AtlasRuntime.Backend.TcpListener)
+    refute Code.ensure_loaded?(AtlasRuntime.Backend.Clients)
   end
 end

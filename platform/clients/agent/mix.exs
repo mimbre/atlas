@@ -5,7 +5,7 @@ defmodule AtlasAgent.MixProject do
   # part of the BEAM platform. Like the TUI it speaks Control's protocol and knows only
   # pages and blocks; which kinds exist, what a form asks and where a fact belongs come
   # from Control, which reads them from rela's description. It names no entity. It knows
-  # Control's contract (platform/atlas_control/bff/contract) for the version it says it implements in hello.
+  # Control's contract (platform/atlas_control/backend/contract) for the version it says it implements in hello.
   def project do
     [
       app: :atlas_agent,
@@ -13,7 +13,7 @@ defmodule AtlasAgent.MixProject do
       elixir: "~> 1.18",
       start_permanent: false,
       deps: [
-        {:atlas_bff_contract, path: "../../atlas_control/bff/contract"},
+        {:atlas_bff_contract, path: "../../atlas_control/backend/contract"},
         {:atlas_control_transport, path: "../transport"}
       ]
     ]

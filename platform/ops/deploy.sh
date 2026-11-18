@@ -37,7 +37,7 @@ as() { # rela|core, then a flyctl command
 machines() { as "$1" status -a "$2" --json | jq '.Machines | length'; }
 
 # The description is generated from the model: refuse a stale one before anything is uploaded.
-(cd "$root/products/software_factory/model/contract" && mix model.gen --check)
+(cd "$root/products/software_factory/model/contract" && mix deps.get --check-locked && mix model.gen --check)
 
 held=""
 if [ "$(machines rela "$rela_app")" -gt 0 ]; then

@@ -1,0 +1,2147 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "codex-plain-read-only",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "codex-plain-workspace-write",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "workspace-write",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "codex-plain-no-sandbox",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Sandbox must be read-only or workspace-write"
+      }
+    },
+    {
+      "id": "codex-plain-danger-full-access",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "danger-full-access",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Sandbox must be read-only or workspace-write"
+      }
+    },
+    {
+      "id": "codex-session-not-checked",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "not-a-uuid",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      },
+      "note": "Codex resume ids are confirmed by thread.started, not validated before launch"
+    },
+    {
+      "id": "codex-questions",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": true,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Questions require a boolean opt-in and the Claude backend"
+      }
+    },
+    {
+      "id": "questions-string",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": "yes",
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Questions require a boolean opt-in and the Claude backend"
+      }
+    },
+    {
+      "id": "questions-null",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": null,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Questions require a boolean opt-in and the Claude backend"
+      }
+    },
+    {
+      "id": "questions-number",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": 1,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Questions require a boolean opt-in and the Claude backend"
+      }
+    },
+    {
+      "id": "claude-questions-ok",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": true,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "questions-before-model",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "",
+        "questions": "yes",
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Questions require a boolean opt-in and the Claude backend"
+      },
+      "note": "order: the questions check comes first"
+    },
+    {
+      "id": "questions-before-backend",
+      "input": {
+        "backend": "gemini",
+        "context": null,
+        "model": null,
+        "questions": true,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Questions require a boolean opt-in and the Claude backend"
+      },
+      "note": "order: questions before backend"
+    },
+    {
+      "id": "model-empty",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Model must be a nonempty identifier of at most 200 characters"
+      }
+    },
+    {
+      "id": "model-number",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": 7,
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Model must be a nonempty identifier of at most 200 characters"
+      }
+    },
+    {
+      "id": "model-object",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": {
+          "id": "m"
+        },
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Model must be a nonempty identifier of at most 200 characters"
+      }
+    },
+    {
+      "id": "model-space",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "claude opus",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Model must be a nonempty identifier of at most 200 characters"
+      }
+    },
+    {
+      "id": "model-leading-dash",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "-claude",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Model must be a nonempty identifier of at most 200 characters"
+      }
+    },
+    {
+      "id": "model-leading-dot",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": ".claude",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Model must be a nonempty identifier of at most 200 characters"
+      }
+    },
+    {
+      "id": "model-context-window",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "claude-opus-4[1m]",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "model-path-and-colon",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "us.anthropic/claude:v2_0",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "model-200",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "m1234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891234567891",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "model-201",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "m12345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912345678912",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Model must be a nonempty identifier of at most 200 characters"
+      }
+    },
+    {
+      "id": "model-non-ascii",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "clé",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Model must be a nonempty identifier of at most 200 characters"
+      }
+    },
+    {
+      "id": "model-trailing-newline",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "claude\n",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Model must be a nonempty identifier of at most 200 characters"
+      }
+    },
+    {
+      "id": "model-before-backend",
+      "input": {
+        "backend": "gemini",
+        "context": null,
+        "model": "",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Model must be a nonempty identifier of at most 200 characters"
+      },
+      "note": "order: model before backend"
+    },
+    {
+      "id": "backend-other",
+      "input": {
+        "backend": "gemini",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Backend must be codex or claude"
+      }
+    },
+    {
+      "id": "backend-empty",
+      "input": {
+        "backend": "",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Backend must be codex or claude"
+      }
+    },
+    {
+      "id": "claude-plain-read-only",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "claude-plain-workspace-write",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "workspace-write",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude requires read-only, dedicated-repository or materialized-folder execution"
+      }
+    },
+    {
+      "id": "claude-plain-no-sandbox",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude requires read-only, dedicated-repository or materialized-folder execution"
+      }
+    },
+    {
+      "id": "claude-scope-unknown-profile",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": {
+          "profile": "other"
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
+      }
+    },
+    {
+      "id": "claude-scope-not-object",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": "dedicated-repository",
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
+      }
+    },
+    {
+      "id": "claude-scope-profile-number",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": {
+          "profile": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
+      }
+    },
+    {
+      "id": "claude-scope-profile-list",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": {
+          "profile": [
+            "dedicated-repository"
+          ]
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
+      }
+    },
+    {
+      "id": "claude-scope-empty-object",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": {},
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
+      }
+    },
+    {
+      "id": "claude-folder",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": {
+          "profile": "materialized-folder",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "claude-folder-with-sandbox",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": {
+          "profile": "materialized-folder",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Dedicated repository permissions conflict with sandbox"
+      }
+    },
+    {
+      "id": "claude-dedicated-without-repository",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "claude-scope-before-sandbox",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "workspace-write",
+        "scope": {
+          "profile": "other"
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude supports only the dedicated-repository and materialized-folder permission profiles"
+      },
+      "note": "order: profile check before the sandbox check"
+    },
+    {
+      "id": "claude-resume",
+      "input": {
+        "backend": "claude",
+        "context": {
+          "cwd": "{tmp}/w",
+          "git": null,
+          "permissions": null
+        },
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "claude-resume-empty-context",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "claude-resume-without-model",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-without-context",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-context-list",
+      "input": {
+        "backend": "claude",
+        "context": [],
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-context-string",
+      "input": {
+        "backend": "claude",
+        "context": "{}",
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-urn",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "urn:uuid:8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      },
+      "note": "M (a): Python accepts this form; Runtime requires the canonical one"
+    },
+    {
+      "id": "claude-resume-braces",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "{8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f}",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-upper-case",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8F0E3A52-6C1D-4B7A-9E2F-1A2B3C4D5E6F",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-no-dashes",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d4b7a9e2f1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-uuid-prefix-only",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "uuid:8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-short",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "abc",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "badly formed hexadecimal UUID string"
+      }
+    },
+    {
+      "id": "claude-resume-33-hex",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f0",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "badly formed hexadecimal UUID string"
+      }
+    },
+    {
+      "id": "claude-resume-bad-format-before-model",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "abc",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "badly formed hexadecimal UUID string"
+      },
+      "note": "order: the UUID parse error comes before the model/context check"
+    },
+    {
+      "id": "claude-resume-non-hex",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "gggggggggggggggggggggggggggggggg",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: 'gggggggggggggggggggggggggggggggg'"
+      }
+    },
+    {
+      "id": "claude-resume-single-quote",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d4b7a9e2f1a2b3c4d5e'f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: \"8f0e3a526c1d4b7a9e2f1a2b3c4d5e'f\""
+      }
+    },
+    {
+      "id": "claude-resume-both-quotes",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d4b7a9e2f1a2b3c4d5\"'f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: '8f0e3a526c1d4b7a9e2f1a2b3c4d5\"\\'f'"
+      }
+    },
+    {
+      "id": "claude-resume-escapes",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d4b7a9e2f1a2b3c\\\t\n\r\u0001",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: '8f0e3a526c1d4b7a9e2f1a2b3c\\\\\\t\\n\\r\\x01\\x7f'"
+      }
+    },
+    {
+      "id": "claude-resume-0x-prefix",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "0x0e3a526c1d4b7a9e2f1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-0x-underscore",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "0x_e3a526c1d4b7a9e2f1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-plus-sign",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "+f0e3a526c1d4b7a9e2f1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-minus-only",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "-------------------------------------------",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "badly formed hexadecimal UUID string"
+      }
+    },
+    {
+      "id": "claude-resume-underscores",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d_4b7a9e2f1a2b3c4d5e6",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-double-underscore",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d__b7a9e2f1a2b3c4d5e6",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: '8f0e3a526c1d__b7a9e2f1a2b3c4d5e6'"
+      }
+    },
+    {
+      "id": "claude-resume-trailing-underscore",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d4b7a9e2f1a2b3c4d5e6_",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: '8f0e3a526c1d4b7a9e2f1a2b3c4d5e6_'"
+      }
+    },
+    {
+      "id": "claude-resume-leading-underscore",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "_f0e3a526c1d4b7a9e2f1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: '_f0e3a526c1d4b7a9e2f1a2b3c4d5e6f'"
+      }
+    },
+    {
+      "id": "claude-resume-space-padding",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": " f0e3a526c1d4b7a9e2f1a2b3c4d5e6 ",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-nbsp-padding",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": " f0e3a526c1d4b7a9e2f1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-ideographic-space",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "　f0e3a526c1d4b7a9e2f1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Claude resume requires a confirmed UUID, model and saved execution context"
+      }
+    },
+    {
+      "id": "claude-resume-inner-space",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d4b7a 9e2f1a2b3c4d5e6",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: '8f0e3a526c1d4b7a 9e2f1a2b3c4d5e6'"
+      }
+    },
+    {
+      "id": "claude-resume-code-points",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d4b7a9e2f1a2b3c4d5eéf",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: '8f0e3a526c1d4b7a9e2f1a2b3c4d5eéf'"
+      },
+      "note": "32 code points; a grapheme count would differ"
+    },
+    {
+      "id": "claude-resume-combining-mark",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d4b7a9e2f1a2b3c4d5éf",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: '8f0e3a526c1d4b7a9e2f1a2b3c4d5éf'"
+      },
+      "note": "e + U+0301: 32 code points, 31 graphemes"
+    },
+    {
+      "id": "claude-resume-null-character",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "8f0e3a526c1d4b7a9e2f1a2b3c4d5e\u0000f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "invalid literal for int() with base 16: '8f0e3a526c1d4b7a9e2f1a2b3c4d5e\\x00f'"
+      }
+    },
+    {
+      "id": "claude-resume-folder",
+      "input": {
+        "backend": "claude",
+        "context": {
+          "cwd": "{tmp}/w",
+          "git": null,
+          "permissions": {
+            "profile": "materialized-folder",
+            "version": 1
+          }
+        },
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": {
+          "profile": "materialized-folder",
+          "version": 1
+        },
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "managed-fresh",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "managed-continuation",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": {
+          "base_sha": "0123456789abcdef0123456789abcdef01234567",
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "managed-continuation-null-base",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": {
+          "base_sha": null,
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      },
+      "note": "presence of base_sha counts, not its value"
+    },
+    {
+      "id": "managed-resume-without-base",
+      "input": {
+        "backend": "claude",
+        "context": {},
+        "model": "claude-opus-4",
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-fresh-with-base",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "base_sha": "0123456789abcdef0123456789abcdef01234567",
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-other-root",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/other/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/other",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-extra-scope-field",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "home": "",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-hosts-reordered",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "api.github.com",
+            "github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-version-float",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1.0
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      },
+      "note": "Python equality: 1 == 1.0"
+    },
+    {
+      "id": "managed-version-true",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": true
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      },
+      "note": "Python equality: 1 == True"
+    },
+    {
+      "id": "managed-version-string",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": "1"
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-version-two",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 2
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-version-fraction",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1.5
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-workspace-unclean",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/sub/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w/sub",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}//w/./sub/"
+      },
+      "expect": {
+        "ok": true
+      },
+      "note": "the workspace path is cleaned lexically: empty and . parts dropped, .. kept"
+    },
+    {
+      "id": "managed-workspace-dotdot-kept",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w/../w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-workspace-relative",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "managed-workspace-double-slash",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "//w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "//w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "//w"
+      },
+      "expect": {
+        "ok": true
+      },
+      "note": "a leading // is kept, /// is not"
+    },
+    {
+      "id": "managed-workspace-triple-slash",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "/w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "///w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "managed-workspace-empty",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "./.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": ".",
+          "version": 1
+        },
+        "session": "",
+        "workspace": ""
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      },
+      "note": "an empty path cleans to . and its git_dir to .git, so ./.git does not match"
+    },
+    {
+      "id": "managed-workspace-empty-git-dir",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": ".git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": ".",
+          "version": 1
+        },
+        "session": "",
+        "workspace": ""
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "managed-repository-not-object",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": "https://github.com/o/r",
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      },
+      "note": "a non-object repository has no base_sha"
+    },
+    {
+      "id": "managed-without-scope",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "read-only",
+        "scope": null,
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-codex-fresh",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "managed-codex-resume-without-base",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "thread-1",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      }
+    },
+    {
+      "id": "managed-codex-continuation",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "base_sha": "0123456789abcdef0123456789abcdef01234567",
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "thread-1",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "managed-before-sandbox-conflict",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "read-only",
+        "scope": {
+          "git_dir": "{tmp}/other/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/other",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Managed repository context does not match this start or continuation"
+      },
+      "note": "order: the repository check comes before the sandbox conflict"
+    },
+    {
+      "id": "codex-scope-with-sandbox",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "read-only",
+        "scope": {
+          "git_dir": "{tmp}/w/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/w",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "Dedicated repository permissions conflict with sandbox"
+      }
+    },
+    {
+      "id": "codex-folder-no-sandbox",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": {
+          "profile": "materialized-folder",
+          "version": 1
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "codex-scope-not-checked-for-profile",
+      "input": {
+        "backend": "codex",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": null,
+        "sandbox": "",
+        "scope": {
+          "profile": "other"
+        },
+        "session": "",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "ok": true
+      },
+      "note": "the pre-launch checks do not judge a Codex profile (the Elixir caller and the scope decision do)"
+    },
+    {
+      "id": "claude-session-before-repository",
+      "input": {
+        "backend": "claude",
+        "context": null,
+        "model": null,
+        "questions": false,
+        "repository": {
+          "branch": "feature",
+          "url": "https://github.com/o/r"
+        },
+        "sandbox": "",
+        "scope": {
+          "git_dir": "{tmp}/other/.git",
+          "network_hosts": [
+            "github.com",
+            "api.github.com"
+          ],
+          "profile": "dedicated-repository",
+          "root": "{tmp}/other",
+          "version": 1
+        },
+        "session": "abc",
+        "workspace": "{tmp}/w"
+      },
+      "expect": {
+        "error": "badly formed hexadecimal UUID string"
+      },
+      "note": "order: claudeValidate before the repository check"
+    }
+  ]
+}

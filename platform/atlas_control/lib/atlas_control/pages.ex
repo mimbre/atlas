@@ -23,6 +23,21 @@ defmodule AtlasControl.Pages do
   | `/k/<kind>/<key>/set/<rel>` | confirm linking it to the client itself (Accept)  |
   | `/k/<kind>/<key>/remove/<rel>` | form, with a note, to remove that link (Reopen) |
   | `/_kinds`                 | every kind: what a create asks, its id, its parent, its fields, its actions |
+  | `/_open`                  | Open for you: per supervised span, the flows in it that have no human |
+  |                           | supervisor yet (`start_page().open_for_you`)       |
+  | `/_supervised`            | Supervised by you: the flows the client supervises, still in a span, |
+  |                           | with a quiet count of its running work            |
+  | `/k/<kind>/<key>/pick_up/<run>` | confirm becoming the supervisor of `run` (Pick up) |
+  | `/k/<kind>/<key>/hand_over/<run>` | form to hand `run` over to someone else, with the |
+  |                           | running work that will stop (Hand over…)          |
+
+  Supervision (work acquisition decision 2026-11-17, §5.6–5.8, M3b): which flows are
+  supervised, in which states (spans), by which relation, and what a supervisor's running
+  work is, all come from the model's start page (`open_for_you`, `supervised_by_you`);
+  who supervises a run, from Facts' presentation (`supervisor`). Pick up and Hand over…
+  are sent as inputs of the flow (`pickup`, `hand_over`), only from a TUI session, as the
+  client it is; Flow checks them again and sets the supervisor.
+
 
   Relations are of two sorts, as the model marks them (`parent`):
 
@@ -49,6 +64,15 @@ defmodule AtlasControl.Pages do
   # page. Read is the row itself: enter opens it.
   @operations %{create: {"Create", "c"}, update: {"Update", "u"}, delete: {"Delete", "d"}}
 
+  # Supervision's two generic verbs and their keys (M3b plan Q9): supervision is the
+  # platform's, so they sit beside the operations. `h` is not free: a model's change
+  # action may take it on the same page (an Assignment's Hand to…), so Hand over… is `v`.
+  @supervision %{pick_up: {"Pick up", "p"}, hand_over: {"Hand over…", "v"}}
+
+  # The client one supervises from (M3b plan §1, S-6): only its session sends a pickup
+  # or a hand-over, until there is sign-in.
+  @supervising_client "tui"
+
   # A page with more than one related list: the first creates with c, the others with
   # these (a and r are kept for Accept and Reopen).
   @more_create_keys ~w(s x z)
@@ -61,6 +85,13 @@ defmodule AtlasControl.Pages do
     case Blocks.match(path) do
       {:ok, :home, _} ->
         :home
+
+      # Who views it is the session's (`AtlasControl.Session`), as for `/`.
+      {:ok, screen, _} when screen in [:open_for_you, :supervised_by_you] ->
+        {screen, nil}
+
+      {:ok, page, p} when page in [:pick_up, :hand_over] ->
+        {page, p.kind, p.key, p.run}
 
       {:ok, page, params} when page in [:workers, :worker, :worker_guidance] ->
         {:worker_page, page, params}
@@ -113,7 +144,9 @@ defmodule AtlasControl.Pages do
     becomes the kind whose id prefix the key has; the longest prefix wins. A key no prefix
     claims belongs to the one kind without a prefix (such as one whose ids are names).
 
-  When the model gives no single answer, the page does not exist.
+  When the model gives no single answer, the page does not exist. A supervision screen
+  (`/_open`, `/_supervised`) exists only when the model has its start entry
+  (`open_for_you_rule/1`, `supervised_rule/1`), as its tab does (`AtlasControl.Shell`).
   """
   def resolve({:new, kind, {"_parent", parent}}, m) do
     case parent_relations(m, kind) do
@@ -141,6 +174,9 @@ defmodule AtlasControl.Pages do
     {holder, holder_key} = link_holder(m, kind, key, relation)
     {page, holder, holder_key, relation}
   end
+
+  def resolve({screen, _by} = route, m) when screen in [:open_for_you, :supervised_by_you],
+    do: if(screen_rule(m, screen), do: route, else: :unknown)
 
   def resolve(route, _m), do: route
 
@@ -227,6 +263,8 @@ defmodule AtlasControl.Pages do
   def submit_route(:reopen, p), do: {:remove, p.kind, p.key, p.relation}
   def submit_route(:fault, p), do: {:fault, p.fault, nil}
   def submit_route(:fact_fault, p), do: {:fault, p.fault, {p.kind, p.key}}
+  def submit_route(:pick_up, p), do: {:pick_up, p.kind, p.key, p.run}
+  def submit_route(:hand_over, p), do: {:hand_over, p.kind, p.key, p.run}
 
   @doc """
   The `call` (the contract's `call` model) that submits the form or confirm of `route`:
@@ -271,6 +309,15 @@ defmodule AtlasControl.Pages do
     do: Blocks.path(:answer, kind: kind, key: key, answer: answer)
 
   def path(:home), do: Blocks.path(:home)
+
+  def path({screen, _by}) when screen in [:open_for_you, :supervised_by_you],
+    do: Blocks.path(screen)
+
+  # A hand-over the session reads for its client (`by`) is at the same path.
+  def path({page, kind, key, run}) when page in [:pick_up, :hand_over],
+    do: Blocks.path(page, kind: kind, key: key, run: run)
+
+  def path({:hand_over, kind, key, run, _by}), do: path({:hand_over, kind, key, run})
   def path({:worker_page, page, params}), do: Blocks.path(page, params)
   def path(:kinds), do: Blocks.path(:kinds)
   def path({:list, kind}), do: Blocks.path(:list, kind: kind)
@@ -320,10 +367,11 @@ defmodule AtlasControl.Pages do
   def kind_of({:worker_page, _, _}), do: nil
   def kind_of({:unavailable, _path, _failed}), do: nil
   def kind_of(:kinds), do: nil
+  def kind_of({screen, _by}) when screen in [:open_for_you, :supervised_by_you], do: nil
   def kind_of(route), do: elem(route, 1)
 
   def form?({:worker_page, :worker_guidance, _}), do: true
-  def form?(route), do: elem_match?(route, [:new, :edit, :links, :remove, :answer])
+  def form?(route), do: elem_match?(route, [:new, :edit, :links, :remove, :answer, :hand_over])
 
   defp elem_match?(route, pages), do: is_tuple(route) and elem(route, 0) in pages
 
@@ -361,6 +409,28 @@ defmodule AtlasControl.Pages do
       for {_component, owner} <- owner_kinds(m, froms), do: {owner, %{}}
   end
 
+  # Open for you: the facts each span's work is written on, with how Facts presents that
+  # work (which run, in which state, supervised by whom), then the span subjects they are
+  # components of (`span_reads/1`). Supervised by you: the same, with the client's running
+  # work (`work`), linked to it (`for`), before those subjects: the lookups come last.
+  def reads({:open_for_you, _by}, m) do
+    {rows, lookups} = span_reads(m)
+    rows ++ lookups
+  end
+
+  def reads({:supervised_by_you, by}, m) do
+    {rows, lookups} = span_reads(m)
+    rows ++ work_reads(m, by) ++ lookups
+  end
+
+  # Pick up reads as the fact's page does; Hand over… too, and the facts of the span's
+  # `with:` subjects that point at it, and the client's running work: what will stop.
+  def reads({:pick_up, kind, key, _run}, m), do: reads({:item, kind, key}, m)
+  def reads({:hand_over, kind, key, run}, m), do: reads({:hand_over, kind, key, run, nil}, m)
+
+  def reads({:hand_over, kind, key, _run, by}, m),
+    do: reads({:item, kind, key}, m) ++ with_reads(m, kind, key) ++ work_reads(m, by)
+
   # Open work: every fact of the kinds the start's relation starts at (the Assignments)
   # and of the kinds they are components of, so the same rows as what is assigned to one
   # client, for everyone.
@@ -393,7 +463,8 @@ defmodule AtlasControl.Pages do
       for {_relation, part_kind, component} <- components(m, kind),
           do: {part_kind, presented(m, part_kind, %{"key" => part_key(component, key)})}
 
-    [{kind, presented(m, kind, %{"key" => key})} | children] ++ causes ++ parts
+    [{kind, presented(m, kind, %{"key" => key})} | children] ++
+      causes ++ parts ++ candidate_reads(m, kind)
   end
 
   # A change form also lists where the fact can move: every fact of each parent kind.
@@ -432,7 +503,8 @@ defmodule AtlasControl.Pages do
   The role of each of `reads(route, m)`, in the same order (`AtlasControl.Freshness.ReadSet`):
   `:rows` when its facts are the page's rows, `:lookup` when it only resolves facts that
   the rows point at or that point at them: on what is assigned and in Open work, the
-  facts the Assignments are components of.
+  facts the Assignments are components of; on Open for you and Supervised by you, the
+  span subjects the work is written on a component of.
   """
   def read_roles(:home, m) do
     case top_kinds(m) do
@@ -446,12 +518,16 @@ defmodule AtlasControl.Pages do
       case route do
         {:assigned, _} -> owner_reads(m)
         {:list, kind} when is_binary(kind) -> if open_work?(m, kind), do: owner_reads(m), else: 0
+        {screen, _} when screen in [:open_for_you, :supervised_by_you] -> span_lookups(m)
         _ -> 0
       end
 
     n = length(reads(route, m))
     List.duplicate(:rows, n - lookups) ++ List.duplicate(:lookup, lookups)
   end
+
+  # How many reads of the span subjects a supervision screen ends with.
+  defp span_lookups(m), do: length(elem(span_reads(m), 1))
 
   # How many reads of the owners of the Assignments a page of them ends with.
   defp owner_reads(m) do
@@ -570,14 +646,7 @@ defmodule AtlasControl.Pages do
     froms = (rel(m, relation) || %{from: []}).from
     owners = owner_kinds(m, froms)
     {linked, owned} = Enum.split(answers, length(froms))
-
-    # Each component's fact, by the component's key.
-    whose =
-      for {{component, owner}, %{"facts" => facts}} <- Enum.zip(owners, owned),
-          fact <- facts,
-          part <- get_in(fact, ["links", component]) || [],
-          into: %{},
-          do: {part, {owner, fact}}
+    whose = by_component(owners, owned)
 
     for {from, %{"facts" => links}} <- Enum.zip(froms, linked),
         link <- links,
@@ -590,6 +659,17 @@ defmodule AtlasControl.Pages do
       fn {_, _, link} -> get_in(link, ["origins", relation, "since"]) || "" end,
       :desc
     )
+  end
+
+  # Each component's fact, by the component's key: `%{key => {owner kind, fact}}`, from the
+  # answers (`owned`) to the reads of the owner kinds (`owners`: `[{relation, owner
+  # kind}]`, as `owner_kinds/2` gives them), in the same order.
+  defp by_component(owners, owned) do
+    for {{component, owner}, %{"facts" => facts}} <- Enum.zip(owners, owned),
+        fact <- facts,
+        part <- get_in(fact, ["links", component]) || [],
+        into: %{},
+        do: {part, {owner, fact}}
   end
 
   # The component relations that point at one of `kinds`, with each kind they start at:
@@ -661,7 +741,7 @@ defmodule AtlasControl.Pages do
     |> Enum.sort_by(fn {_, _, link} -> if link["late"] == true, do: 0, else: 1 end)
   end
 
-  # What is assigned to the client, calm by default and detail on demand (platform/atlas_control/bff/README.md):
+  # What is assigned to the client, calm by default and detail on demand (platform/atlas_control/backend/README.md):
   # an Overview of the counts, the list without technical noise, and each row's technical
   # details in a Details section a client folds until asked (`details_action/0`).
   defp assigned(m, _by, answers, marked) do
@@ -695,7 +775,7 @@ defmodule AtlasControl.Pages do
   end
 
   @doc """
-  A calm page's technical details (platform/atlas_control/bff/README.md): `{content, markup}` to add to the page,
+  A calm page's technical details (platform/atlas_control/backend/README.md): `{content, markup}` to add to the page,
   one pair per row in list order in an `item` `details` titled "Technical details" inside a
   collapsible `section` titled "Details"; nothing when there are no pairs. A page with
   them offers `details_action/0`.
@@ -743,7 +823,7 @@ defmodule AtlasControl.Pages do
   end
 
   @doc """
-  A calm page's Overview (platform/atlas_control/bff/README.md): an `item` titled "Overview" with one pair per
+  A calm page's Overview (platform/atlas_control/backend/README.md): an `item` titled "Overview" with one pair per
   `{label, count}`; the first, the main count, always, the others only when some are.
   """
   def summary([main | more]) do
@@ -906,16 +986,491 @@ defmodule AtlasControl.Pages do
     Enum.sort_by(facts, & &1["key"], direction)
   end
 
+  # Supervision (work acquisition decision 2026-11-17, §5.6–5.8; M3b P4)
+
+  @doc """
+  Open for you (the model's `start_page().open_for_you`), or nil: its words (`title`,
+  `count`, `empty`), the supervision `relation` and the kind a pickup is sent as
+  (`inputs`), and the supervised spans: `%{subflow, subject, span, label, states, with,
+  with_subjects}`.
+  """
+  def open_for_you_rule(m), do: m.start[:open_for_you]
+
+  @doc """
+  Supervised by you (the model's `start_page().supervised_by_you`), or nil: its words,
+  the supervision `relation`, `inputs`, and the client's running work (`work`: `kind`,
+  `of`, `for`, `ended`), or nil.
+  """
+  def supervised_rule(m), do: m.start[:supervised_by_you]
+
+  # A supervision screen's start entry, or nil when the model has none.
+  defp screen_rule(m, :open_for_you), do: open_for_you_rule(m)
+  defp screen_rule(m, :supervised_by_you), do: supervised_rule(m)
+
+  # Either entry names the relation and the inputs' kind; the spans are Open for you's.
+  defp supervision(m), do: open_for_you_rule(m) || supervised_rule(m)
+  defp spans(m), do: (open_for_you_rule(m) || %{spans: []}).spans
+
+  # The span subjects the model has, each once, in the spans' order.
+  defp span_kinds(m),
+    do: for(s <- spans(m), kind?(m, s.subject), uniq: true, do: s.subject)
+
+  # The kind the work in span `s` is written on, which Facts presents it on: the span's
+  # `written_on`, or the subject itself.
+  defp written_on(s), do: s[:written_on] || s.subject
+
+  # The supervision screens' reads of the spans, `{rows, lookups}`: each kind a span's work
+  # is written on, once, with its presentation; then each span subject that is not that
+  # kind itself, once, to join the work to (`span_work/3`). Every read of the spans and
+  # every split of their answers is made from this, so the two cannot drift.
+  defp span_reads(m) do
+    spans = for s <- spans(m), kind?(m, s.subject), kind?(m, written_on(s)), do: s
+
+    {for(s <- spans, uniq: true, do: {written_on(s), presented(m, written_on(s), %{})}),
+     for(s <- spans, written_on(s) != s.subject, uniq: true, do: {s.subject, %{}})}
+  end
+
+  # The work in each span, joined to its subject: `[{span, [{kind, subject, work}]}]`, from
+  # the answers to `span_reads/1`'s rows and lookups. `work` is the fact the work is
+  # written on (Facts presents it); `subject` the span subject's fact it is a component of,
+  # joined as what is assigned joins them (`by_component/2`), or the work itself when it
+  # is written on the subject. Work whose subject was not answered is left out.
+  defp span_work(m, rows_answers, lookup_answers) do
+    {rows, lookups} = span_reads(m)
+    written = Map.new(Enum.zip(Enum.map(rows, &elem(&1, 0)), rows_answers))
+    subjects = Map.new(Enum.zip(Enum.map(lookups, &elem(&1, 0)), lookup_answers))
+
+    for s <- spans(m), kind?(m, s.subject) do
+      on = written_on(s)
+      facts = (written[on] || %{})["facts"] || []
+
+      if on == s.subject do
+        {s, for(work <- facts, do: {s.subject, work, work})}
+      else
+        owners = for {_, owner} = o <- owner_kinds(m, [on]), owner == s.subject, do: o
+        whose = by_component(owners, List.duplicate(subjects[s.subject], length(owners)))
+
+        {s,
+         for(work <- facts, {kind, subject} <- [whose[work["key"]]], do: {kind, subject, work})}
+      end
+    end
+  end
+
+  # How Facts presents the work on a fact of `kind`, on its page: on the component among
+  # its `parts` (`item_parts/3`) that a span's work is written on, else on the fact itself.
+  defp work_presentation(m, kind, fact, parts) do
+    on =
+      for s <- spans(m), s.subject == kind, written_on(s) != kind, uniq: true, do: written_on(s)
+
+    Enum.find_value(parts, fact["presentation"] || %{}, fn {part_kind, _k, part, _made} ->
+      part_kind in on && part["presentation"]
+    end)
+  end
+
+  @doc """
+  The span the work on a fact of `kind` is in, as Facts presents it: the span of the
+  presenting subflow on that kind whose states hold the presented state; nil when none.
+  """
+  def span_of(m, kind, %{} = presentation) do
+    Enum.find(spans(m), fn s ->
+      s.subject == kind and s.subflow == presentation["flow"] and
+        presentation["state"] in s.states
+    end)
+  end
+
+  def span_of(_m, _kind, _presentation), do: nil
+
+  @doc "The kinds a supervisor is a fact of: those the supervision relation points at."
+  def supervisor_kinds(m) do
+    case supervision(m) do
+      %{relation: relation} -> (rel(m, relation) || %{to: []}).to
+      _ -> []
+    end
+  end
+
+  @doc "The kind a pickup or hand-over is sent as (the run mapping's inputs), or nil."
+  def inputs_kind(m), do: (supervision(m) || %{})[:inputs]
+
+  defp supervisors(fact), do: supervisor(fact["presentation"])
+  defp supervisor(%{} = presentation), do: presentation["supervisor"] || []
+  defp supervisor(_), do: []
+
+  # The page of a span subject reads every candidate supervisor too: whom one may hand over to.
+  defp candidate_reads(m, kind) do
+    if kind in span_kinds(m), do: for(p <- supervisor_kinds(m), do: {p, %{}}), else: []
+  end
+
+  # The candidates among the answers that end an item page's reads (they come last).
+
+  defp candidates(m, kind, child_answers) do
+    n = length(candidate_reads(m, kind))
+
+    for %{"facts" => facts} <- Enum.take(child_answers, -n), n > 0, fact <- facts, do: fact
+  end
+
+  @doc """
+  Whom the client `by` may hand a fact of `kind` over to, from a page's answers (the item's
+  reads first): the keys of the candidates other than `by`.
+  """
+  def hand_over_targets(m, kind, answers, by),
+    do: for(p <- others(m, kind, answers, by), do: p["key"])
+
+  # The candidates other than `by`, from a page of `kind`'s answers (the item's reads first).
+  defp others(m, kind, answers, by) do
+    item = Enum.take(answers, length(reads({:item, kind, ""}, m)))
+
+    for p <- candidates(m, kind, tl(item)), p["key"] != by, do: p
+  end
+
+  # The client's running work: the facts of the work's kind done for it (`for`).
+  defp work_reads(m, by) do
+    case supervised_rule(m) do
+      %{work: %{kind: kind, for: for_}} when is_binary(by) ->
+        if kind?(m, kind), do: [{kind, %{"linked" => %{for_ => by}}}], else: []
+
+      _ ->
+        []
+    end
+  end
+
+  # The facts of the span's `with:` subjects that point at the fact `key` of `kind`, by
+  # every relation from such a subject to `kind`.
+  defp with_reads(m, kind, key) do
+    for s <- spans(m),
+        s.subject == kind,
+        w <- s[:with_subjects] || [],
+        kind?(m, w),
+        r <- relations(m),
+        w in r.from and kind in r.to,
+        uniq: true,
+        do: {w, %{"linked" => %{r.name => key}}}
+  end
+
+  # Work that has not ended: its `ended` field is empty.
+  defp running?(work, fact), do: get_in(fact, ["values", work.ended]) in [nil, ""]
+
+  @doc """
+  The rows of Open for you among the answers to `reads({:open_for_you, by})`, per span in
+  the declared order: `[{span, [{kind, fact, work}]}]`, `work` the fact the work on `fact`
+  is written on (`span_work/3`). A fact is open for you while its work is presented by the
+  span's subflow, active, in one of the span's states, without a human supervisor, and
+  the fact is not completed.
+  """
+  def open_for_you_facts(m, answers) do
+    {rows, _lookups} = span_reads(m)
+    {rows_answers, lookup_answers} = Enum.split(answers, length(rows))
+
+    for {s, items} <- span_work(m, rows_answers, lookup_answers) do
+      open =
+        for {_kind, fact, work} = item <- items,
+            p = work["presentation"] || %{},
+            p["flow"] == s.subflow,
+            p["status"] == "active",
+            p["state"] in s.states,
+            supervisors(work) == [],
+            not completed?(fact),
+            do: item
+
+      {s, open}
+    end
+  end
+
+  @doc """
+  The rows of Supervised by you among the answers to `reads({:supervised_by_you, by})`:
+  `[{kind, fact, work}]` (as `open_for_you_facts/2`), the facts whose presented supervisor
+  is `by` while their work is still in a span (until Flow clears the supervisor as it
+  leaves one, F-2), and the running work done for `by` (`[fact]`).
+  """
+  def supervised_facts(m, by, answers) do
+    {rows, lookups} = span_reads(m)
+    {rows_answers, rest} = Enum.split(answers, length(rows))
+    {work, lookup_answers} = Enum.split(rest, max(length(rest) - length(lookups), 0))
+
+    supervised =
+      for {_s, items} <- span_work(m, rows_answers, lookup_answers),
+          {kind, _fact, w} = item <- items,
+          is_binary(by) and by in supervisors(w),
+          span_of(m, kind, w["presentation"]) != nil,
+          uniq: true,
+          do: item
+
+    running =
+      case {supervised_rule(m)[:work], work} do
+        {%{} = w, [%{"facts" => facts}]} -> Enum.filter(facts, &running?(w, &1))
+        _ -> []
+      end
+
+    {supervised, running}
+  end
+
+  @doc """
+  The client's running work that a hand-over of the fact stops (§6.3), among the answers
+  to `reads({:hand_over, kind, key, run, by})`: the work done for `by` that is of the fact,
+  or of a fact of a `with:` subject that points at it, and has not ended.
+  """
+  def stopping_tasks(m, {:hand_over, kind, key, _run, _by}, answers) do
+    item = length(reads({:item, kind, key}, m))
+    withs = length(with_reads(m, kind, key))
+    {with_answers, work_answers} = answers |> Enum.drop(item) |> Enum.split(withs)
+    of = [key | for(%{"facts" => facts} <- with_answers, f <- facts, do: f["key"])]
+
+    case {supervised_rule(m)[:work], work_answers} do
+      {%{} = w, [%{"facts" => facts}]} ->
+        for t <- facts,
+            running?(w, t),
+            Enum.any?(get_in(t, ["links", w.of]) || [], &(&1 in of)),
+            do: t
+
+      _ ->
+        []
+    end
+  end
+
+  # The client may supervise: a fact of a supervisor's kind, at the TUI.
+  defp may_supervise?(m, form),
+    do: form[:client] == @supervising_client and form[:by_kind] in supervisor_kinds(m)
+
+  @doc """
+  Why the client cannot pick up `run` on the fact now, from fresh reads of the page; nil
+  when it can: someone at the TUI who may supervise, the run still the one that presents the fact,
+  active, in a span, and without a supervisor.
+  """
+  def pick_up_problem(m, {:pick_up, kind, _key, run}, [%{"fact" => %{} = fact} | rest], form) do
+    p = work_presentation(m, kind, fact, item_parts(m, kind, rest))
+
+    cond do
+      not may_supervise?(m, form) -> "Only someone at the TUI who may supervise picks a flow up."
+      p["run"] != run -> "The flow moved on since this page was made; open it again."
+      p["status"] != "active" or span_of(m, kind, p) == nil -> "The flow is not open for you."
+      supervisor(p) != [] -> "The flow is supervised already."
+      true -> nil
+    end
+  end
+
+  def pick_up_problem(_m, _route, _answers, _form), do: "It cannot be read now."
+
+  @doc """
+  Why the client cannot hand `run` on the fact over now, from fresh reads of the page; nil
+  when it can: its supervisor at the TUI, the run still the one that presents the fact,
+  active and in a span, and someone else to hand it to.
+  """
+  def hand_over_problem(m, route, answers, form)
+
+  def hand_over_problem(m, {:hand_over, kind, key, run}, answers, form),
+    do: hand_over_problem(m, {:hand_over, kind, key, run, form[:by]}, answers, form)
+
+  def hand_over_problem(
+        m,
+        {:hand_over, kind, _key, run, _by},
+        [%{"fact" => %{} = fact} | rest] = answers,
+        form
+      ) do
+    p = work_presentation(m, kind, fact, item_parts(m, kind, rest))
+
+    cond do
+      not may_supervise?(m, form) or form[:by] not in supervisor(p) ->
+        "Only the flow's supervisor at the TUI hands it over."
+
+      p["run"] != run ->
+        "The flow moved on since this page was made; open it again."
+
+      p["status"] != "active" or span_of(m, kind, p) == nil ->
+        "The flow is no longer in a supervised part."
+
+      others(m, kind, answers, form[:by]) == [] ->
+        "There is nobody else to hand it over to."
+
+      true ->
+        nil
+    end
+  end
+
+  def hand_over_problem(_m, _route, _answers, _form), do: "It cannot be read now."
+
+  # Whom to hand over to: one choice of the candidates other than the client.
+  defp choice_input(m, others, form) do
+    kinds = supervisor_kinds(m)
+    candidate_k = (length(kinds) == 1 && kind(m, hd(kinds))) || nil
+
+    Blocks.input(
+      name: "hand_to",
+      label: (candidate_k && candidate_k.label) || "—",
+      kind: "choice",
+      value: (form[:values] || %{})["hand_to"],
+      required: true,
+      choices:
+        for(
+          p <- Enum.sort_by(others, & &1["key"]),
+          do: Blocks.choice(value: p["key"], label: "#{p["key"]}: #{label(candidate_k, p)}")
+        )
+    )
+  end
+
+  # Pick up and Hand over… on a fact's page, after its answers and restart: Pick up for
+  # one who may supervise, at the TUI, while the presenting run is active in a span with
+  # no supervisor; Hand over… for its supervisor at the TUI while someone else could take
+  # it.
+
+  defp supervision_actions(m, kind, fact, p, candidates, form) do
+    run = p["run"]
+    supervisor = supervisor(p)
+
+    if is_binary(run) and p["status"] == "active" and span_of(m, kind, p) != nil and
+         may_supervise?(m, form) do
+      pick =
+        if supervisor == [],
+          do: [supervision_action(:pick_up, {:pick_up, kind, fact["key"], run})],
+          else: []
+
+      hand =
+        if form[:by] in supervisor and Enum.any?(candidates, &(&1["key"] != form[:by])),
+          do: [supervision_action(:hand_over, {:hand_over, kind, fact["key"], run})],
+          else: []
+
+      pick ++ hand
+    else
+      []
+    end
+  end
+
+  defp supervision_action(verb, route) do
+    {label, key} = @supervision[verb]
+    Blocks.action(label: label, key: key, to: path(route))
+  end
+
+  # The run's supervisor on a span subject's page, keys only, by the relation's label.
+  defp supervisor_pair(m, kind, p) do
+    with keys when keys != [] <- supervisor(p),
+         true <- kind in span_kinds(m),
+         %{} = r <- rel(m, supervision(m).relation) do
+      [Blocks.pair(label: String.capitalize(r.label), value: Enum.join(keys, ", "))]
+    else
+      _ -> []
+    end
+  end
+
+  # Open for you, calm by default: an Overview, one list per span, details on demand.
+  defp open_for_you(m, answers) do
+    case Enum.find(answers, &match?(%{"error" => _}, &1)) do
+      nil ->
+        rule = open_for_you_rule(m)
+        per_span = open_for_you_facts(m, answers)
+        items = for {_s, facts} <- per_span, item <- facts, do: item
+
+        lists =
+          for {s, facts} <- per_span do
+            {"list:#{s.subflow}:#{s.span}",
+             Blocks.list(
+               title: s.label || s.span,
+               rows: for({kind, fact, work} <- facts, do: screen_row(m, kind, fact, work)),
+               empty: rule.empty
+             )}
+          end
+
+        calm_page(m, rule.title || "", nil, nil, items, [
+          {"summary", screen_overview(rule, items, [])} | lists
+        ])
+
+      failed ->
+        unavailable(failed, "/")
+    end
+  end
+
+  # Supervised by you, calm by default: an Overview with the quiet count of the client's
+  # running work, the flows it supervises (state, who it waits on), details on demand.
+  defp supervised_by_you(m, by, answers) do
+    case Enum.find(answers, &match?(%{"error" => _}, &1)) do
+      nil ->
+        rule = supervised_rule(m)
+        {items, running} = supervised_facts(m, by, answers)
+
+        work =
+          case rule[:work] do
+            %{kind: kind} -> [{(kind(m, kind) || unknown_kind(kind)).plural, length(running)}]
+            _ -> []
+          end
+
+        list =
+          Blocks.list(
+            title: rule.title || "",
+            rows: for({kind, fact, work} <- items, do: screen_row(m, kind, fact, work)),
+            empty: rule.empty
+          )
+
+        calm_page(m, rule.title || "", nil, nil, items, [
+          {"summary", screen_overview(rule, items, work)},
+          {"list", list}
+        ])
+
+      failed ->
+        unavailable(failed, "/")
+    end
+  end
+
+  # A screen's Overview: titled by the model's count, its main count by its title, then
+  # how many are late or blocked, and `more`, only when some are.
+  defp screen_overview(rule, items, more) do
+    n = length(items)
+    late = Enum.count(items, fn {_, fact, _} -> fact["late"] == true end)
+    blocked = Enum.count(items, fn {_, fact, _} -> shown(fact, fact, "status") == "blocked" end)
+
+    fields =
+      for {label, count} <-
+            [
+              {rule.title || "", n}
+              | Enum.filter([{"Late", late}, {"Blocked", blocked} | more], fn {_, c} -> c > 0 end)
+            ],
+          do: Blocks.pair(label: label, value: Integer.to_string(count))
+
+    title = String.replace(rule.count || "{count}", "{count}", Integer.to_string(n))
+    Blocks.item(title: title, fields: fields)
+  end
+
+  # One calm row of a screen: the fact, what is expected, whom it waits on (the owner
+  # keys Facts presents on the `work`), whether it is blocked; the rest is in its
+  # technical details.
+  defp screen_row(m, kind, fact, work) do
+    detail =
+      [
+        expected(fact, work),
+        case get_in(work, ["presentation", "owner"]) do
+          [_ | _] = keys -> Enum.join(keys, ", ")
+          _ -> nil
+        end,
+        shown(fact, work, "status") == "blocked" && "blocked"
+      ]
+      |> Enum.reject(&(&1 in [nil, "", false]))
+      |> Enum.join(" · ")
+
+    Blocks.row(
+      label: label(kind(m, kind), fact),
+      detail: detail,
+      to: path({:item, kind, fact["key"]})
+    )
+  end
+
   # Pages
 
   @doc """
   The page for `route`: `%{title, back, blocks}`. `answers` are Facts' answers to
+
   `reads/2`, in order. `form` carries values and errors to show a form again, and who
   views it (`by`, `by_kind`).
   """
   def render(route, m, answers, form \\ %{})
 
   def render({:assigned, by}, m, answers, form), do: assigned(m, by, answers, marked(form))
+  # A supervision screen without its start entry is no page (`resolve/2`).
+  def render({screen, by}, m, answers, form) when screen in [:open_for_you, :supervised_by_you] do
+    case {screen, screen_rule(m, screen)} do
+      {_, nil} -> render(:unknown, m, answers, form)
+      {:open_for_you, _} -> open_for_you(m, answers)
+      {:supervised_by_you, _} -> supervised_by_you(m, by, answers)
+    end
+  end
+
+  def render({:hand_over, kind, key, run}, m, answers, form),
+    do: render({:hand_over, kind, key, run, form[:by]}, m, answers, form)
 
   def render(:home, m, answers, form) do
     case top_kinds(m) do
@@ -1061,9 +1616,10 @@ defmodule AtlasControl.Pages do
       %{"fact" => fact} ->
         back = path(owner(m, kind, answer) || up(m, kind, fact))
         relations = child_relations(m, kind)
+        parts = item_parts(m, kind, child_answers)
+        work = work_presentation(m, kind, fact, parts)
         {child_answers, rest} = Enum.split(child_answers, length(relations))
         {cause_answers, part_answers} = Enum.split(rest, length(cause_fields(m)))
-        parts = parts(m, kind, part_answers)
         todo = m.module.todo(kind, fact, parts_by_kind(parts), viewer(form))
 
         fields =
@@ -1079,6 +1635,7 @@ defmodule AtlasControl.Pages do
             review_pair(fact) ++
             linked(m, kind, fact) ++
             Enum.flat_map(parts, fn {part_kind, _k, part, _made} -> linked(m, part_kind, part) end) ++
+            supervisor_pair(m, kind, work) ++
             copy(answer["copy"])
 
         item =
@@ -1097,7 +1654,9 @@ defmodule AtlasControl.Pages do
             links: links(k, fact)
           )
           |> answers_first(
-            answer_actions(kind, fact, todo) ++ restart_actions(m, kind, fact, parts, form)
+            answer_actions(kind, fact, todo) ++
+              restart_actions(m, kind, fact, parts, form) ++
+              supervision_actions(m, kind, fact, work, candidates(m, kind, part_answers), form)
           )
 
         lists =
@@ -1528,6 +2087,100 @@ defmodule AtlasControl.Pages do
               )
 
             page("#{verb(:delete)} #{key}", back, [confirm])
+        end
+
+      %{"error" => _} = failed ->
+        unavailable(failed, back)
+    end
+  end
+
+  # Become the supervisor of the run that presents the fact (Pick up), after asking; why
+  # not, while it may not (`pick_up_problem/4`).
+  defp page({:pick_up, kind, key, _run} = route, kind, k, m, answers, form) do
+    back = path({:item, kind, key})
+    {label, _key} = @supervision.pick_up
+    title = "#{label} #{key}"
+
+    case hd(answers) do
+      %{"fact" => nil} ->
+        missing(title, "#{key} does not exist (any more).", path({:list, kind}))
+
+      %{"fact" => fact} ->
+        case pick_up_problem(m, route, answers, form) do
+          nil ->
+            page(title, back, [
+              Blocks.confirm(
+                title: "#{title}?",
+                text: "#{key}: #{label(k, fact)}",
+                confirm_label: label,
+                confirm_to: call_to(route),
+                cancel_to: back
+              )
+            ])
+
+          problem ->
+            missing(title, problem, back)
+        end
+
+      %{"error" => _} = failed ->
+        unavailable(failed, back)
+    end
+  end
+
+  # Hand the run over to someone else (decision 4; §6.3): a choice of who, and the
+  # client's running work on the flow that will stop. No note. Why not, while it may not.
+  defp page({:hand_over, kind, key, run, _by} = route, kind, k, m, answers, form) do
+    back = path({:item, kind, key})
+    {label, _key} = @supervision.hand_over
+    title = "#{label} #{key}"
+    submit = {:hand_over, kind, key, run}
+
+    case hd(answers) do
+      %{"fact" => nil} ->
+        missing(title, "#{key} does not exist (any more).", path({:list, kind}))
+
+      %{"fact" => fact} ->
+        case hand_over_problem(m, route, answers, form) do
+          nil ->
+            to = choice_input(m, others(m, kind, answers, form[:by]), form)
+            stopping = stopping_tasks(m, route, answers)
+            work = supervised_rule(m)[:work]
+            work_k = work && (kind(m, work.kind) || unknown_kind(work.kind))
+
+            stops =
+              if work_k,
+                do: [
+                  {"stopping",
+                   Blocks.list(
+                     title: work_k.plural,
+                     rows:
+                       for(
+                         t <- stopping,
+                         do:
+                           Blocks.row(
+                             label: label(work_k, t),
+                             to: path({:item, work.kind, t["key"]})
+                           )
+                       ),
+                     empty: "—"
+                   )}
+                ],
+                else: []
+
+            form_block =
+              Blocks.form(
+                title: "#{title}: #{label(k, fact)}",
+                inputs: [to],
+                submit_label: label,
+                submit_to: call_to(submit),
+                cancel_to: back,
+                errors: form[:errors] || []
+              )
+
+            page(title, back, [{"form", form_block} | stops])
+
+          problem ->
+            missing(title, problem, back)
         end
 
       %{"error" => _} = failed ->

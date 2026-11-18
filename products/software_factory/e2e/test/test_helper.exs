@@ -22,4 +22,5 @@ ExUnit.after_suite(fn _ -> File.rm_rf!(git) end)
 # :httpc needs a CA store even for http; where the system's is unreadable, the bundle on disk.
 _ = AtlasFacts.Trust.load()
 
-ExUnit.start()
+# A bare assert_receive waits up to AtlasTestAwait's cap, as an event wait does.
+ExUnit.start(AtlasTestAwait.exunit_options())

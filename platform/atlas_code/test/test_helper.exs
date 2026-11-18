@@ -9,7 +9,7 @@ System.put_env("GIT_CONFIG_GLOBAL", Path.join(config, "gitconfig"))
 System.put_env("GIT_CONFIG_NOSYSTEM", "1")
 System.put_env("XDG_CONFIG_HOME", config)
 ExUnit.after_suite(fn _ -> File.rm_rf!(config) end)
-ExUnit.start()
+ExUnit.start(AtlasTestAwait.exunit_options())
 
 defmodule AtlasCode.TestDir do
   @moduledoc """

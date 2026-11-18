@@ -17,11 +17,11 @@ defmodule AtlasFlow.Runs.Store do
   """
 
   require Logger
-  alias AtlasFlow.Runs.Run
+  alias AtlasFlow.Runs.{HandOver, Run}
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
-  alias AtlasFlow.Activities.Pass
   alias AtlasFlow.Activities.Effect
+  alias AtlasFlow.Activities.Task
   alias AtlasFlow.Composition.{Counts, Links, Tallies}
 
   @structured ~w(deadlines pending last_input)
@@ -196,17 +196,55 @@ defmodule AtlasFlow.Runs.Store do
         {composition, refused} =
           composition(model.composition(), selection, flows, model.relations())
 
+        {supervision, unsupported} = supervision(model)
+
         config =
           runs
           |> Map.put("selection", selection)
           |> Map.put("composition", composition)
+          |> Map.put("supervision", supervision)
+          |> Map.put("hand_over", hand_over(model, supervision))
 
-        {config, validate_selection(config, flows) || two_writers(selection) || refused}
+        {config,
+         validate_selection(config, flows) || two_writers(selection) || refused || unsupported}
 
       _ ->
         {nil, nil}
     end
   end
+
+  # Who supervises a run, as the model declares it (`supervision/0`, work acquisition
+  # decision 2026-11-17 §5.6): the relation from a run to its supervisor, with the kinds
+  # a supervisor is a fact of (`holders`), the pickup and hand-over input fields, and
+  # each subflow's spans. nil when the model declares none; a version this runner does
+  # not know refuses every run.
+  defp supervision(model) do
+    case function_exported?(model, :supervision, 0) && model.supervision() do
+      %{"version" => 1, "relation" => relation} = s when is_binary(relation) ->
+        holders = get_in(model.relations(), [relation, "to"]) || []
+        {Map.put(s, "holders", holders), nil}
+
+      %{} = s ->
+        {nil, {:unsupported_supervision, s["version"]}}
+
+      _ ->
+        {nil, nil}
+    end
+  end
+
+  # The To-Do a hand-over gives its holder (`AtlasFlow.Runs.HandOver`), as configured
+  # (`config :atlas_flow, :hand_over`) and checked against the model's relations: nil
+  # when the runs are not supervised, it is not configured, or the model has no part to
+  # assign it through. A hand-over then makes no To-Do.
+  defp hand_over(_model, nil), do: nil
+
+  defp hand_over(model, supervision),
+    do:
+      HandOver.resolve(
+        Application.get_env(:atlas_flow, :hand_over),
+        model.relations(),
+        supervision["holders"]
+      )
 
   # The links and counts Flow applies: those whose child subflow is selected and some
   # selected subflow runs on the parent; the tallies whose parent a selected subflow runs
@@ -505,7 +543,7 @@ defmodule AtlasFlow.Runs.Store do
   #   stored first, and sent with their stable ids; their acknowledgement is noted in
   #   memory and stored with the next write of the run, so a crash in between replays them
   #   under the same ids, which Facts answers from its ledger;
-  # - before an activity is asked (a gate, a pass, an effect): its frozen request is
+  # - before an activity is asked (a gate, an effect): its frozen request is
   #   stored before it is sent;
   # - before an accepted input is consumed: Facts consumes only the input the stored run
   #   names;
@@ -597,17 +635,26 @@ defmodule AtlasFlow.Runs.Store do
     case run["pending"]["writes"] do
       [_ | _] ->
         stored(config, d, run, :all, flow, now, remaining, fn d, run ->
-          with :ok <- send_writes(run["pending"]["writes"]),
-               do:
-                 step(
-                   config,
-                   d,
-                   run,
-                   put_in(run, ["pending", "writes"], []),
-                   flow,
-                   now,
-                   remaining
-                 )
+          case send_writes(config, run) do
+            :ok ->
+              step(config, d, run, sent(run), flow, now, remaining)
+
+            # A hand-over's To-Do number was taken meanwhile: the run is stored with the
+            # next one before it is sent again.
+            {:renumbered, writes} ->
+              step(
+                config,
+                d,
+                run,
+                put_in(run, ["pending", "writes"], writes),
+                flow,
+                now,
+                remaining
+              )
+
+            error ->
+              error
+          end
         end)
 
       [] ->
@@ -737,6 +784,8 @@ defmodule AtlasFlow.Runs.Store do
   # One transition taken: the next one from it, or the end of the reaction when it
   # changed nothing. A new generation is another run: the one it ends is stored first.
   defp step(config, d, run, updated, flow, now, remaining) do
+    updated = left_span(config, run, updated)
+
     cond do
       updated == run ->
         finish(config, d, run, flow, now, remaining)
@@ -802,12 +851,14 @@ defmodule AtlasFlow.Runs.Store do
     key = run["key"]
 
     if d.fact == nil do
-      content = %{
-        "op" => "create",
-        "key" => key,
-        "values" => encode(config, run),
-        "by" => config["writer"]["by"]
-      }
+      content =
+        %{
+          "op" => "create",
+          "key" => key,
+          "values" => encode(config, run),
+          "by" => config["writer"]["by"]
+        }
+        |> supervisor_link(config, run, nil)
 
       # A lost create answer is recovered by reading the stable fact key.
       Talk.put(config["kind"], content, Run.digest({key, "create"}))
@@ -823,6 +874,8 @@ defmodule AtlasFlow.Runs.Store do
         "by" => config["writer"]["by"]
       }
 
+      content = supervisor_link(content, config, run, d.fact)
+
       # Conflict or lost acknowledgement: reread, never assume it was committed.
       Talk.put(config["kind"], content)
     end
@@ -835,13 +888,123 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # Each pending write, in order, under its stable id.
-  defp send_writes(writes) do
+  # The run's supervisor is a link of its fact (the model's supervision relation), not a
+  # field: a write sets it only when it changes, in the same write as the cursor, with
+  # the keys it read in `was`.
+  defp supervisor_link(content, config, run, fact) do
+    case config["supervision"] do
+      %{"relation" => relation} ->
+        held = List.wrap(get_in(fact || %{}, ["links", relation]))
+        wanted = List.wrap(run["supervised_by"])
+
+        cond do
+          held == wanted ->
+            content
+
+          fact == nil ->
+            Map.put(content, "links", %{relation => wanted})
+
+          true ->
+            content
+            |> Map.put("links", %{relation => wanted})
+            |> Map.update!("was", &Map.put(&1, relation, held))
+        end
+
+      _ ->
+        content
+    end
+  end
+
+  # A transition that leaves the run's supervised span clears its supervisor in the run it
+  # leads to (`AtlasFlow.Runs.Run.leave_span/3`), before that run is stored: the write that
+  # stores the new state also clears the supervisor link (`supervisor_link/4`), so no
+  # write holds the new state with the old supervisor.
+  defp left_span(config, run, updated) do
+    case config["supervision"] do
+      %{} = s -> Run.leave_span(run, updated, (s["spans"] || %{})[run["flow"]] || [])
+      _ -> updated
+    end
+  end
+
+  # Each pending write, in order, under its stable id. A hand-over's To-Do create that
+  # Facts refuses because its key is taken (another fact holds it, or it is held back
+  # after a delete) is renumbered: `{:renumbered, writes}`, the run's pending writes with
+  # the next free number, under that number's ids, stored before they are sent again.
+  defp send_writes(config, run) do
+    writes = run["pending"]["writes"]
+
     Enum.reduce_while(writes, :ok, fn write, :ok ->
-      case Talk.put(write["kind"], write["content"], write["id"]) do
-        {:stored, _} -> {:cont, :ok}
-        error -> {:halt, {:error, {:pending, error}}}
+      case Talk.put(write["kind"], write["content"], write["id"], code: true) do
+        {:stored, _} ->
+          {:cont, :ok}
+
+        error ->
+          case taken(config, write, refusal_code(error)) do
+            :ours -> {:cont, :ok}
+            {:taken, number} -> {:halt, {:renumbered, renumber(config, run, write, number)}}
+            :unknown -> {:halt, {:error, {:pending, error}}}
+          end
       end
+    end)
+  end
+
+  defp refusal_code({:refused, _reasons, code}), do: code
+  defp refusal_code(_error), do: nil
+
+  # Whether a refused write is a hand-over's To-Do whose key is taken, with the next free
+  # number when it is. A key Facts holds back (`"reserved"`: its fact was deleted) is
+  # taken and never this create's; otherwise by what Facts holds at the key
+  # (`AtlasFlow.Runs.HandOver.met/2`). Facts answers a resend of the refused id from its
+  # ledger, so a taken key is only ever left for the next number's ids.
+  defp taken(config, write, code) do
+    with true <- config["hand_over"] != nil and HandOver.create?(write),
+         :taken <- held(write, code) do
+      after_ = write["hand_over"]["number"] + 1
+
+      case Talk.transition_read(write["kind"], %{"plain" => true}) do
+        %{"facts" => facts} ->
+          {:taken,
+           max(after_, HandOver.next_number(config["hand_over"], Enum.map(facts, & &1["key"])))}
+
+        _ ->
+          {:taken, after_}
+      end
+    else
+      :ours -> :ours
+      _ -> :unknown
+    end
+  end
+
+  defp held(_write, "reserved"), do: :taken
+
+  defp held(write, _code) do
+    case Talk.transition_read(write["kind"], %{"key" => write["content"]["key"], "plain" => true}) do
+      %{"fact" => fact} -> HandOver.met(write, fact)
+      _ -> :unknown
+    end
+  end
+
+  defp renumber(config, run, write, number),
+    do:
+      HandOver.renumber(
+        config["hand_over"],
+        run,
+        run["pending"]["writes"],
+        write["hand_over"]["input"],
+        number
+      )
+
+  # The run once its pending writes are acknowledged: none left, and its hand-over, once
+  # its To-Do was among them, done.
+  defp sent(run) do
+    hand_over = run["pending"]["hand_over"]
+
+    run
+    |> put_in(["pending", "writes"], [])
+    |> then(fn sent ->
+      if is_map(hand_over) and HandOver.holds?(run["pending"]["writes"], hand_over["input"]),
+        do: update_in(sent, ["pending"], &Map.delete(&1, "hand_over")),
+        else: sent
     end)
   end
 
@@ -1137,7 +1300,16 @@ defmodule AtlasFlow.Runs.Store do
     end)
   end
 
+  # A pickup or hand-over input is taken first, ahead of the mechanism branches: it moves
+  # no state, so a run that runs a task takes it too (`AtlasFlow.Runs.Run.supervision/4`).
   defp next(config, run, flow, subject, now, inputs) do
+    case Run.supervision(run, flow, inputs, supervision_check(config, run), to_do(config)) do
+      :none -> moved(config, run, flow, subject, now, inputs)
+      taken -> taken
+    end
+  end
+
+  defp moved(config, run, flow, subject, now, inputs) do
     mechanism = if run["status"] == "active", do: flow.mechanism(run["state"])
     review = config["selection"][run["flow"]]["verification"]
     verdict = run["pending"]["verdict"]
@@ -1145,19 +1317,11 @@ defmodule AtlasFlow.Runs.Store do
     opts = [reopen: config["selection"][run["flow"]]["reopen"]]
 
     cond do
-      match?({:pass, _}, mechanism) and Pass.with_person?(elem(mechanism, 1)) ->
-        # A shared pass: a branch, a choice or a timer comes first and leaves the pass.
-        with {:ok, stepped} <- Run.step(run, flow, subject, now, inputs, opts) do
-          if Map.take(stepped, @moved) != Map.take(run, @moved),
-            do: {:ok, stepped},
-            else: pass_next(stepped, flow, subject, now, elem(mechanism, 1))
-        end
-
-      match?({:pass, _}, mechanism) ->
-        pass_next(run, flow, subject, now, elem(mechanism, 1))
-
       match?({:effect, _}, mechanism) ->
         effect_next(config, run, flow, subject, now, elem(mechanism, 1))
+
+      match?({:task, _}, mechanism) ->
+        task_next(config, run, flow, subject, now, elem(mechanism, 1))
 
       match?({:gate, _}, mechanism) ->
         gate_next(run, flow, subject, now, elem(mechanism, 1))
@@ -1203,116 +1367,50 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  defp pass_next(run, flow, subject, now, spec) do
-    with {:ok, assignment, owner} <- pass_owner(flow.owner(), subject) do
-      intent = run["pending"]["pass"]
+  # How a supervision input to `run` is checked (`AtlasFlow.Runs.Inputs.supervision/4`):
+  # with its subflow's spans, and a holder read from Facts, as a fact of a supervisor's
+  # kind. nil when the model declares no supervision.
+  defp supervision_check(config, run) do
+    case config["supervision"] do
+      %{} = s ->
+        of_run = %{"inputs" => s["inputs"], "spans" => (s["spans"] || %{})[run["flow"]] || []}
+        &AtlasFlow.Runs.Inputs.supervision(&1, run, of_run, fn key -> holder?(s, key) end)
 
-      cond do
-        intent == nil ->
-          case Pass.freeze(run, spec, subject, assignment, owner) do
-            {:ok, frozen} -> {:ok, put_in(run, ["pending", "pass"], frozen)}
-            {:error, :invalid_pass_binding} -> {:ok, run}
-          end
-
-        # A shared pass is left, not blocked: one for the new binding is another request,
-        # also after a result that answered nothing (kept with the passes it left).
-        Pass.with_person?(spec) and not Pass.current?(intent, subject, assignment, owner) ->
-          {:ok, Run.leave_pass(run)}
-
-        # Done without an answer: the answer comes by hand; this binding is not asked again.
-        intent["result"] != nil ->
-          {:ok, run}
-
-        not Pass.current?(intent, subject, assignment, owner) ->
-          {:ok,
-           Map.merge(run, %{
-             "status" => "blocked",
-             "blocked_reason" => "pass binding changed; reconciliation required"
-           })}
-
-        true ->
-          case Pass.poll(intent, now) do
-            {:waiting, updated} ->
-              {:ok, put_in(run, ["pending", "pass"], updated)}
-
-            {:ok, %{"status" => "completed"} = reply} ->
-              if Pass.with_person?(spec),
-                do: Run.pass_answer(run, flow, subject, now, reply, spec),
-                else: Run.pass_result(run, flow, subject, now, reply)
-
-            {:ok, reply} ->
-              {:ok, put_in(run, ["pending", "pass", "execution"], reply["execution"])}
-
-            # A shared pass ends without an answer: its state still takes the answer by
-            # hand and keeps its timers. Any other pass blocks its run.
-            {:error, {:pass_requires_reconciliation, reason}} ->
-              if Pass.with_person?(spec),
-                do:
-                  {:ok,
-                   put_in(run, ["pending", "pass", "result"], %{
-                     "id" => intent["request"]["id"],
-                     "execution" => intent["execution"],
-                     "status" => "failed",
-                     "requires_reconciliation" => true,
-                     "error" => reason
-                   })},
-                else:
-                  {:ok,
-                   Map.merge(run, %{
-                     "status" => "blocked",
-                     "blocked_reason" => "Runtime pass requires reconciliation"
-                   })}
-
-            {:error, _} ->
-              {:ok, run}
-          end
-      end
-    else
-      # Missing owners or routing data wait, never fall back to another machine.
-      _ -> {:ok, run}
+      _ ->
+        nil
     end
   end
 
-  defp pass_owner(binding, subject) do
-    with %{"description" => d} <- Talk.transition_read("_description", %{}),
-         {:ok, assignment} <- pass_assignment(binding, subject, d),
-         [key] <- assignment["links"][binding["relation"]],
-         {:ok, owner} <- one_fact(d["relations"][binding["relation"]]["to"], key) do
-      # Version/position changes alone do not change an assignment binding.
-      {:ok, Map.take(assignment, ~w(key values links)), owner}
-    else
-      _ -> {:error, :owner_unavailable}
-    end
-  end
+  # How a hand-over's To-Do is built (`AtlasFlow.Runs.HandOver.writes/5`): numbered after
+  # the To-Dos Facts holds now. nil when no hand-over makes one.
+  defp to_do(config) do
+    case config["hand_over"] do
+      nil ->
+        nil
 
-  # The one fact of `kinds` with `key`: a relation to several kinds says which by the fact
-  # that holds the key; none, more than one, or an unanswered read is no owner.
-  defp one_fact(kinds, key) when is_list(kinds) do
-    found =
-      Enum.map(kinds, fn kind ->
-        case Talk.transition_read(kind, %{"key" => key, "plain" => true}) do
-          %{"fact" => fact} -> fact
-          _ -> :unavailable
+      spec ->
+        fn run, hand_over, from ->
+          case Talk.transition_read(spec["kind"], %{"plain" => true}) do
+            %{"facts" => facts} ->
+              number = HandOver.next_number(spec, Enum.map(facts, & &1["key"]))
+              {:ok, HandOver.writes(spec, run, hand_over, from, number)}
+
+            _ ->
+              :unavailable
+          end
         end
-      end)
-
-    case Enum.reject(found, &is_nil/1) do
-      [%{} = owner] -> {:ok, owner}
-      _ -> {:error, :owner_unavailable}
     end
   end
 
-  defp one_fact(_, _), do: {:error, :owner_unavailable}
-
-  defp pass_assignment(%{"via" => via}, subject, d) when is_binary(via) do
-    with [key] <- subject["links"][via],
-         [kind] <- d["relations"][via]["to"],
-         %{"fact" => %{} = assignment} <-
-           Talk.transition_read(kind, %{"key" => key, "plain" => true}),
-         do: {:ok, assignment}
+  defp holder?(supervision, key) do
+    Enum.reduce_while(supervision["holders"], false, fn kind, false ->
+      case Talk.transition_read(kind, %{"key" => key, "plain" => true}) do
+        %{"fact" => %{}} -> {:halt, true}
+        %{"fact" => nil} -> {:cont, false}
+        _ -> {:halt, :unavailable}
+      end
+    end)
   end
-
-  defp pass_assignment(_, subject, _), do: {:ok, subject}
 
   defp effect_next(config, run, flow, subject, now, spec) do
     intent = run["pending"]["effect"]
@@ -1365,6 +1463,36 @@ defmodule AtlasFlow.Runs.Store do
           {:error, _} ->
             {:ok, run}
         end
+    end
+  end
+
+  # A task for the machinery the subject is assigned to (`AtlasFlow.Activities.Task`): its
+  # intent is stored in the run before anything is sent (the run is stored before `next`
+  # for an activity), its record writes after that, and Dispatch is told of it only once
+  # the stored run holds them.
+  defp task_next(config, run, flow, subject, now, spec) do
+    projection = config["selection"][run["flow"]]["projection"] || %{}
+
+    ctx = %{
+      assignee: Task.assignee(spec, flow.owner(run["state"]), projection, subject),
+      number: fn -> Task.number(spec, run) end,
+      now: now
+    }
+
+    case Task.step(run, spec, subject, ctx) do
+      :none ->
+        {:ok, run}
+
+      {:pending, intent, writes, ladder} ->
+        {:ok,
+         run
+         |> put_in(["pending", "task"], intent)
+         |> then(&if(ladder, do: put_in(&1, ["pending", "ladder"], ladder), else: &1))
+         |> update_in(["pending", "writes"], &(&1 ++ writes))}
+
+      # A ladder task's outcome is the ladder's step; its ladder is kept (F2).
+      {:result, outcome, result, writes, ladder} ->
+        Run.task_result(run, flow, subject, now, outcome, result, writes, ladder)
     end
   end
 
@@ -1428,6 +1556,16 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
+  # The run's supervisor, from its fact's link: absent when it has none.
+  defp supervisor(run, config, fact) do
+    with %{"relation" => relation} <- config["supervision"],
+         [holder] when is_binary(holder) <- List.wrap(get_in(fact, ["links", relation])) do
+      Map.put(run, "supervised_by", holder)
+    else
+      _ -> run
+    end
+  end
+
   def encode(config, run) do
     Map.new(config["fields"], fn {logical, field} ->
       value = run[logical]
@@ -1443,7 +1581,7 @@ defmodule AtlasFlow.Runs.Store do
       end)
 
     if Enum.all?(@structured, &(run[&1]["version"] == 1)),
-      do: {:ok, Map.put(run, "key", fact["key"])},
+      do: {:ok, run |> Map.put("key", fact["key"]) |> supervisor(config, fact)},
       else: {:error, :unknown_record_version}
   rescue
     _ -> {:error, :invalid_record}

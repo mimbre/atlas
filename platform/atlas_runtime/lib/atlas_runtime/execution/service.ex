@@ -1,13 +1,13 @@
 defmodule AtlasRuntime.Service do
   use GenServer
   alias AtlasRuntime.Agent.Native
-  alias AtlasRuntime.BackendPolicy
+  alias AtlasRuntime.Availability
   alias AtlasRuntime.CommandAdmissions
   alias AtlasRuntime.ExecutionEvents
   alias AtlasRuntime.HandoffRecords
   alias AtlasRuntime.PeerQuestionRecords
   alias AtlasRuntime.QuestionRecords
-  alias AtlasRuntime.Entrypoints.{ReadSocket, Socket}
+  alias AtlasRuntime.Entrypoints.Socket
   alias AtlasRuntime.Execution.RestartReconciliation
   alias AtlasRuntime.Handoffs.Commands, as: Handoffs
   alias AtlasRuntime.Integrations.AtlasServer.Lifecycle
@@ -15,10 +15,13 @@ defmodule AtlasRuntime.Service do
   alias AtlasRuntime.Interactions.Commands, as: Interactions
   alias AtlasRuntime.Output
   alias AtlasRuntime.Persistence.History
+  alias AtlasRuntime.Policy
   alias AtlasRuntime.Workspaces
+  require Logger
   import AtlasRuntime.Execution.Identity
 
-  # Open read.sock follow connections; more are refused with `too_many_followers`.
+  # Open journal followers (runtime.sock's follow connections, the work core among them);
+  # more are refused with `too_many_followers`.
   @followers 32
 
   @doc "Start the service; `server` (without its token) opts into Atlas Server lifecycle reporting."
@@ -30,20 +33,21 @@ defmodule AtlasRuntime.Service do
   def init({dir, server, reporting}), do: init({dir, server, reporting, []})
 
   # `reporting` and `options` are explicit dependency injection for tests: bounded Talk
-  # timing; `follow:` read.sock follow timing, `halt:` the exit after a service stop and
-  # `process_probe:` the liveness check of restart reconciliation.
+  # timing; `follow:` the follow timing of runtime.sock, `halt:` the exit after a service stop
+  # and `process_probe:` the liveness check of restart reconciliation.
   def init({dir, server, reporting, options}) do
-    policy = BackendPolicy.load(dir)
+    # Policy is read from policy.json for every resolution; only a former backends.json
+    # quota record moves, once, into availability.json.
+    Availability.import_legacy!(dir)
     events = History.recover(dir)
-    Socket.start(dir, __MODULE__)
+    # runtime.sock also serves the journal; its follow connections take the same timing.
+    Socket.start(dir, self(), Keyword.get(options, :follow, []))
     # The bound socket proves no other service runs here, and this one owns no port yet.
     probe = Keyword.get(options, :process_probe, &RestartReconciliation.process_state/2)
     events = RestartReconciliation.reconcile(dir, events, probe)
-    ReadSocket.start(dir, self(), Keyword.get(options, :follow, []))
 
     state = %{
       dir: dir,
-      policy: policy,
       events: events,
       workers: %{},
       stopping: false,
@@ -59,7 +63,7 @@ defmodule AtlasRuntime.Service do
     end
   end
 
-  # Every callback that grew the journal signals the read.sock followers afterwards. Decided
+  # Every callback that grew the journal signals the journal followers afterwards. Decided
   # here, at the boundary, because some paths store new events before `record_changes/2`.
   def handle_call(request, from, state), do: signal(state, serve_call(request, from, state))
   def handle_info(message, state), do: signal(state, serve_info(message, state))
@@ -77,13 +81,13 @@ defmodule AtlasRuntime.Service do
 
   defp followers(state), do: Map.get(state, :followers, %{})
 
-  # read.sock's admitted reads: answered from the state, which they never change, and never
-  # dispatched as commands.
+  # In-process reads (`Inspection.Reads`) and runtime.sock's journal reads: answered from the
+  # state, which they never change, and never dispatched as commands.
   defp serve_call({:read, op, args}, _from, state),
     do: {:reply, Reads.read(op, args, state), state}
 
-  # A read.sock follow connection: registration and its first page in one call. Followers are
-  # connection bookkeeping, never persisted or returned.
+  # A journal follower (a runtime.sock follow connection): registration and its first page in
+  # one call. Followers are connection bookkeeping, never persisted or returned.
   # Once the shutdown began the service still answers until the exit lands, but a follow
   # started then would report a stopping Runtime reachable: it ends at once instead.
   defp serve_call({:follow, pid, cursor}, _from, state) when is_pid(pid) do
@@ -111,6 +115,12 @@ defmodule AtlasRuntime.Service do
         end
     end
   end
+
+  # The work core's `clear_quota_mark` (operations, design §13.1 Q7): run here, in the process
+  # that records quota evidence (`Availability.record_quota/5`), so neither write loses the
+  # other's. Never a socket command.
+  defp serve_call({:clear_quota_mark, harness}, _from, state) when is_binary(harness),
+    do: {:reply, Availability.clear_quota_mark(state.dir, harness), state}
 
   defp serve_call(request, _from, state) do
     {reply, next, shutdown?} =
@@ -229,28 +239,37 @@ defmodule AtlasRuntime.Service do
        when name in ["start", "status", "output", "stop", "kill", "continue"],
        do: worker_request(request, state)
 
-  # Release only clears the worker's admission latch; it starts and resumes nothing.
+  # Release only clears the worker's admission latch; it starts and resumes nothing. It is
+  # also a human's word that nothing of the slot's turn is left: the work core then treats
+  # an attempt there whose end was never confirmed as quiescent (F2), and a turn record a
+  # previous service left running there (its process not proven gone) ends `failed`, so it
+  # can be continued. A turn this service still runs on the worker is never touched.
   defp command(%{"command" => "release"} = request, state) do
     if Map.keys(request) -- ["command", "worker_id"] != [] or
          not Map.has_key?(request, "worker_id"),
-       do: raise("Release requires exactly --worker")
+       do: raise("Release requires exactly --slot")
 
     id = request["worker_id"]
     if not valid_worker_id?(id), do: raise("Invalid worker ID")
     latch = History.latch(state.dir, id)
 
-    case Map.get(state.workers, id) do
-      %{agent: agent, run: run} when not is_nil(agent) and not is_nil(latch) ->
-        raise(
-          "Worker #{id} still owns turn #{run.id} (#{run.state}); release after its end is confirmed"
-        )
+    events =
+      case Map.get(state.workers, id) do
+        %{agent: agent, run: run} when not is_nil(agent) and not is_nil(latch) ->
+          raise(
+            "Worker #{id} still owns turn #{run.id} (#{run.state}); release after its end is confirmed"
+          )
 
-      _ ->
-        :ok
-    end
+        %{agent: agent} when not is_nil(agent) ->
+          state.events
+
+        _ ->
+          RestartReconciliation.released(state.dir, state.events, id)
+      end
 
     if latch, do: History.release_latch!(state.dir, id)
-    {%{worker_id: id, released: latch, admission_latch: nil}, state, false}
+    AtlasRuntime.Work.released(id)
+    {%{worker_id: id, released: latch, admission_latch: nil}, %{state | events: events}, false}
   end
 
   defp command(%{"worker_id" => _}, _),
@@ -311,26 +330,48 @@ defmodule AtlasRuntime.Service do
   defp command(%{"command" => "turns"}, state),
     do: {History.list(state.dir, state.workers), state, false}
 
+  # Read-only (design §11): a human edits policy.json locally, and availability.json holds
+  # quota evidence. No command changes either; the operations contract (S2) inspects them.
   defp command(%{"command" => "preferences"} = request, state) do
+    if map_size(request) != 1,
+      do:
+        raise(
+          "preferences only reads: edit #{Policy.path(state.dir)} locally; " <>
+            "no command changes the policy or availability"
+        )
+
     now = System.system_time(:second)
+    policy = Policy.load(state.dir)
+    availability = Availability.load(state.dir)
 
-    policy =
-      case request do
-        %{"preferred" => preferred, "fallback" => fallback} when map_size(request) == 3 ->
-          BackendPolicy.configure(state.policy, preferred, fallback)
+    profiles =
+      Policy.profiles(policy, availability, &installed?/1, now)
+      |> Map.new(fn {name, status} ->
+        {name,
+         Map.new(status, fn
+           {:until, nil} -> {"until", nil}
+           {:until, until} -> {"until", DateTime.to_iso8601(until)}
+           {key, value} -> {Atom.to_string(key), value}
+         end)}
+      end)
 
-        %{"reenable" => backend} when map_size(request) == 2 ->
-          BackendPolicy.reenable(state.policy, backend, now)
+    reply = %{
+      "policy_file" => Policy.path(state.dir),
+      "policy" => with({:ok, value} <- policy, do: value, else: (_ -> nil)),
+      "policy_error" =>
+        case policy do
+          {:ok, _} -> nil
+          {:error, :missing} -> "missing"
+          {:error, {:invalid, why}} -> why
+        end,
+      "availability_file" => Availability.path(state.dir),
+      "availability" => Availability.view(availability, now),
+      "profiles" => profiles,
+      "slots" => Policy.slots(policy),
+      "buffer_size" => Policy.buffer_size(policy)
+    }
 
-        _ when map_size(request) == 1 ->
-          state.policy
-
-        _ ->
-          raise("Use preferences, a preferred/fallback pair, or reenable; modes cannot mix")
-      end
-
-    if policy != state.policy, do: BackendPolicy.persist(state.dir, policy)
-    {BackendPolicy.view(policy, now), %{state | policy: policy}, false}
+    {reply, state, false}
   end
 
   defp command(_, _), do: raise("Unknown or malformed command")
@@ -410,6 +451,8 @@ defmodule AtlasRuntime.Service do
            "permissions",
            "assignment",
            "backend",
+           "profile",
+           "cost_class",
            "worker_id",
            "questions_enabled"
          ] != [],
@@ -458,6 +501,8 @@ defmodule AtlasRuntime.Service do
            "permissions",
            "sandbox",
            "backend",
+           "profile",
+           "cost_class",
            "worker_id",
            "questions_enabled"
          ] != [],
@@ -481,8 +526,7 @@ defmodule AtlasRuntime.Service do
 
           {sandbox, nil}
 
-        profile
-        when profile in ["dedicated-repository", "materialized-folder", "review-packet"] ->
+        profile when profile in ["dedicated-repository", "materialized-folder"] ->
           if Map.has_key?(request, "sandbox"),
             do: raise("Permissions cannot be combined with sandbox")
 
@@ -595,9 +639,6 @@ defmodule AtlasRuntime.Service do
   defp current_scope("materialized-folder", cwd, state),
     do: Workspaces.folder_scope(cwd, state.dir)
 
-  defp current_scope("review-packet", cwd, state),
-    do: Workspaces.packet_scope(cwd, state.dir)
-
   defp current_scope(_dedicated, cwd, _state), do: Workspaces.permission_scope(cwd)
 
   defp select_worker(request, state) do
@@ -661,7 +702,7 @@ defmodule AtlasRuntime.Service do
       do:
         raise(
           "Worker #{worker_id} is latched after stopping turn #{latch["turn_id"]}; " <>
-            "run atlas-runtime release --worker #{worker_id} first"
+            "run atlas-runtime release --slot #{worker_id} first"
         )
   end
 
@@ -691,16 +732,103 @@ defmodule AtlasRuntime.Service do
 
   defp sole_run(_), do: nil
 
+  # A profile and cost class resolve through policy.json and availability.json (design §7).
+  # A named backend (only in-BEAM callers of the Service: since D3 the CLI starts work on
+  # backend.sock, and runtime.sock serves no start) keeps its former meaning: that
+  # backend, never falling back; the model is the policy's for that harness when
+  # unambiguous, else the native default. Neither keeps BackendPolicy's choice (the
+  # imported pair).
   defp select_backend(request, state) do
     if Map.has_key?(request, "backend") and is_nil(request["backend"]),
       do: raise("Backend must be codex or claude")
 
+    policy = Policy.load(state.dir)
+    permission = request["permissions"] || Map.get(request, "sandbox", "read-only")
+
     selection =
-      BackendPolicy.select(state.policy, request["backend"], request, System.system_time(:second))
+      cond do
+        Map.has_key?(request, "profile") or Map.has_key?(request, "cost_class") ->
+          resolve!(request, policy, permission, state)
+
+        explicit = request["backend"] ->
+          if explicit not in ["codex", "claude"], do: raise("Backend must be codex or claude")
+          capable!(explicit, permission)
+          target = %{"backend" => explicit, "model" => Policy.configured_model(policy, explicit)}
+          %{"requested" => target, "selected" => target, "reason" => "explicit"}
+
+        true ->
+          legacy_default!(Availability.load(state.dir), permission)
+      end
 
     questions_enabled!(request, selection["selected"]["backend"])
     selection
   end
+
+  defp resolve!(request, policy, permission, state) do
+    if Map.has_key?(request, "backend"),
+      do: raise("A profile selects the backend; it cannot be combined with --backend")
+
+    if not (is_binary(request["profile"]) and is_binary(request["cost_class"])),
+      do: raise("A profile and a cost class are required together")
+
+    resolution =
+      Policy.resolve(
+        policy,
+        Availability.load(state.dir),
+        %{profile: request["profile"], cost_class: request["cost_class"], permission: permission},
+        &installed?/1,
+        System.system_time(:second)
+      )
+
+    case resolution do
+      {:ok, selection} ->
+        selection
+
+      {:refused, reason, detail} ->
+        raise("#{reason}: #{detail}")
+
+      {:at_capacity, :profile_unavailable, %{until: until}} ->
+        raise(
+          "profile_unavailable: every option of profile #{request["profile"]} is out of quota" <>
+            if(until, do: " until #{DateTime.to_iso8601(until)}", else: "")
+        )
+    end
+  end
+
+  # The imported preferred/fallback pair: Claude unless its weekly quota is confirmed out,
+  # then the fallback; without a pair, Codex.
+  defp legacy_default!(availability, permission) do
+    {requested, selected, reason} =
+      case Availability.preferences(availability) do
+        nil ->
+          codex = %{"backend" => "codex", "model" => nil}
+          {codex, codex, "default"}
+
+        %{"preferred" => preferred, "fallback" => fallback} ->
+          now = System.system_time(:second)
+
+          if Availability.status(availability, preferred["backend"], now) == :available,
+            do: {preferred, preferred, "preferred"},
+            else: {preferred, fallback, "confirmed_weekly_quota"}
+      end
+
+    capable!(selected["backend"], permission)
+    selection = %{"requested" => requested, "selected" => selected, "reason" => reason}
+
+    if reason == "confirmed_weekly_quota",
+      do: Map.put(selection, "quota", availability["quota"][requested["backend"]]),
+      else: selection
+  end
+
+  defp capable!(backend, permission) do
+    if not Policy.capable?(backend, permission),
+      do:
+        raise(
+          "Selected #{backend} backend cannot meet the requested permissions or provisioning capabilities"
+        )
+  end
+
+  defp installed?(harness), do: not is_nil(System.find_executable(harness))
 
   defp questions_enabled!(settings, backend) do
     enabled = Map.get(settings, "questions_enabled", false)
@@ -807,7 +935,11 @@ defmodule AtlasRuntime.Service do
 
     result =
       try do
-        Native.start_monitor(%{key: key}, agent: settings, turns_dir: turns)
+        Native.start_monitor(%{key: key},
+          agent: settings,
+          turns_dir: turns,
+          runtime_home: state.dir
+        )
       rescue
         error ->
           if record, do: {:error, error}, else: reraise(error, __STACKTRACE__)
@@ -976,35 +1108,75 @@ defmodule AtlasRuntime.Service do
   defp agent_message({:repository, repository}, id, worker, state),
     do: update_run(state, id, worker, Map.put(worker.run, :repository, repository))
 
+  # Weekly-quota evidence is global for Claude (availability.json) and belongs to this turn.
   defp agent_message({:quota, evidence}, id, %{run: %{backend: "claude"}} = worker, state) do
-    policy =
-      BackendPolicy.record_quota(
-        state.policy,
-        evidence,
-        worker.run.id,
-        System.system_time(:second)
-      )
+    now = System.system_time(:second)
 
-    if policy != state.policy, do: BackendPolicy.persist(state.dir, policy)
+    try do
+      Availability.record_quota(state.dir, "claude", evidence, worker.run.id, now)
+    rescue
+      error -> {:error, Exception.message(error)}
+    end
+    |> case do
+      nil ->
+        state
 
-    update_run(
-      %{state | policy: policy},
-      id,
-      worker,
-      Map.put(worker.run, :quota, policy["claude_quota"])
-    )
+      # Visible on the turn (status, turn.json), not only in the log.
+      {:error, message} ->
+        Logger.error("runtime: quota of #{worker.run.id} not recorded: #{message}")
+        failure = %{"evidence" => evidence, "error" => message, "at" => now}
+        update_run(state, id, worker, Map.put(worker.run, :quota_error, failure))
+
+      entry ->
+        update_run(state, id, worker, Map.put(worker.run, :quota, entry))
+    end
   end
 
+  # The first normalized top-level model is the turn's (F10). A later different one means the
+  # model changed under the turn: it is recorded and the turn stopped, so its work ends
+  # `failed: model_changed` (`AtlasRuntime.Provenance.model_changed/1`).
   defp agent_message(
          {:identity, backend, model},
          id,
          %{run: %{backend: backend}} = worker,
          state
        ) do
-    if state[:server] && worker.run[:server],
-      do: Lifecycle.model(state.server.reporter, worker.run, model)
+    case worker.run[:model] do
+      nil ->
+        if state[:server] && worker.run[:server],
+          do: Lifecycle.model(state.server.reporter, worker.run, model)
 
-    update_run(state, id, worker, Map.put(worker.run, :model, model))
+        update_run(state, id, worker, Map.put(worker.run, :model, model))
+
+      ^model ->
+        state
+
+      first ->
+        change = %{
+          "first" => first,
+          "reported" => model,
+          "at" => DateTime.to_iso8601(DateTime.utc_now())
+        }
+
+        run = Map.put_new(worker.run, :model_changed, change)
+        state = update_run(state, id, worker, run)
+        worker = state.workers[id]
+
+        if worker.agent && worker.run.state == "running" do
+          try do
+            elem(control("stop", id, worker, state), 1)
+          rescue
+            error ->
+              Logger.error(
+                "runtime: #{run.id} model changed; stop failed: #{Exception.message(error)}"
+              )
+
+              state
+          end
+        else
+          state
+        end
+    end
   end
 
   defp agent_message({:session, session}, id, worker, state),
@@ -1111,7 +1283,8 @@ defmodule AtlasRuntime.Service do
 
   # A turn's public output (the provider's projection, as a connected turn's) is retained,
   # owned by this service: a reported turn's in Output under its exact Server identity, any
-  # other's in the local buffer that only read.sock reads (`Reads.output_stream/1`). It never
+  # other's in the local buffer, read only through the work contract's turn output
+  # (`Reads.output_stream/1`). It never
   # waits for Server, and a missing ring never changes the native lifecycle.
   # Only a new event from the turn's own agent may reopen a lost ring, in a new epoch.
   defp open_output(run), do: output(run, &Output.open(&1, self(), &2))

@@ -15,7 +15,9 @@ defmodule AtlasE2E.MixProject do
         "lib",
         Path.expand("../../../platform/atlas_facts/lib/atlas_facts/trust", __DIR__)
       ],
-      deps: []
+      # The pull-e2e (lib/atlas_e2e/pull) waits with the platform's one wait helper, on events
+      # only; its Mix task runs in dev, so the helper is not test-only here.
+      deps: [{:atlas_test_await, path: "../../../platform/frameworks/test_await"}]
     ]
   end
 

@@ -21,6 +21,10 @@ defmodule RelaDSL.Description.Check do
 
   alias RelaDSL.Problem
 
+  # The start page's screens a tab may open (work acquisition design 2026-11-17 §5.8),
+  # each only when its start entry is there: the path, and the entry under `start`.
+  @screens %{"/_open" => "open_for_you", "/_supervised" => "supervised_by_you"}
+
   @doc "Problems of `extension` against `schema` (both plain): `[{path, RelaDSL.Problem}]`."
   def check(schema, extension) do
     ctx = %{
@@ -232,7 +236,7 @@ defmodule RelaDSL.Description.Check do
     path = ["shell"]
     tabs = is_map(shell) && shell["tabs"]
 
-    keys(shell, ~w(title tabs), path) ++
+    keys(shell, ~w(title tabs default), path) ++
       if(is_map(shell) and text?(shell["title"]) and byte_size(shell["title"]) <= 128,
         do: [],
         else: p(path, :shell_title, [], "shell.title: expected nonempty text")
@@ -240,10 +244,25 @@ defmodule RelaDSL.Description.Check do
       if(is_list(tabs) and tabs != [] and length(tabs) <= 64,
         do: tabs(ctx, tabs, path),
         else: p(path, :shell_tabs, [], "shell.tabs: expected nonempty list")
-      )
+      ) ++ default_tab(shell, tabs, path)
   end
 
   defp shell(_ctx), do: []
+
+  # The tab a client opens on without a target (`default`, optional): one of the tabs.
+  defp default_tab(shell, tabs, path) do
+    case is_map(shell) && Map.fetch(shell, "default") do
+      {:ok, id} ->
+        ids = if is_list(tabs), do: for(%{"id" => i} <- tabs, do: i), else: []
+
+        if is_binary(id) and id in ids,
+          do: [],
+          else: p(path, :shell_default, [id], "shell.default: names no tab")
+
+      _ ->
+        []
+    end
+  end
 
   defp tabs(ctx, tabs, path) do
     {problems, _, _} =
@@ -271,6 +290,19 @@ defmodule RelaDSL.Description.Check do
               if tab["assigned"] == true and get_in(ctx.x, ["start", "assigned"]),
                 do: [],
                 else: p(at, :tab_root, [], "shell.tabs: root requires an assigned start")
+
+            Map.has_key?(@screens, target) ->
+              entry = @screens[target]
+
+              if is_map(get_in(ctx.x, ["start", entry])),
+                do: [],
+                else:
+                  p(
+                    at,
+                    :tab_screen,
+                    [target, entry],
+                    "shell.tabs: #{target} requires start.#{entry}"
+                  )
 
             String.starts_with?(target, "/k/") and length(String.split(target, "/")) == 3 ->
               entity(ctx, String.slice(target, 3..-1//1), at)
@@ -300,7 +332,13 @@ defmodule RelaDSL.Description.Check do
   defp start(%{x: %{"start" => start}} = ctx) do
     path = ["start"]
 
-    keys(start, ~w(assigned open), path) ++
+    keys(start, ~w(assigned open open_for_you supervised_by_you), path) ++
+      Enum.flat_map(~w(open_for_you supervised_by_you), fn entry ->
+        case is_map(start) && start[entry] do
+          spec when is_map(spec) -> keys(spec, ~w(title count empty), path ++ [entry])
+          _ -> []
+        end
+      end) ++
       case is_map(start) && start["assigned"] do
         spec when is_map(spec) ->
           keys(spec, ~w(relation title count empty), path ++ ["assigned"]) ++

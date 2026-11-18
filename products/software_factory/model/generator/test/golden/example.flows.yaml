@@ -12,12 +12,14 @@ flows:
     states:
       draft:
         label: Write the draft
+        status: input_required
+        waiting_for: [writer]
         outputs:
-          - set: { properties: { pass_result: none } }
+          - set: { properties: { draft_result: none } }
         on:
           change:
-            - { to: proofread, roles: [atlas-flow], when: "entity.pass_result == 'delivered'" }
-            - { to: stuck, roles: [atlas-flow], when: "entity.pass_result == 'failed'" }
+            - { to: proofread, roles: [writer], when: "entity.draft_result == 'delivered'" }
+            - { to: stuck, roles: [writer], when: "entity.draft_result == 'failed'" }
         after:
           slow: { period: 1d, to: stuck, label: The writer did not finish }
       proofread:

@@ -24,7 +24,7 @@ defmodule RelaDSL.Schema do
           initial :write
 
           state :write, label: "Write it" do
-            pass :writer, on: [delivered: :check, failed: :stuck]
+            wait_for [:editor], on: :draft, done: :check
             timer :slow, "1d", to: :stuck
           end
 
@@ -42,9 +42,9 @@ defmodule RelaDSL.Schema do
 
   ## Mechanisms
 
-  A state does its work through at most one **mechanism**: a `pass` (someone's
-  Runtime does a piece of work), a `gate` (a verdict) or an `effect` (a call to an
-  outside service). Each writes one result field on the subject. The macro expands
+  A state does its work through at most one **mechanism**: a `gate` (a verdict),
+  an `effect` (a call to an outside service) or a `task` (work for a machinery). A gate
+  and an effect each write one result field on the subject. The macro expands
   into what Rela needs for that: the field is reset to `none` when the state is
   entered, and there is one change branch per result value, taken by the role
   `atlas-flow`. A definition maps every value the mechanism can give,
@@ -52,19 +52,59 @@ defmodule RelaDSL.Schema do
 
   | mechanism | field | values |
   |---|---|---|
-  | `pass` | `pass_result` | `delivered`, `failed` |
   | `gate` | `gate_result` | the gate's `verdicts` |
   | `effect` | `effect_result`, or `field:` | `done`, `refused` |
+  | `task` | `task_result`, or `field:` | `completed`, `check_failed`, `stuck`, `abandoned` |
+
+  A `task` is one unit of work Flow defines for the machinery the subject is assigned
+  to, which a Runtime of the flow's supervisor takes from Flow's work source
+  (`AtlasFlow.Activities.Task`). Its result is the run's
+  own: Flow never writes it on the subject, so the field is not reset on entry, and only
+  its branches (of the role `atlas-flow`) read it. Nothing is done while the subject is
+  not assigned to a machinery.
+
+      task :author,
+        role: :developer,
+        profile: :deep_coding,
+        cost_class: :standard,
+        input: [repository: "example.invalid/repo", base: "develop"],
+        check: ["bin/check"],
+        instructions: "Build what the package says.",
+        fields: [:title, :instructions],
+        records: [kind: "task", relation: "task_of"],
+        machinery: "machinery",
+        on: [completed: :authored, check_failed: :check_failed, stuck: :stuck,
+             abandoned: :stuck]
+
+  `kind` is `plan`, `author`, `review`, `fix` or `diagnose`; `role` `architect`,
+  `developer` or `investigator`; `profile` `deep_coding`, `deep_coding_max` or
+  `independent_review`; `cost_class` `low`, `standard` (the default) or `high`. `input` is where the work starts: `repository` is a Code
+  repository's name (as Code's settings name it) and `base` the reference its base is
+  resolved from, by Flow, in Code (M3 plan Q11). Neither is a URL, and neither is sent to
+  the Runtime, which gets the resolved base only. It never names a path on the
+  machinery's machine, which the Runtime chooses (its D44).
+  `check` is the command (argv) run after the work, `instructions` the standard text,
+  and `fields` the subject's fields added to it. `records` names the kind and relation
+  of its task records, `machinery` the kind of the assignee it runs for.
+
+  With `ladder: true` a task is a step of the review → fix loop (F2, `AtlasFlow.Ladder`):
+  its end leads where the ladder's next step says, so it maps `author`, `review`, `fix`,
+  `diagnose`, `fresh`, `stronger`, `ready`, `held`, `escalate` and `abandon` (the
+  supervisor abandoned it while its task ran, F2-P) instead of the four results. A ladder author or fix needs `check` (lesson 7: `bin/check` is the mandatory
+  after-check), so every fix and fresh or stronger author the ladder runs is checked. As
+  a rule of its own (not lesson 7), a step leads to a state whose task is a ladder task
+  of its kind (`fresh` and `stronger` an author, `stronger` on `deep_coding_max`). A review, fix or diagnose
+  starts from the loop's latest result, `input: [result: :latest, access: :read]` (a
+  fix: `:write`); no other kind does (`input_problem/2`). The subject's `answer` field
+  is the supervisor's answer while the ladder waits.
 
   A result may lead to `{state, label}` instead of a state: the branch then carries
-  that label, as `failed: {:decide, "The pass failed; a person decides"}`.
+  that label, as `refused: {:decide, "The service refused; a person decides"}`.
 
   `wait_for` is the same for people: the state waits in their inbox, the field is
   reset, and each value they may choose is a branch only they can take. With
   `reset: false` the field is not reset; a subflow without `run_as` cannot set it.
-  A state that waits for people and has no mechanism is `input_required`; one with
-  a pass that people work in (`with_person: true`) stays working, as a state with a
-  mechanism does. `await` waits for a field that something outside this subflow
+  A state that waits for people and has no mechanism is `input_required`. `await` waits for a field that something outside this subflow
   writes; a composition (`RelaDSL.Schema.Composition`) says what writes it.
 
   Branches are tried in the order written; a mechanism's branches sit where the
@@ -81,7 +121,7 @@ defmodule RelaDSL.Schema do
   owner, and every state that is not final resolves to exactly one: its own (`owner`
   inside the state, with the same options) or the subflow's. Waiting is not a status:
   `wait_for` names the roles that decide, and the owner still answers for the item.
-  Flow routes passes to the owner's Runtime; the format never maps a person to a role.
+  The format never maps a person to a role.
 
   `present` is what the owner sees in a state: what they are `expected` to do, `why`
   it came to them, `instructions`, the `section` of a field to show (the part under a
@@ -89,6 +129,15 @@ defmodule RelaDSL.Schema do
   `answers` they can give (a relation set/removal, or a declared change).
   `deadline:` names the state timer whose due time is presented. It goes to the Atlas
   target only; Rela never sees it.
+
+  ## Supervised spans
+
+  `supervise name, states: [...], label:, with: [subflows]` names states of the subflow
+  that need a human supervisor (work acquisition design 2026-11-17, §5.6): a person picks a run up
+  there, and is its supervisor until the run leaves the span; the runs of `with:`
+  subflows, on facts under the subject, belong to it. Spans are not part of a subflow's
+  definition (`flows.json`, its digest) nor of Rela's `flows.yaml`: the composition
+  maps them, with its `flow_runtime`'s `supervision:`, into `flow-runtime.json`.
 
   ## Gates
 
@@ -156,7 +205,9 @@ defmodule RelaDSL.Schema do
       outcome, and `uncertain` and `error` decide its person verdict;
     * a gate's `purpose` is `:flow` or `:decider`; a smart gate names its `advice`
       and has no `rule`; a rule gate has a `rule` (below) and no `advice`;
-    * a pass or an effect maps exactly its result values;
+    * an effect and a task map exactly their result values; a task's spec is one the
+      task activity can run (its kind, role, profile, cost class, input, check,
+      instructions, records and machinery);
     * at most one mechanism per state, and no field set twice in a state;
     * `initial` names a state that is not final; there is a start trigger;
       `run_as` is given when a state has outputs; names are Rela names; at most
@@ -167,6 +218,10 @@ defmodule RelaDSL.Schema do
       (its own or the subflow's; given twice is ambiguous, and a final state has none);
       an owner names `relation:` or `default:`, `via:` comes with `relation:`, and a
       default is `{kind, key}` or `{kind, config: role}`;
+    * a span names known states that are not final, a state lies in at most one span,
+      a span is named once, and takes only `states:`, `label:` and `with:`; in a
+      subflow with a span, the state a gate's person verdict leads to lies in a span or
+      names its own owner (such as the configured decider), so a fallback is written;
     * a state presents at most once, a final state not at all; `expected` is a text,
       a section is `[field:, heading:]` or `[field:, label:]`, and each answer has a
       key of its own, a
@@ -176,14 +231,58 @@ defmodule RelaDSL.Schema do
   """
 
   @writer "atlas-flow"
-  @pass_results [:delivered, :failed]
   @effect_results [:done, :refused]
+  @task_results [:completed, :check_failed, :stuck, :abandoned]
+  # What a ladder task's end leads to (`AtlasFlow.Ladder`'s steps, F2): the next task's
+  # step, or ready, held, escalate; or abandon, the supervisor's answer while the task ran
+  # on the default (F2-P, Main's D1 ruling).
+  @ladder_results [
+    :author,
+    :review,
+    :fix,
+    :diagnose,
+    :fresh,
+    :stronger,
+    :ready,
+    :held,
+    :escalate,
+    :abandon
+  ]
+  @ladder_kinds [
+    author: :author,
+    review: :review,
+    fix: :fix,
+    diagnose: :diagnose,
+    fresh: :author,
+    stronger: :author
+  ]
+  @task_kinds [:plan, :author, :review, :fix, :diagnose]
+  @task_roles [:architect, :developer, :investigator]
+  @task_profiles [:deep_coding, :independent_review, :deep_coding_max]
+  @task_costs [:low, :standard, :high]
+  # The kinds whose input may be the latest result of the loop, and how they read it.
+  @result_access [review: :read, diagnose: :read, fix: :write]
+  @task_keys [
+    :ladder,
+    :role,
+    :profile,
+    :cost_class,
+    :input,
+    :check,
+    :instructions,
+    :fields,
+    :records,
+    :machinery,
+    :field,
+    :on
+  ]
   @outcomes [:pass, :changes_required, :uncertain, :error]
   @purposes [:flow, :decider]
   @max_timers 8
   @name ~r/^[a-z][a-z0-9_-]{0,63}$/
   @once [:run_as, :per_subject, :owner, :channel, :initial]
   @owner_keys [:via, :relation, :default, :preserve_kind]
+  @span_keys [:states, :label, :with]
   @present_keys [:expected, :why, :instructions, :section, :answers, :deadline]
 
   @macros [
@@ -196,14 +295,15 @@ defmodule RelaDSL.Schema do
     start: 1,
     start: 2,
     initial: 1,
+    supervise: 2,
     state: 2,
     state: 3,
     final: 1,
     final: 2,
     final: 3,
-    pass: 2,
     gate: 2,
     effect: 2,
+    task: 2,
     wait_for: 2,
     await: 2,
     branch: 1,
@@ -260,7 +360,9 @@ defmodule RelaDSL.Schema do
   Who owns the subject: `via:` the type that assigns it and the `relation:` to the
   assignee, and `default: {kind, key}` (or `{kind, config: role}`, the actor the
   environment configures for `role`), who owns it while no one is assigned.
-  `preserve_kind:` keeps an assignee of that kind; other assignees take the default.
+  `preserve_kind:` keeps an assignee of that kind, or of any kind in a list of them
+  (`preserve_kind: [:a, :b]`, the default's kind among them); other assignees take the
+  default.
   """
   defmacro owner(opts) do
     quote do
@@ -282,6 +384,15 @@ defmodule RelaDSL.Schema do
 
   @doc "The state a new run begins in."
   defmacro initial(state), do: header(:initial, state)
+
+  @doc """
+  A supervised span (work acquisition design 2026-11-17, §5.6): `name`, with `states:` (the states
+  that need a human supervisor), `label:` and `with:` (the subflows whose runs, on
+  facts under the subject, belong to it). A run picked up in a span is supervised
+  until it leaves the span. A subflow may declare several spans; a state lies in at
+  most one.
+  """
+  defmacro supervise(name, opts), do: header(:supervise, {name, opts})
 
   defp header(key, value) do
     quote do
@@ -322,14 +433,19 @@ defmodule RelaDSL.Schema do
 
   # -- What a state holds -----------------------------------------------------------
 
-  @doc "Mechanism: a pass by `profile`, with its spec (`mode:`, `folder:`, …) and `on: [delivered:, failed:]`."
-  defmacro pass(profile, opts), do: item(:pass, [profile, opts])
-
   @doc "Mechanism: the gate `name`, mapping each of its verdicts to a state (`ready: :next, …`)."
   defmacro gate(name, verdicts), do: item(:gate, [name, verdicts])
 
   @doc "Mechanism: the outside `action`, with its spec (`service:`, `field:`, `also:`, …) and `on: [done:, refused:]`."
   defmacro effect(action, opts), do: item(:effect, [action, opts])
+
+  @doc """
+  Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
+  (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
+  `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  abandoned:]`.
+  """
+  defmacro task(kind, opts), do: item(:task, [kind, opts])
 
   @doc "People with `roles` decide: `on:` the field they set, then each value they may choose and its state."
   defmacro wait_for(roles, opts), do: item(:wait_for, [roles, opts])
@@ -516,7 +632,7 @@ defmodule RelaDSL.Schema do
     {flows, problems} =
       Enum.reduce(raw, {[], []}, fn r, {flows, problems} ->
         {flow, ps} = build_flow(r, known)
-        {flows ++ [flow], problems ++ ps ++ check_flow(flow)}
+        {flows ++ [flow], problems ++ ps ++ check_flow(flow) ++ check_spans(flow, known)}
       end)
 
     refuse!(problems, file)
@@ -806,6 +922,24 @@ defmodule RelaDSL.Schema do
         %{on: on, when: o[:when], permission: o[:permission], every: o[:every], line: l}
       end
 
+    spans =
+      for {{:supervise, {span, o}}, l} <- header do
+        o = if Keyword.keyword?(o), do: o, else: []
+
+        %{
+          name: span,
+          label: o[:label],
+          states: List.wrap(o[:states]),
+          with: List.wrap(o[:with]),
+          line: l
+        }
+      end
+
+    span_shapes =
+      for {{:supervise, {span, o}}, l} <- header,
+          p <- span_shape_problems(span, o),
+          do: {l, "subflow #{name}: supervise #{span}: " <> p}
+
     {built, problems} =
       Enum.reduce(states, {[], twice}, fn s, {acc, ps} ->
         {state, more} = build_state(s, gates)
@@ -824,7 +958,8 @@ defmodule RelaDSL.Schema do
       initial: get.(:initial),
       line: line,
       initial_line: at.(:initial),
-      states: built
+      states: built,
+      spans: spans
     }
 
     owned = for p <- owner_problems(get.(:owner), "subflow #{name}: "), do: {at.(:owner), p}
@@ -839,7 +974,26 @@ defmodule RelaDSL.Schema do
           target.timers != [],
           do: {target.line, "a person_always destination cannot have a timer"}
 
-    {flow, problems ++ owned ++ fixed_timers}
+    {flow, problems ++ owned ++ fixed_timers ++ span_shapes}
+  end
+
+  defp span_shape_problems(span, opts) do
+    if Keyword.keyword?(opts) do
+      unknown = Keyword.keys(opts) -- @span_keys
+
+      [
+        not valid_name?(span) && "#{inspect(span)} is not a valid name",
+        unknown != [] && "knows no #{list(unknown)} (only states:, label:, with:)",
+        List.wrap(opts[:states]) == [] && "needs states: the states it supervises",
+        not Enum.all?(List.wrap(opts[:states]), &valid_name?/1) &&
+          "states: are state names",
+        not Enum.all?(List.wrap(opts[:with]), &valid_name?/1) && "with: are subflow names",
+        not (opts[:label] == nil or is_binary(opts[:label])) && "label: is a text"
+      ]
+      |> Enum.filter(& &1)
+    else
+      ["takes states:, label: and with:"]
+    end
   end
 
   # The default owner as `%{kind:, key:}`, as an assignee is named, or `%{kind:, config:}`
@@ -873,16 +1027,27 @@ defmodule RelaDSL.Schema do
         (opts[:via] != nil and opts[:relation] == nil) &&
           pre <> "via: #{opts[:via]} needs relation: the relation to the assignee",
         (opts[:preserve_kind] != nil and
-           not (is_atom(opts[:preserve_kind]) and opts[:relation] != nil and
+           not (preserved_kinds?(opts[:preserve_kind]) and opts[:relation] != nil and
                   is_tuple(opts[:default]) and tuple_size(opts[:default]) == 2 and
-                  elem(opts[:default], 0) == opts[:preserve_kind])) &&
-          pre <> "preserve_kind needs a relation and a default of that kind"
+                  elem(opts[:default], 0) in List.wrap(opts[:preserve_kind]))) &&
+          pre <>
+            "preserve_kind needs a relation and a default of that kind (one kind, or a list of distinct kinds with the default's among them)"
       ] ++ default_problems(Keyword.get(opts, :default, :none), pre)
     else
       [pre <> "takes via:, relation: and default:"]
     end
     |> Enum.filter(& &1)
   end
+
+  # One kind, or a non-empty list of distinct kinds, each a valid name.
+  defp preserved_kinds?(kind) when is_atom(kind) and kind != nil, do: valid_name?(kind)
+
+  defp preserved_kinds?([_ | _] = kinds),
+    do:
+      Enum.all?(kinds, &(is_atom(&1) and &1 != nil and valid_name?(&1))) and
+        Enum.uniq(kinds) == kinds
+
+  defp preserved_kinds?(_), do: false
 
   defp default_problems(:none, _pre), do: []
 
@@ -945,15 +1110,6 @@ defmodule RelaDSL.Schema do
   end
 
   # Each returns the state with the entry added, and the problems found.
-  defp put({:pass, profile, opts}, s, _gates) do
-    spec = Map.new([{:profile, profile} | Keyword.delete(opts, :on)])
-    {s, ps} = mechanism(s, {:pass, spec})
-
-    if opts[:writes] == :none,
-      do: {s, ps},
-      else: also(results(s, :pass_result, @pass_results, Keyword.get(opts, :on, [])), ps)
-  end
-
   defp put({:gate, name, mapping}, s, gates) do
     case Enum.find(gates, &(&1.name == name)) do
       nil ->
@@ -972,6 +1128,25 @@ defmodule RelaDSL.Schema do
     spec = Map.new([action: action, field: field] ++ Keyword.drop(opts, [:on, :field]))
     {s, ps} = mechanism(s, {:effect, spec})
     also(results(s, field, @effect_results, Keyword.get(opts, :on, [])), ps)
+  end
+
+  # A task's result is the run's own: no reset on entry, only its branches read it.
+  defp put({:task, kind, opts}, s, _gates) do
+    opts = if Keyword.keyword?(opts), do: opts, else: []
+    field = Keyword.get(opts, :field, :task_result)
+
+    spec =
+      Map.new(
+        [kind: kind, field: field, cost_class: :standard] ++ Keyword.drop(opts, [:on, :field])
+      )
+
+    {s, ps} = mechanism(s, {:task, spec})
+    values = if opts[:ladder] == true, do: @ladder_results, else: @task_results
+
+    also(
+      results(s, field, values, Keyword.get(opts, :on, []), "task #{kind}", false),
+      ps ++ task_problems(kind, opts, spec)
+    )
   end
 
   defp put({:wait_for, roles, opts}, s, _gates) do
@@ -1062,10 +1237,10 @@ defmodule RelaDSL.Schema do
   defp mechanism(%{mechanism: nil} = s, m), do: {%{s | mechanism: m}, []}
 
   defp mechanism(s, {kind, _}),
-    do: {s, ["has a second mechanism (#{kind}); a state has at most one pass, gate or effect"]}
+    do: {s, ["has a second mechanism (#{kind}); a state has at most one gate, effect or task"]}
 
   # One branch per result value, in the order the definition maps them.
-  defp results(s, field, values, mapping, source \\ nil) do
+  defp results(s, field, values, mapping, source \\ nil, reset \\ true) do
     source = source || to_string(field)
     keys = Keyword.keys(mapping)
     missing = values -- keys
@@ -1080,9 +1255,119 @@ defmodule RelaDSL.Schema do
       ]
       |> Enum.filter(& &1)
 
-    {s, ps} = put_set(s, [{field, :none}])
+    {s, ps} = if reset, do: put_set(s, [{field, :none}]), else: {s, []}
     {add_branches(s, field, mapping, [@writer]), problems ++ ps}
   end
+
+  # Lesson 7 (Flow plan §11 row 7, F1.3; Main's D4): bin/check is the mandatory
+  # after_check. Every author or fix the ladder runs (the fix, and the fresh or stronger
+  # author) is a ladder task of one of these kinds, so each one declares its check.
+  @checked_ladder_kinds [:author, :fix]
+
+  # What the task activity needs to run a task, and nothing else (D44: no path).
+  defp task_problems(kind, opts, spec) do
+    text? = &(is_binary(&1) and String.trim(&1) != "")
+    pre = "task #{kind}: "
+
+    unknown =
+      if Keyword.keyword?(opts), do: Keyword.keys(opts) -- @task_keys, else: [:not_a_keyword]
+
+    input = spec[:input]
+
+    [
+      unknown != [] && pre <> "knows no #{list(unknown)}",
+      spec[:ladder] not in [nil, true] && pre <> "ladder: is true or left out",
+      kind not in @task_kinds && pre <> "kind must be one of #{list(@task_kinds)}",
+      spec[:role] not in @task_roles && pre <> "role: must be one of #{list(@task_roles)}",
+      spec[:profile] not in @task_profiles &&
+        pre <> "profile: must be one of #{list(@task_profiles)}",
+      spec[:cost_class] not in @task_costs &&
+        pre <> "cost_class: must be one of #{list(@task_costs)}",
+      input_problem(kind, input) == :input_shape &&
+        pre <>
+          "input: must be [repository: name, base: ref]; a task never names a path on the " <>
+          "machinery's machine",
+      input_problem(kind, input) == :input_url &&
+        pre <>
+          "input: repository and base are a Code repository's name and a reference, " <>
+          "never a URL",
+      input_problem(kind, input) == :input_result_kind &&
+        pre <> "input: only a review, fix or diagnose starts from the latest result",
+      input_problem(kind, input) == :input_access &&
+        pre <> "input: a review or diagnose reads the result (access: :read); a fix writes",
+      (result_input?(input) and spec[:ladder] != true) &&
+        pre <> "input: the latest result is the loop's; it needs ladder: true",
+      not (spec[:check] == nil or
+             (is_list(spec[:check]) and spec[:check] != [] and Enum.all?(spec[:check], text?))) &&
+        pre <> "check: must be a command, a list of texts",
+      (spec[:ladder] == true and kind in @checked_ladder_kinds and spec[:check] == nil) &&
+        pre <> "check: a ladder author or fix runs its check after the work (bin/check)",
+      not text?.(spec[:instructions]) && pre <> "instructions: must be a text",
+      not (is_list(spec[:fields] || []) and Enum.all?(spec[:fields] || [], &is_atom/1)) &&
+        pre <> "fields: must be a list of the subject's fields",
+      not (Keyword.keyword?(spec[:records] || :none) and
+             Enum.sort(Keyword.keys(spec[:records])) == [:kind, :relation] and
+             text?.(spec[:records][:kind]) and text?.(spec[:records][:relation])) &&
+        pre <> "records: must be [kind: text, relation: text]",
+      not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
+    ]
+    |> Enum.filter(& &1)
+  end
+
+  @doc """
+  What is wrong with a task's `input`, as a tag a test compares (never the text): nil
+  when it is `[repository: name, base: ref]` with two texts and neither is a URL;
+  `:input_shape` when it has other keys (a `path` or `folder` above all) or is no such
+  keyword list; `:input_url` when either value is a URL (a scheme, such as `https:`, or
+  the `user@host:path` form). A Code repository's name (`github.com/owner/repo`) and a
+  reference (`develop`) hold no `:`.
+  """
+  @spec input_problem(term()) :: nil | :input_shape | :input_url
+  def input_problem(input) do
+    text? = &(is_binary(&1) and String.trim(&1) != "")
+
+    cond do
+      not (is_list(input) and input != [] and Keyword.keyword?(input) and
+             Enum.sort(Keyword.keys(input)) == [:base, :repository] and
+             text?.(input[:repository]) and text?.(input[:base])) ->
+        :input_shape
+
+      Enum.any?([input[:repository], input[:base]], &url?/1) ->
+        :input_url
+
+      true ->
+        nil
+    end
+  end
+
+  @doc """
+  What is wrong with a task of `kind`'s `input`, as a tag (`input_problem/1`'s, and two
+  of F2's): the input may also be `[result: :latest, access: :read | :write]`, the
+  latest result of the review → fix loop (`AtlasFlow.Ladder`), but only for a review or
+  diagnose, which read it, and a fix, which writes on it. `:input_result_kind` when
+  another kind starts from it (an author starts from a base); `:input_access` when the
+  access is not its kind's.
+  """
+  @spec input_problem(atom(), term()) ::
+          nil | :input_shape | :input_url | :input_result_kind | :input_access
+  def input_problem(kind, input) do
+    cond do
+      not result_input?(input) -> input_problem(input)
+      not Keyword.has_key?(@result_access, kind) -> :input_result_kind
+      input[:access] != @result_access[kind] -> :input_access
+      true -> nil
+    end
+  end
+
+  defp result_input?(input),
+    do:
+      is_list(input) and Keyword.keyword?(input) and
+        Enum.sort(Keyword.keys(input)) == [:access, :result] and input[:result] == :latest
+
+  defp url?(value),
+    do:
+      Regex.match?(~r/^[A-Za-z][A-Za-z0-9+.-]*:/, value) or
+        Regex.match?(~r/^[^\/]*@[^\/]*:/, value)
 
   defp also({s, ps}, earlier), do: {s, earlier ++ ps}
 
@@ -1186,9 +1471,91 @@ defmodule RelaDSL.Schema do
 
     states = Enum.flat_map(flow.states, &check_state(&1, by_name))
     reach = if initial, do: unreachable(flow, by_name), else: []
-    header = header ++ owners(flow, pre)
+    header = header ++ owners(flow, pre) ++ ladders(flow, by_name)
 
     for {line, p} <- header ++ states ++ reach, p, do: {line, p}
+  end
+
+  # A ladder task's next step runs where its branch leads (F2): a state whose task is a
+  # ladder task of the step's kind, so the Engine never starts a step in a state that runs
+  # another kind (a stronger author also on a stronger profile).
+  defp ladders(flow, by_name) do
+    for %{mechanism: {:task, %{ladder: true} = spec}} = s <- flow.states,
+        {step, kind} <- @ladder_kinds,
+        b <- s.branches,
+        b.when == "entity.#{spec.field} == '#{step}'",
+        problem = ladder_problem(by_name[b.to], step, kind),
+        do: {s.line, "state #{s.name}: task #{spec.kind}: #{step} " <> problem}
+  end
+
+  defp ladder_problem(%{mechanism: {:task, %{ladder: true, kind: kind} = spec}}, step, kind),
+    do: if(step == :stronger and spec.profile != :deep_coding_max, do: "needs deep_coding_max")
+
+  defp ladder_problem(_target, _step, kind), do: "must lead to a ladder task #{kind}"
+
+  # The supervised spans (work acquisition design 2026-11-17, §5.6): each names states of this subflow
+  # that are not final, a state lies in at most one span, and a span is named once.
+  # S3: in a subflow with a span, the state a gate's person verdict leads to lies in a
+  # span, so its escalation goes to the human supervisor; or that state names its own
+  # owner (such as the configured decider), so the fallback is written, never implied.
+  defp check_spans(%{spans: []}, _gates), do: []
+
+  defp check_spans(flow, gates) do
+    by_name = Map.new(flow.states, &{&1.name, &1})
+    pre = "subflow #{flow.name}: "
+    names = Enum.map(flow.spans, & &1.name)
+
+    twice =
+      for {span, i} <- Enum.with_index(flow.spans),
+          span.name in Enum.take(names, i),
+          do: {span.line, pre <> "supervise #{span.name} is given more than once"}
+
+    states =
+      for span <- flow.spans, state <- span.states, is_atom(state) do
+        cond do
+          not Map.has_key?(by_name, state) ->
+            {span.line, pre <> "supervise #{span.name}: names unknown state #{state}"}
+
+          by_name[state].final ->
+            {span.line,
+             pre <>
+               "supervise #{span.name}: state #{state} is final; a final state needs no supervisor"}
+
+          true ->
+            nil
+        end
+      end
+
+    supervised = for span <- flow.spans, state <- span.states, do: {state, span.name}
+
+    shared =
+      for {state, spans} <- Enum.group_by(supervised, &elem(&1, 0), &elem(&1, 1)),
+          length(Enum.uniq(spans)) > 1 do
+        {Enum.find(flow.spans, &(&1.name in spans)).line,
+         pre <> "state #{state} lies in more than one span (#{list(Enum.uniq(spans))})"}
+      end
+
+    in_span = MapSet.new(supervised, &elem(&1, 0))
+
+    escalations =
+      for s <- flow.states,
+          {:gate, %{gate: name}} <- [s.mechanism],
+          gate = Enum.find(gates, &(&1.name == name)),
+          gate != nil,
+          b <- s.branches,
+          b.when == "entity.gate_result == '#{gate.person}'",
+          target = by_name[b.to],
+          target != nil,
+          not MapSet.member?(in_span, target.name),
+          target.owner == nil do
+        {s.line,
+         pre <>
+           "state #{s.name}: gate #{name}'s #{gate.person} verdict leads to #{target.name}, " <>
+           "which lies in no supervised span; add #{target.name} to a span, or give it its own " <>
+           "owner (such as default: {:person, config: :decider}) so the fallback is written"}
+      end
+
+    twice ++ Enum.filter(states, & &1) ++ shared ++ escalations
   end
 
   # Every open item has exactly one owner (D-0054): the subflow names one, and each

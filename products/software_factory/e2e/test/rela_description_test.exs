@@ -110,9 +110,11 @@ defmodule AtlasE2E.RelaDescriptionTest do
     assert File.regular?(Path.join([dir, "rela", ".rela", "rela.db"]))
   end
 
-  defp kinds(url) do
+  defp kinds(url), do: url |> served() |> Map.fetch!("entities") |> Map.keys()
+
+  defp served(url) do
     {json, 0} = System.cmd("curl", ["-fsS", url <> "/_schema"])
-    json |> JSON.decode!() |> Map.fetch!("entities") |> Map.keys()
+    JSON.decode!(json)
   end
 
   defp put(url, plural, id, title) do
@@ -152,6 +154,19 @@ defmodule AtlasE2E.RelaDescriptionTest do
     refute "e2e_gone" in kinds(ctx.url)
     assert "flow_run" in kinds(ctx.url)
     assert "flow_input" in kinds(ctx.url)
+
+    # Supervision (decision 2026-11-17 §5.6, M3a), additive: a run's human supervisor
+    # and a task's, each one person, and the pickup and hand-over fields of an input.
+    served = served(ctx.url)
+
+    for {relation, from} <- [{"supervised_by", "flow_run"}, {"done_for", "task"}] do
+      assert %{"from" => [^from], "to" => ["person"], "max_outgoing" => 1} =
+               served["relations"][relation]
+    end
+
+    assert ~w(hand_to operation) -- Map.keys(served["entities"]["flow_input"]["properties"]) ==
+             []
+
     {scene, 0} = System.cmd("curl", ["-fsS", ctx.url <> "/scenes/SC-Atlas-01"])
     assert scene =~ "Kept across the restart"
 

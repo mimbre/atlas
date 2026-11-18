@@ -1,0 +1,4250 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "claude-fresh-no-identity",
+      "input": {
+        "records": [
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "anything"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          },
+          {
+            "result": "done",
+            "session_id": "x",
+            "subtype": "success",
+            "type": "result"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": null,
+          "session": "",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-fresh-other-init",
+      "input": {
+        "records": [
+          {
+            "model": "other-model",
+            "session_id": "other",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "other-model"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-confirmed",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-opus-4"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          },
+          {
+            "result": "done",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "success",
+            "type": "result"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-repository-prepared-first",
+      "input": {
+        "records": [
+          {
+            "base_sha": "0123456789abcdef0123456789abcdef01234567",
+            "type": "runtime.repository_prepared"
+          },
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-init-other-session",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Claude did not confirm the requested session and model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-init-other-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-sonnet-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Claude did not confirm the requested session and model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-init-without-session",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Claude did not confirm the requested session and model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-init-model-null",
+      "input": {
+        "records": [
+          {
+            "model": null,
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Claude did not confirm the requested session and model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-init-base-of-context-window",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4[1m]",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Claude did not confirm the requested session and model"
+          }
+        ]
+      },
+      "note": "init must name the configured model exactly"
+    },
+    {
+      "id": "claude-resume-context-window-assistant-base",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4[1m]",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-opus-4"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4[1m]",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-context-window-reversed",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-opus-4[1m]"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Claude resumed with a different model"
+          }
+        ]
+      },
+      "note": "M (b): [1m] is accepted only on the configured side"
+    },
+    {
+      "id": "claude-resume-assistant-other-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-sonnet-4"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Claude resumed with a different model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-synthetic",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "<synthetic>"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-empty-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": ""
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-null-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": null
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-number-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": 5
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Claude resumed with a different model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-zero-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": 0
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-zero-float-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": 0.0
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-true-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": true
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Claude resumed with a different model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-false-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": false
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-empty-list-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": []
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-list-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": [
+                "claude-opus-4"
+              ]
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Claude resumed with a different model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-empty-object-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": {}
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-without-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": []
+            },
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-without-message",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-message-null",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "'NoneType' object has no attribute 'get'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-message-string",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": "text",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "'str' object has no attribute 'get'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-message-list",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": [],
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "'list' object has no attribute 'get'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-message-int",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": 3,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "'int' object has no attribute 'get'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-message-float",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": 1.5,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "'float' object has no attribute 'get'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-message-exponent",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": 1E+3,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "'float' object has no attribute 'get'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-message-bool",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": false,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "'bool' object has no attribute 'get'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-before-init",
+      "input": {
+        "records": [
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-opus-4"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          },
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-assistant-other-model-before-init",
+      "input": {
+        "records": [
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-sonnet-4"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          },
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Claude resumed with a different model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-null-parent-is-top-level",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-haiku-4"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Claude resumed with a different model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-subagent-other-model",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-haiku-4"
+            },
+            "parent_tool_use_id": "toolu_1",
+            "type": "assistant"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-opus-4"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "legacy": {
+          "verdicts": [
+            "continue",
+            {
+              "refuse": "Claude resumed with a different model"
+            }
+          ]
+        },
+        "verdicts": [
+          "continue",
+          "continue",
+          "continue"
+        ]
+      },
+      "change": "D29",
+      "note": "M (c): subagent records never count (D29, design :539). Today's helper refuses (legacy); Elixir continues."
+    },
+    {
+      "id": "claude-resume-subagent-message-not-object",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "message": "text",
+            "parent_tool_use_id": "toolu_1",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "legacy": {
+          "verdicts": [
+            "continue",
+            {
+              "refuse": "'str' object has no attribute 'get'"
+            }
+          ]
+        },
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      },
+      "change": "D29",
+      "note": "a subagent record is not judged at all (D29); the legacy helper refuses its shape"
+    },
+    {
+      "id": "claude-resume-second-init-wrong",
+      "input": {
+        "records": [
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "model": "claude-sonnet-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Claude did not confirm the requested session and model"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-ignores-thread-started",
+      "input": {
+        "records": [
+          {
+            "thread_id": "other",
+            "type": "thread.started"
+          },
+          {
+            "model": "claude-opus-4",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-unconfirmed",
+      "input": {
+        "records": [
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-opus-4"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          },
+          {
+            "result": "done",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "success",
+            "type": "result"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": {
+          "refuse": "Claude resume ended without confirming its session"
+        },
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "claude-resume-unconfirmed-stopped",
+      "input": {
+        "records": [
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-opus-4"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": true
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue"
+        ]
+      },
+      "note": "M (d): a stopped turn is not unconfirmed"
+    },
+    {
+      "id": "claude-resume-empty-stopped",
+      "input": {
+        "records": [],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": true
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": []
+      }
+    },
+    {
+      "id": "claude-resume-empty",
+      "input": {
+        "records": [],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": {
+          "refuse": "Claude resume ended without confirming its session"
+        },
+        "verdicts": []
+      }
+    },
+    {
+      "id": "claude-fresh-empty",
+      "input": {
+        "records": [],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": null,
+          "session": "",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": []
+      }
+    },
+    {
+      "id": "codex-fresh-thread",
+      "input": {
+        "records": [
+          {
+            "thread_id": "019a-thread",
+            "type": "thread.started"
+          },
+          {
+            "type": "turn.completed"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "codex-fresh-thread-empty-id",
+      "input": {
+        "records": [
+          {
+            "thread_id": "",
+            "type": "thread.started"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Codex did not confirm the requested session"
+          }
+        ]
+      }
+    },
+    {
+      "id": "codex-fresh-thread-number-id",
+      "input": {
+        "records": [
+          {
+            "thread_id": 7,
+            "type": "thread.started"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Codex did not confirm the requested session"
+          }
+        ]
+      }
+    },
+    {
+      "id": "codex-fresh-thread-null-id",
+      "input": {
+        "records": [
+          {
+            "thread_id": null,
+            "type": "thread.started"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Codex did not confirm the requested session"
+          }
+        ]
+      }
+    },
+    {
+      "id": "codex-fresh-thread-without-id",
+      "input": {
+        "records": [
+          {
+            "type": "thread.started"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Codex did not confirm the requested session"
+          }
+        ]
+      }
+    },
+    {
+      "id": "codex-fresh-without-thread",
+      "input": {
+        "records": [
+          {
+            "type": "turn.completed"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "codex-fresh-second-thread",
+      "input": {
+        "records": [
+          {
+            "thread_id": "a",
+            "type": "thread.started"
+          },
+          {
+            "thread_id": "b",
+            "type": "thread.started"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      },
+      "note": "a fresh turn accepts any nonempty id each time"
+    },
+    {
+      "id": "codex-resume-confirmed",
+      "input": {
+        "records": [
+          {
+            "thread_id": "019a-thread",
+            "type": "thread.started"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "019a-thread",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "codex-resume-other-thread",
+      "input": {
+        "records": [
+          {
+            "thread_id": "019b-thread",
+            "type": "thread.started"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "019a-thread",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Codex did not confirm the requested session"
+          }
+        ]
+      }
+    },
+    {
+      "id": "codex-resume-unconfirmed",
+      "input": {
+        "records": [
+          {
+            "type": "turn.completed"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "019a-thread",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": {
+          "refuse": "Codex resume ended without confirming its session"
+        },
+        "verdicts": [
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "codex-resume-unconfirmed-stopped",
+      "input": {
+        "records": [
+          {
+            "type": "turn.completed"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "019a-thread",
+          "tools": []
+        },
+        "stopped": true
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "codex-resume-ignores-claude-init",
+      "input": {
+        "records": [
+          {
+            "model": "m",
+            "session_id": "other",
+            "subtype": "init",
+            "type": "system"
+          },
+          {
+            "thread_id": "019a-thread",
+            "type": "thread.started"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "019a-thread",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "codex-resume-ignores-assistant",
+      "input": {
+        "records": [
+          {
+            "message": null,
+            "type": "assistant"
+          },
+          {
+            "thread_id": "019a-thread",
+            "type": "thread.started"
+          }
+        ],
+        "start": {
+          "backend": "codex",
+          "model": null,
+          "question_session": null,
+          "session": "019a-thread",
+          "tools": []
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-confirmed",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "fixture-model"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue",
+          "continue"
+        ]
+      },
+      "note": "M (e): the init is checked against question_session, not the empty session"
+    },
+    {
+      "id": "question-fresh-model-option",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "claude-opus-4[1m]",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "claude-opus-4"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "claude-opus-4",
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue",
+          "continue"
+        ]
+      },
+      "note": "a fresh question turn does not compare the init model with the requested one"
+    },
+    {
+      "id": "question-fresh-init-other-session",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question session changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-without-session",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-session-null",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": null,
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question session changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-synthetic",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "<synthetic>",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-empty-model",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-without-model",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-manual-mode",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "permissionMode": "manual",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-default-mode",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "permissionMode": "default",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-bypass-mode",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "permissionMode": "bypassPermissions",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-null-mode",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "permissionMode": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-tools-reordered",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "AskUserQuestion",
+              "Grep",
+              "Glob",
+              "Read"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-tools-duplicate",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-tool-missing",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-tool-extra",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion",
+              "Bash"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-tool-not-string",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion",
+              1
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-tools-not-list",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": "Read,Glob,Grep,AskUserQuestion",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-fresh-init-without-tools",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-bash-tools",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Bash",
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-second-init-same-model",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-second-init-other-model",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "model": "other-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-assistant-before-init",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "fixture-model"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question assistant identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-assistant-without-session",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "fixture-model"
+            },
+            "parent_tool_use_id": null,
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Native question assistant identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-assistant-other-session",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "fixture-model"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Native question session changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-assistant-other-model",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "other-model"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Native question assistant identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-assistant-synthetic",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "<synthetic>"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Native question assistant identity changed"
+          }
+        ]
+      },
+      "note": "unlike a plain resume, a question turn does not accept <synthetic>"
+    },
+    {
+      "id": "question-assistant-null-model",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": null
+            },
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Native question assistant identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-assistant-message-not-object",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": "text",
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Native question assistant identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-assistant-base-of-context-window",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model[1m]",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "fixture-model"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-assistant-context-window-reversed",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "fixture-model[1m]"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Native question assistant identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-other-record-other-session",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "status",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Native question session changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-other-record-null-session",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "session_id": null,
+            "subtype": "status",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Native question session changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-other-record-without-session",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "subtype": "status",
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-repository-prepared-skips-question-checks",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "base_sha": "0123456789abcdef0123456789abcdef01234567",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "type": "runtime.repository_prepared"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-resume-confirmed",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "fixture-model"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "fixture-model",
+          "question_session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue",
+          "continue",
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-resume-init-other-model",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "other-model",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "fixture-model",
+          "question_session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-resume-init-base-of-context-window",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "fixture-model[1m]",
+          "question_session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      },
+      "note": "the question check refuses first, with its own text"
+    },
+    {
+      "id": "question-resume-unconfirmed",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "fixture-model",
+          "question_session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "complete": {
+          "refuse": "Claude resume ended without confirming its session"
+        },
+        "verdicts": [
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-resume-unconfirmed-stopped",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": "fixture-model",
+          "question_session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "session": "8f0e3a52-6c1d-4b7a-9e2f-1a2b3c4d5e6f",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": true
+      },
+      "expect": {
+        "complete": "continue",
+        "verdicts": [
+          "continue"
+        ]
+      }
+    },
+    {
+      "id": "question-init-before-initialize",
+      "input": {
+        "records": [
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          {
+            "refuse": "Native question initialization identity changed"
+          }
+        ]
+      },
+      "elixir": "skip:helper-transport",
+      "note": "the initialize handshake stays in the helper (transport, plan 0.1 row 5); the helper holds the init until it is initialized"
+    },
+    {
+      "id": "question-subagent-record",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "fixture-model"
+            },
+            "parent_tool_use_id": "toolu_fixture",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          {
+            "refuse": "Subagent question transport is not supported"
+          }
+        ]
+      },
+      "elixir": "skip:helper-transport",
+      "note": "review S1: a subagent record in a question turn (claude_questions.go:124-126); the helper keeps the question transport rule, Resume.verdict continues"
+    },
+    {
+      "id": "question-record-after-result",
+      "input": {
+        "records": [
+          {
+            "response": {
+              "request_id": "initialize-fixture",
+              "response": {},
+              "subtype": "success"
+            },
+            "type": "control_response"
+          },
+          {
+            "model": "fixture-model",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "init",
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "AskUserQuestion"
+            ],
+            "type": "system"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "fixture-model"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          },
+          {
+            "is_error": false,
+            "result": "done",
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "subtype": "success",
+            "type": "result"
+          },
+          {
+            "message": {
+              "content": [
+                {
+                  "text": "working",
+                  "type": "text"
+                }
+              ],
+              "model": "fixture-model"
+            },
+            "parent_tool_use_id": null,
+            "session_id": "15113671-40b9-4677-8b2b-c6c1180db993",
+            "type": "assistant"
+          }
+        ],
+        "start": {
+          "backend": "claude",
+          "model": null,
+          "question_session": "15113671-40b9-4677-8b2b-c6c1180db993",
+          "session": "",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion"
+          ]
+        },
+        "stopped": false
+      },
+      "expect": {
+        "verdicts": [
+          "continue",
+          "continue",
+          "continue",
+          "continue",
+          {
+            "refuse": "Native event after terminal result"
+          }
+        ]
+      },
+      "elixir": "skip:helper-transport",
+      "note": "review S1: any record after the terminal result in a question turn (claude_questions.go:118-120); the helper keeps the rule, Resume.verdict continues"
+    }
+  ]
+}

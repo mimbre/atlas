@@ -103,8 +103,8 @@ try do
              Talk.put(kind, %{"op" => "create", "key" => key, "values" => %{"name" => name}})
   end
 
-  pr = "PR-eyra-atlas-9501"
-  issue = "IS-eyra-atlas-9501"
+  pr = "PR-mimbre-atlas-9501"
+  issue = "IS-mimbre-atlas-9501"
 
   assert {:stored, _} =
            Talk.put("issue", %{
@@ -123,7 +123,7 @@ try do
              "key" => pr,
              "links" => %{"in_issue" => [issue]},
              "values" => %{
-               "url" => "https://github.com/eyra/atlas/pull/9501",
+               "url" => "https://github.com/mimbre/atlas/pull/9501",
                "revision" => "r1",
                "state" => "open"
              }

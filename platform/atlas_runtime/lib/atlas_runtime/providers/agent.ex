@@ -16,8 +16,8 @@ defmodule AtlasRuntime.Agent do
   rather than `:noproc`. `stop/1`
   ends the agent's turn from Runtime's side (silent, too long, no longer the owner).
 
-  The ports: `stub` (synthetic), `claude` (Claude Code headless), and `codex`
-  (official Codex CLI, one explicitly configured goal; read-only unless write permissions are selected).
+  The port: `AtlasRuntime.Agent.Native` (the official Codex and Claude CLIs in the native
+  host, one explicitly configured goal; read-only unless write permissions are selected).
   """
 
   @doc "Start the agent for `turn` (`%{key, item, agent}`); messages go to the caller."
@@ -242,14 +242,4 @@ defmodule AtlasRuntime.Agent do
   rescue
     _ -> false
   end
-
-  @ports %{
-    "stub" => AtlasRuntime.Agent.Stub,
-    "claude" => AtlasRuntime.Agent.Claude,
-    "codex" => AtlasRuntime.Agent.Native
-  }
-
-  @doc "The port a machine's settings name for an agent, or nil."
-  def port(%{"port" => name}), do: @ports[name]
-  def port(_), do: nil
 end

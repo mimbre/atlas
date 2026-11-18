@@ -1,4 +1,4 @@
-# Runtime guidance boundary (IS-Atlas-108)
+# Runtime guidance boundary (IS-Atlas-108) — SUPERSEDED, see [Status](#status-superseded)
 
 Runtime stores a fresh turn attempt and an immutable execution through Facts/Bus before
 calling an adapter's `start`. A missing/unknown execution acknowledgement is recovered
@@ -106,5 +106,20 @@ Missing/replaced named history produces uncertainty while preserving archived ev
 This provides no distributed ownership or broad power-loss guarantee. Historical native
 proof remains attributed to its original execution; absent old input becomes stale and
 never migrates. Existing immutable facts and artifacts are retained.
+
+## Status: superseded
+
+**The Turn/Engine path this contract describes was removed** (runtime-engine-node-removal,
+2026-11-16). `AtlasRuntime.Engine`, `AtlasRuntime.Turn`, `AtlasRuntime.Guidance`, the
+`Stub` and `Claude` ports and the `runtime_guidance` integration tests are gone, so nothing
+now records attempts or executions through Facts/Bus, reconciles interactions or admits
+guidance as described above. The live standalone Service gives Server no guidance over a
+native agent (`AtlasRuntime.Integrations.AtlasServer.Lifecycle`).
+
+What remains: the typed adapter callbacks `describe`, `accept`, `close_input` and
+`recover_input` in `AtlasRuntime.Agent`, and the test-only `AtlasRuntime.Agent.FakeInbox`,
+covered by `test/guidance_inbox_test.exs`. The text above is kept as the record of the
+removed design. Any future guidance path needs its own contract, and it may not rely on
+this one's claims about Turn or Engine.
 
 <sub>Written by an AI agent (Codex · GPT-6 · herdr-projects atlas · t-0024).</sub>

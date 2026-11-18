@@ -28,91 +28,134 @@ if config_env() != :test do
 
   config :atlas_bus, environment: env
 
-  role = System.get_env("ATLAS_ROLE") || "core"
-  if role not in ["core", "runtime"], do: raise("unknown ATLAS_ROLE")
   link = settings["bus_link"]
 
-  if role == "runtime" do
-    unless match?(%{"mode" => "client"}, link), do: raise("Runtime needs a client bus_link")
-    config :atlas_bus, link: Map.put(link, "token", System.fetch_env!("ATLAS_BUS_LINK_TOKEN"))
-  else
-    if link do
-      tokens = System.fetch_env!("ATLAS_BUS_LINK_TOKEN") |> JSON.decode!()
-      config :atlas_bus, link: Map.merge(link, %{"mode" => "server", "tokens" => tokens})
-    end
-
-    # What Facts stores by is the model's (config :atlas, model:), compiled in; rela must
-    # serve the schema it was built with, or Facts does not start.
-    config :atlas_facts,
-      rela_url: settings["rela"]["url"],
-      # On Fly rela has an IPv6 address on the private network only.
-      rela_ipv6: settings["rela"]["ipv6"] == true,
-      # Facts' own data folder (`facts.data`; settings files before the rename said `state`).
-      data_dir:
-        expand.(get_in(settings, ["facts", "data"]) || raise("#{file} has no facts.data")),
-      # The connectors at Facts' edge: only those this environment has settings for.
-      connectors: settings["connectors"] || %{}
-
-    config :atlas_control,
-      host: settings["control"]["host"],
-      port: settings["control"]["port"],
-      # Who uses a TUI of this environment (a key), until Control has sign-in.
-      tui_user: settings["tui_user"],
-      # Separate read capability; absent by default, never reuse Bus writer tokens.
-      runtime_read_token_env: settings["control"]["runtime_read_token_env"],
-      # What this environment adds to the model's pages (AtlasControl.Model.catalog/2): the
-      # shell's extra tabs ("tabs") and who may read and submit worker guidance
-      # ("workers": "read" and "submit", each {"actors": [key]}). None by default.
-      settings: Map.take(settings["control"], ["tabs", "workers"])
-
-    # Flow looks at each open fact again this often, and at once on a hint.
-    config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
-
-    # Code's receiver of Flow's integrate effect (AtlasCode.Effects), with its journal in
-    # `code.data`, the repositories it may integrate (`code.repositories`, owner/repo) and
-    # GitHub reached with the GitHub connector's settings: no secret of its own. Flow runs
-    # an integrate effect only through a receiver it is told of, so both come from this one
-    # block; without it every subflow with such an effect is refused, and Flow runs none.
-    if code = settings["code"] do
-      config :atlas_code,
-        effects: %{
-          "dir" => expand.(code["data"] || raise("#{file} has no code.data")),
-          "repositories" => code["repositories"] || raise("#{file} has no code.repositories"),
-          "merge_method" => code["merge_method"] || "merge",
-          "github" =>
-            {AtlasCode.Effects.GitHub,
-             Map.take(get_in(settings, ["connectors", "github"]) || %{}, [
-               "api",
-               "token_env",
-               "token_command"
-             ])}
-        }
-
-      config :atlas_flow,
-        effect_receivers: %{
-          "code" => %{"contract" => 1, "address" => "code/effects", "operations" => ["integrate"]}
-        }
-    end
-
-    # Who fills each role the model's owners name (`"actors": {"decider": "<key>"}`): the
-    # model names roles, never people. Flow and Control refuse to start without one
-    # (AtlasBus.Actors); an actor whose fact does not exist yet only makes its owner wait.
-    config :atlas, actors: settings["actors"]
+  if link do
+    tokens = System.fetch_env!("ATLAS_BUS_LINK_TOKEN") |> JSON.decode!()
+    config :atlas_bus, link: Map.merge(link, %{"mode" => "server", "tokens" => tokens})
   end
 
-  # A private instance may run another composition of the model (a profile, e2e): the
-  # core and its Runtime nodes run the same one.
+  # What Facts stores by is the model's (config :atlas, model:), compiled in; rela must
+  # serve the schema it was built with, or Facts does not start.
+  config :atlas_facts,
+    rela_url: settings["rela"]["url"],
+    # On Fly rela has an IPv6 address on the private network only.
+    rela_ipv6: settings["rela"]["ipv6"] == true,
+    # Facts' own data folder (`facts.data`; settings files before the rename said `state`).
+    data_dir: expand.(get_in(settings, ["facts", "data"]) || raise("#{file} has no facts.data")),
+    # The connectors at Facts' edge: only those this environment has settings for.
+    connectors: settings["connectors"] || %{}
+
+  config :atlas_control,
+    host: settings["control"]["host"],
+    port: settings["control"]["port"],
+    # Who uses a TUI of this environment (a key), until Control has sign-in.
+    tui_user: settings["tui_user"],
+    # Separate read capability; absent by default, never reuse Bus writer tokens.
+    runtime_read_token_env: settings["control"]["runtime_read_token_env"],
+    # What this environment adds to the model's pages (AtlasControl.Model.catalog/2): the
+    # shell's extra tabs ("tabs") and who may read and submit worker guidance
+    # ("workers": "read" and "submit", each {"actors": [key]}). None by default.
+    settings: Map.take(settings["control"], ["tabs", "workers"])
+
+  # Flow looks at each open fact again this often, and at once on a hint.
+  config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60
+
+  # Flow as the Runtimes' work source (work acquisition M3): only with a `flow.work_source`
+  # block, none by default. `credentials_env` names the environment variable that holds
+  # the per-Runtime credentials (a core secret: runtime id → holder and token sha256);
+  # `results` is the result store's folder. With `port`, Flow listens on 127.0.0.1 at that
+  # port, behind the tailnet edge (TLS ends there); without one it has no listener.
+  #
+  # A test environment may shorten the lease timing (a bench such as pull-e2e): the integer
+  # keys `lease_ttl` (s), `poll_max` (s, 1–25), `sweep_ms`, `resync_ms` and the Results'
+  # `result_cap` (bytes), only those given. Prod refuses them and keeps Flow's defaults
+  # (AtlasFlow.Dispatch, AtlasFlow.Results). `grace` is not settable in either: the
+  # Runtime's own grace and import bound assume Flow's 120 s. The wire `timing` is unchanged.
+  if source = get_in(settings, ["flow", "work_source"]) do
+    if Map.has_key?(source, "grace"), do: raise("#{file}: flow.work_source.grace is not settable")
+
+    timing =
+      for key <- ~w(lease_ttl poll_max sweep_ms resync_ms result_cap),
+          Map.has_key?(source, key) do
+        value = source[key]
+
+        if env != "test", do: raise("#{file}: flow.work_source.#{key} is for env test only")
+
+        if not is_integer(value) or value < 1 or (key == "poll_max" and value > 25),
+          do: raise("#{file}: flow.work_source.#{key} is #{inspect(value)}")
+
+        {String.to_atom(key), value}
+      end
+
+    {result_timing, work_timing} = Keyword.split(timing, [:result_cap])
+
+    config :atlas_flow,
+           :work_source,
+           [
+             port: source["port"],
+             credentials_env:
+               source["credentials_env"] ||
+                 raise("#{file} has no flow.work_source.credentials_env")
+           ] ++ work_timing
+
+    config :atlas_flow,
+           :results,
+           [dir: expand.(source["results"] || raise("#{file} has no flow.work_source.results"))] ++
+             result_timing
+  end
+
+  # Code's receiver of Flow's integrate effect (AtlasCode.Effects), with its journal in
+  # `code.data`, the repositories it may integrate (`code.repositories`, owner/repo) and
+  # GitHub reached with the GitHub connector's settings: no secret of its own. Flow runs
+  # an integrate effect only through a receiver it is told of, so both come from this one
+  # block; without it every subflow with such an effect is refused, and Flow runs none.
+  if code = settings["code"] do
+    config :atlas_code,
+      effects: %{
+        "dir" => expand.(code["data"] || raise("#{file} has no code.data")),
+        "repositories" => code["repositories"] || raise("#{file} has no code.repositories"),
+        "merge_method" => code["merge_method"] || "merge",
+        "github" =>
+          {AtlasCode.Effects.GitHub,
+           Map.take(get_in(settings, ["connectors", "github"]) || %{}, [
+             "api",
+             "token_env",
+             "token_command"
+           ])}
+      }
+
+    config :atlas_flow,
+      effect_receivers: %{
+        "code" => %{"contract" => 1, "address" => "code/effects", "operations" => ["integrate"]}
+      }
+
+    # The Code service in the core (AtlasCode.Core): a registered Code on its own home
+    # (`code.home`, not `code.data`'s effects journal) that reads the repositories Flow's work
+    # source takes bases from (`code.sources`: name → remote, as in a Code home's config.json,
+    # e.g. {"url": …, "credentials": "none"} for an anonymous read). It serves only that work
+    # source, so it starts only when `flow.work_source` is configured too. Without either,
+    # nothing starts and nothing is written: the core has no Code service. A `code.home`
+    # waiting for its work source is still checked, so turning the source on is one key.
+    if home = code["home"] do
+      sources = code["sources"]
+
+      unless is_map(sources) and map_size(sources) > 0,
+        do: raise("#{file} has code.home but no code.sources")
+
+      if get_in(settings, ["flow", "work_source"]),
+        do: config(:atlas_code, service: %{"home" => expand.(home), "repositories" => sources})
+    end
+  end
+
+  # Who fills each role the model's owners name (`"actors": {"decider": "<key>"}`): the
+  # model names roles, never people. Flow and Control refuse to start without one
+  # (AtlasBus.Actors); an actor whose fact does not exist yet only makes its owner wait.
+  config :atlas, actors: settings["actors"]
+
+  # A private instance may run another composition of the model (a profile, e2e).
   if model = settings["model"], do: config(:atlas, model: Module.concat([model]))
 
-  if role == "runtime", do: System.delete_env("ATLAS_BUS_LINK_TOKEN")
-
-  # Runtime runs the turns of this machine's agents (IS-Atlas-15); without `runtime`, none.
-  runtime = settings["runtime"] || %{}
-
-  config :atlas_runtime,
-    settings:
-      if(runtime["stub_dir"],
-        do: Map.put(runtime, "stub_dir", expand.(runtime["stub_dir"])),
-        else: runtime
-      )
+  # This machine's Runtime settings (AtlasRuntime.Settings); without `runtime`, the defaults.
+  config :atlas_runtime, settings: settings["runtime"] || %{}
 end

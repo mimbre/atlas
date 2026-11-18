@@ -49,14 +49,15 @@ defmodule RelaDSL.SchemaTest do
                [:draft, :proofread, :post, :sent, :stuck, :answered, :dropped]
     end
 
-    test "a pass expands into its reset and one writer branch per result" do
+    test "waiting for people expands into its reset and one branch per value, theirs only" do
       draft = state(:draft)
-      assert draft.mechanism == {:pass, %{profile: :writer, mode: :draft}}
-      assert draft.set == [pass_result: :none]
+      assert draft.mechanism == nil
+      assert {draft.status, draft.waiting_for} == {:input_required, ["writer"]}
+      assert draft.set == [draft_result: :none]
 
       assert branches(draft) == [
-               {:proofread, ["atlas-flow"], "entity.pass_result == 'delivered'"},
-               {:stuck, ["atlas-flow"], "entity.pass_result == 'failed'"}
+               {:proofread, ["writer"], "entity.draft_result == 'delivered'"},
+               {:stuck, ["writer"], "entity.draft_result == 'failed'"}
              ]
 
       assert [%{name: :slow, period: "1d", to: :stuck, label: "The writer did not finish"}] =
@@ -79,6 +80,33 @@ defmodule RelaDSL.SchemaTest do
       assert post.set == [post_result: :none]
       assert [%{type: :receipt, relate: :receipt_of}] = post.creates
       assert {:sent, ["atlas-flow"], "entity.post_result == 'done'"} = hd(branches(post))
+    end
+
+    test "a task keeps its spec; its result is the run's, so nothing resets it" do
+      module = compile!(task_source(""))
+      [%{states: [a | _]}] = module.__flows__()
+
+      assert {:task,
+              %{
+                kind: :author,
+                field: :task_result,
+                role: :developer,
+                profile: :deep_coding,
+                cost_class: :standard,
+                input: [repository: "example.invalid/r", base: "develop"],
+                check: ["bin/check"],
+                records: [kind: "task", relation: "task_of"],
+                machinery: "machinery"
+              }} = a.mechanism
+
+      assert a.set == []
+
+      assert for(b <- a.branches, do: {b.to, b.roles, b.when}) == [
+               {:b, ["atlas-flow"], "entity.task_result == 'completed'"},
+               {:c, ["atlas-flow"], "entity.task_result == 'check_failed'"},
+               {:c, ["atlas-flow"], "entity.task_result == 'stuck'"},
+               {:c, ["atlas-flow"], "entity.task_result == 'abandoned'"}
+             ]
     end
 
     test "branches keep the order written, mechanisms included" do
@@ -193,27 +221,31 @@ defmodule RelaDSL.SchemaTest do
           start :create
           initial :a
           state :a do
-            pass :writer, on: [delivered: :b, failed: {:b, "It failed; someone looks"}]
+            effect :call, on: [done: :b, refused: {:b, "It was refused; someone looks"}]
           end
           final :b
         end
         """).__flows__()
 
       assert [
-               %{branches: [%{to: :b, label: nil}, %{to: :b, label: "It failed; someone looks"}]}
+               %{
+                 branches: [
+                   %{to: :b, label: nil},
+                   %{to: :b, label: "It was refused; someone looks"}
+                 ]
+               }
                | _
              ] =
                flow.states
     end
 
-    test "people working with a pass keep the state working; reset: false sets nothing" do
+    test "people a state waits for keep it input_required; reset: false sets nothing" do
       [flow] =
         compile!("""
         subflow :f, subject: :t do
           start :create
           initial :a
           state :a do
-            pass :signer, with_person: true, writes: :none
             wait_for [:signer], on: :signed, reset: false, yes: :b
             timer :late, "1d", to: :c
           end
@@ -225,27 +257,32 @@ defmodule RelaDSL.SchemaTest do
         """).__flows__()
 
       [a, c, _] = flow.states
-      assert %{status: nil, waiting_for: ["signer"], set: []} = a
+      assert %{status: :input_required, waiting_for: ["signer"], set: []} = a
       assert %{status: :input_required, waiting_for: ["boss", "signer"], set: []} = c
       assert Enum.map(c.branches, & &1.roles) == [["boss", "signer"]]
     end
 
-    test "a pass a person answers (writes: :none) adds no reset or writer branch" do
-      [flow] =
-        compile!("""
-        subflow :f, subject: :t do
-          start :create
-          initial :a
-          state :a do
-            pass :signer, writes: :none
-            branch to: :b, roles: [:signer], when: "entity.signed == true"
-          end
-          final :b
-        end
-        """).__flows__()
+    test "pass is no mechanism of the format any more (F0): it does not compile" do
+      refute Keyword.has_key?(RelaDSL.Schema.__macros__(), :pass)
 
-      assert [%{mechanism: {:pass, %{profile: :signer}}, set: [], branches: [_]} | _] =
-               flow.states
+      logged =
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          assert_raise CompileError, fn ->
+            compile!("""
+            subflow :f, subject: :t do
+              run_as "system:x"
+              start :create
+              initial :a
+              state :a do
+                pass :writer, on: [delivered: :b, failed: :b]
+              end
+              final :b
+            end
+            """)
+          end
+        end)
+
+      assert logged =~ "undefined function pass/2"
     end
   end
 
@@ -550,7 +587,7 @@ defmodule RelaDSL.SchemaTest do
       refused(String.replace(gate_source(@rule), ":g,", ":G,"), 1, "G is not a valid name")
     end
 
-    test "a pass that does not map every result" do
+    test "an effect that does not map every result" do
       refused(
         """
         subflow :f, subject: :t do
@@ -558,13 +595,13 @@ defmodule RelaDSL.SchemaTest do
           start :create
           initial :a
           state :a do
-            pass :worker, on: [delivered: :b]
+            effect :call, on: [done: :b]
           end
           final :b
         end
         """,
         6,
-        "state a: pass_result can give failed, which no branch takes"
+        "state a: effect_result can give refused, which no branch takes"
       )
     end
 
@@ -586,11 +623,198 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
+    test "a task that does not map every result" do
+      refused(
+        task_source("", "on: [completed: :b, check_failed: :c, stuck: :c]"),
+        6,
+        "state a: task author can give abandoned, which no branch takes"
+      )
+    end
+
+    # Structural: the problem's tag (`RelaDSL.Schema.input_problem/1`) and where the
+    # composition refuses, never the text.
+    test "a task never names a path on the machinery's machine (D44)" do
+      for input <- [
+            [folder: "/Users/someone/work", base: "develop"],
+            [repository: "example.invalid/r", base: "develop", path: "/w"],
+            [repository: "example.invalid/r"],
+            [repository: "", base: "develop"],
+            nil
+          ] do
+        assert RelaDSL.Schema.input_problem(input) == :input_shape, inspect(input)
+      end
+
+      refused_at(task_source(~s(input: [folder: "/Users/someone/work", base: "develop"],)), 6)
+
+      refused_at(
+        task_source(~s(input: [repository: "example.invalid/r", base: "develop", path: "/w"],)),
+        6
+      )
+    end
+
+    test "a task's input is a Code repository's name and a reference, never a URL (M3 A4)" do
+      for input <- [
+            [repository: "https://example.invalid/r.git", base: "develop"],
+            [repository: "ssh://git@example.invalid/r.git", base: "develop"],
+            [repository: "git@example.invalid:owner/r.git", base: "develop"],
+            [repository: "file:///srv/r", base: "develop"],
+            [repository: "example.invalid/r", base: "https://example.invalid/r.git"]
+          ] do
+        assert RelaDSL.Schema.input_problem(input) == :input_url, inspect(input)
+      end
+
+      for input <- [
+            [repository: "github.com/mimbre/atlas", base: "develop"],
+            [repository: "example.invalid/r", base: "release/1.2"]
+          ],
+          do: assert(RelaDSL.Schema.input_problem(input) == nil, inspect(input))
+
+      refused_at(
+        task_source(~s(input: [repository: "https://example.invalid/r.git", base: "develop"],)),
+        6
+      )
+
+      refused_at(
+        task_source(~s(input: [repository: "git@example.invalid:owner/r.git", base: "develop"],)),
+        6
+      )
+
+      assert compile!(task_source(~s(input: [repository: "example.invalid/r", base: "develop"],)))
+    end
+
+    test "a task with an unknown kind, profile or option" do
+      refused(
+        task_source("profile: :light_work,"),
+        6,
+        "state a: task author: profile: must be one of deep_coding, independent_review"
+      )
+
+      refused(task_source("slot: \"s1\","), 6, "state a: task author: knows no slot")
+
+      refused(
+        String.replace(task_source(""), "task :author", "task :ship"),
+        6,
+        "state a: task ship: kind must be one of plan, author, review, fix"
+      )
+    end
+
+    # F2: a ladder task (the review → fix loop). Structural: branches, tags, lines.
+    test "a ladder task maps the ladder's steps, not the four results" do
+      module = compile!(ladder_source())
+      [%{states: states}] = module.__flows__()
+      by_name = Map.new(states, &{&1.name, &1})
+
+      assert {:task, %{kind: :review, ladder: true, input: [result: :latest, access: :read]}} =
+               by_name[:reviewing].mechanism
+
+      assert {:task, %{kind: :diagnose, role: :investigator}} = by_name[:diagnosing].mechanism
+      assert {:task, %{profile: :deep_coding_max}} = by_name[:stronger].mechanism
+
+      assert for(b <- by_name[:authoring].branches, do: {b.to, b.roles, b.when}) ==
+               for(
+                 {step, to} <- [
+                   author: :authoring,
+                   review: :reviewing,
+                   fix: :fixing,
+                   diagnose: :diagnosing,
+                   fresh: :fresh,
+                   stronger: :stronger,
+                   ready: :ready,
+                   held: :held,
+                   escalate: :escalated,
+                   abandon: :stuck
+                 ],
+                 do: {to, ["atlas-flow"], "entity.task_result == '#{step}'"}
+               )
+
+      # A task that is no ladder's has no `ladder` in its spec: its digest is unchanged.
+      {:task, spec} = hd(hd(compile!(task_source("")).__flows__()).states).mechanism
+      refute Map.has_key?(spec, :ladder)
+    end
+
+    test "a ladder task that maps the four results, or a ladder that is not true" do
+      refused_at(ladder_source(%{6 => {~r/on: \[.*\]$/, four()}}), 6)
+      refused_at(ladder_source(%{6 => {"ladder: true", "ladder: :yes"}}), 6)
+    end
+
+    test "only a review, fix or diagnose starts from the latest result, read or written as its kind" do
+      for {kind, access} <- [review: :read, diagnose: :read, fix: :write],
+          do: assert(RelaDSL.Schema.input_problem(kind, result_input(access)) == nil)
+
+      for kind <- [:author, :plan],
+          do:
+            assert(RelaDSL.Schema.input_problem(kind, result_input(:read)) == :input_result_kind)
+
+      for {kind, access} <- [review: :write, diagnose: :write, fix: :read, review: :none],
+          do: assert(RelaDSL.Schema.input_problem(kind, result_input(access)) == :input_access)
+
+      # Every other input is judged as before, whatever the kind.
+      for kind <- [:author, :review] do
+        assert RelaDSL.Schema.input_problem(kind, repository: "example.invalid/r", base: "d") ==
+                 nil
+
+        assert RelaDSL.Schema.input_problem(kind, result: :latest) == :input_shape
+        assert RelaDSL.Schema.input_problem(kind, result: :first, access: :read) == :input_shape
+      end
+
+      refused_at(
+        ladder_source(%{6 => {repository_input(), "input: " <> inspect(result_input(:read))}}),
+        6
+      )
+
+      refused_at(ladder_source(%{9 => {"access: :read", "access: :write"}}), 9)
+      refused_at(ladder_source(%{12 => {"access: :write", "access: :read"}}), 12)
+    end
+
+    test "the latest result is the loop's: a task that starts from it needs ladder: true" do
+      review =
+        String.replace(
+          task_source("input: [result: :latest, access: :read],"),
+          "task :author",
+          "task :review"
+        )
+
+      refused_at(review, 6)
+    end
+
+    test "lesson 7: a ladder fix or author without check fails to compile; a review or diagnose needs none" do
+      no_check = {~s(check: ["bin/check"], ), ""}
+
+      # The fix, and the first, fresh and stronger authors: each refused at its own line.
+      for line <- [12, 6, 18, 21], do: refused_at(ladder_source(%{line => no_check}), line)
+
+      # The read-only steps run no check: the loop compiles with none on them.
+      module = compile!(ladder_source())
+      by_name = Map.new(hd(module.__flows__()).states, &{&1.name, &1})
+
+      for state <- [:authoring, :fixing, :fresh, :stronger],
+          do: assert({:task, %{check: ["bin/check"]}} = by_name[state].mechanism)
+
+      for state <- [:reviewing, :diagnosing] do
+        assert {:task, spec} = by_name[state].mechanism
+        refute Map.has_key?(spec, :check)
+      end
+    end
+
+    test "a ladder step leads to a ladder task of its kind (a rule of its own); a stronger author on deep_coding_max" do
+      # Reported at the state whose task's step leads astray.
+      refused_at(ladder_source(%{6 => {"review: :reviewing", "review: :fixing"}}), 5)
+      refused_at(ladder_source(%{9 => {"fix: :fixing", "fix: :ready"}}), 8)
+      refused_at(ladder_source(%{12 => {"fresh: :fresh", "fresh: :diagnosing"}}), 11)
+
+      refused_at(
+        ladder_source(%{
+          21 => {"profile: :deep_coding_max, cost_class: :high", "profile: :deep_coding"}
+        }),
+        5
+      )
+    end
+
     test "two mechanisms in one state" do
       refused(
         gated("""
           state :a do
-            pass :worker, on: [delivered: :b, failed: :b]
+            effect :call, on: [done: :b, refused: :b]
             gate :size_limit, fits: :b, person: :b
           end
           final :b
@@ -608,14 +832,14 @@ defmodule RelaDSL.SchemaTest do
           start :create
           initial :a
           state :a do
-            pass :worker, on: [delivered: :b, failed: :b]
-            set pass_result: :ready
+            effect :call, on: [done: :b, refused: :b]
+            set effect_result: :ready
           end
           final :b
         end
         """,
         7,
-        "state a: sets pass_result twice"
+        "state a: sets effect_result twice"
       )
     end
 
@@ -845,6 +1069,38 @@ defmodule RelaDSL.SchemaTest do
 
       refused(
         owned("owner relation: :held_by, default: {:team, :desk}, preserve_kind: :clerk"),
+        2,
+        "preserve_kind needs a relation and a default of that kind"
+      )
+    end
+
+    test "preserving several assignee kinds: a list with the fallback's kind among them" do
+      module =
+        compile!(
+          owned(
+            "owner relation: :held_by, default: {:clerk, :ada}, preserve_kind: [:clerk, :robot, :desk]"
+          )
+        )
+
+      [flow] = module.__flows__()
+      assert flow.owner.preserve_kind == [:clerk, :robot, :desk]
+
+      for bad <- [
+            "[:robot, :desk]",
+            "[]",
+            "[:clerk, :clerk]",
+            ~s|[:clerk, "Robot"]|,
+            "[:clerk, nil]"
+          ] do
+        refused(
+          owned("owner relation: :held_by, default: {:clerk, :ada}, preserve_kind: #{bad}"),
+          2,
+          "preserve_kind needs a relation and a default of that kind"
+        )
+      end
+
+      refused(
+        owned("owner default: {:clerk, :ada}, preserve_kind: [:clerk, :robot]"),
         2,
         "preserve_kind needs a relation and a default of that kind"
       )
@@ -1116,6 +1372,108 @@ defmodule RelaDSL.SchemaTest do
     "defgate :g,\n" <> Enum.map_join(opts, ",\n", fn {k, v} -> "  #{k}: #{v}" end) <> "\n"
   end
 
+  # A task in state a of a subflow f, with `extra` options first (each ends with a comma)
+  # and its result mapping.
+  defp task_source(extra, on \\ "on: [completed: :b, check_failed: :c, stuck: :c, abandoned: :c]") do
+    input = ~s(input: [repository: "example.invalid/r", base: "develop"],)
+    input = if extra =~ "input:", do: "", else: input
+
+    """
+    subflow :f, subject: :t do
+      run_as "system:x"
+      start :create
+      initial :a
+      state :a do
+        task :author, #{extra} role: :developer, profile: :deep_coding, #{input} check: ["bin/check"], instructions: "Do it.", records: [kind: "task", relation: "task_of"], machinery: "machinery", #{on}
+      end
+      final :b
+      final :c
+    end
+    """
+    |> then(
+      &if(extra =~ "profile:", do: String.replace(&1, "profile: :deep_coding, ", ""), else: &1)
+    )
+  end
+
+  defp repository_input, do: ~s(input: [repository: "example.invalid/r", base: "develop"])
+  defp four, do: "on: [completed: :ready, check_failed: :held, stuck: :held, abandoned: :held]"
+
+  defp steps,
+    do:
+      "on: [author: :authoring, review: :reviewing, fix: :fixing, diagnose: :diagnosing, " <>
+        "fresh: :fresh, stronger: :stronger, ready: :ready, held: :held, escalate: :escalated, " <>
+        "abandon: :stuck]"
+
+  defp result_input(access), do: [result: :latest, access: access]
+
+  # The review → fix loop as a subflow f, one state per ladder step, each task on its own
+  # line (6, 9, 12, 15, 18, 21). `changes`: a line's `{pattern, replacement}`.
+  defp ladder_source(changes \\ %{}) do
+    task = fn kind, opts ->
+      ~s(    task :#{kind}, ladder: true, #{opts}, records: [kind: "task", relation: "task_of"], ) <>
+        ~s(machinery: "machinery", #{steps()})
+    end
+
+    author =
+      ~s(role: :developer, profile: :deep_coding, #{repository_input()}, check: ["bin/check"], instructions: "Do it.")
+
+    lines = [
+      "subflow :f, subject: :t do",
+      ~s(  run_as "system:x"),
+      "  start :create",
+      "  initial :authoring",
+      "  state :authoring do",
+      task.(:author, author),
+      "  end",
+      "  state :reviewing do",
+      task.(
+        :review,
+        ~s(role: :developer, profile: :independent_review, input: [result: :latest, access: :read], instructions: "Review it.")
+      ),
+      "  end",
+      "  state :fixing do",
+      task.(
+        :fix,
+        ~s(role: :developer, profile: :deep_coding, input: [result: :latest, access: :write], check: ["bin/check"], instructions: "Fix it.")
+      ),
+      "  end",
+      "  state :diagnosing do",
+      task.(
+        :diagnose,
+        ~s(role: :investigator, profile: :deep_coding, input: [result: :latest, access: :read], instructions: "Find out why.")
+      ),
+      "  end",
+      "  state :fresh do",
+      task.(:author, author),
+      "  end",
+      "  state :stronger do",
+      task.(
+        :author,
+        String.replace(
+          author,
+          "profile: :deep_coding",
+          "profile: :deep_coding_max, cost_class: :high"
+        )
+      ),
+      "  end",
+      "  final :ready",
+      "  final :held",
+      "  final :escalated",
+      "  final :stuck",
+      "end"
+    ]
+
+    lines
+    |> Enum.with_index(1)
+    |> Enum.map_join("\n", fn {line, n} ->
+      case changes[n] do
+        {pattern, replacement} -> String.replace(line, pattern, replacement)
+        nil -> line
+      end
+    end)
+    |> Kernel.<>("\n")
+  end
+
   # The change breaks exactly the one rule the message names.
   defp refused_gate(base, changes, message) do
     error = refused(gate_source(base, changes), 1, message)
@@ -1140,6 +1498,14 @@ defmodule RelaDSL.SchemaTest do
 
     [{^module, _}] = Code.compile_string(src, file)
     module
+  end
+
+  # Refused at fixture line `line`, whatever its text says.
+  defp refused_at(body, line) do
+    error = assert_raise CompileError, fn -> compile!(body) end
+    assert error.file =~ ~r/fixture_\d+\.ex$/
+    assert error.line == line + 1, "expected line #{line + 1}, got #{error.line}"
+    error
   end
 
   defp refused(body, line, message) do

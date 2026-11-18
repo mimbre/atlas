@@ -2,8 +2,11 @@ package host
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -15,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyra/atlas/platform/atlas_runtime/host/snapshot"
 	"github.com/eyra/atlas/platform/atlas_runtime/host/workspace"
 )
 
@@ -66,8 +70,8 @@ func TestClaudeValidationKeepsPythonOrderAndMessages(t *testing.T) {
 		{"resume without model", map[int]string{5: claudeSession, 10: context}, "Claude resume requires a confirmed UUID, model and saved execution context"},
 		{"resume without context", map[int]string{5: claudeSession, 9: `"m"`}, "Claude resume requires a confirmed UUID, model and saved execution context"},
 		{"scope conflicts with sandbox", map[int]string{6: `{"profile":"dedicated-repository","root":"/r"}`}, "Dedicated repository permissions conflict with sandbox"},
-		{"unknown profile", map[int]string{4: "", 6: `{"profile":"other","root":"/r"}`}, "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"},
-		{"profile is required", map[int]string{4: "", 6: `{"root":"/r"}`}, "Claude supports only the dedicated-repository, materialized-folder and review-packet permission profiles"},
+		{"unknown profile", map[int]string{4: "", 6: `{"profile":"other","root":"/r"}`}, "Claude supports only the dedicated-repository and materialized-folder permission profiles"},
+		{"profile is required", map[int]string{4: "", 6: `{"root":"/r"}`}, "Claude supports only the dedicated-repository and materialized-folder permission profiles"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			directory := t.TempDir()
@@ -154,7 +158,10 @@ printf '%s\n' '{"type":"result","result":"done"}'
 		t.Fatalf("Claude launch must not report Codex evidence: %v", records[0])
 	}
 	argv, _ := os.ReadFile(native + ".argv")
-	want := "--print --output-format stream-json --verbose --restricted --safe-mode --strict-mcp-config --no-chrome " +
+	// The file tools are denied the Runtime home the test host was given (TestMain), which has no Code token.
+	home, _ := resolvePath(os.Getenv("ATLAS_RUNTIME_HOME"))
+	want := `--settings {"permissions":{"deny":["Read(/` + home + `)","` + strings.Join(socketRules(home), `","`) + `"]}} ` +
+		"--print --output-format stream-json --verbose --restricted --safe-mode --strict-mcp-config --no-chrome " +
 		"--tools Read,Glob,Grep --allowedTools Read,Glob,Grep --permission-mode dontAsk --permission-prompts none " +
 		"--model claude-sonnet-4-6 -- fixture goal\n"
 	if string(argv) != want {
@@ -179,12 +186,12 @@ func TestClaudeSettingsTempByteLimitAndTrustService(t *testing.T) {
 	root := "/atlas-host-test/repo"
 	suffix := len("/claude-" + strconv.Itoa(os.Getuid()))
 	limit := "/" + strings.Repeat("x", 44-suffix-1)
-	encoded, err := claudeRepositorySettings(testScope(root), limit)
+	encoded, err := claudeRepositorySettings(testScope(root), limit, "/runtime-home")
 	if err != nil {
 		t.Fatalf("exactly 44 bytes refused: %v", err)
 	}
 	for _, temporary := range []string{limit + "x", "/" + strings.Repeat("é", 22)} {
-		if _, err := claudeRepositorySettings(testScope(root), temporary); err == nil ||
+		if _, err := claudeRepositorySettings(testScope(root), temporary, "/runtime-home"); err == nil ||
 			err.Error() != "Claude private native temp path exceeds the 44-byte child-temp limit" {
 			t.Fatalf("%q: wanted the 44-byte refusal, got %v", temporary, err)
 		}
@@ -202,7 +209,8 @@ func TestClaudeSettingsTempByteLimitAndTrustService(t *testing.T) {
 		t.Fatalf("allowWrite %v", settings.Sandbox.Filesystem.AllowWrite)
 	}
 	deny := settings.Sandbox.Filesystem.DenyWrite
-	protected := []string{root + "/.agents", root + "/.codex", root + "/.aws", root + "/.claude", root + "/.git/config", root + "/.git/hooks"}
+	protected := []string{root + "/.agents", root + "/.codex", root + "/.aws", root + "/.claude", root + "/.git/config", root + "/.git/hooks", "/runtime-home"}
+	protected = append(protected, socketPaths("/runtime-home")...)
 	tmp, _ := resolvePath("/tmp")
 	if len(deny) <= len(protected) || !slices.Equal(deny[len(deny)-len(protected):], protected) ||
 		!slices.Contains(deny, tmp) || !slices.IsSorted(deny[:len(deny)-len(protected)]) {
@@ -214,12 +222,12 @@ func TestClaudeSettingsTempByteLimitAndTrustService(t *testing.T) {
 	for _, name := range []string{"darwin", "linux"} {
 		previous := platform
 		platform = name
-		encoded, err := claudeRepositorySettings(testScope(root), limit)
+		encoded, err := claudeRepositorySettings(testScope(root), limit, "/runtime-home")
 		platform = previous
 		if err != nil {
 			t.Fatal(err)
 		}
-		lookup := strings.Contains(encoded, `,"allowMachLookup":["com.apple.trustd.agent"]}}}`)
+		lookup := strings.Contains(encoded, `,"allowMachLookup":["com.apple.trustd.agent"]}},`)
 		if lookup != (name == "darwin") || !strings.Contains(encoded, `"allowedDomains":["github.com","api.github.com"]`) {
 			t.Fatalf("%s network %s", name, encoded)
 		}
@@ -232,12 +240,12 @@ func TestClaudeRepositoryInsideSystemTempIsRefused(t *testing.T) {
 	resolved, _ := resolvePath(custom)
 	tmp, _ := resolvePath("/tmp")
 	for _, root := range []string{filepath.Join(resolved, "repo"), resolved, tmp, filepath.Join(tmp, "a/b")} {
-		if _, err := claudeRepositorySettings(testScope(root), "/short"); err == nil ||
+		if _, err := claudeRepositorySettings(testScope(root), "/short", "/runtime-home"); err == nil ||
 			err.Error() != "Claude dedicated repositories must be outside system temporary directories" {
 			t.Fatalf("%s: wanted the temp-root refusal, got %v", root, err)
 		}
 	}
-	if _, err := claudeRepositorySettings(testScope(tmp+"-sibling/repo"), "/short"); err != nil {
+	if _, err := claudeRepositorySettings(testScope(tmp+"-sibling/repo"), "/short", "/runtime-home"); err != nil {
 		t.Fatalf("a path sharing only a name prefix is not inside a temp root: %v", err)
 	}
 }
@@ -442,6 +450,75 @@ case "`+mode+`" in fail) exit 7 ;; stop) while :; do sleep 60 3>&- & wait $!; do
 	}
 }
 
+// TestClaudeStopConfirmedOnlyAfterGroupGone is S5b SB1 for Claude: a stop is confirmed (the one
+// runtime.process_ended) only once the reaped leader's process group has no member left, and the
+// private temp and the repository lock outlive every member.
+func TestClaudeStopConfirmedOnlyAfterGroupGone(t *testing.T) {
+	_, repository, scope := claudeRepository(t)
+	folder := t.TempDir()
+	// sh ignores SIGINT in its asynchronous child, which stays in the leader's group; the leader
+	// itself exits 0 on the stop.
+	native := fixture(t, folder, `printf '%s\n' "$CLAUDE_CODE_TMPDIR" > "$0.temporary"
+trap 'exit 0' INT
+sleep 60 </dev/null >/dev/null 2>&1 &
+echo $! > "$0.child"
+printf '%s\n' '{"type":"ready"}'
+while :; do sleep 0.1; done
+`)
+	host := startHost(t, claudeScopedArgs(t, native, repository, folder, scope))
+	records := host.stream(t)
+	group := started(t, records)
+	if event := next(t, records, 5*time.Second); event["type"] != "runtime.event" {
+		t.Fatalf("native event not forwarded: %v", event)
+	}
+	child := readPID(t, native+".child")
+	t.Cleanup(func() { syscall.Kill(child, syscall.SIGKILL) })
+	temporary := strings.TrimSpace(readText(t, native+".temporary"))
+	if info, err := os.Stat(temporary); err != nil || !info.IsDir() {
+		t.Fatalf("private temp %q missing at launch: %v", temporary, err)
+	}
+	host.stdin.Write([]byte("stop\n"))
+	if signal := next(t, records, 5*time.Second); signal["type"] != "runtime.signal" || signal["control"] != "stop" ||
+		signal["error"] != nil {
+		t.Fatalf("stop not delivered: %v", signal)
+	}
+	// The leader ends on the stop; its child keeps the group, so nothing is confirmed.
+	quiet(t, records, 3500*time.Millisecond)
+	if err := syscall.Kill(group, 0); err != syscall.ESRCH {
+		t.Fatalf("the stop did not end the leader %d: %v", group, err)
+	}
+	if !alive(t, child) {
+		t.Fatalf("stop escalated to the group member %d", child)
+	}
+	if _, err := os.Stat(temporary); err != nil {
+		t.Fatalf("private temp removed while the group still has a member: %v", err)
+	}
+	if lock, _, err := workspace.Lock(repository, false); err == nil || !strings.Contains(err.Error(), "active Runtime owner") {
+		if lock != nil {
+			lock.Close()
+		}
+		t.Fatalf("lock released while the group still has a member: %v", err)
+	}
+	host.stdin.Write([]byte("kill\n"))
+	if signal := next(t, records, 5*time.Second); signal["control"] != "kill" || signal["error"] != nil {
+		t.Fatalf("kill not delivered: %v", signal)
+	}
+	rest, code := host.drain(t, records, group, child)
+	if code != 0 || len(rest) != 1 || rest[0]["type"] != "runtime.process_ended" || rest[0]["stopped"] != true ||
+		rest[0]["control"] != "kill" {
+		t.Fatalf("code=%d records=%v stderr=%s", code, rest, host.stderr.String())
+	}
+	assertDead(t, child)
+	if _, err := os.Stat(temporary); !os.IsNotExist(err) {
+		t.Fatalf("private temp survived the confirmed end: %v", err)
+	}
+	lock, _, err := workspace.Lock(repository, false)
+	if err != nil {
+		t.Fatalf("lock not released after the group was confirmed gone: %v", err)
+	}
+	lock.Close()
+}
+
 func TestClaudeLongHomeRefusesAndRemovesCreatedTemp(t *testing.T) {
 	// A test-owned home far too long for the private temp, outside /tmp and /var/tmp. TMPDIR moves
 	// to a sibling, so the repository beneath the home lies outside every system temp root.
@@ -556,4 +633,170 @@ func TestClaudeManagedPreparationRequiresInstalledCodexSandbox(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(folder, "claude-context.json")); err == nil {
 		t.Fatal("refused preparation saved a context")
 	}
+}
+
+// workFolder lays out a materialized folder at dest with its record and baseline in home, as
+// materialize does, and returns the scope that snapshot.Verified gives for it. FolderScope itself
+// refuses every folder that overlaps the Runtime home, so this is the scope the settings are given.
+func workFolder(t *testing.T, home, dest string, revision string) map[string]any {
+	t.Helper()
+	manifest := `{"entries":[],"repositories":[{"path":"repo","repository":"r","revision":"rev_` + strings.Repeat(revision, 64) + `"}],"version":2}`
+	sum := sha256.Sum256([]byte(manifest))
+	id := "sha256:" + hex.EncodeToString(sum[:])
+	baseline := filepath.Join(home, "snapshots", hex.EncodeToString(sum[:]))
+	for _, directory := range []string{filepath.Join(baseline, "tree"), filepath.Join(home, "materializations"), filepath.Join(dest, "repo")} {
+		if err := os.MkdirAll(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, body := range map[string]string{
+		filepath.Join(baseline, "manifest.json"):                                                     manifest,
+		filepath.Join(baseline, "complete"):                                                          id + "\n",
+		filepath.Join(home, "materializations", fmt.Sprintf("%x.json", sha256.Sum256([]byte(dest)))): fmt.Sprintf(`{"destination":%q,"snapshot_id":%q}`, dest, id),
+	} {
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scope, err := snapshot.Verified(home, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope["profile"], scope["version"], scope["home"] = "materialized-folder", json.Number("1"), home
+	return scope
+}
+
+type renderedClaude struct {
+	Sandbox struct {
+		Filesystem struct{ AllowWrite, DenyWrite, DenyRead, AllowRead []string }
+	}
+	Permissions struct{ Deny []string }
+}
+
+func decodeClaude(t *testing.T, encoded string) renderedClaude {
+	t.Helper()
+	var settings renderedClaude
+	if err := json.Unmarshal([]byte(encoded), &settings); err != nil {
+		t.Fatal(err)
+	}
+	return settings
+}
+
+// TestClaudeWorkFolderBelowTheRuntimeHome pins P5b (F20, DQ12): a materialized folder that is exactly
+// <home>/workers/work-<name> runs under Claude's settings with the home denied to Bash reads only, the
+// folder re-allowed, and every other Runtime-home entry, sibling worker, socket and the Code token denied
+// by path to Bash and to the file tools (I8). Any other root inside the home keeps today's refusal.
+func TestClaudeWorkFolderBelowTheRuntimeHome(t *testing.T) {
+	user := claudeUser(t)
+	home := filepath.Join(user, "runtime")
+	root := filepath.Join(home, "workers", "work-work-0123456789abcdef")
+	scope := workFolder(t, home, root, "a")
+	sibling := workFolder(t, home, filepath.Join(home, "workers", "slot1"), "b")
+	token := filepath.Join(home, "code-service", "runtime.token")
+	if err := os.MkdirAll(filepath.Dir(token), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "code.json"), []byte(fmt.Sprintf(`{"url":"http://127.0.0.1:1","token_file":%q}`, token)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "frozen", "blobs"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	homePath(t, user, home, root)
+	temporary, inspector := "/u/.ac-12345678", filepath.Join(user, "bin", "atlas-runtime")
+	record, baseline := scope["record"].(string), scope["baseline"].(string)
+
+	encoded, err := claudeFolderSettings(scope, temporary, user, inspector)
+	claudeDeniesEverySocket(t, "work folder", encoded, err, home, true)
+	settings := decodeClaude(t, encoded)
+	filesystem := settings.Sandbox.Filesystem
+	if !slices.Equal(filesystem.AllowWrite, []string{root, temporary}) {
+		t.Fatalf("Bash writes must be the folder and the private temp only: %v", filesystem.AllowWrite)
+	}
+	// The home is denied to Bash reads; a denyWrite or Read rule on it (or on any ancestor of the folder) would deny the folder.
+	if !slices.Contains(filesystem.DenyRead, home) || !slices.Contains(filesystem.DenyRead, user) {
+		t.Fatalf("Bash reads of the home must be denied: %v", filesystem.DenyRead)
+	}
+	rulePaths := []string{}
+	for _, rule := range settings.Permissions.Deny {
+		if path, ok := strings.CutPrefix(rule, "Read(/"); ok {
+			rulePaths = append(rulePaths, strings.TrimSuffix(path, ")"))
+		}
+	}
+	for _, path := range append(slices.Clone(filesystem.DenyWrite), rulePaths...) {
+		if within(path, root) {
+			t.Fatalf("deny %s contains the folder %s: %s", path, root, encoded)
+		}
+	}
+	// Only the folder, its own record and its own baseline are readable inside the home.
+	for _, allowed := range filesystem.AllowRead {
+		if within(home, allowed) && allowed != root && allowed != record && allowed != baseline {
+			t.Errorf("allowRead re-opens %s inside the Runtime home: %v", allowed, filesystem.AllowRead)
+		}
+	}
+	denied := []string{filepath.Join(home, "frozen"), filepath.Join(home, "snapshots"), filepath.Join(home, "materializations"),
+		filepath.Join(home, "workers", "slot1"), filepath.Join(home, "scratch"), filepath.Join(home, "turns"),
+		filepath.Join(home, "code.json"), filepath.Join(home, "policy.json"), token, filepath.Dir(token)}
+	for _, path := range denied {
+		if !slices.Contains(filesystem.DenyRead, path) || !slices.Contains(filesystem.DenyWrite, path) || !slices.Contains(rulePaths, path) {
+			t.Errorf("%s is not denied to Bash reads, Bash writes and the file tools: %s", path, encoded)
+		}
+	}
+	for _, path := range append(denied, sibling["record"].(string), sibling["baseline"].(string), filepath.Join(home, "frozen", "blobs")) {
+		if slices.ContainsFunc(filesystem.AllowRead, func(allowed string) bool { return within(allowed, path) }) {
+			t.Errorf("%s is re-allowed: %v", path, filesystem.AllowRead)
+		}
+	}
+	for _, path := range []string{record, baseline} {
+		if !slices.Contains(filesystem.AllowRead, path) || !slices.Contains(filesystem.DenyWrite, path) {
+			t.Errorf("own record or baseline %s must be read-only: %s", path, encoded)
+		}
+	}
+	if !slices.Contains(filesystem.DenyWrite, root+"/.git") || !slices.Contains(filesystem.DenyWrite, root+"/repo/.git") {
+		t.Fatalf("Git metadata in the folder must stay denied: %v", filesystem.DenyWrite)
+	}
+
+	// Any other root inside the home keeps today's refusal.
+	for _, other := range []string{filepath.Join(home, "workers", "slot1"), filepath.Join(home, "frozen", "x"),
+		filepath.Join(home, "workers", "work-"), filepath.Join(home, "workers", "work-Upper"), filepath.Join(root, "repo"),
+		filepath.Join(home, "workers", "work-x", "nested"), filepath.Join(home, "work-x"), filepath.Join(home, "scratch", "work-x")} {
+		moved := cloneScope(scope)
+		moved["root"] = other
+		if _, err := claudeFolderSettings(moved, temporary, user, inspector); err == nil || err.Error() != "Protected path "+home+" contains "+other {
+			t.Errorf("%s: wanted the home refusal, got %v", other, err)
+		}
+	}
+}
+
+// TestClaudeWorkFolderInTheDefaultRuntimeHome covers the default home ~/.local/state/atlas-runtime, which is
+// also a credential location: it is the home's Bash read deny, not a path that refuses the folder.
+// A credential location strictly containing the home still refuses it.
+func TestClaudeWorkFolderInTheDefaultRuntimeHome(t *testing.T) {
+	user := claudeUser(t)
+	home := filepath.Join(user, ".local", "state", "atlas-runtime")
+	root := filepath.Join(home, "workers", "work-work-0123456789abcdef")
+	scope := workFolder(t, home, root, "a")
+	encoded, err := claudeFolderSettings(scope, "/u/.ac-12345678", user, filepath.Join(user, "bin", "atlas-runtime"))
+	claudeDeniesEverySocket(t, "default home work folder", encoded, err, home, true)
+	settings := decodeClaude(t, encoded)
+	if slices.Contains(settings.Sandbox.Filesystem.DenyWrite, home) || slices.Contains(settings.Permissions.Deny, "Read(/"+home+")") ||
+		!slices.Contains(settings.Sandbox.Filesystem.DenyRead, home) {
+		t.Fatalf("the default home must be a Bash read deny only: %s", encoded)
+	}
+
+	inside := filepath.Join(user, ".codex", "runtime")
+	root = filepath.Join(inside, "workers", "work-x")
+	scope = workFolder(t, inside, root, "a")
+	if _, err := claudeFolderSettings(scope, "/u/.ac-12345678", user, filepath.Join(user, "bin", "atlas-runtime")); err == nil ||
+		err.Error() != "Protected path "+filepath.Join(user, ".codex")+" contains "+root {
+		t.Fatalf("a credential location containing the home must refuse the folder: %v", err)
+	}
+}
+
+func cloneScope(scope map[string]any) map[string]any {
+	copied := map[string]any{}
+	for key, value := range scope {
+		copied[key] = value
+	}
+	return copied
 }

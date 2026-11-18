@@ -122,16 +122,60 @@ defmodule AtlasFlow.Model do
     }
   end
 
+  # The configured role a run's human supervisor stands in for, inside a supervised span
+  # (decision 2026-11-17 §5.7: a gate's outcome goes to the supervisor; this role's actor
+  # is the fallback).
+  @supervised_role "decider"
+
   @doc """
   An owner as Flow writes it: `%{"kind", "key"}`. One that names a configured actor
   (`%{"kind", "config" => role}`) is that role's actor in `actors` (`load/3`).
+
+  Except one: the `decider` role, on a `run` whose state lies in one of its subflow's
+  supervised `spans` and that has a human supervisor (`supervised_by`, `%{"kind",
+  "key"}`) of the owner's kind, is that supervisor. With no supervisor, outside every
+  span, or with no run, it is the configured actor. The projection passes the run with
+  its subflow's `spans` and its supervisor as the run's fact links it, of the
+  supervision relation's holder kind (`AtlasFlow.Runs.Projection`). A run of a subflow a
+  span names in its `with:` lies in no span of its own: the projection passes it with
+  the precomputed answer of its nearest spanned run (`in_span`, a boolean) and that
+  run's supervisor instead.
   """
-  def owner(%{"config" => role} = owner, actors) do
-    case actors do
-      %{^role => %{"key" => key}} -> %{"kind" => owner["kind"], "key" => key}
-      _ -> raise ArgumentError, "no configured actor #{role}; Flow loads every one it names"
+  def owner(owner, actors, run \\ nil)
+
+  def owner(%{"config" => role} = owner, actors, run) do
+    case supervisor(owner, run) do
+      %{} = supervisor ->
+        supervisor
+
+      nil ->
+        case actors do
+          %{^role => %{"key" => key}} -> %{"kind" => owner["kind"], "key" => key}
+          _ -> raise ArgumentError, "no configured actor #{role}; Flow loads every one it names"
+        end
     end
   end
 
-  def owner(owner, _actors), do: owner
+  def owner(owner, _actors, _run), do: owner
+
+  @doc "Whether `owner` (a state's default) may go to a run's human supervisor (`owner/3`)."
+  def supervisable?(owner), do: match?(%{"config" => @supervised_role}, owner)
+
+  defp supervisor(
+         %{"kind" => kind} = owner,
+         %{"supervised_by" => %{"kind" => kind, "key" => key}} = run
+       )
+       when is_binary(key) and key != "" do
+    if supervisable?(owner) and in_span?(run), do: %{"kind" => kind, "key" => key}
+  end
+
+  defp supervisor(_owner, _run), do: nil
+
+  # A run of a subflow a span names in its `with:` carries its span's answer itself.
+  defp in_span?(%{"in_span" => in_span}) when is_boolean(in_span), do: in_span
+
+  defp in_span?(%{"state" => state, "spans" => spans}) when is_list(spans),
+    do: Enum.any?(spans, &(state in (&1["states"] || [])))
+
+  defp in_span?(_run), do: false
 end

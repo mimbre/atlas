@@ -3,8 +3,7 @@ defmodule AtlasE2E.Instance do
   A private Atlas test instance for one run: a fresh, empty rela dataset on free ports,
   and the core, both started with the `atlas-ops` command through `ATLAS_ENV_FILE`, always
   with `--env test`, with a stand-in GitHub (`AtlasE2E.GitHub`). It never uses the ports or data of `products/software_factory/environments/test.json` or
-  `products/software_factory/environments/prod.json` (Melle's instances) or the live store. Its Runtime node runs through
-  `atlas-runtime node start|stop`, built from this tree into the run's folder.
+  `products/software_factory/environments/prod.json` (Melle's instances) or the live store.
 
   The TUIs open web addresses with a stand-in (`"browser"` in the settings) that only
   writes each address to `opened.txt` in the run's folder (`opened/1`), so a run never
@@ -48,21 +47,25 @@ defmodule AtlasE2E.Instance do
     instance = prepare()
     # `atlas-ops restart` starts rela when it does not answer, then the core, and waits for it.
     :ok = ops!(instance, ["restart", "--env", "test"])
-    :ok = build_runtime_cli(instance)
-    :ok = start_runtime(instance)
     instance
   end
 
   @doc """
   The run's folder, free ports and settings files, and the environment the core, the TUIs
-  and `atlas` run with; nothing started but the stand-in GitHub. `start/0` starts rela, the
-  core and the Runtime node on it; a proof that runs inside the core's node starts them
-  itself.
+  and `atlas` run with; nothing started but the stand-in GitHub. `start/0` starts rela and
+  the core on it; a proof that runs inside the core's node starts them itself.
   """
-  def prepare do
-    dir = Path.join(System.tmp_dir!(), "atlas-e2e-#{System.os_time(:millisecond)}")
+  def prepare, do: prepare(%{}, [])
+
+  @doc """
+  `prepare/0` with `extra` deep-merged into the settings (a map merges into a map, any other
+  value replaces), in `dir:` when given (the pull-e2e's `<run>/inst`, so nothing of the run
+  lies outside its folder) instead of a new folder under the system temp directory.
+  """
+  def prepare(extra, opts) when is_map(extra) and is_list(opts) do
+    dir = opts[:dir] || Path.join(System.tmp_dir!(), "atlas-e2e-#{System.os_time(:millisecond)}")
     File.mkdir_p!(dir)
-    [rela_port, control_port, link_port] = free_ports(3)
+    [rela_port, control_port] = free_ports(2)
 
     bin = rela_bin!()
 
@@ -73,7 +76,6 @@ defmodule AtlasE2E.Instance do
 
     settings = %{
       "env" => "test",
-      "bus_link" => %{"port" => link_port},
       "tui_user" => "melle",
       # Who decides what a person decides (the model names the role, never a person): the
       # TUIs' user, as in test and prod.
@@ -87,9 +89,9 @@ defmodule AtlasE2E.Instance do
         "bin" => bin
       },
       "facts" => %{"data" => Path.join(dir, "beam")},
-      # Code's receiver of the integrate effect, as on test and prod; it reaches GitHub (the
-      # stand-in below) with the connector's settings, which refuses every write.
-      "code" => %{"data" => Path.join(dir, "code"), "repositories" => ["eyra/atlas"]},
+      # Code's receiver of the integrate effect, as on prod; it reaches GitHub (the stand-in
+      # below) with the connector's settings, which refuses every write.
+      "code" => code(dir),
       "reconcile_seconds" => 5,
       # GitHub is a stand-in (UC-Atlas-26), read every 2 seconds rather than 5 minutes.
       "connectors" => %{
@@ -109,46 +111,15 @@ defmodule AtlasE2E.Instance do
         # Long enough to see each step go, and to stop a run between two (UC-Atlas-18).
         "step_pause_ms" => 2_000
       },
-      # Runtime (IS-Atlas-15) runs two stand-in agents, runner (UC-Atlas-07) and tester (its
-      # failure actions, IS-Atlas-23, with a maximum to see an idle turn end), whose mode a
-      # scenario sets in its file in stub_dir; no real agent runs. Only facts they own get
-      # turns, so no other scenario meets them. Short numbers, to see them go.
-      "runtime" => %{
-        "machine" => "e2e",
-        "agents" => %{
-          "runner" => %{"port" => "stub"},
-          "breaker" => %{"port" => "stub"},
-          "tester" => %{"port" => "stub", "max_seconds" => 15}
-        },
-        "stub_dir" => Path.join(dir, "stub"),
-        "silence_seconds" => 3,
-        "leave_grace_seconds" => 4,
-        "lease_seconds" => 1,
-        "round_seconds" => 1
-      },
       # A lone escape waits this long for the rest of its key (30 ms for a person): on a
       # loaded machine a key's bytes can reach the TUI further apart, and `\e[B` must not
       # turn into Escape and the text "[B".
       "escape_ms" => 250
     }
 
-    File.mkdir_p!(Path.join(dir, "stub"))
+    settings = deep_merge(settings, extra)
     file = Path.join(dir, "test.json")
-    runtime_file = Path.join(dir, "runtime.json")
-
-    runtime_settings = %{
-      "env" => "test",
-      "runtime" => settings["runtime"],
-      "bus_link" => %{
-        "mode" => "client",
-        "host" => "127.0.0.1",
-        "port" => link_port,
-        "machine" => "e2e"
-      }
-    }
-
-    File.write!(runtime_file, JSON.encode!(runtime_settings))
-    File.write!(file, JSON.encode!(Map.delete(settings, "runtime")))
+    File.write!(file, JSON.encode!(settings))
 
     %__MODULE__{
       root: @root,
@@ -159,10 +130,7 @@ defmodule AtlasE2E.Instance do
       env: [
         {"ATLAS_ENV_FILE", file},
         {"ATLAS_NO_UPDATE", "1"},
-        {"MIX_ENV", "dev"},
-        {"ATLAS_RUNTIME_HOME", Path.join(dir, "runtime-node")},
-        {"ATLAS_RUNTIME_FILE", runtime_file},
-        {"ATLAS_BUS_LINK_TOKEN", JSON.encode!(%{"e2e" => "e2e-private-link"})}
+        {"MIX_ENV", "dev"}
       ]
     }
   end
@@ -183,47 +151,13 @@ defmodule AtlasE2E.Instance do
     :ok
   end
 
-  # The Runtime node runs through `atlas-runtime node`, built from this tree into the run's
-  # folder, as integration/worker_control.exs builds it: never an installed binary.
-  defp runtime_cli(instance), do: Path.join(instance.dir, "atlas-runtime")
-
-  defp build_runtime_cli(instance) do
-    case System.cmd(
-           "go",
-           ["-C", "platform/atlas_runtime/host", "build", "-o", runtime_cli(instance), "."],
-           cd: @root,
-           stderr_to_stdout: true
-         ) do
-      {_, 0} -> :ok
-      {out, status} -> raise "building atlas-runtime failed (#{status}):\n#{out}"
-    end
-  end
-
   @doc "Stop the core, as `atlas-ops stop` does."
   def stop_core(instance), do: ops!(instance, ["stop", "--env", "test"])
 
   @doc "Start the core again, as `atlas-ops restart` does."
   def start_core(instance), do: ops!(instance, ["restart", "--env", "test"])
 
-  def start_runtime(instance) do
-    runtime = %{
-      instance
-      | env:
-          List.keystore(
-            instance.env,
-            "ATLAS_BUS_LINK_TOKEN",
-            0,
-            {"ATLAS_BUS_LINK_TOKEN", "e2e-private-link"}
-          )
-    }
-
-    node!(runtime, "start")
-  end
-
-  def stop_runtime(instance), do: node!(instance, "stop")
-
   def stop(instance) do
-    stop_runtime(instance)
     run(instance, "bin/atlas-ops", ["stop", "--rela", "--env", "test"])
     :ok
   end
@@ -250,60 +184,7 @@ defmodule AtlasE2E.Instance do
     end
   end
 
-  @doc """
-  Remove ended turn fixtures from this run's own disposable backend. Control has no
-  authority to delete fenced system facts. This is fixture-owner teardown, not a
-  Runtime impersonation or a production API. Stop the private Runtime before touching
-  its history. Stop the core too, discarding Facts' copies before these direct writes;
-  restart both only after successful teardown. Existing run directories remain.
-  """
-  def cleanup_turn_fixtures(instance, keys) do
-    private_fixture!(instance)
-    :ok = stop_runtime(instance)
-    :ok = stop_core(instance)
-
-    for key <- keys do
-      path = "/turns/" <> URI.encode(key, &URI.char_unreserved?/1)
-      fact = rela_get(instance, path)
-
-      unless fact["properties"]["state"] == "ended" and
-               fact["properties"]["machine"] == "e2e" do
-        raise "refusing fixture teardown of an active or foreign turn: #{key}"
-      end
-
-      url = String.to_charlist(instance.settings["rela"]["url"] <> path)
-
-      case :httpc.request(:delete, {url, []}, [timeout: 5_000], body_format: :binary) do
-        {:ok, {{_, status, _}, _, _}} when status in [200, 204] -> :ok
-        other -> raise "private fixture teardown failed for #{key}: #{inspect(other)}"
-      end
-    end
-
-    :ok = start_core(instance)
-    start_runtime(instance)
-  end
-
-  defp private_fixture!(instance) do
-    settings = instance.settings || %{}
-    rela = settings["rela"] || %{}
-    uri = URI.parse(rela["url"] || "")
-
-    private =
-      is_binary(instance.dir) and
-        Path.dirname(Path.expand(instance.dir)) == Path.expand(System.tmp_dir!()) and
-        String.starts_with?(Path.basename(instance.dir), "atlas-e2e-")
-
-    unless private and settings["env"] == "test" and
-             rela["data"] == Path.join(instance.dir, "rela") and
-             uri.scheme == "http" and uri.host == "127.0.0.1" and uri.port == rela["port"] do
-      raise ArgumentError, "fixture teardown requires this run's private test backend"
-    end
-  end
-
   defp ops!(instance, args), do: run!(instance, "bin/atlas-ops", args)
-
-  defp node!(instance, op),
-    do: run!(instance, runtime_cli(instance), ["node", op, "--env", "test", "--checkout", @root])
 
   defp run!(instance, command, args) do
     case run(instance, command, args) do
@@ -322,7 +203,20 @@ defmodule AtlasE2E.Instance do
     )
   end
 
-  defp free_ports(n) do
+  @doc """
+  The instance's `code` settings: its journal under `dir` and the repositories it may
+  integrate, the one prod integrates (checked by `AtlasE2E.RepositoryAllowlistTest`).
+  """
+  def code(dir), do: %{"data" => Path.join(dir, "code"), "repositories" => ["mimbre/atlas"]}
+
+  @doc false
+  def deep_merge(%{} = left, %{} = right),
+    do: Map.merge(left, right, fn _key, l, r -> deep_merge(l, r) end)
+
+  def deep_merge(_left, right), do: right
+
+  @doc "`n` free loopback ports (each was bound once and released)."
+  def free_ports(n) do
     sockets =
       for _ <- 1..n do
         {:ok, socket} = :gen_tcp.listen(0, ip: {127, 0, 0, 1}, reuseaddr: true)

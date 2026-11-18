@@ -51,9 +51,10 @@ defmodule Model.Assignment do
 
   relation(:assigned_to,
     label: "assigned to",
-    description: "Who is next in line to do something with it; one, a person or an agent.",
+    description:
+      "Who is next in line to do something with it; one, a person, an agent or a machinery.",
     from: [:assignment],
-    to: [:person, :agent],
+    to: [:person, :agent, :machinery],
     max_outgoing: 1,
     inverse: {:assignments, "assignments"},
     actions: [

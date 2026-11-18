@@ -19,7 +19,7 @@ defmodule Mix.Tasks.AtlasCode.Server do
       System.get_env("ATLAS_CODE_HOME") ||
         Mix.raise("Set ATLAS_CODE_HOME to the Code home directory")
 
-    # Not app.start: the umbrella's runtime.exs belongs to the core and Runtime nodes.
+    # Not app.start: the umbrella's runtime.exs belongs to the core.
     Mix.Task.run("compile")
     {:ok, _pid, _port} = AtlasCode.Server.serve(home)
     Process.sleep(:infinity)

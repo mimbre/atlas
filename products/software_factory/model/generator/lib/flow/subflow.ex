@@ -30,7 +30,7 @@ defmodule RelaDSL.Flow.Subflow do
       one of `roles` takes, on a field in `changed`, whose condition holds. `{:to, state}`
       or `:stay`;
     * `timers(state)`: `[%{"name", "period", "to", "since"}]`, in the order written;
-    * `mechanism(state)`: nil or `{:pass | :gate | :effect, spec}`;
+    * `mechanism(state)`: nil or `{:gate | :effect | :task, spec}`;
     * `waiting_for(state)`, `final?(state)`;
     * `owner()`: the subflow's owner; `owner(state)`: the state's own, else the subflow's;
     * `present(state, values)`: nil, or `%{"expected", "why", "todo", "deadline"}` with
@@ -152,7 +152,7 @@ defmodule RelaDSL.Flow.Subflow do
     end
   end
 
-  defp mechanism(%{"kind" => kind, "spec" => spec}) when kind in ["pass", "gate", "effect"],
+  defp mechanism(%{"kind" => kind, "spec" => spec}) when kind in ["gate", "effect", "task"],
     do: {String.to_atom(kind), spec}
 
   defp mechanism(_), do: nil
@@ -284,7 +284,7 @@ defmodule RelaDSL.Flow.Subflow do
           line: 1,
           description:
             "subflow #{name}, #{where}: #{inspect(text)} is no condition a runner evaluates " <>
-              "(entity.<field> compared with a value, and, or, parentheses)"
+              "(entity.<field> compared with a value, not (…), and, or, parentheses)"
     end
   end
 end

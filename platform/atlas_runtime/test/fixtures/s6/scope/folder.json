@@ -1,0 +1,1579 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "id": "folder_ok",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "baseline": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819",
+        "home": "{home}",
+        "profile": "materialized-folder",
+        "record": "{home}/materializations/{sha256:{tmp}/work}.json",
+        "repositories": [
+          "repo"
+        ],
+        "root": "{tmp}/work",
+        "snapshot_id": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819",
+        "version": 1
+      }
+    },
+    {
+      "id": "folder_trailing_slash",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work/",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "baseline": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819",
+        "home": "{home}",
+        "profile": "materialized-folder",
+        "record": "{home}/materializations/{sha256:{tmp}/work}.json",
+        "repositories": [
+          "repo"
+        ],
+        "root": "{tmp}/work",
+        "snapshot_id": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819",
+        "version": 1
+      }
+    },
+    {
+      "id": "folder_home_via_symlink",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/homelink",
+          "target": "{home}",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{tmp}/homelink",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "baseline": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819",
+        "home": "{home}",
+        "profile": "materialized-folder",
+        "record": "{home}/materializations/{sha256:{tmp}/work}.json",
+        "repositories": [
+          "repo"
+        ],
+        "root": "{tmp}/work",
+        "snapshot_id": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819",
+        "version": 1
+      },
+      "note": "the scope's home is the resolved one"
+    },
+    {
+      "id": "folder_relative_dest",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder and Runtime home must be absolute paths"
+      }
+    },
+    {
+      "id": "folder_relative_home",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "home",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder and Runtime home must be absolute paths"
+      }
+    },
+    {
+      "id": "folder_home_missing",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{tmp}/absent",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "lstat {tmp}/absent: no such file or directory"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_dest_inside_home",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{home}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{home}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{home}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder {home}/work overlaps the Runtime home {home}; materialize it outside the Runtime home"
+      },
+      "detail_has_path": true,
+      "note": "client_named: a folder inside the Runtime home is refused even when recorded (D44 keeps this for folder{path})"
+    },
+    {
+      "id": "folder_dest_is_home",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{home}",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder {home} overlaps the Runtime home {home}; materialize it outside the Runtime home"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_home_inside_dest",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder {tmp} overlaps the Runtime home {home}; materialize it outside the Runtime home"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_dest_inside_home_via_alias",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/work/repo",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/alias",
+          "target": "{tmp}",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/alias/home/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{home}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{home}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder {tmp}/alias/home/work overlaps the Runtime home {home}; materialize it outside the Runtime home"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_not_canonical",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/alias",
+          "target": "{tmp}",
+          "type": "symlink"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/alias/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder requires its canonical path"
+      }
+    },
+    {
+      "id": "folder_no_record",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/other",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/other",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "no materialization record for {tmp}/other"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_record_names_another_folder",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"/elsewhere\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "invalid materialization record {home}/materializations/{sha256:{tmp}/work}.json for {tmp}/work"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_baseline_incomplete",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "baseline {home}/snapshots/0000000000000000000000000000000000000000000000000000000000000000 for sha256:0000000000000000000000000000000000000000000000000000000000000000 is missing or incomplete"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_git_in_ancestor",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/outer/deep/work/repo",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/outer/.git",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/outer/deep/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/outer/deep/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/outer/deep/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder cannot be inside a Git work tree"
+      }
+    },
+    {
+      "id": "folder_git_file_in_folder",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "content": "gitdir: /elsewhere\n",
+          "path": "{tmp}/work/.git",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder cannot be inside a Git work tree"
+      }
+    },
+    {
+      "id": "folder_project_codex_config",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/work/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder cannot load project or system Codex config"
+      }
+    },
+    {
+      "id": "folder_ancestor_codex_config",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder cannot load project or system Codex config"
+      }
+    },
+    {
+      "id": "folder_codex_home_config_ignored",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "env": {
+        "CODEX_HOME": "{tmp}/.codex"
+      },
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "baseline": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819",
+        "home": "{home}",
+        "profile": "materialized-folder",
+        "record": "{home}/materializations/{sha256:{tmp}/work}.json",
+        "repositories": [
+          "repo"
+        ],
+        "root": "{tmp}/work",
+        "snapshot_id": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819",
+        "version": 1
+      }
+    },
+    {
+      "id": "folder_unreadable_ancestor_codex",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "mode": "0000",
+          "path": "{tmp}/.codex",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder cannot load project or system Codex config: stat {tmp}/.codex/config.toml: permission denied"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_order_git_before_codex_config",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/work/.git",
+          "type": "file"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/work/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder cannot be inside a Git work tree"
+      },
+      "note": "the .git chain is checked before the Codex config"
+    },
+    {
+      "id": "folder_order_overlap_before_record",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/stray",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{home}/stray",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": []
+      },
+      "expect": {
+        "error": "Materialized folder {home}/stray overlaps the Runtime home {home}; materialize it outside the Runtime home"
+      },
+      "detail_has_path": true,
+      "note": "the overlap is refused before the materialization record is read"
+    },
+    {
+      "id": "folder_packet_tree",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\",\"packet_id\":\"0b6c8a52-3e1f-4d2a-9c7b-5f4e3d2c1b0a\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder {tmp}/work is the tree of frozen packet 0b6c8a52-3e1f-4d2a-9c7b-5f4e3d2c1b0a; it cannot be a worker folder"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_order_codex_config_before_packet",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        },
+        {
+          "content": "",
+          "path": "{tmp}/work/.codex/config.toml",
+          "type": "file"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\",\"packet_id\":\"0b6c8a52-3e1f-4d2a-9c7b-5f4e3d2c1b0a\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder cannot load project or system Codex config"
+      }
+    },
+    {
+      "id": "folder_preparation_running",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          },
+          {
+            "content": "{\"version\": 1, \"destination\": \"{tmp}/work\", \"snapshot_id\": \"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\", \"kind\": \"npm-ci\", \"path\": \"repo\", \"outputs\": [\"repo/node_modules\"], \"state\": \"running\", \"started_at\": \"2026-11-17T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "preparation"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder {tmp}/work is not ready: its npm-ci preparation of repo has no recorded outcome: it is still running or was interrupted. The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/work}/private are kept; materialize the snapshot into a fresh folder and prepare that one"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_preparation_failed",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          },
+          {
+            "content": "{\"version\": 1, \"destination\": \"{tmp}/work\", \"snapshot_id\": \"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\", \"kind\": \"npm-ci\", \"path\": \"repo\", \"outputs\": [\"repo/node_modules\"], \"state\": \"failed\", \"started_at\": \"2026-11-17T00:00:00Z\", \"reason\": \"exit status 1\", \"exit_code\": 1, \"ended_at\": \"2026-11-17T00:01:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "preparation"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder {tmp}/work is not ready: its npm-ci preparation of repo failed (exit status 1). The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/work}/private are kept; materialize the snapshot into a fresh folder and prepare that one"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_preparation_succeeded",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          },
+          {
+            "content": "{\"version\": 1, \"destination\": \"{tmp}/work\", \"snapshot_id\": \"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\", \"kind\": \"npm-ci\", \"path\": \"repo\", \"outputs\": [\"repo/node_modules\"], \"state\": \"succeeded\", \"started_at\": \"2026-11-17T00:00:00Z\", \"ended_at\": \"2026-11-17T00:01:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "preparation"
+          }
+        ]
+      },
+      "expect": {
+        "baseline": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819",
+        "home": "{home}",
+        "profile": "materialized-folder",
+        "record": "{home}/materializations/{sha256:{tmp}/work}.json",
+        "repositories": [
+          "repo"
+        ],
+        "root": "{tmp}/work",
+        "snapshot_id": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819",
+        "version": 1
+      }
+    },
+    {
+      "id": "folder_preparation_invalid_record",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          },
+          {
+            "content": "{\"version\": 1, \"destination\": \"{tmp}/work\", \"snapshot_id\": \"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\", \"kind\": \"npm-ci\", \"path\": \"repo\", \"outputs\": [\"repo/node_modules\"], \"state\": \"paused\", \"started_at\": \"2026-11-17T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "preparation"
+          }
+        ]
+      },
+      "expect": {
+        "error": "invalid preparation result {home}/preparations/{sha256:{tmp}/work}/result.json for {tmp}/work"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_preparation_npm_run_failed",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          },
+          {
+            "content": "{\"version\": 2, \"destination\": \"{tmp}/work\", \"snapshot_id\": \"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\", \"kind\": \"npm-run\", \"path\": \"repo\", \"script\": \"build\", \"outputs\": [\"repo/dist\"], \"state\": \"failed\", \"reason\": \"exit status 2\", \"exit_code\": 2, \"started_at\": \"2026-11-17T00:02:00Z\", \"ended_at\": \"2026-11-17T00:03:00Z\", \"previous\": {\"version\": 1, \"destination\": \"{tmp}/work\", \"snapshot_id\": \"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\", \"kind\": \"npm-ci\", \"path\": \"repo\", \"outputs\": [\"repo/node_modules\"], \"state\": \"succeeded\", \"started_at\": \"2026-11-17T00:00:00Z\", \"ended_at\": \"2026-11-17T00:01:00Z\"}}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "preparation"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder {tmp}/work is not ready: its npm-run preparation of repo (script build) failed (exit status 2). The folder and the diagnostics in {home}/preparations/{sha256:{tmp}/work}/private/npm-run are kept; materialize the snapshot into a fresh folder and prepare that one"
+      },
+      "detail_has_path": true
+    },
+    {
+      "id": "folder_order_packet_before_preparation",
+      "fs": [
+        {
+          "path": "{user}",
+          "type": "dir"
+        },
+        {
+          "content": "{\"entries\":[],\"repositories\":[{\"path\":\"repo\",\"repository\":\"r\",\"revision\":\"rev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"version\":2}",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/manifest.json",
+          "type": "file"
+        },
+        {
+          "content": "sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\n",
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/complete",
+          "type": "file"
+        },
+        {
+          "path": "{home}/snapshots/699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819/tree",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{tmp}/work/repo",
+          "type": "dir"
+        }
+      ],
+      "input": {
+        "dest": "{tmp}/work",
+        "home": "{home}",
+        "origin": "client_named",
+        "records": [
+          {
+            "content": "{\"destination\":\"{tmp}/work\",\"snapshot_id\":\"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\",\"materialized_at\":\"2026-11-08T00:00:00Z\",\"packet_id\":\"0b6c8a52-3e1f-4d2a-9c7b-5f4e3d2c1b0a\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "materialization"
+          },
+          {
+            "content": "{\"version\": 1, \"destination\": \"{tmp}/work\", \"snapshot_id\": \"sha256:699002cec7bccd6131951c79c676f3601b7bca9eae531e8cee79397fae914819\", \"kind\": \"npm-ci\", \"path\": \"repo\", \"outputs\": [\"repo/node_modules\"], \"state\": \"running\", \"started_at\": \"2026-11-17T00:00:00Z\"}",
+            "dest": "{tmp}/work",
+            "home": "{home}",
+            "store": "preparation"
+          }
+        ]
+      },
+      "expect": {
+        "error": "Materialized folder {tmp}/work is the tree of frozen packet 0b6c8a52-3e1f-4d2a-9c7b-5f4e3d2c1b0a; it cannot be a worker folder"
+      },
+      "detail_has_path": true
+    }
+  ]
+}

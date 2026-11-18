@@ -58,7 +58,7 @@ defmodule AtlasControl.RuntimeDiscoveryTest do
     send_message(
       s,
       Map.merge(
-        %{"op" => "hello", "env" => "test", "spec" => "0.17.0", "client" => "agent"},
+        %{"op" => "hello", "env" => "test", "spec" => "0.18.0", "client" => "agent"},
         extra
       )
     )
@@ -230,8 +230,7 @@ defmodule AtlasControl.RuntimeDiscoveryTest do
     variables = %{
       "ATLAS_ROOT" => root,
       "ATLAS_ENV" => "test",
-      "ATLAS_ENV_FILE" => file,
-      "ATLAS_ROLE" => "core"
+      "ATLAS_ENV_FILE" => file
     }
 
     prior = Map.new(variables, fn {key, _} -> {key, System.get_env(key)} end)
