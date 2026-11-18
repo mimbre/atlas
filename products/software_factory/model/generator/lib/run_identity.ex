@@ -186,34 +186,42 @@ defmodule RelaDSL.RunIdentity do
           h not in (get_in(now, [name, env, "history"]) || []),
           do: "#{name} (#{env}): history entry #{short(h["digest"])} was removed or changed"
 
+    # The base's digest must lead to the compiled one along the migrations: one step on
+    # develop, or the chain develop made between two releases on master.
     unapproved =
       for {name, envs} <- base_flows,
           {env, entry} <- envs,
           compiled = get_in(now, [name, env, "digest"]),
           compiled != nil and compiled != entry["digest"],
-          not Enum.any?(migrations, fn m ->
-            to_string(m.subflow) == name and m.opts[:from] == entry["digest"] and
-              m.opts[:to] == compiled
-          end),
+          not reaches?(migrations, name, entry["digest"], compiled),
           do:
             "#{name} (#{env}): its digest changed from #{short(entry["digest"])} to #{short(compiled)} " <>
-              "without a migrate from: the base's digest, to: the compiled one"
+              "without migrations from the base's digest to the compiled one"
 
+    # A migration from a digest the base recorded maps only states the base recorded for
+    # it. One from a digest the base never ran (made on develop since the last release)
+    # moves no run of the base, so it is not checked against it.
     unknown =
       for m <- migrations,
           name = to_string(m.subflow),
           known = for({_, e} <- base_flows[name] || %{}, h <- e["history"] || [], do: h),
-          (entry = Enum.find(known, &(&1["digest"] == m.opts[:from]))) == nil or
-            not states_known?(m, entry),
-          uniq: true do
-        if entry == nil,
+          entry = Enum.find(known, &(&1["digest"] == m.opts[:from])),
+          entry != nil and not states_known?(m, entry),
+          uniq: true,
           do:
-            "migrate #{name} from #{short(m.opts[:from])}: from is not in the base's history of #{name}",
-          else:
             "migrate #{name} from #{short(m.opts[:from])}: states maps states the base did not record for it"
-      end
 
     removed ++ unapproved ++ unknown
+  end
+
+  defp reaches?(migrations, name, from, to, seen \\ MapSet.new()) do
+    Enum.any?(migrations, fn m ->
+      step = m.opts[:to]
+
+      to_string(m.subflow) == name and m.opts[:from] == from and
+        not MapSet.member?(seen, step) and
+        (step == to or reaches?(migrations, name, step, to, MapSet.put(seen, step)))
+    end)
   end
 
   defp states_known?(%{opts: opts}, entry) do
