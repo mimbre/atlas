@@ -80,13 +80,17 @@ defmodule RelaDSL.RunIdentityTest do
     # (without the migration, the base's digest also leaves the history)
     assert [removed, msg] = RunIdentity.base_problems(base.(@b, [entry.(@b)]), now_unmigrated, [])
     assert removed =~ "history entry bbbbbbbb… was removed"
-    assert msg =~ "without a migrate from"
+    assert msg =~ "without migrations from the base's digest"
 
-    # 3: a migration approves its own from, which the base never recorded.
-    assert [_removed, _unmigrated, msg] =
-             RunIdentity.base_problems(base.(@a, [entry.(@a)]), now, migrations)
+    # 3: the base's digest does not lead to the compiled one.
+    assert [_removed, msg] = RunIdentity.base_problems(base.(@a, [entry.(@a)]), now, migrations)
+    assert msg =~ "without migrations from the base's digest"
 
-    assert msg =~ "from is not in the base's history"
+    # A release carries develop's chain: the base's digest leads to the compiled one in
+    # two steps, through a digest the base never ran.
+    chain = [m(from: @a, to: @b, states: :same), m(from: @b, to: @c, states: :same)]
+    chained = RunIdentity.document(%{prod: %{run: @now}}, chain)
+    assert RunIdentity.base_problems(base.(@a, [entry.(@a)]), chained, chain) == []
 
     # 4: it maps states the base did not record for from.
     renamed = [m(from: @b, to: @c, states: [opened: :open, done: :done])]

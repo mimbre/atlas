@@ -10,7 +10,7 @@ defmodule Model.ControlViewsTest do
   """
   use ExUnit.Case, async: true
 
-  @served "test/fixtures/rela-served-schema.json" |> File.read!() |> JSON.decode!()
+  @served Model.AtlasEyra.rela_schema()
   @additions Model.AtlasEyra.__rela__(:description).extension
   @kinds Map.new(Model.AtlasEyra.kinds(), &{&1.name, &1})
 

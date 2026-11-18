@@ -319,6 +319,21 @@
           }
         ]
       },
+      "job": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [],
+        "subject": "job",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": []
+      },
       "follow_through": {
         "choices": [],
         "choice_states": [],
@@ -590,6 +605,16 @@
               "package",
               "pull_request"
             ]
+          }
+        ],
+        "job": [
+          {
+            "name": "run",
+            "label": "Run",
+            "states": [
+              "working"
+            ],
+            "with": []
           }
         ]
       },
