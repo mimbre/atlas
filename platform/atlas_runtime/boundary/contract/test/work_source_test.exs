@@ -60,7 +60,7 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
       refute forbidden in fields(name), "#{name}.#{forbidden}"
     end
 
-    assert fields(:work_input) == [:base, :change_set, :permissions]
+    assert fields(:work_input) == [:base, :change_set, :permissions, :result_ref]
     assert field(:work_input, :base).required
     refute field(:work_input, :change_set).required
   end
