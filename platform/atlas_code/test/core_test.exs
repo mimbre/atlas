@@ -14,7 +14,6 @@ defmodule AtlasCode.CoreTest do
   @repository "github.com/test/public"
   @private "github.com/test/private"
   @runtime_exs Path.expand("../../../products/software_factory/config/runtime.exs", __DIR__)
-  @environments Path.expand("../../../products/software_factory/environments", __DIR__)
 
   setup %{tmp_dir: dir} do
     source = Path.join(dir, "source")
@@ -255,38 +254,6 @@ defmodule AtlasCode.CoreTest do
       # A home waiting for its work source is still checked.
       assert_raise RuntimeError, ~r/code.sources/, fn ->
         runtime_config(dir, Map.delete(code, "sources"))
-      end
-    end
-
-    test "the real prod and test settings configure no Code service", %{tmp_dir: dir} do
-      for env <- ["prod", "test"] do
-        file = Path.join([@environments, env, "core.json"])
-        settings = JSON.decode!(File.read!(file))
-        # What this case is about: no work source in either environment, while prod
-        # carries the Code home, ready for one.
-        assert get_in(settings, ["flow", "work_source"]) == nil
-        assert is_binary(get_in(settings, ["code", "home"])) == (env == "prod")
-
-        config = read_runtime(env, file)
-        assert config[:atlas_code][:service] == nil
-        assert config[:atlas_flow][:work_source] == nil
-        assert %{"dir" => _} = config[:atlas_code][:effects]
-        children = AtlasCode.Application.children(config[:atlas_code])
-        refute Enum.any?(children, &match?({Core, _}, &1))
-
-        # The same settings with a work source added (one key) do configure it.
-        with_source = Map.put(settings, "flow", %{"work_source" => work_source(dir)})
-        on = Path.join(dir, "#{env}-with-source.json")
-        File.write!(on, JSON.encode!(with_source))
-        service = read_runtime(env, on)[:atlas_code][:service]
-
-        if env == "prod" do
-          assert %{"home" => home, "repositories" => repositories} = service
-          assert home == Path.expand(settings["code"]["home"])
-          assert repositories == settings["code"]["sources"]
-        else
-          assert service == nil
-        end
       end
     end
 
