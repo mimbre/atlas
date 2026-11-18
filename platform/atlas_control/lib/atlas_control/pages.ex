@@ -409,14 +409,19 @@ defmodule AtlasControl.Pages do
       for {_component, owner} <- owner_kinds(m, froms), do: {owner, %{}}
   end
 
-  # Open for you: the facts of each span's subject kind, with how Facts presents their
-  # work (which run, in which state, supervised by whom). Supervised by you: the same, and
-  # the client's running work (`work`), linked to it (`for`).
-  def reads({:open_for_you, _by}, m),
-    do: for(kind <- span_kinds(m), do: {kind, %{"presentation" => true}})
+  # Open for you: the facts each span's work is written on, with how Facts presents that
+  # work (which run, in which state, supervised by whom), then the span subjects they are
+  # components of (`span_reads/1`). Supervised by you: the same, with the client's running
+  # work (`work`), linked to it (`for`), before those subjects: the lookups come last.
+  def reads({:open_for_you, _by}, m) do
+    {rows, lookups} = span_reads(m)
+    rows ++ lookups
+  end
 
-  def reads({:supervised_by_you, by}, m),
-    do: reads({:open_for_you, by}, m) ++ work_reads(m, by)
+  def reads({:supervised_by_you, by}, m) do
+    {rows, lookups} = span_reads(m)
+    rows ++ work_reads(m, by) ++ lookups
+  end
 
   # Pick up reads as the fact's page does; Hand over… too, and the facts of the span's
   # `with:` subjects that point at it, and the client's running work: what will stop.
@@ -498,7 +503,8 @@ defmodule AtlasControl.Pages do
   The role of each of `reads(route, m)`, in the same order (`AtlasControl.Freshness.ReadSet`):
   `:rows` when its facts are the page's rows, `:lookup` when it only resolves facts that
   the rows point at or that point at them: on what is assigned and in Open work, the
-  facts the Assignments are components of.
+  facts the Assignments are components of; on Open for you and Supervised by you, the
+  span subjects the work is written on a component of.
   """
   def read_roles(:home, m) do
     case top_kinds(m) do
@@ -512,12 +518,16 @@ defmodule AtlasControl.Pages do
       case route do
         {:assigned, _} -> owner_reads(m)
         {:list, kind} when is_binary(kind) -> if open_work?(m, kind), do: owner_reads(m), else: 0
+        {screen, _} when screen in [:open_for_you, :supervised_by_you] -> span_lookups(m)
         _ -> 0
       end
 
     n = length(reads(route, m))
     List.duplicate(:rows, n - lookups) ++ List.duplicate(:lookup, lookups)
   end
+
+  # How many reads of the span subjects a supervision screen ends with.
+  defp span_lookups(m), do: length(elem(span_reads(m), 1))
 
   # How many reads of the owners of the Assignments a page of them ends with.
   defp owner_reads(m) do
@@ -636,14 +646,7 @@ defmodule AtlasControl.Pages do
     froms = (rel(m, relation) || %{from: []}).from
     owners = owner_kinds(m, froms)
     {linked, owned} = Enum.split(answers, length(froms))
-
-    # Each component's fact, by the component's key.
-    whose =
-      for {{component, owner}, %{"facts" => facts}} <- Enum.zip(owners, owned),
-          fact <- facts,
-          part <- get_in(fact, ["links", component]) || [],
-          into: %{},
-          do: {part, {owner, fact}}
+    whose = by_component(owners, owned)
 
     for {from, %{"facts" => links}} <- Enum.zip(froms, linked),
         link <- links,
@@ -656,6 +659,17 @@ defmodule AtlasControl.Pages do
       fn {_, _, link} -> get_in(link, ["origins", relation, "since"]) || "" end,
       :desc
     )
+  end
+
+  # Each component's fact, by the component's key: `%{key => {owner kind, fact}}`, from the
+  # answers (`owned`) to the reads of the owner kinds (`owners`: `[{relation, owner
+  # kind}]`, as `owner_kinds/2` gives them), in the same order.
+  defp by_component(owners, owned) do
+    for {{component, owner}, %{"facts" => facts}} <- Enum.zip(owners, owned),
+        fact <- facts,
+        part <- get_in(fact, ["links", component]) || [],
+        into: %{},
+        do: {part, {owner, fact}}
   end
 
   # The component relations that point at one of `kinds`, with each kind they start at:
@@ -1001,6 +1015,58 @@ defmodule AtlasControl.Pages do
   defp span_kinds(m),
     do: for(s <- spans(m), kind?(m, s.subject), uniq: true, do: s.subject)
 
+  # The kind the work in span `s` is written on, which Facts presents it on: the span's
+  # `written_on`, or the subject itself.
+  defp written_on(s), do: s[:written_on] || s.subject
+
+  # The supervision screens' reads of the spans, `{rows, lookups}`: each kind a span's work
+  # is written on, once, with its presentation; then each span subject that is not that
+  # kind itself, once, to join the work to (`span_work/3`). Every read of the spans and
+  # every split of their answers is made from this, so the two cannot drift.
+  defp span_reads(m) do
+    spans = for s <- spans(m), kind?(m, s.subject), kind?(m, written_on(s)), do: s
+
+    {for(s <- spans, uniq: true, do: {written_on(s), presented(m, written_on(s), %{})}),
+     for(s <- spans, written_on(s) != s.subject, uniq: true, do: {s.subject, %{}})}
+  end
+
+  # The work in each span, joined to its subject: `[{span, [{kind, subject, work}]}]`, from
+  # the answers to `span_reads/1`'s rows and lookups. `work` is the fact the work is
+  # written on (Facts presents it); `subject` the span subject's fact it is a component of,
+  # joined as what is assigned joins them (`by_component/2`), or the work itself when it
+  # is written on the subject. Work whose subject was not answered is left out.
+  defp span_work(m, rows_answers, lookup_answers) do
+    {rows, lookups} = span_reads(m)
+    written = Map.new(Enum.zip(Enum.map(rows, &elem(&1, 0)), rows_answers))
+    subjects = Map.new(Enum.zip(Enum.map(lookups, &elem(&1, 0)), lookup_answers))
+
+    for s <- spans(m), kind?(m, s.subject) do
+      on = written_on(s)
+      facts = (written[on] || %{})["facts"] || []
+
+      if on == s.subject do
+        {s, for(work <- facts, do: {s.subject, work, work})}
+      else
+        owners = for {_, owner} = o <- owner_kinds(m, [on]), owner == s.subject, do: o
+        whose = by_component(owners, List.duplicate(subjects[s.subject], length(owners)))
+
+        {s,
+         for(work <- facts, {kind, subject} <- [whose[work["key"]]], do: {kind, subject, work})}
+      end
+    end
+  end
+
+  # How Facts presents the work on a fact of `kind`, on its page: on the component among
+  # its `parts` (`item_parts/3`) that a span's work is written on, else on the fact itself.
+  defp work_presentation(m, kind, fact, parts) do
+    on =
+      for s <- spans(m), s.subject == kind, written_on(s) != kind, uniq: true, do: written_on(s)
+
+    Enum.find_value(parts, fact["presentation"] || %{}, fn {part_kind, _k, part, _made} ->
+      part_kind in on && part["presentation"]
+    end)
+  end
+
   @doc """
   The span the work on a fact of `kind` is in, as Facts presents it: the span of the
   presenting subflow on that kind whose states hold the presented state; nil when none.
@@ -1025,7 +1091,9 @@ defmodule AtlasControl.Pages do
   @doc "The kind a pickup or hand-over is sent as (the run mapping's inputs), or nil."
   def inputs_kind(m), do: (supervision(m) || %{})[:inputs]
 
-  defp supervisors(fact), do: get_in(fact, ["presentation", "supervisor"]) || []
+  defp supervisors(fact), do: supervisor(fact["presentation"])
+  defp supervisor(%{} = presentation), do: presentation["supervisor"] || []
+  defp supervisor(_), do: []
 
   # The page of a span subject reads every candidate supervisor too: whom one may hand over to.
   defp candidate_reads(m, kind) do
@@ -1083,43 +1151,48 @@ defmodule AtlasControl.Pages do
 
   @doc """
   The rows of Open for you among the answers to `reads({:open_for_you, by})`, per span in
-  the declared order: `[{span, [{kind, fact}]}]`. A fact is open for you while its work is
-  presented by the span's subflow, active, in one of the span's states, without a human
-  supervisor, and the fact is not completed.
+  the declared order: `[{span, [{kind, fact, work}]}]`, `work` the fact the work on `fact`
+  is written on (`span_work/3`). A fact is open for you while its work is presented by the
+  span's subflow, active, in one of the span's states, without a human supervisor, and
+  the fact is not completed.
   """
   def open_for_you_facts(m, answers) do
-    by_kind = Map.new(Enum.zip(span_kinds(m), answers))
+    {rows, _lookups} = span_reads(m)
+    {rows_answers, lookup_answers} = Enum.split(answers, length(rows))
 
-    for s <- spans(m), kind?(m, s.subject) do
-      facts =
-        for fact <- by_kind[s.subject]["facts"] || [],
-            p = fact["presentation"] || %{},
+    for {s, items} <- span_work(m, rows_answers, lookup_answers) do
+      open =
+        for {_kind, fact, work} = item <- items,
+            p = work["presentation"] || %{},
             p["flow"] == s.subflow,
             p["status"] == "active",
             p["state"] in s.states,
-            supervisors(fact) == [],
+            supervisors(work) == [],
             not completed?(fact),
-            do: {s.subject, fact}
+            do: item
 
-      {s, facts}
+      {s, open}
     end
   end
 
   @doc """
   The rows of Supervised by you among the answers to `reads({:supervised_by_you, by})`:
-  `[{kind, fact}]`, the facts whose presented supervisor is `by` while their work is still
-  in a span (until Flow clears the supervisor as it leaves one, F-2), and the running work
-  done for `by` (`[fact]`).
+  `[{kind, fact, work}]` (as `open_for_you_facts/2`), the facts whose presented supervisor
+  is `by` while their work is still in a span (until Flow clears the supervisor as it
+  leaves one, F-2), and the running work done for `by` (`[fact]`).
   """
   def supervised_facts(m, by, answers) do
-    {subjects, work} = Enum.split(answers, length(span_kinds(m)))
+    {rows, lookups} = span_reads(m)
+    {rows_answers, rest} = Enum.split(answers, length(rows))
+    {work, lookup_answers} = Enum.split(rest, max(length(rest) - length(lookups), 0))
 
-    rows =
-      for {kind, %{"facts" => facts}} <- Enum.zip(span_kinds(m), subjects),
-          fact <- facts,
-          is_binary(by) and by in supervisors(fact),
-          span_of(m, kind, fact["presentation"]) != nil,
-          do: {kind, fact}
+    supervised =
+      for {_s, items} <- span_work(m, rows_answers, lookup_answers),
+          {kind, _fact, w} = item <- items,
+          is_binary(by) and by in supervisors(w),
+          span_of(m, kind, w["presentation"]) != nil,
+          uniq: true,
+          do: item
 
     running =
       case {supervised_rule(m)[:work], work} do
@@ -1127,7 +1200,7 @@ defmodule AtlasControl.Pages do
         _ -> []
       end
 
-    {rows, running}
+    {supervised, running}
   end
 
   @doc """
@@ -1162,14 +1235,14 @@ defmodule AtlasControl.Pages do
   when it can: someone at the TUI who may supervise, the run still the one that presents the fact,
   active, in a span, and without a supervisor.
   """
-  def pick_up_problem(m, {:pick_up, kind, _key, run}, [%{"fact" => %{} = fact} | _], form) do
-    p = fact["presentation"] || %{}
+  def pick_up_problem(m, {:pick_up, kind, _key, run}, [%{"fact" => %{} = fact} | rest], form) do
+    p = work_presentation(m, kind, fact, item_parts(m, kind, rest))
 
     cond do
       not may_supervise?(m, form) -> "Only someone at the TUI who may supervise picks a flow up."
       p["run"] != run -> "The flow moved on since this page was made; open it again."
       p["status"] != "active" or span_of(m, kind, p) == nil -> "The flow is not open for you."
-      supervisors(fact) != [] -> "The flow is supervised already."
+      supervisor(p) != [] -> "The flow is supervised already."
       true -> nil
     end
   end
@@ -1189,13 +1262,13 @@ defmodule AtlasControl.Pages do
   def hand_over_problem(
         m,
         {:hand_over, kind, _key, run, _by},
-        [%{"fact" => %{} = fact} | _] = answers,
+        [%{"fact" => %{} = fact} | rest] = answers,
         form
       ) do
-    p = fact["presentation"] || %{}
+    p = work_presentation(m, kind, fact, item_parts(m, kind, rest))
 
     cond do
-      not may_supervise?(m, form) or form[:by] not in supervisors(fact) ->
+      not may_supervise?(m, form) or form[:by] not in supervisor(p) ->
         "Only the flow's supervisor at the TUI hands it over."
 
       p["run"] != run ->
@@ -1238,10 +1311,9 @@ defmodule AtlasControl.Pages do
   # no supervisor; Hand over… for its supervisor at the TUI while someone else could take
   # it.
 
-  defp supervision_actions(m, kind, fact, candidates, form) do
-    p = fact["presentation"] || %{}
+  defp supervision_actions(m, kind, fact, p, candidates, form) do
     run = p["run"]
-    supervisor = supervisors(fact)
+    supervisor = supervisor(p)
 
     if is_binary(run) and p["status"] == "active" and span_of(m, kind, p) != nil and
          may_supervise?(m, form) do
@@ -1267,8 +1339,8 @@ defmodule AtlasControl.Pages do
   end
 
   # The run's supervisor on a span subject's page, keys only, by the relation's label.
-  defp supervisor_pair(m, kind, fact) do
-    with keys when keys != [] <- supervisors(fact),
+  defp supervisor_pair(m, kind, p) do
+    with keys when keys != [] <- supervisor(p),
          true <- kind in span_kinds(m),
          %{} = r <- rel(m, supervision(m).relation) do
       [Blocks.pair(label: String.capitalize(r.label), value: Enum.join(keys, ", "))]
@@ -1283,14 +1355,14 @@ defmodule AtlasControl.Pages do
       nil ->
         rule = open_for_you_rule(m)
         per_span = open_for_you_facts(m, answers)
-        items = for {_s, facts} <- per_span, {kind, fact} <- facts, do: {kind, fact, fact}
+        items = for {_s, facts} <- per_span, item <- facts, do: item
 
         lists =
           for {s, facts} <- per_span do
             {"list:#{s.subflow}:#{s.span}",
              Blocks.list(
                title: s.label || s.span,
-               rows: for({kind, fact} <- facts, do: screen_row(m, kind, fact)),
+               rows: for({kind, fact, work} <- facts, do: screen_row(m, kind, fact, work)),
                empty: rule.empty
              )}
           end
@@ -1310,8 +1382,7 @@ defmodule AtlasControl.Pages do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
         rule = supervised_rule(m)
-        {rows, running} = supervised_facts(m, by, answers)
-        items = for {kind, fact} <- rows, do: {kind, fact, fact}
+        {items, running} = supervised_facts(m, by, answers)
 
         work =
           case rule[:work] do
@@ -1322,7 +1393,7 @@ defmodule AtlasControl.Pages do
         list =
           Blocks.list(
             title: rule.title || "",
-            rows: for({kind, fact} <- rows, do: screen_row(m, kind, fact)),
+            rows: for({kind, fact, work} <- items, do: screen_row(m, kind, fact, work)),
             empty: rule.empty
           )
 
@@ -1356,16 +1427,17 @@ defmodule AtlasControl.Pages do
   end
 
   # One calm row of a screen: the fact, what is expected, whom it waits on (the owner
-  # keys Facts presents), whether it is blocked; the rest is in its technical details.
-  defp screen_row(m, kind, fact) do
+  # keys Facts presents on the `work`), whether it is blocked; the rest is in its
+  # technical details.
+  defp screen_row(m, kind, fact, work) do
     detail =
       [
-        expected(fact, fact),
-        case get_in(fact, ["presentation", "owner"]) do
+        expected(fact, work),
+        case get_in(work, ["presentation", "owner"]) do
           [_ | _] = keys -> Enum.join(keys, ", ")
           _ -> nil
         end,
-        shown(fact, fact, "status") == "blocked" && "blocked"
+        shown(fact, work, "status") == "blocked" && "blocked"
       ]
       |> Enum.reject(&(&1 in [nil, "", false]))
       |> Enum.join(" · ")
@@ -1544,9 +1616,10 @@ defmodule AtlasControl.Pages do
       %{"fact" => fact} ->
         back = path(owner(m, kind, answer) || up(m, kind, fact))
         relations = child_relations(m, kind)
+        parts = item_parts(m, kind, child_answers)
+        work = work_presentation(m, kind, fact, parts)
         {child_answers, rest} = Enum.split(child_answers, length(relations))
         {cause_answers, part_answers} = Enum.split(rest, length(cause_fields(m)))
-        parts = parts(m, kind, part_answers)
         todo = m.module.todo(kind, fact, parts_by_kind(parts), viewer(form))
 
         fields =
@@ -1562,7 +1635,7 @@ defmodule AtlasControl.Pages do
             review_pair(fact) ++
             linked(m, kind, fact) ++
             Enum.flat_map(parts, fn {part_kind, _k, part, _made} -> linked(m, part_kind, part) end) ++
-            supervisor_pair(m, kind, fact) ++
+            supervisor_pair(m, kind, work) ++
             copy(answer["copy"])
 
         item =
@@ -1583,7 +1656,7 @@ defmodule AtlasControl.Pages do
           |> answers_first(
             answer_actions(kind, fact, todo) ++
               restart_actions(m, kind, fact, parts, form) ++
-              supervision_actions(m, kind, fact, candidates(m, kind, part_answers), form)
+              supervision_actions(m, kind, fact, work, candidates(m, kind, part_answers), form)
           )
 
         lists =

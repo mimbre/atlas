@@ -450,3 +450,22 @@ defmodule Shop.Supervised do
     default: "checked"
   )
 end
+
+defmodule Shop.SupervisedOnCard do
+  @moduledoc """
+  As `Shop.Supervised`, but the supervised work is written on the widget's card
+  (`Shop.SupervisionOnCard`): Facts presents it on the card, not on the widget.
+  """
+  use Shop.Composition,
+    name: "shop-supervised-on-card",
+    concepts: Shop.Base.concepts() ++ [Shop.Card, Shop.SupervisionOnCard],
+    subflows: [Shop.SupervisionOnCard]
+
+  start_page(
+    assigned: [relation: :checked_by, title: "Checked", count: "{count} checked"],
+    open_for_you: [title: "Free", count: "{count} free", empty: "Nothing is free."],
+    supervised_by_you: [title: "Watched", count: "{count} watched", empty: "Nothing watched."]
+  )
+
+  supervised_work(kind: :job, of: :job_of, for: :job_for, ended: :outcome)
+end

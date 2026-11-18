@@ -1,16 +1,23 @@
 defmodule AtlasControl.SupervisionTest do
   @moduledoc """
   Supervision's pages (work acquisition decision 2026-11-17, §5.6–5.8; M3b P4), from a
-  neutral model with one supervised span (`AtlasControl.Shop.Supervised`): Open for you,
-  Supervised by you, Pick up and Hand over… on a fact's page, and their confirm and form.
-  Everything is asserted by structure (keys, paths, block types, calls), never by wording.
+  neutral model with one supervised span: Open for you, Supervised by you, Pick up and
+  Hand over… on a fact's page, and their confirm and form. Each runs on both ways Facts
+  may present the work: on the span's subject itself (`AtlasControl.Shop.Supervised`), and
+  on the component it is written on, the widget's card (`AtlasControl.Shop.SupervisedOnCard`),
+  as a model whose work is written on an Assignment.
+  Everything is asserted by structure (keys, paths, block types, calls, read roles), never
+  by wording.
   """
   use ExUnit.Case, async: true
 
   alias AtlasControl.{Pages, Shop}
 
   @s AtlasControl.Model.catalog(Shop.Supervised)
+  @card AtlasControl.Model.catalog(Shop.SupervisedOnCard)
   @plain AtlasControl.Model.catalog(Shop)
+  # The same pages, with the work on the widget and with the work on its card.
+  @models [@s, @card]
 
   @tui_ada %{by: "ada", by_kind: "member", client: "tui"}
   @tui_bob %{by: "bob", by_kind: "member", client: "tui"}
@@ -18,10 +25,9 @@ defmodule AtlasControl.SupervisionTest do
   @agent %{by: "agent", by_kind: nil, client: "agent"}
   @agent_as_ada %{by: "ada", by_kind: "member", client: "agent"}
 
-  defp span, do: hd(Pages.open_for_you_rule(@s).spans)
+  defp span(m \\ @s), do: hd(Pages.open_for_you_rule(m).spans)
 
-  # How Facts presents the work on a widget: the run, its subflow, status, state and
-  # supervisor.
+  # How Facts presents the work: the run, its subflow, status, state and supervisor.
   defp presented(opts \\ []) do
     s = span()
 
@@ -38,11 +44,28 @@ defmodule AtlasControl.SupervisionTest do
     }
   end
 
-  defp widget(key, presentation, extra \\ %{}) do
-    Map.merge(
-      %{"key" => key, "values" => %{"title" => key}, "links" => %{}, "version" => "v1"},
-      Map.put(extra, "presentation", presentation)
-    )
+  # A widget whose work Facts presents as `presentation` (nil: not at all), where `m`
+  # writes it: on the widget itself, or on its card, which the widget links to.
+  # `{widget, card}`; the card is nil when the work is on the widget.
+  defp work(m, key, presentation, extra \\ %{}) do
+    widget =
+      Map.merge(
+        %{"key" => key, "values" => %{"title" => key}, "links" => %{}, "version" => "v1"},
+        extra
+      )
+
+    shown = fn fact ->
+      if presentation, do: Map.put(fact, "presentation", presentation), else: fact
+    end
+
+    case for({relation, "card", spec} <- Pages.components(m, "widget"), do: {relation, spec}) do
+      [] ->
+        {shown.(widget), nil}
+
+      [{relation, spec}] ->
+        card = %{"key" => Pages.part_key(spec, key), "values" => %{"of" => key}, "links" => %{}}
+        {put_in(widget, ["links", relation], [card["key"]]), shown.(card)}
+    end
   end
 
   defp member(key), do: %{"key" => key, "values" => %{"name" => key}, "links" => %{}}
@@ -54,17 +77,42 @@ defmodule AtlasControl.SupervisionTest do
       "links" => %{"job_of" => [of]}
     }
 
-  # The answers to an item page's reads: the fact, nothing pointing at it, and the members
-  # last (the reads of a span subject end with them).
-  defp item_answers(fact, members) do
-    reads = Pages.reads({:item, "widget", fact["key"]}, @s)
-    assert List.last(reads) == {"member", %{}}
+  # The answers to a screen's reads, by the kind each reads: the widgets, their cards, the
+  # jobs.
+  defp screen_answers(route, m, items, jobs \\ []) do
+    by_kind = %{
+      "widget" => for({w, _} <- items, do: w),
+      "card" => for({_, c} <- items, c != nil, do: c),
+      "job" => jobs
+    }
 
-    [%{"fact" => fact}] ++
-      List.duplicate(%{"facts" => []}, length(reads) - 2) ++ [%{"facts" => members}]
+    for {kind, _} <- Pages.reads(route, m), do: %{"facts" => by_kind[kind] || []}
   end
 
-  defp keys_of(rows), do: for(%{"to" => to} <- rows, {:item, _, key} = Pages.route(to), do: key)
+  # The answers to an item page's reads: the widget, nothing pointing at it, its card
+  # when the work is on it, and the members last (the reads of a span subject end with
+  # them).
+  defp item_answers(m, {widget, card}, members) do
+    [_ | reads] = Pages.reads({:item, "widget", widget["key"]}, m)
+    assert List.last(reads) == {"member", %{}}
+
+    middle =
+      for {kind, read} <- Enum.drop(reads, -1) do
+        if kind == "card" and is_map_key(read, "key"),
+          do: %{"fact" => card},
+          else: %{"facts" => []}
+      end
+
+    [%{"fact" => widget}] ++ middle ++ [%{"facts" => members}]
+  end
+
+  # The widgets' keys of rows, each row to a widget's page: never to a card's.
+  defp keys_of(rows) do
+    for %{"to" => to} <- rows do
+      assert {:item, "widget", key} = Pages.route(to)
+      key
+    end
+  end
 
   defp block(page, id), do: Enum.find(page.blocks, &(&1["id"] == id))
 
@@ -75,129 +123,158 @@ defmodule AtlasControl.SupervisionTest do
         do: to
   end
 
+  test "the two models differ only in the kind the span's work is written on" do
+    assert span(@s).written_on == span(@s).subject
+    assert span(@card).written_on == "card"
+    assert Map.delete(span(@card), :written_on) == Map.delete(span(@s), :written_on)
+  end
+
   test "Open for you: in the span, active, without a supervisor, not completed" do
     s = span()
-
-    facts = [
-      widget("W-1", presented()),
-      widget("W-2", presented(supervisor: ["ada"])),
-      widget("W-3", presented(state: "done")),
-      widget("W-4", presented(status: "blocked")),
-      widget("W-5", presented(flow: "elsewhere")),
-      widget("W-6", presented(), %{"completion" => %{"done" => true}}),
-      Map.delete(widget("W-7", nil), "presentation"),
-      widget("W-8", presented(status: "completed"))
-    ]
-
     assert Pages.reads({:open_for_you, "ada"}, @s) == [{s.subject, %{"presentation" => true}}]
-    page = Pages.render({:open_for_you, "ada"}, @s, [%{"facts" => facts}])
 
-    # One list per span, in the declared order, with the open facts' keys as its rows.
-    lists = for b <- page.blocks, b["type"] == "list", do: b
+    assert Pages.reads({:open_for_you, "ada"}, @card) == [
+             {"card", %{"presentation" => true}},
+             {s.subject, %{}}
+           ]
 
-    assert Enum.map(lists, & &1["id"]) ==
-             for(s <- Pages.open_for_you_rule(@s).spans, do: "list:#{s.subflow}:#{s.span}")
+    for m <- @models do
+      items = [
+        work(m, "W-1", presented()),
+        work(m, "W-2", presented(supervisor: ["ada"])),
+        work(m, "W-3", presented(state: "done")),
+        work(m, "W-4", presented(status: "blocked")),
+        work(m, "W-5", presented(flow: "elsewhere")),
+        work(m, "W-6", presented(), %{"completion" => %{"done" => true}}),
+        work(m, "W-7", nil),
+        work(m, "W-8", presented(status: "completed"))
+      ]
 
-    assert keys_of(hd(lists)["props"]["rows"]) == ["W-1"]
+      route = {:open_for_you, "ada"}
+      page = Pages.render(route, m, screen_answers(route, m, items))
 
-    # The Overview's main count is the number of rows.
-    assert [main | _] = block(page, "summary")["props"]["fields"]
-    assert main["value"] == "1"
+      # One list per span, in the declared order, with the open facts' keys as its rows.
+      lists = for b <- page.blocks, b["type"] == "list", do: b
+
+      assert Enum.map(lists, & &1["id"]) ==
+               for(s <- Pages.open_for_you_rule(m).spans, do: "list:#{s.subflow}:#{s.span}")
+
+      assert keys_of(hd(lists)["props"]["rows"]) == ["W-1"], span(m).written_on
+
+      # The Overview's main count is the number of rows.
+      assert [main | _] = block(page, "summary")["props"]["fields"]
+      assert main["value"] == "1"
+    end
   end
 
   test "Supervised by you: the client's, still in a span; its running work counted quietly" do
-    facts = [
-      widget("W-1", presented()),
-      widget("W-2", presented(supervisor: ["ada"], owner: ["bot"])),
-      widget("W-3", presented(supervisor: ["ada"], state: "done")),
-      widget("W-4", presented(supervisor: ["bob"])),
-      widget("W-5", presented(supervisor: ["ada"], status: "blocked")),
-      widget("W-6", presented(supervisor: ["ada"], flow: "elsewhere"))
-    ]
+    for m <- @models do
+      items = [
+        work(m, "W-1", presented()),
+        work(m, "W-2", presented(supervisor: ["ada"], owner: ["bot"])),
+        work(m, "W-3", presented(supervisor: ["ada"], state: "done")),
+        work(m, "W-4", presented(supervisor: ["bob"])),
+        work(m, "W-5", presented(supervisor: ["ada"], status: "blocked")),
+        work(m, "W-6", presented(supervisor: ["ada"], flow: "elsewhere"))
+      ]
 
-    jobs = [job("J-1", "W-2", ""), job("J-2", "P-1", nil), job("J-3", "W-2", "ok")]
-    reads = Pages.reads({:supervised_by_you, "ada"}, @s)
-    work = Pages.supervised_rule(@s).work
-    assert List.last(reads) == {work.kind, %{"linked" => %{work.for => "ada"}}}
+      jobs = [job("J-1", "W-2", ""), job("J-2", "P-1", nil), job("J-3", "W-2", "ok")]
+      route = {:supervised_by_you, "ada"}
+      work = Pages.supervised_rule(m).work
+      assert {work.kind, %{"linked" => %{work.for => "ada"}}} in Pages.reads(route, m)
 
-    answers = [%{"facts" => facts}, %{"facts" => jobs}]
-    page = Pages.render({:supervised_by_you, "ada"}, @s, answers)
-    list = block(page, "list")["props"]
-    assert keys_of(list["rows"]) == ["W-2", "W-5"]
+      answers = screen_answers(route, m, items, jobs)
+      page = Pages.render(route, m, answers)
+      list = block(page, "list")["props"]
+      assert keys_of(list["rows"]) == ["W-2", "W-5"], span(m).written_on
 
-    {rows, running} = Pages.supervised_facts(@s, "ada", answers)
-    assert length(rows) == 2
-    assert Enum.map(running, & &1["key"]) == ["J-1", "J-2"]
+      {rows, running} = Pages.supervised_facts(m, "ada", answers)
+      assert length(rows) == 2
+      assert Enum.map(running, & &1["key"]) == ["J-1", "J-2"], span(m).written_on
 
-    [main | more] = block(page, "summary")["props"]["fields"]
-    assert main["value"] == "2"
-    # The quiet count of running work: a pair whose value is the count, by the work's kind.
-    jobs_k = @s.kinds[work.kind]
-    assert %{"value" => "2"} = Enum.find(more, &(&1["label"] == jobs_k.plural))
+      [main | more] = block(page, "summary")["props"]["fields"]
+      assert main["value"] == "2"
+      # The quiet count of running work: a pair whose value is the count, by the work's kind.
+      jobs_k = m.kinds[work.kind]
+      assert %{"value" => "2"} = Enum.find(more, &(&1["label"] == jobs_k.plural))
 
-    # Someone else supervises none of these.
-    assert keys_of(
-             block(Pages.render({:supervised_by_you, "bob"}, @s, answers), "list")["props"][
-               "rows"
-             ]
-           ) == ["W-4"]
+      # Someone else supervises none of these.
+      bob = {:supervised_by_you, "bob"}
+
+      assert keys_of(
+               block(Pages.render(bob, m, screen_answers(bob, m, items, [])), "list")["props"][
+                 "rows"
+               ]
+             ) == ["W-4"]
+    end
   end
 
   test "Pick up and Hand over…: offered exactly to whom the rules say" do
-    open = widget("W-1", presented())
-    mine = widget("W-1", presented(supervisor: ["ada"]))
-    ada_bob = [member("ada"), member("bob")]
-    pick = Pages.path({:pick_up, "widget", "W-1", "R-1"})
-    hand = Pages.path({:hand_over, "widget", "W-1", "R-1"})
+    for m <- @models do
+      open = work(m, "W-1", presented())
+      mine = work(m, "W-1", presented(supervisor: ["ada"]))
+      ada_bob = [member("ada"), member("bob")]
+      pick = Pages.path({:pick_up, "widget", "W-1", "R-1"})
+      hand = Pages.path({:hand_over, "widget", "W-1", "R-1"})
 
-    cases = [
-      {open, ada_bob, @tui_ada, [pick]},
-      {open, ada_bob, @tui_nobody, []},
-      {open, ada_bob, @agent, []},
-      {open, ada_bob, @agent_as_ada, []},
-      {mine, ada_bob, @tui_ada, [hand]},
-      {mine, [member("ada")], @tui_ada, []},
-      {mine, ada_bob, @tui_bob, []},
-      {mine, ada_bob, @agent_as_ada, []},
-      {widget("W-1", presented(state: "done")), ada_bob, @tui_ada, []},
-      {widget("W-1", presented(status: "blocked")), ada_bob, @tui_ada, []},
-      # Another subflow presents the work, in a state of the span: not in the span.
-      {widget("W-1", presented(flow: "elsewhere")), ada_bob, @tui_ada, []},
-      {widget("W-1", presented(flow: "elsewhere", supervisor: ["ada"])), ada_bob, @tui_ada, []}
-    ]
+      cases = [
+        {open, ada_bob, @tui_ada, [pick]},
+        {open, ada_bob, @tui_nobody, []},
+        {open, ada_bob, @agent, []},
+        {open, ada_bob, @agent_as_ada, []},
+        {mine, ada_bob, @tui_ada, [hand]},
+        {mine, [member("ada")], @tui_ada, []},
+        {mine, ada_bob, @tui_bob, []},
+        {mine, ada_bob, @agent_as_ada, []},
+        {work(m, "W-1", presented(state: "done")), ada_bob, @tui_ada, []},
+        {work(m, "W-1", presented(status: "blocked")), ada_bob, @tui_ada, []},
+        # Another subflow presents the work, in a state of the span: not in the span.
+        {work(m, "W-1", presented(flow: "elsewhere")), ada_bob, @tui_ada, []},
+        {work(m, "W-1", presented(flow: "elsewhere", supervisor: ["ada"])), ada_bob, @tui_ada, []}
+      ]
 
-    for {{fact, members, viewer, expected}, at} <- Enum.with_index(cases) do
-      page = Pages.render({:item, "widget", "W-1"}, @s, item_answers(fact, members), viewer)
-      assert supervision_tos(page) == expected, "case #{at}"
+      for {{item, members, viewer, expected}, at} <- Enum.with_index(cases) do
+        page = Pages.render({:item, "widget", "W-1"}, m, item_answers(m, item, members), viewer)
+        assert supervision_tos(page) == expected, "#{span(m).written_on}: case #{at}"
+      end
     end
   end
 
   test "the supervision actions take keys no other action on the page has" do
-    members = [member("ada"), member("bob")]
-    render = &Pages.render({:item, "widget", "W-1"}, @s, item_answers(&1, members), @tui_ada)
-    # The same page without them: its work outside the span.
-    without = block(render.(widget("W-1", presented(state: "done"))), "item")["props"]["actions"]
-    assert supervision_tos(render.(widget("W-1", presented(state: "done")))) == []
+    for m <- @models do
+      members = [member("ada"), member("bob")]
 
-    for fact <- [widget("W-1", presented()), widget("W-1", presented(supervisor: ["ada"]))] do
-      page = render.(fact)
-      actions = block(page, "item")["props"]["actions"]
-      assert [_] = supervision_tos(page)
-      # Every other action is still there (an action on the same key would give way)...
-      assert Enum.reject(actions, &(&1["to"] in supervision_tos(page))) == without
-      # ...and no two share a key.
-      keys = Enum.map(actions, & &1["key"])
-      assert keys == Enum.uniq(keys)
+      render =
+        &Pages.render({:item, "widget", "W-1"}, m, item_answers(m, &1, members), @tui_ada)
+
+      # The same page without them: its work outside the span.
+      without =
+        block(render.(work(m, "W-1", presented(state: "done"))), "item")["props"]["actions"]
+
+      assert supervision_tos(render.(work(m, "W-1", presented(state: "done")))) == []
+
+      for item <- [work(m, "W-1", presented()), work(m, "W-1", presented(supervisor: ["ada"]))] do
+        page = render.(item)
+        actions = block(page, "item")["props"]["actions"]
+        assert [_] = supervision_tos(page)
+        # Every other action is still there (an action on the same key would give way)...
+        assert Enum.reject(actions, &(&1["to"] in supervision_tos(page))) == without
+        # ...and no two share a key.
+        keys = Enum.map(actions, & &1["key"])
+        assert keys == Enum.uniq(keys)
+      end
     end
   end
 
   test "the supervisor shows as a field, keys only, on the span subject's page" do
-    fact = widget("W-1", presented(supervisor: ["ada"]))
-    page = Pages.render({:item, "widget", "W-1"}, @s, item_answers(fact, []), @tui_bob)
-    label = String.capitalize(@s.relations[Pages.open_for_you_rule(@s).relation].label)
+    for m <- @models do
+      item = work(m, "W-1", presented(supervisor: ["ada"]))
+      page = Pages.render({:item, "widget", "W-1"}, m, item_answers(m, item, []), @tui_bob)
+      label = String.capitalize(m.relations[Pages.open_for_you_rule(m).relation].label)
 
-    assert %{"value" => "ada"} =
-             Enum.find(block(page, "item")["props"]["fields"], &(&1["label"] == label))
+      assert %{"value" => "ada"} =
+               Enum.find(block(page, "item")["props"]["fields"], &(&1["label"] == label))
+    end
   end
 
   # A page that offers nothing and says why: a confirm with nowhere to confirm to.
@@ -209,85 +286,97 @@ defmodule AtlasControl.SupervisionTest do
       )
 
   test "the Pick up page confirms to its endpoint; each stale case says why instead" do
-    route = {:pick_up, "widget", "W-1", "R-1"}
-    members = [member("ada")]
-    page = Pages.render(route, @s, item_answers(widget("W-1", presented()), members), @tui_ada)
-    assert [%{"type" => "confirm", "props" => %{"confirm_to" => call}}] = page.blocks
-    assert {:ok, :pick_up, %{kind: "widget", key: "W-1", run: "R-1"}} = Pages.submit_call(call)
+    for m <- @models do
+      route = {:pick_up, "widget", "W-1", "R-1"}
+      members = [member("ada")]
+      answers = item_answers(m, work(m, "W-1", presented()), members)
+      assert Pages.pick_up_problem(m, route, answers, @tui_ada) == nil
+      page = Pages.render(route, m, answers, @tui_ada)
+      assert [%{"type" => "confirm", "props" => %{"confirm_to" => call}}] = page.blocks
+      assert {:ok, :pick_up, %{kind: "widget", key: "W-1", run: "R-1"}} = Pages.submit_call(call)
 
-    for {fact, viewer} <- [
-          {widget("W-1", presented(run: "R-2")), @tui_ada},
-          {widget("W-1", presented(state: "done")), @tui_ada},
-          {widget("W-1", presented(supervisor: ["bob"])), @tui_ada},
-          {widget("W-1", presented()), @agent_as_ada},
-          {widget("W-1", presented()), @tui_nobody}
-        ] do
-      assert missing?(Pages.render(route, @s, item_answers(fact, members), viewer))
+      for {item, viewer} <- [
+            {work(m, "W-1", presented(run: "R-2")), @tui_ada},
+            {work(m, "W-1", presented(state: "done")), @tui_ada},
+            {work(m, "W-1", presented(supervisor: ["bob"])), @tui_ada},
+            {work(m, "W-1", presented()), @agent_as_ada},
+            {work(m, "W-1", presented()), @tui_nobody}
+          ] do
+        assert missing?(Pages.render(route, m, item_answers(m, item, members), viewer))
+      end
     end
   end
 
   # The answers to the hand-over's reads: the item's, the parts of the widget, the jobs.
-  defp hand_over_answers(fact, members, parts, jobs) do
-    route = {:hand_over, "widget", fact["key"], "R-1", "ada"}
-    reads = Pages.reads(route, @s)
-    item = item_answers(fact, members)
-    withs = length(reads) - length(item) - 1
+  defp hand_over_answers(m, item, members, parts, jobs) do
+    {widget, _card} = item
+    route = {:hand_over, "widget", widget["key"], "R-1", "ada"}
+    reads = Pages.reads(route, m)
+    answers = item_answers(m, item, members)
+    withs = length(reads) - length(answers) - 1
     assert withs == 1
-    item ++ [%{"facts" => parts}, %{"facts" => jobs}]
+    answers ++ [%{"facts" => parts}, %{"facts" => jobs}]
   end
 
   test "the Hand over… page: one choice of the members but the client, and the work that stops" do
-    route = {:hand_over, "widget", "W-1", "R-1", "ada"}
-    fact = widget("W-1", presented(supervisor: ["ada"]))
+    for m <- @models do
+      route = {:hand_over, "widget", "W-1", "R-1", "ada"}
+      item = work(m, "W-1", presented(supervisor: ["ada"]))
 
-    part = %{
-      "key" => "P-1",
-      "values" => %{"title" => "P-1"},
-      "links" => %{"of_widget" => ["W-1"]}
-    }
+      part = %{
+        "key" => "P-1",
+        "values" => %{"title" => "P-1"},
+        "links" => %{"of_widget" => ["W-1"]}
+      }
 
-    jobs = [
-      job("J-1", "W-1", ""),
-      job("J-2", "P-1", nil),
-      job("J-3", "W-1", "done"),
-      job("J-4", "W-9", "")
-    ]
+      jobs = [
+        job("J-1", "W-1", ""),
+        job("J-2", "P-1", nil),
+        job("J-3", "W-1", "done"),
+        job("J-4", "W-9", "")
+      ]
 
-    answers = hand_over_answers(fact, [member("ada"), member("bob"), member("cy")], [part], jobs)
-    page = Pages.render(route, @s, answers, @tui_ada)
+      members = [member("ada"), member("bob"), member("cy")]
+      answers = hand_over_answers(m, item, members, [part], jobs)
+      assert Pages.hand_over_problem(m, route, answers, @tui_ada) == nil
+      page = Pages.render(route, m, answers, @tui_ada)
 
-    assert %{"type" => "form", "props" => form} = block(page, "form")
-    assert [%{"name" => "hand_to", "choices" => choices}] = form["inputs"]
-    assert Enum.map(choices, & &1["value"]) == ["bob", "cy"]
+      assert %{"type" => "form", "props" => form} = block(page, "form")
+      assert [%{"name" => "hand_to", "choices" => choices}] = form["inputs"]
+      assert Enum.map(choices, & &1["value"]) == ["bob", "cy"]
 
-    assert {:ok, :hand_over, %{kind: "widget", key: "W-1", run: "R-1"}} =
-             Pages.submit_call(form["submit_to"])
+      assert {:ok, :hand_over, %{kind: "widget", key: "W-1", run: "R-1"}} =
+               Pages.submit_call(form["submit_to"])
 
-    refute Map.has_key?(form, "note")
+      refute Map.has_key?(form, "note")
 
-    # The client's running work on the widget, or on a part of it, will stop.
-    assert Enum.map(Pages.stopping_tasks(@s, route, answers), & &1["key"]) == ["J-1", "J-2"]
-    assert keys_of(block(page, "stopping")["props"]["rows"]) == ["J-1", "J-2"]
+      # The client's running work on the widget, or on a part of it, will stop.
+      assert Enum.map(Pages.stopping_tasks(m, route, answers), & &1["key"]) == ["J-1", "J-2"]
 
-    # Nobody else, a stale run, or not the supervisor: no form, it says why.
-    alone = hand_over_answers(fact, [member("ada")], [], [])
-    assert missing?(Pages.render(route, @s, alone, @tui_ada))
+      assert Enum.map(block(page, "stopping")["props"]["rows"], & &1["to"]) ==
+               for(k <- ["J-1", "J-2"], do: Pages.path({:item, "job", k}))
 
-    moved =
-      hand_over_answers(
-        widget("W-1", presented(supervisor: ["ada"], run: "R-2")),
-        [member("bob")],
-        [],
-        []
-      )
+      # Nobody else, a stale run, or not the supervisor: no form, it says why.
+      alone = hand_over_answers(m, item, [member("ada")], [], [])
+      assert missing?(Pages.render(route, m, alone, @tui_ada))
 
-    assert missing?(Pages.render(route, @s, moved, @tui_ada))
+      moved =
+        hand_over_answers(
+          m,
+          work(m, "W-1", presented(supervisor: ["ada"], run: "R-2")),
+          [member("bob")],
+          [],
+          []
+        )
 
-    assert missing?(
-             Pages.render({:hand_over, "widget", "W-1", "R-1", "bob"}, @s, answers, @tui_bob)
-           )
+      assert missing?(Pages.render(route, m, moved, @tui_ada))
 
-    assert missing?(Pages.render(route, @s, answers, @agent_as_ada))
+      assert missing?(
+               Pages.render({:hand_over, "widget", "W-1", "R-1", "bob"}, m, answers, @tui_bob)
+             )
+
+      assert missing?(Pages.render(route, m, answers, @agent_as_ada))
+    end
   end
 
   test "every new route reads with a role per read, and its paths round-trip" do
@@ -300,9 +389,22 @@ defmodule AtlasControl.SupervisionTest do
       {:item, "widget", "W-1"}
     ]
 
-    for route <- routes do
-      assert length(Pages.read_roles(route, @s)) == length(Pages.reads(route, @s)), inspect(route)
-      assert Pages.reads(route, @s) != []
+    for m <- @models, route <- routes do
+      assert length(Pages.read_roles(route, m)) == length(Pages.reads(route, m)), inspect(route)
+      assert Pages.reads(route, m) != []
+    end
+
+    # The supervision screens' reads are all rows when the work is on the subject; when
+    # it is on a component, they end with the one read of the subject, the lookup.
+    for route <- [{:open_for_you, "ada"}, {:supervised_by_you, "ada"}] do
+      assert Enum.uniq(Pages.read_roles(route, @s)) == [:rows]
+
+      reads = Pages.reads(route, @card)
+      assert List.last(reads) == {span(@card).subject, %{}}, inspect(route)
+
+      assert Pages.read_roles(route, @card) ==
+               List.duplicate(:rows, length(reads) - 1) ++ [:lookup],
+             inspect(route)
     end
 
     for route <- [
@@ -335,7 +437,7 @@ defmodule AtlasControl.SupervisionTest do
 
     refute {"member", %{}} in Pages.reads({:item, "widget", "W-1"}, @plain)
 
-    w = widget("W-1", presented())
+    {w, nil} = work(@plain, "W-1", presented())
     reads = Pages.reads({:item, "widget", "W-1"}, @plain)
 
     page =
