@@ -74,16 +74,12 @@ defmodule AtlasFlow.Application do
 
   @doc """
   The listener child of the work source's `settings`: none without a `port`, else
-  `AtlasFlow.Backend.Listener` on that port, on `ip` when given (default 127.0.0.1).
+  `AtlasFlow.Backend.Listener` on 127.0.0.1 and that port.
   """
   def listener(settings) do
     case Keyword.get(settings, :port) do
-      nil ->
-        []
-
-      port ->
-        ip = Keyword.get(settings, :ip)
-        [{AtlasFlow.Backend.Listener, [port: port] ++ if(ip, do: [ip: ip], else: [])}]
+      nil -> []
+      port -> [{AtlasFlow.Backend.Listener, port: port}]
     end
   end
 

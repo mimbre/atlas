@@ -17,14 +17,6 @@
     "ipv6": true
   },
   "facts": { "data": "/data/beam" },
-  "flow": {
-    "work_source": {
-      "host": "::",
-      "port": 7596,
-      "credentials_env": "ATLAS_WORK_SOURCE_CREDENTIALS",
-      "results": "/data/flow-results"
-    }
-  },
   "code": {
     "data": "/data/code",
     "repositories": ["mimbre/atlas"],
