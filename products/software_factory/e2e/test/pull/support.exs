@@ -52,6 +52,11 @@ defmodule AtlasE2E.PullTest.Support do
   A liveness FIFO in `dir` and its watcher Port: `{fifo, watcher}`. The watcher is tethered:
   a `cat` still blocked opening a FIFO nobody writes holds no file and would outlive the
   test; the tether ends it with the test BEAM, however that ends.
+
+  The test's own stop of what holds it (gatefix R1): on exit, passed or failed,
+  `stop_holders/1` KILLs each `holding/2` child on this FIFO that is still there, so a
+  child the tether's KILL did not reach (a regressed tether, a stale stub) does not outlive
+  the test. A test BEAM that is itself killed runs no `on_exit`; that path is the tether's.
   """
   def liveness!(dir) do
     fifo = Path.join(dir, "alive-#{System.unique_integer([:positive])}.fifo")
@@ -66,6 +71,7 @@ defmodule AtlasE2E.PullTest.Support do
         args: args
       ])
 
+    ExUnit.Callbacks.on_exit(fn -> stop_holders(fifo) end)
     {fifo, watcher}
   end
 
@@ -74,17 +80,46 @@ defmodule AtlasE2E.PullTest.Support do
     do: System.cmd(stub, ["tether", "--", stub | args], stderr_to_stdout: true)
 
   @doc """
-  A shell command that holds `fifo` open for writing, says `up` through it (the watcher
-  gets `{:data, "up\\n"}`: the child is there), then becomes `then`.
+  A shell command that adds its pid to `fifo.pids` (`holders/1`; it stays the pid of `then`),
+  holds `fifo` open for writing, says `up` through it (the watcher gets `{:data, "up\\n"}`:
+  the child is there and its pid is written), then becomes `then`.
   """
-  def holding(fifo, then), do: ["-c", ~s(exec 5>"$0"; echo up >&5; exec "$@"), fifo | then]
+  def holding(fifo, then),
+    do: ["-c", ~s(echo "$$" >> "$0.pids"; exec 5>"$0"; echo up >&5; exec "$@"), fifo | then]
+
+  @doc "The pids `holding/2` children on `fifo` wrote, oldest first."
+  def holders(fifo) do
+    case File.read(fifo <> ".pids") do
+      {:ok, text} ->
+        for line <- String.split(text, "\n", trim: true),
+            {pid, ""} <- [Integer.parse(line)],
+            do: pid
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  @doc """
+  KILLs each `holders/1` pid that is still there, and its group if it leads one (a command
+  the tether did not keep in its group); returns the pids it KILLed. A pid is only reused
+  after the pid space wraps, which a test does not live to see.
+  """
+  def stop_holders(fifo) do
+    kill =
+      ~s(kill -0 "$0" 2>/dev/null || exit 1; kill -KILL -- "-$0" 2>/dev/null; kill -KILL "$0")
+
+    for pid <- holders(fifo),
+        {_, 0} <- [System.cmd("/bin/sh", ["-c", kill, "#{pid}"], stderr_to_stdout: true)],
+        do: pid
+  end
 
   @doc """
   Every external process a harness test starts goes through here (N1): a Port on
   `pull-stub tether -- command args`. When the test BEAM ends, however it ends (a failed
   assert, a test timeout, a SIGKILL), the tether sees its stdin end and KILLs the command's
   group, so nothing a test started outlives it. Signalling the Port's os pid (the tether)
-  forwards TERM/INT to that group.
+  forwards TERM/INT to the command (its group would send them back to the tether).
   """
   def port!(command, args, opts \\ []) do
     env =

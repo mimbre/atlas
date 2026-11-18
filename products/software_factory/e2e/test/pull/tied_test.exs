@@ -11,7 +11,11 @@ defmodule AtlasE2E.Pull.TiedTest do
     command, also when the tether is the one KILLed;
   - what the run started is stopped when setup fails (no context), the last started first,
     whatever one stop does;
-  - a tmux socket file with no server on it is no leak; one a server still answers on is.
+  - a tmux socket file with no server on it is no leak; one a server still answers on is;
+  - a test's own stop ends a probe its tether's group KILL would not reach (R1: each
+    liveness FIFO's `on_exit` does it, passed or failed). That probe's `session` is the
+    Port itself, not under `port!/3`: its own tether KILLs the probe's session when the
+    test BEAM is killed, which an outer tether's group KILL would not (it ends `session`).
 
   Liveness FIFOs show a real process gone (no `ps`); an injected process table stands in
   for `ps` where the reaper reads one.
@@ -120,6 +124,31 @@ defmodule AtlasE2E.Pull.TiedTest do
     assert Bench.refuses?(edge_port)
     # Nothing is tied any more: a second teardown stops nothing.
     assert Run.teardown(nil) == []
+  end
+
+  test "a probe outside its tether's group is KILLed by the test's own stop (R1)", c do
+    {fifo, watcher} = Support.liveness!(c.run)
+    stub = Support.stub!()
+    # A session of its own: no tether's group KILL reaches it, as with the regressed tether
+    # or the stale stub that left `pull-stub hold` behind. `session` is the Port (its tether
+    # ends the probe if the test BEAM is killed), so only the test's own stop ends it here.
+    port =
+      Port.open({:spawn_executable, stub}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: ["session", "--", "/bin/sh" | Support.holding(fifo, [stub, "hold"])]
+      ])
+
+    assert_receive {^port, {:data, line}}
+    assert %{"session" => probe} = JSON.decode!(line)
+    assert_receive {^watcher, {:data, "up\n"}}
+    assert Support.holders(fifo) == [probe]
+
+    assert Support.stop_holders(fifo) == [probe]
+    assert_receive {^watcher, {:exit_status, 0}}
+    # Gone: a second stop finds nothing to KILL.
+    assert Support.stop_holders(fifo) == []
   end
 
   test "a tmux socket file no server answers on is removed, not a leak", c do
