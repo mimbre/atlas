@@ -5,9 +5,15 @@ defmodule AtlasRuntime.Sources.Import do
   `change_set{manifest, fingerprints}`.
 
   **Per-source blobs.** Every blob comes from this source: from its own store
-  (`AtlasRuntime.Sources.Store`) when it supplied the blob earlier, otherwise downloaded
-  through `fetch` (the source's `get_blob` for this lease). A blob another source supplied is
-  never used.
+  (`AtlasRuntime.Sources.Store`) when it supplied the blob earlier, otherwise downloaded.
+  The manifests come through `fetch` (the source's `get_blob` for this lease). The base's
+  files come over Git from Code (option `git`: `%{url, env}`, `env` a function that answers
+  Git's environment): the ref
+  `refs/atlas/bases/<base_id>` of `<url>/bases/<base_id>` is fetched into the source's Git
+  cache (`<home>/sources/<name>/git`, one packfile, incremental afterwards), and each file
+  the manifest names is stored from its tree, checked against the manifest's sha256 and
+  size. `env` carries the source's bearer token to Git (`http.extraHeader`), never its
+  command line. A blob another source supplied is never used.
 
   **Caps, while streaming.** Before any content blob is fetched, the input's entries and
   declared bytes are checked against `max_base_entries` and `max_base_bytes`; every blob is
@@ -100,7 +106,7 @@ defmodule AtlasRuntime.Sources.Import do
          base_files = base_files(base_file),
          {:ok, change_set, source} <- change_set(home, source, change_set, fetch),
          :ok <- caps(base_files, change_set, options),
-         {:ok, source} <- obtain_all(home, source, base_files.files, fetch),
+         {:ok, source} <- obtain_base(home, source, base, base_files, options[:git]),
          {:ok, baseline_id} <- import_base(home, source, base_file, base_files, options),
          {:ok, change_set} <- compose_input(home, source, change_set, baseline_id, fetch) do
       {:ok, %{baseline_id: baseline_id, change_set: change_set}}
@@ -144,7 +150,7 @@ defmodule AtlasRuntime.Sources.Import do
     end
   end
 
-  defp input(%{work: %{input: %{base: %{manifest: manifest}} = input}}) do
+  defp input(%{work: %{input: %{base: %{base_id: base_id, manifest: manifest}} = input}}) do
     change_set =
       case Map.get(input, :change_set) do
         nil -> nil
@@ -160,7 +166,7 @@ defmodule AtlasRuntime.Sources.Import do
         {:refused, :invalid, "input_ref"}
 
       true ->
-        {:ok, %{manifest: manifest}, change_set}
+        {:ok, %{base_id: base_id, manifest: manifest}, change_set}
     end
   end
 
@@ -216,6 +222,73 @@ defmodule AtlasRuntime.Sources.Import do
   defp too_large?(size, {:at_most, cap}), do: size > cap
   defp too_large?(_size, _want), do: false
 
+  # The base's file blobs this source's store lacks, over Git from Code: the base's ref into
+  # the source's Git cache, then each blob from its tree, by the first path the manifest
+  # names it at, in one `git cat-file --batch`.
+  defp obtain_base(home, source, base, base_files, git) do
+    missing =
+      for {sha, size} <- base_files.files, not Store.has?(home, source.name, sha), do: {sha, size}
+
+    if missing == [] do
+      {:ok, source}
+    else
+      dir = Path.join([home, "sources", source.name, "git"])
+      ref = "refs/atlas/bases/" <> base.base_id
+      {_, 0} = System.cmd("git", ["init", "--bare", "--quiet", dir], stderr_to_stdout: true)
+
+      fetch = [
+        "--git-dir",
+        dir,
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        git.url <> "/bases/" <> base.base_id
+      ]
+
+      env = [{"GIT_TERMINAL_PROMPT", "0"} | git.env.()]
+      {_, 0} = System.cmd("git", fetch ++ ["+#{ref}:#{ref}"], env: env, stderr_to_stdout: true)
+
+      {tree, 0} = System.cmd("git", ["--git-dir", dir, "ls-tree", "-r", "-z", "--full-tree", ref])
+
+      oids =
+        for record <- :binary.split(tree, <<0>>, [:global, :trim_all]), into: %{} do
+          [meta, path] = :binary.split(record, "\t")
+          [_mode, _type, oid] = String.split(meta, " ")
+          {path, oid}
+        end
+
+      batch = Path.join(dir, "batch-#{System.unique_integer([:positive])}")
+
+      File.write!(
+        batch <> ".in",
+        Enum.map(missing, fn {sha, _} -> [oids[base_files.paths[sha]], ?\n] end)
+      )
+
+      script = ~s(exec git --git-dir "$1" cat-file --batch < "$2" > "$3")
+      {_, 0} = System.cmd("sh", ["-c", script, "sh", dir, batch <> ".in", batch <> ".out"])
+
+      try do
+        File.open!(batch <> ".out", [:read, :binary], fn out ->
+          Enum.reduce_while(missing, {:ok, source}, fn {sha, size}, {:ok, source} ->
+            [_oid, "blob", length] =
+              out |> IO.binread(:line) |> String.trim_trailing() |> String.split(" ")
+
+            content = IO.binread(out, String.to_integer(length))
+            "\n" = IO.binread(out, 1)
+
+            case store(home, source, sha, %{size: byte_size(content), content: [content]}, size) do
+              {:ok, _path, source} -> {:cont, {:ok, source}}
+              other -> {:halt, other}
+            end
+          end)
+        end)
+      after
+        File.rm(batch <> ".in")
+        File.rm(batch <> ".out")
+      end
+    end
+  end
+
   # Every file blob, each with the size its entry declares.
   defp obtain_all(home, source, files, fetch) do
     Enum.reduce_while(files, {:ok, source}, fn {sha256, size}, {:ok, source} ->
@@ -260,7 +333,7 @@ defmodule AtlasRuntime.Sources.Import do
       entries = for %{"entries" => entries} when is_list(entries) <- roots, e <- entries, do: e
       summary(entries)
     else
-      _ -> %{entries: 0, bytes: 0, files: %{}}
+      _ -> %{entries: 0, bytes: 0, files: %{}, paths: %{}}
     end
   end
 
@@ -274,7 +347,13 @@ defmodule AtlasRuntime.Sources.Import do
           reduce: 0,
           do: (sum -> sum + max(size, 0))
 
-    %{entries: length(entries), bytes: bytes, files: files}
+    paths =
+      for %{"op" => "write", "kind" => "file", "sha256" => sha, "path" => path} <-
+            Enum.reverse(entries),
+          into: %{},
+          do: {sha, path}
+
+    %{entries: length(entries), bytes: bytes, files: files, paths: paths}
   end
 
   defp file_blobs(entries) do

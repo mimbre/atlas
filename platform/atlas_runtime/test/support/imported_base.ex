@@ -7,7 +7,7 @@ defmodule AtlasRuntime.Test.ImportedBase do
   """
 
   alias AtlasRuntime.Sources.Import
-  alias AtlasRuntime.Test.FakeWorkSource
+  alias AtlasRuntime.Test.{FakeWorkSource, GitBase}
 
   @doc "Imports a base of `files` (root `atlas`) for `source` into `home`."
   def import!(home, source, files \\ %{"README.md" => "base\n"}) do
@@ -22,7 +22,10 @@ defmodule AtlasRuntime.Test.ImportedBase do
 
     lease = %{work: %{input: %{base: %{base_id: "test-base", manifest: manifest}}}}
     policy = %{"name" => source, "max_store_bytes" => 2_147_483_648}
-    {:ok, imported} = Import.base(home, policy, lease, fetch)
+
+    {:ok, imported} =
+      Import.base(home, policy, lease, fetch, git: GitBase.serve("test-base", files))
+
     imported
   end
 end

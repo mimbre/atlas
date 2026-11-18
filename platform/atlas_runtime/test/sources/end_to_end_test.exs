@@ -74,7 +74,14 @@ defmodule AtlasRuntime.Sources.EndToEndTest do
     start_supervised!(
       {Puller,
        Keyword.merge(
-         [name: @name, target: ctx.target, tick: 50, min_poll_ms: 20, retry_ms: 20],
+         [
+           name: @name,
+           target: ctx.target,
+           tick: 50,
+           min_poll_ms: 20,
+           retry_ms: 20,
+           import: [git: Source.git(ctx.source)]
+         ],
          opts
        )}
     )

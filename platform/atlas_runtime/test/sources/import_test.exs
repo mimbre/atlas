@@ -2,7 +2,8 @@ defmodule AtlasRuntime.Sources.ImportTest do
   @moduledoc """
   M2 plan W5 (decision §3 "Inputs (F6)", §5.1, §6.6 M2): a leased work's base, and its
   optional change set, are imported from the source that offered it, through that source's
-  own blob store, with the caps checked while streaming, and the base validated by the S5c P6
+  own blob store (the base's files over Git, as Code serves them), with the caps checked, and
+  the base validated by the S5c P6
   validator (the real helper, `workspace base-import`). A blob another source supplied is
   never reused; a change set's `csf_` fingerprints must be the request's.
   """
@@ -13,6 +14,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
   alias AtlasTestAwait, as: Await
   alias AtlasRuntime.Work.Frozen
   alias AtlasRuntime.Workspaces
+  alias AtlasRuntime.Test.GitBase
 
   @quota 10_000_000
 
@@ -57,6 +59,28 @@ defmodule AtlasRuntime.Sources.ImportTest do
         end
       end)
     end
+  end
+
+  # Import.base/5 as the puller calls it, with the lease's base served over Git (as Code serves
+  # it) from what `source` holds: each file entry of the manifest whose bytes it has.
+  defp import_base(home, policy, lease, source, opts \\ []) do
+    blobs = Agent.get(source, & &1.blobs)
+    base = get_in(lease, [:work, :input, :base]) || %{base_id: "none", manifest: nil}
+
+    files =
+      case blobs[{:bytes, base.manifest}] || blobs[base.manifest] do
+        line when is_binary(line) ->
+          for %{"entries" => entries} <- Map.get(JSON.decode!(line), "roots", []),
+              %{"kind" => "file", "path" => path, "sha256" => sha} <- entries,
+              is_binary(blobs[sha]),
+              do: {path, blobs[sha]}
+
+        _ ->
+          []
+      end
+
+    git = GitBase.serve(base.base_id, files)
+    Import.base(home, policy, lease, fetch(source), [git: git] ++ opts)
   end
 
   defp fetched(source), do: Agent.get(source, &Enum.reverse(&1.fetched))
@@ -163,7 +187,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
     src = source(blobs)
 
     assert {:ok, %{baseline_id: "sha256:" <> hex, change_set: nil}} =
-             Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+             import_base(home, policy("flow-prod"), lease(manifest), src)
 
     assert File.read!(Path.join([home, "snapshots", hex, "complete"])) == "sha256:#{hex}\n"
 
@@ -180,12 +204,12 @@ defmodule AtlasRuntime.Sources.ImportTest do
     src = source(blobs)
 
     assert {:ok, %{baseline_id: id}} =
-             Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+             import_base(home, policy("flow-prod"), lease(manifest), src)
 
     first = length(fetched(src))
 
     assert {:ok, %{baseline_id: ^id}} =
-             Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+             import_base(home, policy("flow-prod"), lease(manifest), src)
 
     assert length(fetched(src)) == first
   end
@@ -196,24 +220,13 @@ defmodule AtlasRuntime.Sources.ImportTest do
     b = source(blobs)
 
     assert {:ok, %{baseline_id: id}} =
-             Import.base(home, policy("source-a"), lease(manifest), fetch(a))
+             import_base(home, policy("source-a"), lease(manifest), a)
 
     assert {:ok, %{baseline_id: ^id}} =
-             Import.base(home, policy("source-b"), lease(manifest), fetch(b))
+             import_base(home, policy("source-b"), lease(manifest), b)
 
-    assert Enum.sort(fetched(b)) == Enum.sort(Map.keys(blobs))
+    assert fetched(b) == [manifest]
     for sha <- Map.keys(blobs), do: assert(Store.has?(home, "source-b", sha))
-  end
-
-  test "B's import fails when B does not serve a blob, though A holds it", %{home: home} do
-    {manifest, blobs} = base(@files)
-    a = source(blobs)
-    assert {:ok, _} = Import.base(home, policy("source-a"), lease(manifest), fetch(a))
-
-    {content_sha, _} = Enum.find(blobs, fn {sha, _} -> sha != manifest end)
-    b = source(Map.delete(blobs, content_sha))
-    assert {:error, _} = Import.base(home, policy("source-b"), lease(manifest), fetch(b))
-    assert content_sha in fetched(b)
   end
 
   describe "caps" do
@@ -224,9 +237,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(blobs)
 
       assert {:refused, :too_large, "max_base_bytes"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src),
-                 max_base_bytes: 4096
-               )
+               import_base(home, policy("flow-prod"), lease(manifest), src, max_base_bytes: 4096)
 
       assert fetched(src) == [manifest]
       refute File.exists?(Path.join(home, "snapshots"))
@@ -238,7 +249,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(blobs)
 
       assert {:refused, :too_large, "import_deadline"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src),
+               import_base(home, policy("flow-prod"), lease(manifest), src,
                  deadline_at: System.monotonic_time(:millisecond) - 1
                )
 
@@ -252,9 +263,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(blobs)
 
       assert {:refused, :too_large, "max_base_bytes"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src),
-                 max_base_bytes: 2500
-               )
+               import_base(home, policy("flow-prod"), lease(manifest), src, max_base_bytes: 2500)
 
       assert fetched(src) == [manifest]
     end
@@ -265,54 +274,9 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(blobs)
 
       assert {:refused, :too_large, "max_base_entries"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src),
-                 max_base_entries: 2
-               )
+               import_base(home, policy("flow-prod"), lease(manifest), src, max_base_entries: 2)
 
       assert fetched(src) == [manifest]
-    end
-
-    test "an oversized stream is aborted while streaming: at most the cap plus one chunk is read",
-         %{home: home} do
-      declared = 4096
-      chunk = 1024
-      entry = %{file("big", "") | "size" => declared, "sha256" => String.duplicate("a", 64)}
-
-      line =
-        JSON.encode!(%{
-          "format" => "atlas-base",
-          "version" => 1,
-          "roots" => [%{"root" => "atlas", "entries" => [entry]}]
-        }) <> "\n"
-
-      manifest = sha256(line)
-      counter = :counters.new(1, [])
-
-      endless =
-        Stream.repeatedly(fn ->
-          :counters.add(counter, 1, chunk)
-          :binary.copy("x", chunk)
-        end)
-        |> Stream.take(1000)
-
-      src = source(%{manifest => line, entry["sha256"] => {:stream, declared, endless}})
-
-      assert {:refused, :too_large, "stream_too_long"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src),
-                 max_base_bytes: declared
-               )
-
-      assert :counters.get(counter, 1) <= declared + chunk
-      refute Store.has?(home, "flow-prod", entry["sha256"])
-    end
-
-    test "a blob served with another size than its entry's is refused unread", %{home: home} do
-      {manifest, blobs} = base(%{"a.txt" => "abc"})
-      sha = sha256("abc")
-      src = source(Map.put(blobs, sha, {:stream, 2, Stream.map([1], fn _ -> flunk("read") end)}))
-
-      assert {:refused, :invalid, "blob_size"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
     end
 
     test "max_store_bytes: a base past the source's quota is too_large and leaves nothing partial",
@@ -321,7 +285,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(blobs)
 
       assert {:refused, :too_large, "max_store_bytes"} =
-               Import.base(home, policy("flow-prod", 2000), lease(manifest), fetch(src))
+               import_base(home, policy("flow-prod", 2000), lease(manifest), src)
 
       dir = Store.blobs_dir(home, "flow-prod")
       assert File.ls!(dir) == [manifest]
@@ -334,7 +298,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(Map.put(blobs, sha, "abd"))
 
       assert {:refused, :invalid, "blob_mismatch"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+               import_base(home, policy("flow-prod"), lease(manifest), src)
 
       refute Store.has?(home, "flow-prod", sha)
     end
@@ -350,10 +314,10 @@ defmodule AtlasRuntime.Sources.ImportTest do
       dir = Store.blobs_dir(home, "flow-prod")
 
       {result, calls} =
-        calls(fn -> Import.base(home, policy("flow-prod"), lease(manifest), fetch(src)) end)
+        calls(fn -> import_base(home, policy("flow-prod"), lease(manifest), src) end)
 
       assert {:ok, %{baseline_id: "sha256:" <> _}} = result
-      assert length(fetched(src)) == n + 1
+      assert fetched(src) == [manifest]
 
       # One listing, not one per blob.
       assert for({:ls, ^dir} <- calls, do: dir) == [dir]
@@ -373,7 +337,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(blobs)
 
       assert {:refused, :too_large, "max_store_bytes"} =
-               Import.base(home, policy("flow-prod", 2500), lease(manifest), fetch(src))
+               import_base(home, policy("flow-prod", 2500), lease(manifest), src)
 
       assert {:ok, used} = Store.scan(home, "flow-prod")
       assert used <= 2500
@@ -391,7 +355,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
 
       # Not counted against the quota (the base needs far less than 5000 bytes) and removed.
       assert {:ok, _} =
-               Import.base(home, policy("flow-prod", 1000), lease(manifest), fetch(source(blobs)))
+               import_base(home, policy("flow-prod", 1000), lease(manifest), source(blobs))
 
       refute Enum.any?(File.ls!(dir), &String.starts_with?(&1, ".partial-"))
     end
@@ -409,7 +373,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
         {:error, _} ->
           {manifest, blobs} = base(@files)
           src = source(blobs)
-          assert {:error, _} = Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+          assert {:error, _} = import_base(home, policy("flow-prod"), lease(manifest), src)
           assert fetched(src) == []
       end
     end
@@ -420,7 +384,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       {manifest, blobs} = base(@files, [symlink("escape", "../../outside")])
 
       assert {:refused, :invalid, "unsafe_tree"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(source(blobs)))
+               import_base(home, policy("flow-prod"), lease(manifest), source(blobs))
 
       refute File.exists?(Path.join(home, "snapshots"))
       assert File.ls!(Path.join(home, "bases")) == []
@@ -430,7 +394,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       {manifest, blobs} = base(@files, [symlink("abs", "/etc/passwd")])
 
       assert {:refused, :invalid, "unsafe_entry"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(source(blobs)))
+               import_base(home, policy("flow-prod"), lease(manifest), source(blobs))
     end
 
     test "a mode a base may not hold", %{home: home} do
@@ -438,7 +402,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       blobs = Map.put(blobs, sha256("x"), "x")
 
       assert {:refused, :invalid, "unsafe_entry"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(source(blobs)))
+               import_base(home, policy("flow-prod"), lease(manifest), source(blobs))
     end
 
     test "a manifest that is no base line", %{home: home} do
@@ -446,11 +410,11 @@ defmodule AtlasRuntime.Sources.ImportTest do
       manifest = sha256(line)
 
       assert {:refused, :invalid, "wrong_format"} =
-               Import.base(
+               import_base(
                  home,
                  policy("flow-prod"),
                  lease(manifest),
-                 fetch(source(%{manifest => line}))
+                 source(%{manifest => line})
                )
     end
   end
@@ -461,7 +425,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(blobs)
 
       {:ok, %{baseline_id: id}} =
-        Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+        import_base(home, policy("flow-prod"), lease(manifest), src)
 
       %{manifest: manifest, blobs: blobs, baseline_id: id}
     end
@@ -475,7 +439,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       ref = %{manifest: cs_sha, fingerprints: fingerprints}
 
       assert {:ok, %{baseline_id: id, change_set: %{file: file, blobs: blobs_dir}}} =
-               Import.base(home, policy("flow-prod"), lease(c.manifest, ref), fetch(src))
+               import_base(home, policy("flow-prod"), lease(c.manifest, ref), src)
 
       assert id == c.baseline_id
       assert Enum.sort(fetched(src)) == Enum.sort([cs_sha, sha256(new)])
@@ -495,11 +459,11 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(c.blobs |> Map.put(cs_sha, cs_bytes) |> Map.put(sha256(new), new))
 
       assert {:refused, :invalid, "change_set_fingerprint"} =
-               Import.base(
+               import_base(
                  home,
                  policy("flow-prod"),
                  lease(c.manifest, %{manifest: cs_sha, fingerprints: other}),
-                 fetch(src)
+                 src
                )
 
       refute sha256(new) in fetched(src)
@@ -510,11 +474,11 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(Map.put(c.blobs, cs_sha, cs_bytes))
 
       assert {:refused, :invalid, "change_set_fingerprint"} =
-               Import.base(
+               import_base(
                  home,
                  policy("flow-prod"),
                  lease(c.manifest, %{manifest: cs_sha, fingerprints: []}),
-                 fetch(src)
+                 src
                )
     end
 
@@ -524,11 +488,11 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(Map.put(c.blobs, cs_sha, cs_bytes))
 
       assert {:refused, :invalid, "change_set_base"} =
-               Import.base(
+               import_base(
                  home,
                  policy("flow-prod"),
                  lease(c.manifest, %{manifest: cs_sha, fingerprints: fingerprints}),
-                 fetch(src)
+                 src
                )
     end
 
@@ -537,11 +501,11 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(Map.put(c.blobs, sha256(bytes), bytes))
 
       assert {:refused, :invalid, "change_set_invalid"} =
-               Import.base(
+               import_base(
                  home,
                  policy("flow-prod"),
                  lease(c.manifest, %{manifest: sha256(bytes), fingerprints: []}),
-                 fetch(src)
+                 src
                )
     end
 
@@ -557,7 +521,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
 
       a =
         Task.async(fn ->
-          Import.base(home, policy("flow-prod"), lease(c.manifest, ref), fetch(first))
+          import_base(home, policy("flow-prod"), lease(c.manifest, ref), first)
         end)
 
       assert_receive {:writing, writer}
@@ -565,7 +529,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
 
       b =
         Task.async(fn ->
-          Import.base(home, policy("flow-prod"), lease(c.manifest, ref), fetch(second))
+          import_base(home, policy("flow-prod"), lease(c.manifest, ref), second)
         end)
 
       Await.until(
@@ -622,11 +586,10 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(Map.put(blobs, manifest, line))
 
       assert {:ok, %{baseline_id: @fixture_baseline, change_set: nil}} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+               import_base(home, policy("flow-prod"), lease(manifest), src)
 
-      # Every fixture blob is fetched once: the manifest first, then exactly its file contents.
-      assert [^manifest | contents] = fetched(src)
-      assert Enum.sort(contents) == Enum.sort(Map.keys(blobs))
+      # Only the manifest is fetched as a blob: the files come over Git.
+      assert fetched(src) == [manifest]
 
       "sha256:" <> hex = @fixture_baseline
       snapshot = Path.join([home, "snapshots", hex])
@@ -660,7 +623,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
         src = source(Map.put(blobs, manifest, line))
 
         assert {:refused, :invalid, unquote(rule)} =
-                 Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+                 import_base(home, policy("flow-prod"), lease(manifest), src)
 
         refute File.exists?(Path.join(home, "snapshots"))
       end
@@ -674,7 +637,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       src = source(blobs |> Map.put(manifest, line) |> Map.put(readme, "hellO\n"))
 
       assert {:refused, :invalid, "blob_mismatch"} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(src))
+               import_base(home, policy("flow-prod"), lease(manifest), src)
 
       refute Store.has?(home, "flow-prod", readme)
       refute File.exists?(Path.join(home, "snapshots"))
@@ -714,14 +677,14 @@ defmodule AtlasRuntime.Sources.ImportTest do
 
       # Other homes, sources, lease base_ids and chunkings: none of it is in the id.
       assert {:ok, %{baseline_id: id}} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(source(served)))
+               import_base(home, policy("flow-prod"), lease(manifest), source(served))
 
       assert {:ok, %{baseline_id: ^id}} =
-               Import.base(
+               import_base(
                  other,
                  policy("flow-other"),
                  put_in(lease(manifest), [:work, :input, :base, :base_id], "b-other"),
-                 fetch(source(served), 3)
+                 source(served)
                )
 
       assert id == @fixture_baseline
@@ -743,19 +706,19 @@ defmodule AtlasRuntime.Sources.ImportTest do
       assert reordered != line
 
       assert {:ok, %{baseline_id: id}} =
-               Import.base(
+               import_base(
                  other_home(),
                  policy("flow-prod"),
                  lease(sha256(reordered)),
-                 fetch(source(Map.put(blobs, sha256(reordered), reordered)))
+                 source(Map.put(blobs, sha256(reordered), reordered))
                )
 
       assert {:ok, %{baseline_id: ^id}} =
-               Import.base(
+               import_base(
                  home,
                  policy("flow-prod"),
                  lease(sha256(line)),
-                 fetch(source(Map.put(blobs, sha256(line), line)))
+                 source(Map.put(blobs, sha256(line), line))
                )
     end
 
@@ -768,7 +731,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
       # Runtime A, as its executor does: import, compose the folder (the base and an empty
       # change set), change it, freeze it.
       assert {:ok, %{baseline_id: id, change_set: nil}} =
-               Import.base(home, policy("flow-prod"), lease(manifest), fetch(source(served)))
+               import_base(home, policy("flow-prod"), lease(manifest), source(served))
 
       empty = Path.join(home, "empty-change-set.json")
       File.write!(empty, JSON.encode!(%{"base" => id, "roots" => []}))
@@ -807,7 +770,7 @@ defmodule AtlasRuntime.Sources.ImportTest do
         |> Map.put(sha256(new), File.read!(Path.join(frozen_blobs, sha256(new))))
 
       assert {:ok, %{baseline_id: ^id, change_set: %{file: file, blobs: blobs_dir}}} =
-               Import.base(b, policy("flow-prod"), lease(manifest, ref), fetch(source(src)))
+               import_base(b, policy("flow-prod"), lease(manifest, ref), source(src))
 
       b_dest = Path.join([b, "workers", "work-w-2"])
       File.mkdir_p!(Path.dirname(b_dest))
@@ -840,10 +803,10 @@ defmodule AtlasRuntime.Sources.ImportTest do
     src = source(%{})
 
     assert {:refused, :invalid, "input_ref"} =
-             Import.base(home, policy("flow-prod"), lease("../x"), fetch(src))
+             import_base(home, policy("flow-prod"), lease("../x"), src)
 
     assert {:refused, :invalid, "no_base"} =
-             Import.base(home, policy("flow-prod"), %{work: %{}}, fetch(src))
+             import_base(home, policy("flow-prod"), %{work: %{}}, src)
 
     assert fetched(src) == []
   end
@@ -864,7 +827,9 @@ defmodule AtlasRuntime.Sources.ImportTest do
         receive do: (:go -> [])
       end)
 
-    Map.put(blobs, gated, {:stream, byte_size(bytes), Stream.concat([bytes], hold)})
+    blobs
+    |> Map.put(gated, {:stream, byte_size(bytes), Stream.concat([bytes], hold)})
+    |> Map.put({:bytes, gated}, bytes)
   end
 
   test "a second import of the same source waits for the first one's last write; both succeed",
@@ -874,13 +839,13 @@ defmodule AtlasRuntime.Sources.ImportTest do
     second = source(blobs)
 
     a =
-      Task.async(fn -> Import.base(home, policy("flow-prod"), lease(manifest), fetch(first)) end)
+      Task.async(fn -> import_base(home, policy("flow-prod"), lease(manifest), first) end)
 
     assert_receive {:writing, writer}
     assert writer == a.pid
 
     b =
-      Task.async(fn -> Import.base(home, policy("flow-prod"), lease(manifest), fetch(second)) end)
+      Task.async(fn -> import_base(home, policy("flow-prod"), lease(manifest), second) end)
 
     # The second import has either queued for the store's lock, or (with no lock) listed
     # the store, removing the first one's temporary file, and fetched.
@@ -907,12 +872,12 @@ defmodule AtlasRuntime.Sources.ImportTest do
     second = source(blobs)
 
     # Not linked to the test: it is killed, as the puller kills an import past its deadline.
-    a = spawn(fn -> Import.base(home, policy("flow-prod"), lease(manifest), fetch(first)) end)
+    a = spawn(fn -> import_base(home, policy("flow-prod"), lease(manifest), first) end)
     assert_receive {:writing, ^a}
     assert StoreLock.holder(home, "flow-prod") == a
 
     b =
-      Task.async(fn -> Import.base(home, policy("flow-prod"), lease(manifest), fetch(second)) end)
+      Task.async(fn -> import_base(home, policy("flow-prod"), lease(manifest), second) end)
 
     Await.until(fn -> StoreLock.waiting(home, "flow-prod") == [b.pid] end,
       wake: {:trace, StoreLock}
@@ -922,8 +887,8 @@ defmodule AtlasRuntime.Sources.ImportTest do
     Await.down(b.pid)
 
     assert {:ok, %{baseline_id: "sha256:" <> _}} = Task.await(b)
-    # The killed import stored nothing: the second one fetched the manifest and every blob.
-    assert Enum.sort(fetched(second)) == Enum.sort(Map.keys(blobs))
+    # The killed import stored nothing: the second one fetched the manifest again.
+    assert fetched(second) == [manifest]
     assert StoreLock.holder(home, "flow-prod") == nil
     assert StoreLock.waiting(home, "flow-prod") == []
     # Nothing partial is left: the killed writer's temporary file was removed by the scan.

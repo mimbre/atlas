@@ -57,7 +57,7 @@ defmodule AtlasRuntime.Sources.ImportWiringTest do
          target: target,
          tick: :manual,
          polling: :manual,
-         import: Map.get(context, :import, [])}
+         import: [git: Source.git(source)] ++ Map.get(context, :import, [])}
       )
 
     %{bench: bench, source: source, target: target, puller: puller}
@@ -122,7 +122,7 @@ defmodule AtlasRuntime.Sources.ImportWiringTest do
     assert launches(ctx.bench) == []
   end
 
-  test "a leased base work runs on the imported tree: its blobs from this source, no Code",
+  test "a leased base work runs on the imported tree: its blobs from this source",
        ctx do
     {manifest, blobs} = Source.base(@files)
     Source.add_work(ctx.source, offered(%{base: %{base_id: "b-1", manifest: manifest}}), blobs)
@@ -134,11 +134,10 @@ defmodule AtlasRuntime.Sources.ImportWiringTest do
     assert %M.Imported{source: @name, change_set: nil} = record.imported
     assert tree(ctx.bench, work_id) == @files
 
-    # Every blob came from this source, through this lease, into this source's store.
+    # The manifest came from this source through this lease, the files over Git from its Code;
+    # every blob is in this source's store.
     lease_id = Source.current(ctx.source, "task-1")
-
-    assert Enum.sort(Source.served(ctx.source)) ==
-             Enum.sort(for sha <- Map.keys(blobs), do: {lease_id, sha})
+    assert Source.served(ctx.source) == [{lease_id, manifest}]
 
     for sha <- Map.keys(blobs), do: assert(Store.has?(ctx.bench.dir, @name, sha))
 

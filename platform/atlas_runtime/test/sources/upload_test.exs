@@ -24,6 +24,7 @@ defmodule AtlasRuntime.Sources.UploadTest do
   alias AtlasRuntime.Boundary.Work, as: F
   alias AtlasRuntime.CodeStandIn
   alias AtlasRuntime.Sources.{Import, Upload}
+  alias AtlasRuntime.Test.GitBase
   alias AtlasRuntime.Test.WorkSourceFacade, as: WS
   alias AtlasRuntime.Work.{FrozenStore, Store}
 
@@ -254,7 +255,9 @@ defmodule AtlasRuntime.Sources.UploadTest do
     {base_sha, base_blobs} = base_line()
 
     assert {:ok, %{baseline_id: baseline_id, change_set: nil}} =
-             Import.base(bench.dir, @importer, lease_of(base_sha, nil), serve(base_blobs))
+             Import.base(bench.dir, @importer, lease_of(base_sha, nil), serve(base_blobs),
+               git: GitBase.serve("b-1", @files)
+             )
 
     stored = FrozenStore.get(bench.dir, work.work_id, 1)
     assert stored.base == work.request.workspace.base_id

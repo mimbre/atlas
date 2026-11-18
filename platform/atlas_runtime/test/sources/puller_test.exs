@@ -69,7 +69,8 @@ defmodule AtlasRuntime.Sources.PullerTest do
           target: ctx.target,
           clock: fn -> Agent.get(clock, & &1) end,
           tick: :manual,
-          polling: :manual
+          polling: :manual,
+          import: [git: Source.git(ctx.source)]
         ],
         opts
       )

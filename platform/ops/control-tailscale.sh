@@ -1,6 +1,7 @@
 # Sourced only by core-run after apply-move, hold and Rela verification.
 # Foreground Serve owns Control ingress and, when the settings configure Flow's work source
-# with a port, the work source's ingress; userspace networking adds no kernel routes.
+# with a port, the work source's ingress, and Code's Git port (code.git_port) likewise;
+# userspace networking adds no kernel routes.
 fail() { echo "control-tailscale: $*" >&2; exit 1; }
 umask 077
 state_dir="${ATLAS_CONTROL_TS_STATE_DIR:-/data/control-tailscale}"
@@ -9,21 +10,21 @@ mkdir -p "$state_dir" "$sock_dir"
 chmod 700 "$state_dir" "$sock_dir"
 sock="$sock_dir/tailscaled.sock"
 [ ! -e "$sock" ] || fail "socket already exists; refusing to adopt another daemon"
-daemon_pid=""; serve_pid=""; source_pid=""; core_pid=""; key_file=""
+daemon_pid=""; serve_pid=""; source_pid=""; git_pid=""; core_pid=""; key_file=""
 cleanup() {
   trap - TERM INT
-  for pid in "$serve_pid" "$source_pid" "$core_pid" "$daemon_pid"; do
+  for pid in "$serve_pid" "$source_pid" "$git_pid" "$core_pid" "$daemon_pid"; do
     [ -z "$pid" ] || kill -TERM "$pid" 2>/dev/null || true
   done
   for _ in {1..30}; do
     alive=""
-    for pid in "$serve_pid" "$source_pid" "$core_pid" "$daemon_pid"; do
+    for pid in "$serve_pid" "$source_pid" "$git_pid" "$core_pid" "$daemon_pid"; do
       if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then alive=1; fi
     done
     [ -n "$alive" ] || break
     sleep 0.1
   done
-  for pid in "$serve_pid" "$source_pid" "$core_pid" "$daemon_pid"; do
+  for pid in "$serve_pid" "$source_pid" "$git_pid" "$core_pid" "$daemon_pid"; do
     [ -z "$pid" ] || kill -KILL "$pid" 2>/dev/null || true
     [ -z "$pid" ] || wait "$pid" 2>/dev/null || true
   done
@@ -54,6 +55,12 @@ w=json.load(open(sys.argv[1])).get("flow",{}).get("work_source",{})
 p=w.get("port")
 print(p if type(p) is int and 1 <= p <= 65535 else "")
 ' "$settings")" || fail "cannot read the work source settings"
+# Code's Git port for Runtimes, when the settings give one (loopback only, like the source).
+git_port="$(python3 -c '
+import json,sys
+p=json.load(open(sys.argv[1])).get("code",{}).get("git_port")
+print(p if type(p) is int and 1 <= p <= 65535 else "")
+' "$settings")" || fail "cannot read the Code Git settings"
 hostname="${ATLAS_CONTROL_TS_HOSTNAME:-atlas-$ATLAS_ENV}"
 tls_port="${ATLAS_CONTROL_TLS_PORT:-443}"
 [[ "$tls_port" =~ ^[0-9]{1,5}$ ]] || fail "invalid TLS port"
@@ -111,10 +118,15 @@ if [ -n "$source_port" ]; then
   tailscale --socket="$sock" serve --tls-terminated-tcp="$source_port" "tcp://localhost:$source_port" &
   source_pid=$!
 fi
+if [ -n "$git_port" ]; then
+  tailscale --socket="$sock" serve --tls-terminated-tcp="$git_port" "tcp://localhost:$git_port" &
+  git_pid=$!
+fi
 while :; do
   kill -0 "$daemon_pid" 2>/dev/null || fail "owned tailscaled exited"
   kill -0 "$serve_pid" 2>/dev/null || fail "Serve exited"
   [ -z "$source_pid" ] || kill -0 "$source_pid" 2>/dev/null || fail "work source Serve exited"
+  [ -z "$git_pid" ] || kill -0 "$git_pid" 2>/dev/null || fail "Code Git Serve exited"
   kill -0 "$core_pid" 2>/dev/null || fail "core exited"
   sleep 0.2
 done

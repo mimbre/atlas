@@ -71,7 +71,8 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
         target: target,
         clock: fn -> Agent.get(clock, & &1) end,
         tick: :manual,
-        polling: :manual
+        polling: :manual,
+        import: [git: Source.git(source)]
       ] ++ Map.get(ctx, :puller_opts, [])
 
     puller = start_supervised!({Puller, opts})

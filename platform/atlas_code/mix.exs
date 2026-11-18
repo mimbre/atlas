@@ -33,11 +33,14 @@ defmodule AtlasCode.MixProject do
   # runtime dependency: the local Code service neither ships nor starts it; the core, which
   # configures the receiver, starts it before Code (the `atlas` release).
   # Code's own boundary contract (boundary/contract), which the facade AtlasCode.Boundary is
-  # generated from; it brings its generator (boundary/generator).
+  # generated from; it brings its generator (boundary/generator). Plug on Bandit for the Git
+  # endpoint (AtlasCode.Git).
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true, runtime: false},
       {:atlas_code_boundary, path: "boundary/contract"},
+      {:plug, "~> 1.19"},
+      {:bandit, "~> 1.10"},
       # Tests wait on events, never on the clock (platform/frameworks/test_await).
       {:atlas_test_await, path: "../frameworks/test_await", only: :test}
     ]

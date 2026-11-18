@@ -15,7 +15,9 @@ defmodule AtlasRuntime.Policy do
   under `sources/<name>/` like its `credential_file` (a test source whose certificate no
   public CA signs; pull-e2e D5). Without it the OS store applies. A `builtin` entry has none.
   This checks the path as a string only; at each open `AtlasRuntime.Sources.Supervisor.open/5`
-  also refuses a symbolic link on it (lstat) and trusts the certificates it read.
+  also refuses a symbolic link on it (lstat) and trusts the certificates it read. A `remote`
+  entry may also name a `git_url`: the https:// URL of its Code's Git endpoint, where a
+  pulled work's base is fetched (`AtlasRuntime.Sources.Import`).
   """
 
   @file_name "policy.json"
@@ -54,7 +56,7 @@ defmodule AtlasRuntime.Policy do
     "remote" => ~w(name kind url credential_file priority max_slots max_store_bytes)
   }
   # Keys an entry of that kind may add (pull-e2e D5): a remote source's own CA file.
-  @optional_source_keys %{"builtin" => [], "remote" => ~w(ca_file)}
+  @optional_source_keys %{"builtin" => [], "remote" => ~w(ca_file git_url)}
 
   @type loaded :: {:ok, map()} | {:error, :missing | {:invalid, String.t()}}
   @type option :: %{String.t() => String.t()}
@@ -580,6 +582,7 @@ defmodule AtlasRuntime.Policy do
       {kind == "builtin" or https?(source["url"]), "url must be an https:// URL with a host"},
       {kind == "builtin" or source_file?(source["credential_file"], name),
        "credential_file must be a relative path under sources/#{name}/"},
+      {optional(source, "git_url", &https?/1), "git_url must be an https:// URL with a host"},
       {optional(source, "ca_file", &source_file?(&1, name)),
        "ca_file must be a relative path under sources/#{name}/"},
       {is_integer(source["priority"]), "priority must be an integer"},
