@@ -294,7 +294,7 @@ defmodule AtlasCodeTest do
             try do
               {:ok, AtlasCode.start(home)}
             rescue
-              error -> {:error, error.message}
+              error -> {:error, Exception.message(error)}
             end
           end)
         end)
