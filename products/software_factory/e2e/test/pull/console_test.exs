@@ -55,6 +55,16 @@ defmodule AtlasE2E.Pull.ConsoleTest do
     assert Console.active_tab(" Loading…\n", tabs) == nil
   end
 
+  # pull-e2e-confirmkey: LC3's s5 sent Ctrl+S to the pick-up confirm, which binds submit to
+  # Enter/y only (AtlasControl.Console `confirmation/1`), so the TUI ignored it and the step
+  # waited out its cap. Each dialog kind submits with the key Control declares for it.
+  test "a dialog submits with the key Control declares for its kind" do
+    assert Console.submit_key(:confirm) == "Enter"
+    assert Console.submit_key(:form) == "C-s"
+    refute Console.submit_key(:confirm) == Console.submit_key(:form)
+    assert_raise KeyError, fn -> Console.submit_key(:browse) end
+  end
+
   describe "the kept artifacts" do
     setup do
       root = Path.join(System.tmp_dir!(), "pe-keep-#{System.unique_integer([:positive])}")
