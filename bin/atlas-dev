@@ -3,6 +3,11 @@
 #
 #   bin/atlas-dev e2e [uc-atlas-01 ...] [--env test]   the end-to-end test, on a private
 #                      test instance of its own; refuses any other --env
+#   bin/atlas-dev pull-e2e [s1 s5 ...] [--env test]   the go-live gate's pull-e2e: the real
+#                      Runtime puller against Flow's work source, Facts and Code test instances
+#                      and a stub agent (products/software_factory/e2e/pull/README.md). It
+#                      compiles first (a warm cache), then the timed run: about 15-20 min,
+#                      bounded at 5 100 s; never in CI. Run it through atlas-heavy
 set -euo pipefail
 
 # Nothing here needs the read capability; keep it from every child.
@@ -15,7 +20,7 @@ header() { sed -n '2,/^set -euo/p' "$root/bin/atlas-dev" | sed '$d' | sed 's/^# 
 usage() { header; exit 2; }
 no_env() { echo "atlas-dev: --env needs test or prod" >&2; exit 2; }
 
-case "${1:-}" in e2e) cmd="$1"; shift ;; -h|--help|"") usage ;; *) echo "atlas-dev: unknown command $1" >&2; usage ;; esac
+case "${1:-}" in e2e|pull-e2e) cmd="$1"; shift ;; -h|--help|"") usage ;; *) echo "atlas-dev: unknown command $1" >&2; usage ;; esac
 env=""
 args=()
 while [ $# -gt 0 ]; do
@@ -35,9 +40,9 @@ done
 # reuses it later). Whichever it is, a different version is replaced by the pinned one. Unless
 # ATLAS_CONFIG_PYTHON is set (or .venv-config found) or python3 already has
 # platform/atlas_facts/rela/scripts/requirements.txt, it makes a private Python for rela's scripts there too.
-if [ "$cmd" = e2e ]; then
+if [ "$cmd" = e2e ] || [ "$cmd" = pull-e2e ]; then
   if [ -n "$env" ] && [ "$env" != test ]; then
-    echo "atlas-dev: e2e runs only on a private test instance, never on $env" >&2; exit 1
+    echo "atlas-dev: $cmd runs only on a private test instance, never on $env" >&2; exit 1
   fi
   cache="${XDG_CACHE_HOME:-$HOME/.cache}/atlas"
   beside="$(dirname "$root")/rela-bin"
@@ -71,6 +76,9 @@ PY
       cp "$requirements" "$venv/requirements.txt"
     fi
     export ATLAS_CONFIG_PYTHON="$venv/bin/python"
+  fi
+  if [ "$cmd" = pull-e2e ]; then
+    cd "$root/products/software_factory/e2e" && exec pull/run.sh ${args[@]+"${args[@]}"}
   fi
   cd "$root/products/software_factory/e2e" && exec mix atlas.e2e ${args[@]+"${args[@]}"}
 fi
