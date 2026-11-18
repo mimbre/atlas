@@ -30,6 +30,16 @@ defmodule AtlasFlow.Delivery do
   dropped the pin; rev 4, R2). The pin goes on `invalid`, `too_large`, an `ended` without a
   result, and the `accepted` of a later attempt.
 
+  **Fenced attempts (F10).** Dispatch fences a lease (`expired`, `lost`) on the task fact
+  and notifies Delivery with a cast (`lease_fenced/4`), never a call, so a busy Delivery
+  never holds a grant up. Delivery then ends that lease's running `task_attempt` `lost`,
+  with the fence's cause (`Records.lost/6`); a terminal record, another lease's, or none
+  is left as it is. A notice lost to a crash is made up at `init`: before Delivery serves
+  anything (and so before the Listener, started after it, lets a poll reach Dispatch), it
+  ends the attempt of every task fact whose lease is `expired` or `lost`, with no
+  `ended_at`. A Facts failure there is logged and Delivery starts all the same; the next
+  notice on that lease, or the next start, ends it. Delivery stays the only attempt writer.
+
   **The run.** On complete, refused, invalid or too large, `{:reconcile, kind, key}` is cast
   to the Engine for the run that holds the task (Delivery never writes a run).
 
@@ -53,6 +63,13 @@ defmodule AtlasFlow.Delivery do
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
   end
+
+  @doc """
+  Dispatch fenced lease `lease_id` of `task_key` with `cause` (its `lease_end_cause`): its
+  running attempt is ended `lost`. A cast: Dispatch never waits on Delivery.
+  """
+  def lease_fenced(task_key, lease_id, cause, server \\ __MODULE__),
+    do: GenServer.cast(server, {:lease_fenced, task_key, lease_id, cause})
 
   @doc "A report (`report_input`) from `client` (`{runtime_id, holder}`)."
   def report(client, input, server \\ __MODULE__),
@@ -88,6 +105,7 @@ defmodule AtlasFlow.Delivery do
     conf = Application.get_env(:atlas_flow, :work_source, [])
     model = Keyword.get_lazy(opts, :model, &AtlasFlow.Model.configured!/0)
     :ok = AtlasBus.attach(@endpoint)
+    :ok = repair()
 
     {:ok,
      %{
@@ -103,6 +121,14 @@ defmodule AtlasFlow.Delivery do
        results: Keyword.get(opts, :results, Results),
        bases: Keyword.get(opts, :bases, Bases)
      }}
+  end
+
+  @impl true
+  def handle_cast({:lease_fenced, task_key, lease_id, cause}, state) do
+    with {:ok, _, n} <- Leases.parse(lease_id),
+         do: end_attempt(task_key, n, lease_id, cause, now(state))
+
+    {:noreply, state}
   end
 
   @impl true
@@ -520,6 +546,39 @@ defmodule AtlasFlow.Delivery do
 
       {:error, why} ->
         Logger.warning("flow delivery could not record #{lease.id}: #{inspect(why)}")
+    end
+  end
+
+  # Dispatch's fence ended the lease: its running attempt ends lost (F10). `at` is nil from
+  # the repair at init, which cannot tell when the lease ended.
+  defp end_attempt(task_key, n, lease_id, cause, at) do
+    case Records.lost(task_key, n, lease_id, cause, at) do
+      {:ok, _} ->
+        :ok
+
+      {:error, why} ->
+        Logger.warning("flow delivery could not record #{lease_id}: #{inspect(why)}")
+    end
+  end
+
+  # The fence notices a crash lost, made up before Delivery serves: every fenced lease's
+  # attempt. Never fails the start: a Facts failure is logged.
+  defp repair do
+    case Leases.all() do
+      {:ok, facts} ->
+        for fact <- facts,
+            Leases.value(fact, "lease_state") in ~w(expired lost),
+            lease_id = Leases.value(fact, "lease_id"),
+            cause = Leases.value(fact, "lease_end_cause"),
+            is_binary(cause),
+            {:ok, _, n} <- [Leases.parse(lease_id)],
+            do: end_attempt(fact["key"], n, lease_id, cause, nil)
+
+        :ok
+
+      {:error, why} ->
+        Logger.warning("flow delivery could not repair attempts: #{inspect(why)}")
+        :ok
     end
   end
 
