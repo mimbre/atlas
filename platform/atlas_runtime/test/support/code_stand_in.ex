@@ -281,9 +281,16 @@ defmodule AtlasRuntime.CodeStandIn do
     Path.join([String.trim(home), "workers", "work-" <> work_id])
   end
 
-  @doc "Attempt `n` of the work as the core stored it, private fields included."
-  def private_attempt(dir, work_id, n),
-    do: Enum.find(AtlasRuntime.Work.Store.read_work(dir, work_id).attempts, &(&1.attempt == n))
+  @doc """
+  Attempt `n` of the work as the core stored it, private fields included; nil until the
+  local source's lease has added the work (or that attempt) to the core.
+  """
+  def private_attempt(dir, work_id, n) do
+    case AtlasRuntime.Work.Store.read_work(dir, work_id) do
+      nil -> nil
+      record -> Enum.find(record.attempts, &(&1.attempt == n))
+    end
+  end
 
   @doc "The write bits of a path's mode."
   def writable_bits(path) do

@@ -5,8 +5,9 @@ defmodule AtlasRuntime.Boundary.Work do
   the input, calls its implementation and checks that the answer is a declared outcome.
   Since the CLI cut-over (M2 A6) the implementation is the built-in local work source's,
   `AtlasRuntime.Sources.Local.Work`: a work is added to the local source, which leases it
-  to the executor (`AtlasRuntime.Work`, which implements the same behaviour) through its
-  puller. No caller reaches the executor except through it. The
+  to the executor (`AtlasRuntime.Work`) through its puller. The executor implements no
+  part of this contract and has no submit (M2 A7): no caller reaches it except through a
+  work source. The
   translations between the private model (`AtlasRuntime.Model.Work`) and the contract's
   models are checked here against `AtlasRuntimeBoundary.WorkMappings` (§1.5 (c)).
 

@@ -160,7 +160,12 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     end
 
     assert launches(bench) == []
-    pid = await(fn -> private_attempt(bench.dir, work.work_id, 1).prepare_pid end)
+
+    pid =
+      await(fn ->
+        (attempt = private_attempt(bench.dir, work.work_id, 1)) && attempt.prepare_pid
+      end)
+
     assert {_, 0} = System.cmd("/bin/kill", ["-0", Integer.to_string(pid)])
     CodeStandIn.release(code)
     await_state(work.work_id, :completed)
@@ -229,7 +234,12 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
        %{bench: bench, code: code} do
     CodeStandIn.hold(code)
     work = submit_base!(code, "complete never, held")
-    pid = await(fn -> private_attempt(bench.dir, work.work_id, 1).prepare_pid end)
+
+    pid =
+      await(fn ->
+        (attempt = private_attempt(bench.dir, work.work_id, 1)) && attempt.prepare_pid
+      end)
+
     [attempt] = await_state(work.work_id, :failed).attempts
     assert %{kind: :failed, reason: :workspace, retryable: false} = attempt.result
     assert launches(bench) == []
@@ -292,7 +302,12 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
        %{bench: bench, code: code} do
     CodeStandIn.hold(code)
     work = submit_base!(code, "complete after a restart")
-    pid = await(fn -> private_attempt(bench.dir, work.work_id, 1).prepare_pid end)
+
+    pid =
+      await(fn ->
+        (attempt = private_attempt(bench.dir, work.work_id, 1)) && attempt.prepare_pid
+      end)
+
     await(fn -> CodeStandIn.held?(code) end)
     # The committed pid alone is not enough: the core commits it, then acknowledges it, and a
     # preparer whose owner dies before the acknowledgement kills its helper (`Folders`,

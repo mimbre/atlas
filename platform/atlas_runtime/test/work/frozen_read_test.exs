@@ -20,7 +20,9 @@ defmodule AtlasRuntime.Work.FrozenReadTest do
 
   alias AtlasRuntime.Boundary.Work, as: F
   alias AtlasRuntime.CodeStandIn
+  alias AtlasRuntime.Sources.{Local, Puller}
   alias AtlasRuntime.Work.FrozenStore
+  alias AtlasTestAwait, as: Await
 
   @moduletag capture_log: true
 
@@ -317,6 +319,20 @@ defmodule AtlasRuntime.Work.FrozenReadTest do
     stop_work()
     start_work!(bench, heartbeat_ms: 600_000)
     await_work(work.work_id, &(&1.state == :completed))
+
+    # Nor does the local source: its work has ended there, and its puller is idle. After the
+    # core's restart the puller resends the attempt's `ended`, so the source may still hold
+    # the work leased for a moment. Neither is a core notification (and the heartbeat is
+    # off), so the wait wakes on what the source and its puller receive.
+    Await.until(
+      fn ->
+        match?({:ok, %{state: :ended}}, Local.get(work.work_id)) and
+          Puller.jobs(Local.puller_name()) == []
+      end,
+      wake: [{:trace, Local}, {:trace, Local.puller_name()}],
+      label: "the local work ended at the source, its puller idle"
+    )
+
     frozen = F.get_frozen(client(), %{work_id: work.work_id})
     sha256 = entry(frozen, "r.txt").sha256
     before = tree(bench.dir)

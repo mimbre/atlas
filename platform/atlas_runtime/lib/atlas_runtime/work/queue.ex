@@ -1,7 +1,7 @@
 defmodule AtlasRuntime.Work.Queue do
   @moduledoc """
   The work queue's rules, as functions of the work records (design §2, §3.2, §3.7, §5):
-  slots, the buffer, capacity, the start gate (I1) and the retry and cancel tables. The
+  slots, the buffer, capacity, the start gate (I1) and the cancel table. The
   work core (`AtlasRuntime.Work.Server`) applies them, persists, and only then answers.
 
   **Slots and buffer.** The slots are the policy's (`AtlasRuntime.Policy.slots/1`, F1). A
@@ -20,9 +20,9 @@ defmodule AtlasRuntime.Work.Queue do
   slot of its own. `offer/4` counts it, with the other waiting attempts and the outstanding
   reservations, against the free slots, so no source is offered a slot that is already
   promised. `promised/2` is what the sources were promised and do not run yet (the
-  outstanding reservations and the held attempts): an attempt that came in without a lease
-  starts only into a slot beyond it (`unpromised/4`), and a leased attempt is tried first
-  (`startable/1`), so a lease is never buffered behind a direct submit.
+  outstanding reservations and the held attempts): an attempt of a work recorded without a
+  lease (before the cut-over, M2 A7) starts only into a slot beyond it (`unpromised/4`),
+  and a leased attempt is tried first (`startable/1`).
   """
 
   @terminal [:completed, :failed, :crashed, :interrupted, :cancelled, :returned]
@@ -167,21 +167,6 @@ defmodule AtlasRuntime.Work.Queue do
   @doc "Whether every attempt before the current one is settled (I1)."
   def previous_settled?(record),
     do: record.attempts |> Enum.drop(-1) |> Enum.all?(&settled?/1)
-
-  @doc """
-  What `retry` does with the current attempt (§3.2): `:replace` (buffered: it is cancelled
-  never started and the new attempt takes its buffer place, no capacity check),
-  `:supersede` (live: a capacity check, then it is cancelled `superseded` unless already
-  cancelling), or `:after` (terminal: a capacity check).
-  """
-  def retry_rule(attempt) do
-    cond do
-      attempt.state == :buffered -> :replace
-      attempt.state == :cancelling -> :after_cancel
-      live?(attempt) -> :supersede
-      true -> :after
-    end
-  end
 
   @doc """
   What `cancel` does with the current attempt (§3.7): `:never_started` (buffered),

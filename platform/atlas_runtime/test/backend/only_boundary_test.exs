@@ -113,6 +113,27 @@ defmodule AtlasRuntime.BackendTest.OnlyBoundary do
     refute AtlasRuntime.Work in names
   end
 
+  # M2 A7: work reaches the executor only as a lease. It implements no part of the work
+  # contract: no submit, no retry, and no lookup by a client key (those keys are the local
+  # source's); the reads the sources and the local source make stay.
+  test "the executor implements no part of the work contract and has no submit, retry or key lookup" do
+    behaviours =
+      for {:behaviour, list} <- AtlasRuntime.Work.module_info(:attributes), b <- list, do: b
+
+    refute AtlasRuntime.Boundary.Work.Implementation in behaviours
+
+    assert AtlasRuntime.Sources.Local.Work.module_info(:attributes)[:behaviour] == [
+             AtlasRuntime.Boundary.Work.Implementation
+           ]
+
+    exported = AtlasRuntime.Work.__info__(:functions)
+
+    for gone <- [submit: 2, retry: 2, find_work: 2], do: refute(gone in exported)
+
+    for kept <- [accept_lease: 3, release_lease: 1, offer: 1, get_work: 2, cancel: 2],
+        do: assert(kept in exported)
+  end
+
   test "the router generated on the test facades calls only those facades" do
     beam = :code.which(AtlasRuntime.Test.WorkRest)
 

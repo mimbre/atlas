@@ -60,7 +60,7 @@ defmodule AtlasRuntime.Sources.CliCutoverTest do
 
   describe "a policy without sources (Q2: local alone)" do
     setup do
-      bench = start!()
+      bench = start!(%{}, local: false)
       sources!(bench)
       %{bench: bench}
     end
@@ -128,17 +128,20 @@ defmodule AtlasRuntime.Sources.CliCutoverTest do
   describe "a local entry that is offered nothing (max_slots 0)" do
     setup do
       bench =
-        start!(%{
-          "sources" => [
-            %{
-              "name" => "local",
-              "kind" => "builtin",
-              "priority" => 1,
-              "max_slots" => 0,
-              "max_store_bytes" => 2_147_483_648
-            }
-          ]
-        })
+        start!(
+          %{
+            "sources" => [
+              %{
+                "name" => "local",
+                "kind" => "builtin",
+                "priority" => 1,
+                "max_slots" => 0,
+                "max_store_bytes" => 2_147_483_648
+              }
+            ]
+          },
+          local: false
+        )
 
       sources!(bench)
       %{bench: bench}
@@ -171,6 +174,35 @@ defmodule AtlasRuntime.Sources.CliCutoverTest do
       assert {:ok, %QueuedWork{state: :ended, result: %{kind: :cancelled}}} = Local.get(id)
       assert Path.wildcard(Path.join(bench.dir, "work/work-*.json")) == []
       assert %{"state" => "cancelled"} = status(id)
+    end
+  end
+
+  # M2 A7, the cut-over: no direct submit, so a policy whose `sources` name no `local` (an
+  # explicit `[]` here) has no way in for the CLI's work. Nothing reaches the executor.
+  describe "sources: [] (no local source)" do
+    setup do
+      bench = start!(%{"sources" => []}, local: false)
+      assert AtlasRuntime.Sources.Supervisor.start_link(bench.dir) == :ignore
+      %{bench: bench}
+    end
+
+    test "start is at_capacity(not_accepting) and creates nothing; a key and a retry find nothing",
+         %{bench: bench} do
+      refute Local.running?()
+      assert {503, %{"reason" => "not_accepting"}} = start(bench, "complete", "k-none")
+      assert {404, _} = rest("GET", "/v1/work?key=k-none")
+
+      # No local work exists, so a retry has none to name (dev3's R2): not_found, not 503.
+      assert {404, %{"type" => "not-found"}} =
+               rest("POST", "/v1/work/work-0123456789abcdef/attempts", %{}, [
+                 {"content-type", "application/json"}
+               ])
+
+      # Answered by the core after both calls above: no lease reached it, nothing is recorded.
+      assert Work.holdings("local") == []
+      assert Path.wildcard(Path.join(bench.dir, "work/work-*.json")) == []
+      assert {200, %{"works" => []}} = rest("GET", "/v1/work")
+      assert launches(bench) == []
     end
   end
 end

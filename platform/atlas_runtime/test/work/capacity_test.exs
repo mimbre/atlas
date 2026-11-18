@@ -1,10 +1,15 @@
 defmodule AtlasRuntime.Work.CapacityTest do
-  # D2 acceptance 3: a full Runtime answers at_capacity{full, retry_after, capacity}, and
-  # capacity_available is pushed exactly once when room returns.
+  # D2 acceptance 3, after the cut-over (M2 A7): work reaches the executor only as a lease
+  # within its free slots, so a full Runtime never answers a start `at_capacity`: the work
+  # waits queued at the local source, and the executor's buffer stays unused. When a slot
+  # frees, the queued work is leased into it. (The `at_capacity` outcome and
+  # `capacity_available` themselves go in M5.)
   use ExUnit.Case, async: false
 
   import AtlasRuntime.WorkHarness
   alias AtlasRuntime.Boundary.Work, as: F
+  alias AtlasRuntime.Sources.Local
+  alias AtlasRuntime.Work.Store
 
   @moduletag capture_log: true
 
@@ -12,40 +17,37 @@ defmodule AtlasRuntime.Work.CapacityTest do
     %{bench: start!()}
   end
 
-  test "slots and buffer full: at_capacity, then capacity_available once", %{bench: bench} do
+  test "slots full: the work waits at the local source, never at_capacity; a freed slot takes it",
+       %{bench: bench} do
     first = submit!(bench, "hang one")
     second = submit!(bench, "hang two")
     await_launch(bench, first)
     await_launch(bench, second)
-    third = submit!(bench, "hang three")
-    assert work!(third.work_id).state == :buffered
+
+    [third, fourth] = for goal <- ["hang three", "hang four"], do: submit!(bench, goal)
+
+    for work <- [third, fourth] do
+      assert work.state == :buffered
+      assert {:ok, %{state: :queued}} = Local.get(work.work_id)
+      assert Store.read_work(bench.dir, work.work_id) == nil
+      assert work!(work.work_id).state == :buffered
+    end
 
     assert %F.Outcome.Capacity{slots: slots, buffer: buffer, accepting: true} =
              capacity = F.capacity(client())
 
     assert {slots.total, slots.busy, slots.free} == {2, 2, 0}
-    assert {buffer.size, buffer.used, buffer.free} == {1, 1, 0}
-    assert capacity.retry_after == 60
+    assert {buffer.used} == {0}
     assert [%F.ProfileAvailability{profile: "light_work", available: true}] = capacity.profiles
 
-    assert %F.Outcome.AtCapacity{
-             reason: :full,
-             retry_after: 60,
-             capacity: %F.Capacity{accepting: true}
-           } =
-             F.submit(client(), request(bench, "hang four"))
-
-    assert F.subscribe(client(), %{}) == %F.Outcome.Subscribed{}
-    assert %F.Outcome.Ended{} = cancel_and_wait(first)
-
-    # The buffered work takes the freed slot; one place in the buffer is free again.
+    # A freed slot is offered to the local source, which leases the first queued work.
+    cancel_and_wait(first)
     await_launch(bench, third)
-    assert %F.Outcome.Capacity{retry_after: nil, buffer: %{free: 1}} = F.capacity(client())
+    assert {:ok, %{state: :queued}} = Local.get(fourth.work_id)
 
     for work <- [second, third], do: cancel_and_wait(work)
-
-    available = for %F.CapacityAvailable{} = n <- notifications(heartbeats: 3), do: n
-    assert [%F.CapacityAvailable{capacity: %F.Capacity{accepting: true}}] = available
+    await_launch(bench, fourth)
+    cancel_and_wait(fourth)
   end
 
   defp cancel_and_wait(work) do

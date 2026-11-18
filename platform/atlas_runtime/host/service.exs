@@ -54,7 +54,8 @@ end
 listener_check.()
 
 # The work sources' pullers (M2): one per entry of the policy's `sources`, `local` included,
-# after the work core they feed. No such entry: none starts, and the Runtime runs as before.
+# after the work core they feed. No such entry (`sources: []`): none starts, and no work
+# reaches the core (M2 A7: there is no direct submit).
 # Unlinked, so a puller's failure never ends the service.
 case AtlasRuntime.Sources.Supervisor.start_link(dir) do
   {:ok, pid} ->

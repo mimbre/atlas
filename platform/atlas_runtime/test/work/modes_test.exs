@@ -5,7 +5,9 @@ defmodule AtlasRuntime.Work.ModesTest do
 
   import AtlasRuntime.WorkHarness
   alias AtlasRuntime.Boundary.Work, as: F
+  alias AtlasRuntime.Sources.Local
   alias AtlasRuntime.Work
+  alias AtlasRuntime.Work.Store
 
   @moduletag capture_log: true
 
@@ -79,7 +81,11 @@ defmodule AtlasRuntime.Work.ModesTest do
   end
 
   describe "transitions" do
-    test "pause then drain returns the buffer", %{bench: bench} do
+    # M2 A7: a work the local source holds was never leased to the executor, so a drain
+    # (which returns accepted, unstarted leases: `drain_test`) leaves it queued there; it is
+    # leased once the Runtime is open again.
+    test "pause then drain: a work queued at the local source stays queued, and runs on resume",
+         %{bench: bench} do
       first = submit!(bench, "hang first")
       await_launch(bench, first)
       second = submit!(bench, "complete second")
@@ -88,9 +94,19 @@ defmodule AtlasRuntime.Work.ModesTest do
       assert work!(second.work_id).state == :buffered
 
       assert Work.set_mode(:draining, "local:op") == :draining
-      assert [%{state: :returned}] = work!(second.work_id).attempts
+      assert [%{state: :buffered}] = work!(second.work_id).attempts
+      assert {:ok, %{state: :queued}} = Local.get(second.work_id)
+      assert Store.read_work(bench.dir, second.work_id) == nil
       assert work!(first.work_id).state == :running
       cancel_and_wait(first)
+
+      # The slot is free; while draining, no heartbeat's pass (nor the local puller's polls
+      # between them) leases or starts the queued work.
+      heartbeats(8)
+      refute launched?(bench, "complete second")
+      assert {:ok, %{state: :queued}} = Local.get(second.work_id)
+      assert Work.set_mode(:open, "local:op") == :open
+      await_state(second.work_id, :completed)
     end
 
     test "draining then pause gives paused", %{bench: _bench} do
@@ -121,7 +137,7 @@ defmodule AtlasRuntime.Work.ModesTest do
 
       assert Work.set_mode(:draining, "local:op") == :draining
       returned = work!(second.work_id)
-      assert returned.state == :returned
+      assert returned.state == :buffered
 
       mode_bytes = File.read!(Path.join(bench.dir, "mode.json"))
 

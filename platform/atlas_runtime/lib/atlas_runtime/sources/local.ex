@@ -93,7 +93,8 @@ defmodule AtlasRuntime.Sources.Local do
   @doc """
   Adds a work for `client` (the adder, `{id, rights}`; the CLI's is the socket's) with
   `priority` (a lower number first): `{:added, work_id}`, `{:existing, work_id}`,
-  `{:conflict, work_id}`, `{:refused, reason, detail}` or `:not_running`.
+  `{:conflict, work_id}`, `{:refused, reason, detail}`, `{:pruned, work_id, kind}` (a
+  `from_work` whose source was pruned) or `:not_running`.
   """
   def add(client, %B.WorkRequest{} = input, priority \\ 1, server \\ __MODULE__)
       when is_integer(priority),
@@ -275,6 +276,9 @@ defmodule AtlasRuntime.Sources.Local do
 
       {:refused, _reason, _detail} = refused ->
         {:reply, refused, state}
+
+      {:pruned, _work_id, _kind} = pruned ->
+        {:reply, pruned, state}
     end
   end
 

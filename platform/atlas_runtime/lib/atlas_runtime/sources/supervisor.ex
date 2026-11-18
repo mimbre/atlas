@@ -15,8 +15,9 @@ defmodule AtlasRuntime.Sources.Supervisor do
     puller over `AtlasRuntime.Sources.Local.Target`, renewed in-BEAM. Its puller is
     registered, so the source nudges it when work is added.
 
-  Started by `host/service.exs` after the work core. With no entry it starts nothing
-  (`:ignore`), and the Runtime runs as before. A puller that crashes is restarted.
+  Started by `host/service.exs` after the work core. With no entry (`sources: []`) it starts
+  nothing (`:ignore`), and no work reaches the executor: the CLI's `start` is
+  `at_capacity(not_accepting)` (M2 A7). A puller that crashes is restarted.
   """
   use Supervisor
 

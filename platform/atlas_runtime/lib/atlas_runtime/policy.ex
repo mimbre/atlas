@@ -105,7 +105,8 @@ defmodule AtlasRuntime.Policy do
   only: priority 1, `max_slots` every slot of the policy, and the decision's example
   `max_store_bytes` (2 GiB; the local source keeps no per-source blob store). No remote
   source, Flow's included, is ever implied: one is pulled only when the policy names it.
-  An explicit `sources: []` names none. `[]` without a valid policy.
+  An explicit `sources: []` names none, so no work reaches the executor (M2 A7: there is no
+  direct submit). `[]` without a valid policy.
   """
   @spec sources(loaded()) :: [%{String.t() => term()}]
   def sources({:ok, %{"sources" => sources}}), do: Enum.sort_by(sources, & &1["priority"])

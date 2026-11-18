@@ -747,9 +747,12 @@ defmodule AtlasRuntime.Sources.LocalTest do
     end
 
     test "resume_from", %{bench: bench} do
-      # A turn to continue: a local work run to its end first.
-      %B.Outcome.Accepted{work: first} = B.submit(@client, folder_work(bench, "complete first"))
-      [%{turn_id: turn}] = await_state(first.work_id, :completed, @client).attempts
+      # A turn to continue: a local lease run to its end first (M2 A7: no direct submit).
+      assert {:accepted, first} =
+               Work.accept_lease("local", local_form(folder_work(bench, "complete first")))
+
+      assert :released = Work.release_lease(first)
+      [%{turn_id: turn}] = await_state(first, :completed, @client).attempts
 
       request = folder_work(bench, "complete first", %{resume_from: turn})
       assert_refused_from_other(bench, request)

@@ -135,7 +135,8 @@ defmodule AtlasRuntime.Work.SourceRightsTest do
 
     test "repository is accepted", %{bench: bench} do
       assert %F.Outcome.Accepted{work: work} = F.submit(@local, repository(bench, "repo local"))
-      assert [_record] = work_files(bench)
+      # Added to the local source; its lease is the executor's record.
+      await(fn -> match?([_record], work_files(bench)) end)
       F.cancel(@local, %{work_id: work.work_id})
     end
   end

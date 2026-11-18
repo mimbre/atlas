@@ -91,7 +91,8 @@ defmodule AtlasRuntime.Work.LifecycleTest do
        %{bench: bench} do
     assert %F.Outcome.Subscribed{} = F.subscribe(client(), %{})
     work = submit!(bench, "complete the first", %{client_key: "first"})
-    assert work.revision == 1
+    # Added to the local source: not the executor's yet (M2 A7).
+    assert work.revision == 0
     assert [%F.Attempt{attempt: 1, state: :buffered}] = work.attempts
 
     done = await_state(work.work_id, :completed)
@@ -112,7 +113,8 @@ defmodule AtlasRuntime.Work.LifecycleTest do
     assert attempt.provenance.selection.profile == "light_work"
     assert attempt.provenance.selection.reason == :preferred
     assert attempt.provenance.turn_id == attempt.turn_id
-    assert done.idempotency_key == "first"
+    # The client key is the local source's; the turn's idempotency key is the work id (A6 Q1).
+    assert {done.client_key, done.idempotency_key} == {"first", work.work_id}
 
     changes =
       for %F.WorkChanged{work_id: id} = change <- notifications(heartbeats: 2),
@@ -130,8 +132,13 @@ defmodule AtlasRuntime.Work.LifecycleTest do
     assert [%{"goal" => "complete the first", "resumed" => false}] = launches(bench)
   end
 
+  # Since the cut-over (M2 A7) a work reaches the executor only as a lease: the crash is
+  # between the executor writing the leased work and its answer to the puller, which the
+  # test plays here (`accept_lease/3`, the local source's form).
   test "a work is persisted before the answer mentions it: a crash between the two loses nothing",
        %{bench: bench} do
+    # No local puller: the test is the puller.
+    :ok = stop_supervised(:local_source)
     stop_all()
     service = start_service!(bench)
     bench = %{bench | service: service}
@@ -139,26 +146,19 @@ defmodule AtlasRuntime.Work.LifecycleTest do
     # The core dies right after writing the new record, before it answers or notifies.
     crash = fn record -> if record.revision == 1, do: exit(:crash_after_write) end
     start_work!(bench, after_write: crash)
+    id = "work-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    request = F.WorkRequest.new!(request(bench, "complete after a crash"))
+    lease = %{lease_id: "local-crash", work: %{work_key: id, request: request}}
 
-    assert {:crash_after_write, _} =
-             catch_exit(
-               F.submit(
-                 client(),
-                 request(bench, "complete after a crash", %{client_key: "crash"})
-               )
-             )
+    assert {:crash_after_write, _} = catch_exit(AtlasRuntime.Work.accept_lease("local", lease))
 
-    # Restarted, the core has the work it never answered for, and runs it once.
+    # Restarted, the core has the work it never answered for: the same lease again is that
+    # work, and it runs once.
     start_work!(bench)
-    assert %F.Outcome.Found{work: work} = F.find_work(client(), %{client_key: "crash"})
-    assert await_state(work.work_id, :completed).attempts |> length() == 1
+    assert {:existing, ^id} = AtlasRuntime.Work.accept_lease("local", lease)
+    assert :released = AtlasRuntime.Work.release_lease(id)
+    assert await_state(id, :completed).attempts |> length() == 1
     assert [%{"goal" => "complete after a crash"}] = launches(bench)
-
-    # Submitting again with the key is safe: the same work, not a second one.
-    assert %F.Outcome.Existing{work: %{work_id: id}} =
-             F.submit(client(), request(bench, "complete after a crash", %{client_key: "crash"}))
-
-    assert id == work.work_id
   end
 
   test "the same client and key give the existing work; another request under it is a conflict",
