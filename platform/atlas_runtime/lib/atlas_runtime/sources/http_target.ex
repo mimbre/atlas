@@ -13,10 +13,16 @@ defmodule AtlasRuntime.Sources.HttpTarget do
   - `poll` and `report` are carried as the client answers them; a transport failure is
     `{:error, reason}`, and the puller retries;
   - `get_blob` (the import's download, M2 A3) is the client's streamed answer;
-  - `put_blob` is not carried over HTTP yet (M1: the generator carries no streamed request
-    body, so the client has no `put_blob`). An upload that needs a blob stops at the first one
-    as `too_large` (W6's stop that leaves the work with the source), logged. Blob uploads to
-    a remote source wait for that (open point U3).
+  - `put_blob` (`work_source` 0.2.0, `PUT /v1/leases/:lease_id/blobs/:sha256`) streams the
+    frozen blob as the request body, chunked and without a `Content-Length` (the transport's
+    streamed body), with its size in `Blob-Size`. It may take `put_timeout_ms/0` (10 min) as
+    a whole, the same bound as the puller's upload job, which ends a stalled upload first.
+    Its answers: `stored`, `lease_lost` (410), `too_large` (413) and `not_referenced` (409)
+    as they are; a transport failure (or any answer the contract does not name) is
+    `{:error, reason}`, which `Upload` answers as unreachable, and the puller tries again;
+    `rejected` (400 `invalid`, 409 `revision-conflict`, 422 `digest-mismatch`) has no word in
+    `Upload`'s seam, so, as in `AtlasRuntime.Sources.InBeamTarget`, it is logged and the
+    upload stops as for a lost lease, never sent again.
   """
   @behaviour AtlasRuntime.Sources.Puller.Target
   @behaviour AtlasRuntime.Sources.Upload
@@ -24,6 +30,13 @@ defmodule AtlasRuntime.Sources.HttpTarget do
   require Logger
 
   alias AtlasRuntime.Sources.{InBeamTarget, Transport}
+
+  # One blob upload as a whole (the transport has no send-side idle timeout): the puller's
+  # upload job has the same bound and ends a stall first.
+  @put_timeout_ms 600_000
+
+  @doc "How long one `put_blob` may take as a whole, in ms."
+  def put_timeout_ms, do: @put_timeout_ms
 
   defmodule Client do
     @moduledoc "The `work_source` HTTP client target on W3's transport."
@@ -110,12 +123,32 @@ defmodule AtlasRuntime.Sources.HttpTarget do
   defp name(_other), do: :failed
 
   @impl AtlasRuntime.Sources.Upload
-  def put_blob(_ref, blob) do
-    Logger.warning(
-      "upload #{blob.lease_id}: put_blob #{blob.sha256} is not carried over HTTP yet; " <>
-        "the blob stays here"
-    )
+  def put_blob(%{conn: conn}, blob) do
+    input = Map.take(blob, [:lease_id, :sha256, :size, :content])
 
-    :too_large
+    # The whole-upload timeout, not the transport's 35 s default: a blob may take minutes.
+    case Client.put_blob(input, transport: [conn: conn, timeout: @put_timeout_ms]) do
+      answer when answer in [:stored, :lease_lost, :too_large, :not_referenced] ->
+        answer
+
+      # Unreachable (or an answer the contract does not name): `Upload` answers it as a
+      # failed report, and the puller tries again; the source keeps what it stored.
+      {:error, _} = error ->
+        error
+
+      # rejected (invalid, conflict, digest_mismatch) has no word in Upload's seam: as in
+      # InBeamTarget, it is logged and the upload stops as for a lost lease. Sending the
+      # same bytes again would be rejected again.
+      other ->
+        Logger.warning(
+          "upload #{blob.lease_id}: the source answered put_blob #{blob.sha256} " <>
+            "#{name(other)}#{reason(other)}"
+        )
+
+        :lease_lost
+    end
   end
+
+  defp reason({:rejected, %{reason: reason}}) when is_atom(reason), do: " (#{reason})"
+  defp reason(_other), do: ""
 end
