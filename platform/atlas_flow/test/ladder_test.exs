@@ -726,6 +726,23 @@ defmodule AtlasFlow.LadderTest do
       assert Ladder.diagnosis(diag("bored")) == nil
       assert Ladder.diagnosis("none") == nil
     end
+
+    test "a worded option may not be none: the answer's reset value is reserved" do
+      decision = fn options ->
+        Ladder.diagnosis(
+          diag("other", %{
+            "decision" => %{"question" => "Q?", "options" => options, "safe_to_continue" => true}
+          })
+        )["decision"]
+      end
+
+      d = decision.([opt("none"), opt("narrow")])
+      assert Enum.map(d["options"], & &1["id"]) == ["narrow"]
+      # The recommended option was left out, so no work goes on on the next one (R1).
+      assert d["safe_to_continue"] == false
+      # Only none on offer: no decision at all.
+      assert decision.([opt("none")]) == nil
+    end
   end
 
   describe "sections (#297's sections/3)" do

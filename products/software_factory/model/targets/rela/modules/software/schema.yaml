@@ -93,6 +93,15 @@ entities:
       task_result:
         type: string
         description: 'Flow: how its author task ended (completed, check_failed, stuck, abandoned); the run''s own, never written'
+      question:
+        type: string
+        description: 'Flow: what its supervisor is asked while it is held or awaits a decision'
+      retry_step:
+        type: string
+        description: 'Flow: the step the answer retry goes back to (the held task''s), or none when retry is not offered'
+      answer:
+        type: string
+        description: 'Its supervisor''s answer while it is held or awaits a decision: fresh, stronger, abandon, retry or a worded option'
   pull_request:
     label: Pull request
     plural: pull_requests

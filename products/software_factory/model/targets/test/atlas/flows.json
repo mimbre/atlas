@@ -652,51 +652,73 @@
       "label": "Package",
       "owner": {
         "default": {
-          "key": "coordinator",
-          "kind": "agent"
+          "config": "decider",
+          "kind": "person"
         },
+        "preserve_kind": ["person", "machinery"],
         "relation": "assigned_to",
         "via": "assignment"
       },
       "per_subject": "one",
+      "run_as": "system:atlas-flow",
       "start": [
         {
           "on": "create"
         }
       ],
       "states": {
-        "authored": {
-          "awaits": [],
-          "branches": [],
-          "creates": [],
-          "final": true,
-          "label": "Authored",
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
         "authoring": {
           "awaits": [],
           "branches": [
             {
               "roles": ["atlas-flow"],
-              "to": "authored",
-              "when": "entity.task_result == 'completed'"
+              "to": "authoring",
+              "when": "entity.task_result == 'author'"
             },
             {
               "roles": ["atlas-flow"],
-              "to": "check_failed",
-              "when": "entity.task_result == 'check_failed'"
+              "to": "reviewing",
+              "when": "entity.task_result == 'review'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fixing",
+              "when": "entity.task_result == 'fix'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "diagnosing",
+              "when": "entity.task_result == 'diagnose'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fresh",
+              "when": "entity.task_result == 'fresh'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stronger",
+              "when": "entity.task_result == 'stronger'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "ready",
+              "when": "entity.task_result == 'ready'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "held",
+              "when": "entity.task_result == 'held'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "awaiting_decision",
+              "when": "entity.task_result == 'escalate'"
             },
             {
               "roles": ["atlas-flow"],
               "to": "stuck",
-              "when": "entity.task_result == 'stuck'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "stuck",
-              "when": "entity.task_result == 'abandoned'"
+              "when": "entity.task_result == 'abandon'"
             }
           ],
           "creates": [],
@@ -722,6 +744,7 @@
             },
             "instructions": "Build the package below in the repository you are given, starting from its base. Keep to the worker rules: the boundary greps that CI runs must stay clean (bin/check runs them, and runs after you), and do no web search. Run the tests of every system you change. End your answer with what you changed, the tests you ran with their results, and what is left open.",
             "kind": "author",
+            "ladder": true,
             "machinery": "machinery",
             "profile": "deep_coding",
             "records": {
@@ -733,13 +756,584 @@
           "timers": [],
           "waiting_for": []
         },
-        "check_failed": {
+        "awaiting_decision": {
           "awaits": [],
-          "branches": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "fresh",
+              "when": "not (entity.answer == '') and not (entity.answer == 'none') and not (entity.answer == 'stronger') and not (entity.answer == 'abandon') and not (entity.answer == 'retry')"
+            },
+            {
+              "roles": [],
+              "to": "stronger",
+              "when": "entity.answer == 'stronger'"
+            },
+            {
+              "roles": [],
+              "to": "stuck",
+              "when": "entity.answer == 'abandon'"
+            }
+          ],
           "creates": [],
-          "final": true,
-          "label": "Check failed",
+          "final": false,
+          "label": "Awaiting a decision",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Decide, and hand it back to its machinery",
+            "todo": {
+              "instructions": "Set its answer to one the question offers, and assign it back to its machinery. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "its work needs a decision"
+          },
+          "set": [
+            {
+              "field": "answer",
+              "value": "none"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "diagnosing": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "authoring",
+              "when": "entity.task_result == 'author'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "reviewing",
+              "when": "entity.task_result == 'review'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fixing",
+              "when": "entity.task_result == 'fix'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "diagnosing",
+              "when": "entity.task_result == 'diagnose'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fresh",
+              "when": "entity.task_result == 'fresh'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stronger",
+              "when": "entity.task_result == 'stronger'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "ready",
+              "when": "entity.task_result == 'ready'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "held",
+              "when": "entity.task_result == 'held'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "awaiting_decision",
+              "when": "entity.task_result == 'escalate'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'abandon'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Diagnosing",
+          "present": {
+            "expected": "Diagnose it on the machinery",
+            "todo": {
+              "instructions": "Its machinery finds out why, read-only, from the latest change set. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "its fixes did not get it through"
+          },
           "set": [],
+          "spec": {
+            "cost_class": "standard",
+            "field": "task_result",
+            "fields": ["title", "instructions", "acceptance"],
+            "input": {
+              "access": "read",
+              "result": "latest"
+            },
+            "instructions": "Find out why the work on the package below keeps failing, from the change set you are given and its history below, without changing anything. End your answer with your diagnosis block.",
+            "kind": "diagnose",
+            "ladder": true,
+            "machinery": "machinery",
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "investigator"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
+        "fixing": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "authoring",
+              "when": "entity.task_result == 'author'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "reviewing",
+              "when": "entity.task_result == 'review'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fixing",
+              "when": "entity.task_result == 'fix'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "diagnosing",
+              "when": "entity.task_result == 'diagnose'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fresh",
+              "when": "entity.task_result == 'fresh'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stronger",
+              "when": "entity.task_result == 'stronger'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "ready",
+              "when": "entity.task_result == 'ready'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "held",
+              "when": "entity.task_result == 'held'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "awaiting_decision",
+              "when": "entity.task_result == 'escalate'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'abandon'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Fixing",
+          "present": {
+            "expected": "Fix it on the machinery",
+            "todo": {
+              "instructions": "Its machinery fixes the reviewed change set on the author's base and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "its review or check found a problem"
+          },
+          "set": [],
+          "spec": {
+            "check": ["bin/check"],
+            "cost_class": "standard",
+            "field": "task_result",
+            "fields": ["title", "instructions", "acceptance"],
+            "input": {
+              "access": "write",
+              "result": "latest"
+            },
+            "instructions": "Fix the change set you are given, on its base, as the findings below ask; keep what is right. Keep to the worker rules: the boundary greps that CI runs must stay clean (bin/check runs them, and runs after you), and do no web search. Run the tests of every system you change. End your answer with what you changed, the tests you ran with their results, and what is left open.",
+            "kind": "fix",
+            "ladder": true,
+            "machinery": "machinery",
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "developer"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
+        "fresh": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "authoring",
+              "when": "entity.task_result == 'author'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "reviewing",
+              "when": "entity.task_result == 'review'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fixing",
+              "when": "entity.task_result == 'fix'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "diagnosing",
+              "when": "entity.task_result == 'diagnose'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fresh",
+              "when": "entity.task_result == 'fresh'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stronger",
+              "when": "entity.task_result == 'stronger'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "ready",
+              "when": "entity.task_result == 'ready'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "held",
+              "when": "entity.task_result == 'held'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "awaiting_decision",
+              "when": "entity.task_result == 'escalate'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'abandon'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Authoring afresh",
+          "present": {
+            "expected": "Author it afresh on the machinery",
+            "todo": {
+              "instructions": "Its machinery builds it again on the original base and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "the work so far did not get it through"
+          },
+          "set": [],
+          "spec": {
+            "check": ["bin/check"],
+            "cost_class": "standard",
+            "field": "task_result",
+            "fields": ["title", "instructions", "acceptance"],
+            "input": {
+              "base": "develop",
+              "repository": "github.com/mimbre/atlas"
+            },
+            "instructions": "Build the package below in the repository you are given, starting from its base. Keep to the worker rules: the boundary greps that CI runs must stay clean (bin/check runs them, and runs after you), and do no web search. Run the tests of every system you change. End your answer with what you changed, the tests you ran with their results, and what is left open.",
+            "kind": "author",
+            "ladder": true,
+            "machinery": "machinery",
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "developer"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
+        "held": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "fresh",
+              "when": "not (entity.answer == '') and not (entity.answer == 'none') and not (entity.answer == 'stronger') and not (entity.answer == 'abandon') and not (entity.answer == 'retry')"
+            },
+            {
+              "roles": [],
+              "to": "stronger",
+              "when": "entity.answer == 'stronger'"
+            },
+            {
+              "roles": [],
+              "to": "stuck",
+              "when": "entity.answer == 'abandon'"
+            },
+            {
+              "roles": [],
+              "to": "authoring",
+              "when": "entity.answer == 'retry' and entity.retry_step == 'author'"
+            },
+            {
+              "roles": [],
+              "to": "reviewing",
+              "when": "entity.answer == 'retry' and entity.retry_step == 'review'"
+            },
+            {
+              "roles": [],
+              "to": "fixing",
+              "when": "entity.answer == 'retry' and entity.retry_step == 'fix'"
+            },
+            {
+              "roles": [],
+              "to": "diagnosing",
+              "when": "entity.answer == 'retry' and entity.retry_step == 'diagnose'"
+            },
+            {
+              "roles": [],
+              "to": "fresh",
+              "when": "entity.answer == 'retry' and entity.retry_step == 'fresh'"
+            },
+            {
+              "roles": [],
+              "to": "stronger",
+              "when": "entity.answer == 'retry' and entity.retry_step == 'stronger'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Held",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Answer, and hand it back to its machinery",
+            "todo": {
+              "instructions": "Set its answer to one the question offers, and assign it back to its machinery. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "its work was held"
+          },
+          "set": [
+            {
+              "field": "answer",
+              "value": "none"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "ready": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "stuck",
+              "when": "entity.answer == 'abandon'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Ready",
+          "set": [],
+          "timers": [],
+          "waiting_for": []
+        },
+        "reviewing": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "authoring",
+              "when": "entity.task_result == 'author'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "reviewing",
+              "when": "entity.task_result == 'review'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fixing",
+              "when": "entity.task_result == 'fix'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "diagnosing",
+              "when": "entity.task_result == 'diagnose'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fresh",
+              "when": "entity.task_result == 'fresh'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stronger",
+              "when": "entity.task_result == 'stronger'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "ready",
+              "when": "entity.task_result == 'ready'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "held",
+              "when": "entity.task_result == 'held'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "awaiting_decision",
+              "when": "entity.task_result == 'escalate'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'abandon'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Reviewing",
+          "present": {
+            "expected": "Review it on the machinery",
+            "todo": {
+              "instructions": "Its machinery reviews the change set, read-only, on the author's base. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "its author's work is done"
+          },
+          "set": [],
+          "spec": {
+            "cost_class": "standard",
+            "field": "task_result",
+            "fields": ["title", "instructions", "acceptance"],
+            "input": {
+              "access": "read",
+              "result": "latest"
+            },
+            "instructions": "Review the change set you are given against the package below, on its base, without changing anything. Judge whether it does what the package asks and keeps to the worker rules. End your answer with your verdict block.",
+            "kind": "review",
+            "ladder": true,
+            "machinery": "machinery",
+            "profile": "independent_review",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "developer"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
+        "stronger": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "authoring",
+              "when": "entity.task_result == 'author'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "reviewing",
+              "when": "entity.task_result == 'review'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fixing",
+              "when": "entity.task_result == 'fix'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "diagnosing",
+              "when": "entity.task_result == 'diagnose'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fresh",
+              "when": "entity.task_result == 'fresh'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stronger",
+              "when": "entity.task_result == 'stronger'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "ready",
+              "when": "entity.task_result == 'ready'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "held",
+              "when": "entity.task_result == 'held'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "awaiting_decision",
+              "when": "entity.task_result == 'escalate'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'abandon'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Authoring stronger",
+          "present": {
+            "expected": "Author it on the machinery with the stronger profile",
+            "todo": {
+              "instructions": "Its machinery builds it again on the original base with the stronger profile and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "the work so far did not get it through"
+          },
+          "set": [],
+          "spec": {
+            "check": ["bin/check"],
+            "cost_class": "high",
+            "field": "task_result",
+            "fields": ["title", "instructions", "acceptance"],
+            "input": {
+              "base": "develop",
+              "repository": "github.com/mimbre/atlas"
+            },
+            "instructions": "Build the package below in the repository you are given, starting from its base. Keep to the worker rules: the boundary greps that CI runs must stay clean (bin/check runs them, and runs after you), and do no web search. Run the tests of every system you change. End your answer with what you changed, the tests you ran with their results, and what is left open.",
+            "kind": "author",
+            "ladder": true,
+            "machinery": "machinery",
+            "profile": "deep_coding_max",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "developer"
+          },
           "timers": [],
           "waiting_for": []
         },
@@ -1906,6 +2500,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "fcfa063b24b0936707393cc50ee40333bfe84499857cc077f9adfbaca357eb45",
+  "rela_flows_sha256": "7a253bc9e73ab6226e42a9884179a7c19cb9293bb6c56a80c3a860549a54ebcb",
   "writer": "system:atlas-flow"
 }

@@ -120,6 +120,192 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
     end
   end
 
+  describe "the Engine's cancel (F2-P: an answer moved the run on)" do
+    # The Engine casts the cancel before it stores the run that no longer holds the task;
+    # its store then writes the task fact's `state: cancelled`. The bench does both by
+    # hand (`stored/2`).
+    defp stored(key, task) do
+      L.run("bin", key, supervisor: "ada")
+      fact = FakeFacts.get("task", task)
+
+      FakeFacts.put(
+        "task",
+        Map.merge(fact, %{
+          "values" => Map.put(fact["values"], "state", "cancelled"),
+          "version" => (fact["version"] || 0) + 1
+        })
+      )
+    end
+
+    defp accepted(ctx, key) do
+      %{task: task} = L.supervised_task(key, "ada")
+      ready(ctx)
+      lease = lease!(@mini)
+      assert {:recorded, _} = report(@mini, lease, 1, :accepted)
+      {task, lease}
+    end
+
+    defp cancel_requested?(task),
+      do:
+        {L.values(task)["lease_state"], L.values(task)["lease_end_cause"]} ==
+          {"cancel_requested", "answer"}
+
+    test "a task free to be offered again (its lease lost) is not offered once cancelled", ctx do
+      %{task: task} = L.supervised_task("B-1", "ada")
+      ready(ctx)
+      lease = lease!(@mini)
+      # A late accept: the lease is lost, and the task would be offered again.
+      L.advance(ctx, 31)
+      assert :lease_lost = report(@mini, lease, 1, :accepted)
+
+      Dispatch.cancel(task, "answer")
+      # No resync between the cancel and the poll: nothing is offered.
+      assert {:polled, %{leases: []}} = poll(@mini, [lease])
+
+      # Stored without it: no run holds it, so a resync never makes it ready again.
+      stored("B-1", task)
+      ready(ctx)
+      assert {:polled, %{leases: []}} = poll(@mini)
+    end
+
+    test "a task whose fact says cancelled is never leased, even while the ready set still holds it",
+         ctx do
+      %{task: task} = L.supervised_task("B-1", "ada")
+      ready(ctx)
+      lease = lease!(@mini)
+      L.advance(ctx, 31)
+      assert :lease_lost = report(@mini, lease, 1, :accepted)
+
+      # No cast reached Dispatch, and the run still holds the intent when it resyncs; the
+      # task fact already says cancelled.
+      stored("B-1", task)
+      L.run("bin", "B-1", supervisor: "ada", intent: L.intent(task))
+      ready(ctx)
+      assert {:polled, %{leases: []}} = poll(@mini, [lease])
+      assert L.values(task)["attempt"] == 1
+    end
+
+    test "store first, then cancel: an accepted lease is cancel_requested once the task fact says cancelled, until its work ends",
+         ctx do
+      {task, lease} = accepted(ctx, "B-1")
+
+      Dispatch.cancel(task, "answer")
+      # Not stored yet: nothing durable says so, the lease is untouched.
+      Dispatch.sweep()
+      assert L.values(task)["lease_state"] == "accepted"
+      assert {:polled, %{cancel: [], lease_lost: []}} = poll(@mini, [lease], %{})
+
+      stored("B-1", task)
+      Dispatch.sweep()
+      assert cancel_requested?(task)
+      assert {:polled, %{cancel: [^lease], lease_lost: []}} = poll(@mini, [lease], %{})
+      # Named again on the next poll, until the work ends.
+      assert {:polled, %{cancel: [^lease]}} = poll(@mini, [lease], %{})
+
+      assert {:recorded, _} =
+               WorkSource.report(@mini, %{
+                 lease_id: lease,
+                 revision: 2,
+                 report: L.ended(nil, kind: :cancelled)
+               })
+    end
+
+    test "an offered lease of a cancelled task is lost", ctx do
+      %{task: task} = L.supervised_task("B-1", "ada")
+      ready(ctx)
+      lease = lease!(@mini)
+
+      Dispatch.cancel(task, "answer")
+      stored("B-1", task)
+      Dispatch.sweep()
+
+      assert {L.values(task)["lease_state"], L.values(task)["lease_end_cause"]} ==
+               {"lost", "answer"}
+
+      assert {:polled, %{leases: [], lease_lost: [^lease]}} = poll(@mini, [lease])
+    end
+
+    test "Facts unavailable during the carry-out: the cancel happens once Facts is back", ctx do
+      {task, lease} = accepted(ctx, "B-1")
+      Dispatch.cancel(task, "answer")
+      stored("B-1", task)
+
+      :ok = GenServer.call(FakeFacts, {:busy, "task", task})
+      Dispatch.sweep()
+      :ok = GenServer.call(FakeFacts, {:free, "task", task})
+      assert L.values(task)["lease_state"] == "accepted"
+
+      Dispatch.sweep()
+      assert cancel_requested?(task)
+      assert {:polled, %{cancel: [^lease]}} = poll(@mini, [lease], %{})
+    end
+
+    test "the cancel write refused (the fact read fine): tried again on the next sweep", ctx do
+      {task, lease} = accepted(ctx, "B-1")
+      Dispatch.cancel(task, "answer")
+      stored("B-1", task)
+
+      :ok = GenServer.call(FakeFacts, {:refuse_write, "task", task})
+      Dispatch.sweep()
+      assert L.values(task)["lease_state"] == "accepted"
+      :ok = GenServer.call(FakeFacts, {:allow_write, "task", task})
+
+      Dispatch.sweep()
+      assert cancel_requested?(task)
+      assert {:polled, %{cancel: [^lease]}} = poll(@mini, [lease], %{})
+    end
+
+    test "Dispatch restarted after the store: the cancel still happens", ctx do
+      {task, lease} = accepted(ctx, "B-1")
+      Dispatch.cancel(task, "answer")
+      stored("B-1", task)
+      assert L.values(task)["lease_state"] == "accepted"
+
+      :ok = stop_supervised(Dispatch)
+      L.start_dispatch(ctx.clock)
+
+      Dispatch.sweep()
+      assert cancel_requested?(task)
+      assert {:polled, %{cancel: [^lease]}} = poll(@mini, [lease], %{})
+    end
+
+    test "the sweep timer carries the cancel out", ctx do
+      :ok = stop_supervised(Dispatch)
+      L.start_dispatch(ctx.clock, sweep_ms: 1_000)
+      {task, _lease} = accepted(ctx, "B-1")
+      Dispatch.cancel(task, "answer")
+      stored("B-1", task)
+      assert L.values(task)["lease_state"] == "accepted"
+
+      # The manual clock's advance sends the tick; the status call after it is answered
+      # once the tick was taken (one sender, in order).
+      L.advance(ctx, 1)
+      Dispatch.status()
+      assert cancel_requested?(task)
+    end
+
+    test "a cancel whose run is never stored without the task (its store failed) cancels nothing",
+         ctx do
+      {task, lease} = accepted(ctx, "B-1")
+
+      Dispatch.cancel(task, "answer")
+      # The Engine follows the task again and asks for it: the task fact was never cancelled.
+      Dispatch.ready(task)
+      Dispatch.sweep()
+      assert L.values(task)["lease_state"] == "accepted"
+      assert {:polled, %{cancel: []}} = poll(@mini, [lease], %{})
+    end
+
+    test "a cancel of another task moves no lease", ctx do
+      {task, lease} = accepted(ctx, "B-1")
+
+      Dispatch.cancel("TK-other-1", "answer")
+      Dispatch.sweep()
+      assert L.values(task)["lease_state"] == "accepted"
+      assert {:polled, %{cancel: [], lease_lost: []}} = poll(@mini, [lease], %{})
+    end
+  end
+
   describe "the supervisor filter (acceptance 1)" do
     test "no supervisor, another holder, or a state outside the span: never offered", ctx do
       L.supervised_task("B-1", nil)

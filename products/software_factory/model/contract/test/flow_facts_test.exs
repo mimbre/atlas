@@ -88,16 +88,24 @@ defmodule Model.FlowFactsTest do
                configured_model reported_model selection_reason conversation_id machine slot
                started_at ended_at) ++ Map.keys(@attempt_lease))
 
-    # F1.4 adds the result field its subflow's task branches read (never written).
+    # F1.4 adds the result field its subflow's task branches read (never written); F2-P
+    # the review → fix loop's: what its supervisor is asked, the step retry goes back to,
+    # and their answer.
     assert Enum.sort(Map.keys(entities["package"]["properties"])) ==
-             Enum.sort(~w(title instructions acceptance after state task_result))
+             Enum.sort(~w(title instructions acceptance after state task_result question
+               retry_step answer))
 
     assert Map.keys(entities["machinery"]["properties"]) == ["name"]
   end
 
   test "every field and link of the new kinds is Flow's alone" do
+    # Its supervisor sets a package's answer (F2-P), as a person sets a pull request's
+    # integration: no set_by.
+    assert get_in(extension(), ["entities", "package", "properties", "answer", "set_by"]) == nil
+
     for kind <- @new_kinds,
-        {name, _} <- schema()["entities"][kind]["properties"] do
+        {name, _} <- schema()["entities"][kind]["properties"],
+        {kind, name} != {"package", "answer"} do
       assert get_in(extension(), ["entities", kind, "properties", name, "set_by"]) == ["flow"],
              "#{kind}.#{name} is not set_by: [:flow]"
     end
@@ -114,7 +122,8 @@ defmodule Model.FlowFactsTest do
     assert why =~ "protected fields"
 
     for kind <- @new_kinds,
-        {name, _} <- schema()["entities"][kind]["properties"] do
+        {name, _} <- schema()["entities"][kind]["properties"],
+        {kind, name} != {"package", "answer"} do
       assert {:refuse, [why]} = check(create(kind, "X-1", %{name => "x"}), @someone),
              "#{kind}.#{name} is written by someone other than Flow"
 
@@ -126,6 +135,9 @@ defmodule Model.FlowFactsTest do
 
     assert {:refuse, [why]} = check(linked, @someone)
     assert why =~ "only a flow sets task_of"
+
+    # The supervisor may write the answer.
+    assert check(create("package", "X-1", %{"answer" => "fresh"}), @someone) == :ok
   end
 
   test "F2: a diagnose task by an investigator, and a task's revisions, are Flow's to write" do

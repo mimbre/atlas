@@ -81,6 +81,9 @@ defmodule AtlasFlow.Ladder do
   @policy ["refused: policy_forbids", "refused: no_permitted_option"]
   @authority ~w(credentials permissions production spending)
   @fixed ~w(fresh stronger abandon retry hold)
+  # Reserved: `none` is what entering `held`/`awaiting_decision` resets the answer to, so
+  # an option with that id could never be chosen (F2-P).
+  @reserved ~w(none)
   @option_fields ~w(id text details rule consequences)
 
   @authoring ~w(author fix)
@@ -626,7 +629,7 @@ defmodule AtlasFlow.Ladder do
   `{question, rationale, options: [{id, text, details, rule, consequences}],
   safe_to_continue, authority}`, the recommended option first, at most 20 options of at
   most 300 characters per field; an option that is not complete, or whose id is one of
-  the fixed answers, is left out.
+  the fixed answers or reserved (`none`, the answer's reset value), is left out.
   """
   def diagnosis(answer) do
     with {:ok, %{"cause" => cause} = block} <- last_json(answer),
@@ -671,7 +674,8 @@ defmodule AtlasFlow.Ladder do
   defp option?(o),
     do:
       is_map(o) and Enum.all?(@option_fields, &text?(o[&1])) and
-        o["id"] =~ ~r/^[a-z][a-z0-9_-]{0,63}$/ and o["id"] not in @fixed
+        o["id"] =~ ~r/^[a-z][a-z0-9_-]{0,63}$/ and o["id"] not in @fixed and
+        o["id"] not in @reserved
 
   # The last JSON object the answer ends with (a fenced block or bare).
   defp last_json(answer) when is_binary(answer) do

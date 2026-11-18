@@ -89,8 +89,8 @@ defmodule RelaDSL.Schema do
 
   With `ladder: true` a task is a step of the review → fix loop (F2, `AtlasFlow.Ladder`):
   its end leads where the ladder's next step says, so it maps `author`, `review`, `fix`,
-  `diagnose`, `fresh`, `stronger`, `ready`, `held` and `escalate` instead of the four
-  results. A ladder author or fix needs `check` (lesson 7: `bin/check` is the mandatory
+  `diagnose`, `fresh`, `stronger`, `ready`, `held`, `escalate` and `abandon` (the
+  supervisor abandoned it while its task ran, F2-P) instead of the four results. A ladder author or fix needs `check` (lesson 7: `bin/check` is the mandatory
   after-check), so every fix and fresh or stronger author the ladder runs is checked. As
   a rule of its own (not lesson 7), a step leads to a state whose task is a ladder task
   of its kind (`fresh` and `stronger` an author, `stronger` on `deep_coding_max`). A review, fix or diagnose
@@ -234,8 +234,20 @@ defmodule RelaDSL.Schema do
   @effect_results [:done, :refused]
   @task_results [:completed, :check_failed, :stuck, :abandoned]
   # What a ladder task's end leads to (`AtlasFlow.Ladder`'s steps, F2): the next task's
-  # step, or ready, held, escalate.
-  @ladder_results [:author, :review, :fix, :diagnose, :fresh, :stronger, :ready, :held, :escalate]
+  # step, or ready, held, escalate; or abandon, the supervisor's answer while the task ran
+  # on the default (F2-P, Main's D1 ruling).
+  @ladder_results [
+    :author,
+    :review,
+    :fix,
+    :diagnose,
+    :fresh,
+    :stronger,
+    :ready,
+    :held,
+    :escalate,
+    :abandon
+  ]
   @ladder_kinds [
     author: :author,
     review: :review,
