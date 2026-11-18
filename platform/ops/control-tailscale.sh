@@ -108,6 +108,12 @@ done
 tailscale --socket="$sock" serve --tls-terminated-tcp="$tls_port" "tcp://localhost:$control_port" &
 serve_pid=$!
 if [ -n "$source_port" ]; then
+  # Two Serve sessions must not write the serve config at once (etag mismatch): wait until
+  # Control's is in it.
+  for _ in {1..100}; do
+    ts serve status 2>/dev/null | grep -q ":$tls_port" && break
+    sleep 0.1
+  done
   tailscale --socket="$sock" serve --tls-terminated-tcp="$source_port" "tcp://localhost:$source_port" &
   source_pid=$!
 fi
