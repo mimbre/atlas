@@ -124,6 +124,120 @@ defmodule AtlasFlow.SupervisedOwnerTest do
       relations: AtlasFlow.SupervisedOwnerTest.Span.relations("clerk")
   end
 
+  # -- `with:` runs (F2-O) ---------------------------------------------------------------
+  #
+  # A span names other subflows in its `with:`: their runs, on facts under the spanned
+  # run's subject, take its supervisor too. Here the sort's span `tend` names `stack` (on
+  # the box's crates, `in_box`) and not `heap` (on its tins, `on_box`). Both start in a
+  # state the decider owns and move to one with a fixed owner.
+  defmodule Under do
+    @moduledoc "Two subflows under a box: `stack` on its crates, `heap` on its tins."
+    use RelaDSL.Schema
+
+    for {name, subject} <- [stack: :crate, heap: :tin] do
+      subflow name, label: "Under", subject: subject do
+        run_as("system:depot")
+        owner(relation: :held_by, default: {:clerk, config: :decider})
+        start(:create)
+        initial(:weigh)
+
+        state :weigh, label: "Weigh it" do
+          branch(to: :seal, when: "entity.result == 'seal'")
+          present(expected: "Weigh it")
+        end
+
+        state :seal, label: "Seal it" do
+          owner(relation: :held_by, default: {:clerk, :ada})
+          branch(to: :done, when: "entity.result == 'ok'")
+          present(expected: "Seal it")
+        end
+
+        final(:done, label: "Done")
+      end
+    end
+  end
+
+  defmodule Stack do
+    @moduledoc false
+    use RelaDSL.Flow.Subflow,
+      from: AtlasFlow.SupervisedOwnerTest.Under,
+      subflow: :stack,
+      behaviour: AtlasFlow.Subflow
+  end
+
+  defmodule Heap do
+    @moduledoc false
+    use RelaDSL.Flow.Subflow,
+      from: AtlasFlow.SupervisedOwnerTest.Under,
+      subflow: :heap,
+      behaviour: AtlasFlow.Subflow
+  end
+
+  defmodule With do
+    @moduledoc "The `with:` model's parts."
+
+    defp selected(subject, owner_relation),
+      do: %{
+        "subject" => subject,
+        "projection" => %{"field" => "todo", "owner_relation" => owner_relation},
+        "admission" => %{},
+        "imports" => [],
+        "migrations" => []
+      }
+
+    def selection,
+      do: %{
+        "sort" => selected("box", "owned_by"),
+        "stack" => selected("crate", "held_by"),
+        "heap" => selected("tin", "held_by")
+      }
+
+    def supervision,
+      do: %{
+        "version" => 1,
+        "relation" => "tended_by",
+        "inputs" => %{
+          "operation" => "operation",
+          "operations" => ["pickup", "hand_over"],
+          "hand_to" => "hand_to"
+        },
+        "spans" => %{
+          "sort" => [
+            %{
+              "name" => "tend",
+              "label" => "Tend",
+              "states" => ["check", "pack"],
+              "with" => ["stack"]
+            }
+          ]
+        }
+      }
+
+    def relations,
+      do:
+        Map.merge(AtlasFlow.SupervisedOwnerTest.Span.relations("clerk"), %{
+          "held_by" => %{"from" => ["crate", "tin"], "to" => ["clerk"], "max_outgoing" => 1},
+          "on_box" => %{"from" => ["tin"], "to" => ["box"], "max_outgoing" => 1, "parent" => true}
+        })
+
+    def description,
+      do: %{"entities" => Map.new(~w(box crate tin clerk cursor choice), &{&1, %{}})}
+  end
+
+  defmodule Withed do
+    @moduledoc false
+    use AtlasFlow.TestModel,
+      subflows: [
+        AtlasFlow.SupervisedOwnerTest.Sort,
+        AtlasFlow.SupervisedOwnerTest.Stack,
+        AtlasFlow.SupervisedOwnerTest.Heap
+      ],
+      actors: [decider: "clerk"],
+      selection: AtlasFlow.SupervisedOwnerTest.With.selection(),
+      relations: AtlasFlow.SupervisedOwnerTest.With.relations(),
+      supervision: AtlasFlow.SupervisedOwnerTest.With.supervision()
+  end
+
   setup do
     Application.put_env(:atlas_bus, :store, "state-#{System.unique_integer([:positive])}")
     start_supervised!(FakeFacts)
@@ -252,6 +366,234 @@ defmodule AtlasFlow.SupervisedOwnerTest do
     assert reads_in_a_round(Spanned) == fixed_owner
   end
 
+  describe "a run of a subflow a span names in its `with:`" do
+    alias AtlasFlow.{Supervision, Talk}
+    alias AtlasFlow.Runs.Projection
+
+    setup %{box: box} do
+      # Its own Facts, describing the kinds the engine listens to.
+      stop_supervised!(FakeFacts)
+      start_supervised!({FakeFacts, description: With.description()})
+      for key <- ["ada", "dee", "sam"], do: FakeFacts.put("clerk", %{"key" => key})
+      FakeFacts.put("box", %{"key" => box, "values" => %{}})
+      crate = "C-" <> box
+      tin = "T-" <> box
+      FakeFacts.put("crate", %{"key" => crate, "links" => %{"in_box" => [box]}})
+      FakeFacts.put("tin", %{"key" => tin, "links" => %{"on_box" => [box]}})
+      :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
+      %{crate: crate, tin: tin}
+    end
+
+    defp held(kind, key), do: FakeFacts.get(kind, key)["links"]["held_by"]
+    defp todo(kind, key), do: FakeFacts.get(kind, key)["values"]["todo"]
+
+    defp sort_run(box) do
+      {:ok, run} =
+        AtlasFlow.Runs.Store.decode(
+          runner().config,
+          FakeFacts.get("cursor", Run.key("sort", "box", box, 1))
+        )
+
+      run
+    end
+
+    # A pickup or hand-over of the box's sort run, sent as someone sends it (a submitted
+    # input): Flow takes it from its hint. Answered once Flow settled past it.
+    defp send_input(box, n, operation, actor, extra \\ %{}),
+      do: settled(put_input(box, n, operation, actor, extra))
+
+    # The input stored, without waiting for Flow: its position.
+    defp put_input(box, n, operation, actor, extra \\ %{}) do
+      run = sort_run(box)
+
+      values =
+        Map.merge(
+          %{
+            "run" => run["key"],
+            "entry" => run["entry"],
+            "generation" => run["generation"],
+            "actor" => actor,
+            "operation" => operation,
+            "roles" => [],
+            "changed_fields" => %{},
+            "links" => %{}
+          },
+          extra
+        )
+
+      key = "I-#{n}-" <> box
+
+      {:stored, position} =
+        Talk.put("choice", %{"op" => "submit", "key" => key, "values" => values}, key)
+
+      position
+    end
+
+    defp settled(position) do
+      request = %{AtlasBus.Envelope.new("request", "_settled") | address: "flow"}
+      :ok = AtlasBus.send(request, %{"position" => position})
+      id = request.id
+
+      receive do
+        {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"}, %{"settled" => settled}} ->
+          assert settled >= position
+      end
+    end
+
+    defp runner, do: AtlasFlow.Model.load(Withed, :prod, %{"decider" => "dee"})
+
+    test "the `with:` child's decider state goes to the parent's supervisor; another child's to the decider",
+         %{box: box, crate: crate, tin: tin} do
+      engine = start(Withed)
+      Engine.round(engine)
+      assert {held("crate", crate), held("tin", tin)} == {["dee"], ["dee"]}
+
+      supervise(box, "sam")
+      Engine.round(engine)
+      assert owner(box) == ["sam"]
+      assert todo("crate", crate) == "Weigh it"
+      assert held("crate", crate) == ["sam"]
+      assert held("tin", tin) == ["dee"]
+
+      # The parent leaves its span: the child's state is the decider's again.
+      result(box, "again")
+      Engine.round(engine)
+      assert state(box) == "Check it again"
+      assert held("crate", crate) == ["dee"]
+    end
+
+    test "with no supervisor, the `with:` child's decider state is the decider's",
+         %{box: box, crate: crate} do
+      engine = start(Withed)
+      Engine.round(engine)
+      Engine.round(engine)
+      assert sort_run(box)["supervised_by"] == nil
+      assert held("crate", crate) == ["dee"]
+    end
+
+    test "a pickup, a hand-over and another holder's pickup move the child's owner, each before any round",
+         %{box: box, crate: crate, tin: tin} do
+      engine = start(Withed)
+      Engine.round(engine)
+      assert held("crate", crate) == ["dee"]
+
+      send_input(box, 1, "pickup", "sam")
+      assert sort_run(box)["supervised_by"] == "sam"
+      assert held("crate", crate) == ["sam"]
+
+      send_input(box, 2, "hand_over", "sam", %{"hand_to" => "ada"})
+      assert sort_run(box)["supervised_by"] == nil
+      assert held("crate", crate) == ["dee"]
+
+      send_input(box, 3, "pickup", "ada")
+      assert sort_run(box)["supervised_by"] == "ada"
+      assert held("crate", crate) == ["ada"]
+      assert held("tin", tin) == ["dee"]
+    end
+
+    test "a child state with a fixed owner never moves to the supervisor",
+         %{box: box, crate: crate} do
+      engine = start(Withed)
+      Engine.round(engine)
+      supervise(box, "sam")
+      fact = FakeFacts.get("crate", crate)
+      FakeFacts.put("crate", put_in(fact, ["values", "result"], "seal"))
+      Engine.round(engine)
+      assert todo("crate", crate) == "Seal it"
+      assert owner(box) == ["sam"]
+      assert held("crate", crate) == ["ada"]
+    end
+
+    test "the child's owner and `AtlasFlow.Supervision.of/3` agree in every case",
+         %{box: box, crate: crate} do
+      engine = start(Withed)
+      Engine.round(engine)
+
+      agree = fn ->
+        case Supervision.of(runner(), "crate", crate) do
+          {:supervised, holder, _run} -> assert held("crate", crate) == [holder]
+          :unsupervised -> assert held("crate", crate) == ["dee"]
+        end
+      end
+
+      # Unsupervised, supervised in the span, cleared, and supervised outside the span.
+      agree.()
+      supervise(box, "sam")
+      Engine.round(engine)
+      assert {:supervised, "sam", _} = Supervision.of(runner(), "crate", crate)
+      agree.()
+      supervise(box, nil)
+      Engine.round(engine)
+      agree.()
+      supervise(box, "sam")
+      result(box, "again")
+      Engine.round(engine)
+      assert state(box) == "Check it again"
+      agree.()
+    end
+
+    test "Facts not saying who supervises the child: an error, and nothing written",
+         %{box: box, crate: crate} do
+      engine = start(Withed)
+      Engine.round(engine)
+      supervise(box, "sam")
+      Engine.round(engine)
+      assert held("crate", crate) == ["sam"]
+      stop_supervised!(Engine)
+
+      :ok = GenServer.call(FakeFacts, {:busy, "cursor", Run.key("sort", "box", box, 1)})
+      sent = length(FakeFacts.sent())
+      assert Supervision.of(runner(), "crate", crate) == :unavailable
+      assert Projection.project(runner(), "crate", crate) == {:error, :supervision_unavailable}
+      assert length(FakeFacts.sent()) == sent
+      assert held("crate", crate) == ["sam"]
+    end
+
+    # `Supervision.of/3` answers (its read is a transition read), but the projection's own
+    # plain read of the spanned run's record fails: still an error, never the decider.
+    test "the spanned run's record unreadable after Supervision answered: an error, nothing written",
+         %{box: box, crate: crate} do
+      engine = start(Withed)
+      Engine.round(engine)
+      supervise(box, "sam")
+      Engine.round(engine)
+      assert held("crate", crate) == ["sam"]
+      stop_supervised!(Engine)
+
+      key = Run.key("sort", "box", box, 1)
+      :ok = GenServer.call(FakeFacts, {:block_read, "cursor", %{"key" => key, "plain" => true}})
+      sent = length(FakeFacts.sent())
+      assert {:supervised, "sam", ^key} = Supervision.of(runner(), "crate", crate)
+      assert Projection.project(runner(), "crate", crate) == {:error, :supervision_unavailable}
+      assert length(FakeFacts.sent()) == sent
+      assert held("crate", crate) == ["sam"]
+    end
+
+    # The Router delivers in its call: once the Engine has handled the hint and the
+    # `_settled` request (`:sys.get_state/1` is the barrier), an answer would be here.
+    test "a failed downward lookup holds the hint for the round", %{box: box, crate: crate} do
+      engine = start(Withed)
+      Engine.round(engine)
+      linked = %{"linked" => %{"in_box" => box}}
+      :ok = GenServer.call(FakeFacts, {:block_read, "crate", linked})
+
+      position = put_input(box, 1, "pickup", "sam")
+      request = %{AtlasBus.Envelope.new("request", "_settled") | address: "flow"}
+      :ok = AtlasBus.send(request, %{"position" => position})
+      id = request.id
+      _ = :sys.get_state(engine)
+
+      assert sort_run(box)["supervised_by"] == "sam"
+      assert held("crate", crate) == ["dee"]
+      refute_received {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"}, _}
+
+      :ok = GenServer.call(FakeFacts, {:allow_read, "crate", linked})
+      Engine.round(engine)
+      assert_received {:atlas_bus, %AtlasBus.Envelope{id: ^id, class: "answer"}, _}
+      assert held("crate", crate) == ["sam"]
+    end
+  end
+
   describe "AtlasFlow.Model.owner/3" do
     @decider %{"kind" => "clerk", "config" => "decider"}
     @actors %{"decider" => %{"key" => "dee"}}
@@ -275,6 +617,14 @@ defmodule AtlasFlow.SupervisedOwnerTest do
                  "key" => "dee"
                }
       end
+    end
+
+    test "a precomputed in-span answer stands for the run's own spans" do
+      run = %{"state" => "weigh", "in_span" => true, "supervised_by" => @sam}
+      assert AtlasFlow.Model.owner(@decider, @actors, run) == @sam
+
+      assert AtlasFlow.Model.owner(@decider, @actors, %{run | "in_span" => false}) ==
+               %{"kind" => "clerk", "key" => "dee"}
     end
 
     test "another configured role, or a fixed owner, never goes to the supervisor" do

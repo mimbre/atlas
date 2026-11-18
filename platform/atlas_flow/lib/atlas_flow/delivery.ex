@@ -21,10 +21,14 @@ defmodule AtlasFlow.Delivery do
   **Results (§3.4).** An `ended` with a change set stores its manifest (`AtlasFlow.Results`),
   pins it for the task and answers the referenced blobs the store lacks (`missing`). The
   result is `complete` only when every referenced blob is held and every root's `csf_`
-  fingerprint computes again (`atlas_changeset`, on the lease's `base_id`); otherwise
-  `invalid`. Past a cap it is `too_large`. Recording `complete` pins the manifest again (a
-  no-op unless a restart dropped the pin; rev 4, R2). The pin goes on `invalid`,
-  `too_large`, an `ended` without a result, and the `accepted` of a later attempt.
+  fingerprint computes again (`atlas_changeset`, on the change set's own `base`); otherwise
+  `invalid`. The manifest keeps that `base` as the report declared it (Main's ruling,
+  option A): the Runtime's id of the baseline it imported, which is not the lease's
+  `base_id` and cannot be derived from it. A change set without a `base` is
+  `rejected(invalid)` (work_source 0.2.0), and nothing is stored. Past a cap it is
+  `too_large`. Recording `complete` pins the manifest again (a no-op unless a restart
+  dropped the pin; rev 4, R2). The pin goes on `invalid`, `too_large`, an `ended` without a
+  result, and the `accepted` of a later attempt.
 
   **The run.** On complete, refused, invalid or too large, `{:reconcile, kind, key}` is cast
   to the Engine for the run that holds the task (Delivery never writes a run).
@@ -162,7 +166,8 @@ defmodule AtlasFlow.Delivery do
 
     with %{"lease_id" => lease_id, "revision" => revision, "report" => report} <- input,
          true <- is_binary(lease_id) and is_integer(revision) and revision in 1..2_147_483_647,
-         state when state != nil <- Translate.state(report) do
+         state when state != nil <- Translate.state(report),
+         true <- Translate.base_declared?(report) do
       {:ok, lease_id, revision, report}
     else
       _ -> {:rejected, :invalid}
@@ -296,9 +301,9 @@ defmodule AtlasFlow.Delivery do
     end
   end
 
-  defp ended_with_result(fact, lease, report, result, state) do
+  defp ended_with_result(_fact, lease, report, result, state) do
     if Translate.change_set?(report) do
-      manifest = Translate.manifest(report, Leases.value(fact, "base_id"))
+      manifest = Translate.manifest(report)
 
       case Results.put_manifest(manifest, state.results) do
         {:ok, sha} ->

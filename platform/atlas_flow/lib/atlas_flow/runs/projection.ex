@@ -20,7 +20,12 @@ defmodule AtlasFlow.Runs.Projection do
       cancels it;
     * an owner that does not exist yet is not written: what is expected is, and the
       result names the owner it waits for, so its creation projects the fact again;
-    * when Facts does not say whether the owner exists, nothing is written.
+    * when Facts does not say whether the owner exists, nothing is written;
+    * a state owned by the configured `decider` goes to the run's human supervisor inside
+      a supervised span (`AtlasFlow.Model.owner/3`): its own subflow's span, or, for a run
+      of a subflow a span names in its `with:`, the span of the nearest spanned run above
+      its subject (`AtlasFlow.Supervision.of/3`). When Facts does not say who supervises
+      such a run, nothing is written: it never falls back to the decider.
   """
 
   require Logger
@@ -76,9 +81,11 @@ defmodule AtlasFlow.Runs.Projection do
          true <- subflow != nil,
          {:ok, %{} = run} <- Store.latest(config, name, kind, fact["key"]),
          true <- run["definition_sha256"] == subflow.digest(),
-         run = supervised(runner, subflow, run) do
+         {:ok, run} <- supervised(runner, subflow, run) do
       {:ok, Presentation.of_run(run, subflow, fact, &owner(runner, &1, run))}
     else
+      # Facts did not say who supervises the run: write nothing, never the decider.
+      {:error, :supervision_unavailable} = error -> error
       {:error, why} -> {:error, {:presentation_unavailable, why}}
       _ -> {:ok, nil}
     end
@@ -90,27 +97,97 @@ defmodule AtlasFlow.Runs.Projection do
   defp owner(_runner, nil, _run), do: nil
   defp owner(runner, owner, run), do: AtlasFlow.Model.owner(owner, runner.actors, run)
 
-  # The run with its subflow's supervised `spans` and its human supervisor as
-  # `AtlasFlow.Model.owner/3` takes it (`supervised_by`, `%{"kind", "key"}` or nil): only
-  # when its subflow declares a span and its state's owner may go to a supervisor. The
-  # run's writer keeps the supervisor as a link of the run's fact, and the run it read
-  # carries that link's key as `supervised_by` (`AtlasFlow.Runs.Store`); its kind is the
-  # supervision relation's one holder kind. It reads nothing more.
+  # The run with what `AtlasFlow.Model.owner/3` takes of its supervision, only when its
+  # state's owner may go to a supervisor and the run is active: `{:ok, run}`, or
+  # `{:error, :supervision_unavailable}` when Facts did not say.
+  #
+  # - A run whose subflow declares a span carries those `spans` and its human supervisor
+  #   (`supervised_by`, `%{"kind", "key"}` or nil). The run's writer keeps the supervisor as
+  #   a link of the run's fact, and the run it read carries that link's key as
+  #   `supervised_by` (`AtlasFlow.Runs.Store`); its kind is the supervision relation's one
+  #   holder kind. It reads nothing more.
+  # - A run of a subflow some span names in its `with:` (and with no span of its own)
+  #   belongs to the nearest spanned run above its subject (`AtlasFlow.Supervision.of/3`).
+  #   It carries that run's supervisor and its in-span answer (`in_span`), but only when
+  #   the span that run's state lies in names the run's subflow in its `with:`. This reads
+  #   the subject's parents and that run's record. A run of a subflow no span names reads
+  #   nothing more.
   defp supervised(runner, subflow, run) do
     supervision = runner.config["supervision"] || %{}
     spans = get_in(supervision, ["spans", run["flow"]]) || []
 
-    with true <- spans != [] and run["status"] == "active",
-         true <- AtlasFlow.Model.supervisable?((subflow.owner(run["state"]) || %{})["default"]) do
-      supervisor =
-        case {supervision["holders"], run["supervised_by"]} do
-          {[kind], key} when is_binary(key) -> %{"kind" => kind, "key" => key}
-          _ -> nil
+    cond do
+      run["status"] != "active" or
+          not AtlasFlow.Model.supervisable?((subflow.owner(run["state"]) || %{})["default"]) ->
+        {:ok, run}
+
+      spans != [] ->
+        supervisor = holder(supervision, run["supervised_by"])
+        {:ok, Map.merge(run, %{"spans" => spans, "supervised_by" => supervisor})}
+
+      with?(supervision, run["flow"]) ->
+        belonging(runner, supervision, run)
+
+      true ->
+        {:ok, run}
+    end
+  end
+
+  # Whether a span of any subflow names `flow` in its `with:`.
+  defp with?(supervision, flow) do
+    Enum.any?(supervision["spans"] || %{}, fn {_name, spans} ->
+      Enum.any?(spans, &(flow in (&1["with"] || [])))
+    end)
+  end
+
+  # The supervision of a `with:` run: its nearest spanned run's, when that run's span
+  # names the run's subflow.
+  defp belonging(runner, supervision, run) do
+    case AtlasFlow.Supervision.of(runner, run["subject_kind"], run["subject_key"]) do
+      {:supervised, holder, key} ->
+        case with_span(runner.config, supervision, key, run["flow"]) do
+          {:ok, true} ->
+            supervisor = holder(supervision, holder)
+
+            {:ok,
+             Map.merge(run, %{"in_span" => supervisor != nil, "supervised_by" => supervisor})}
+
+          {:ok, false} ->
+            {:ok, run}
+
+          :unavailable ->
+            {:error, :supervision_unavailable}
         end
 
-      Map.merge(run, %{"spans" => spans, "supervised_by" => supervisor})
+      :unsupervised ->
+        {:ok, run}
+
+      :unavailable ->
+        {:error, :supervision_unavailable}
+    end
+  end
+
+  # Whether the span the run `key`'s state lies in names `flow` in its `with:`.
+  defp with_span(config, supervision, key, flow) do
+    with %{"fact" => %{} = fact} <- Talk.read(config["kind"], %{"key" => key, "plain" => true}),
+         {:ok, spanned} <- Store.decode(config, fact) do
+      spans = get_in(supervision, ["spans", spanned["flow"]]) || []
+
+      {:ok,
+       Enum.any?(spans, fn span ->
+         spanned["state"] in (span["states"] || []) and flow in (span["with"] || [])
+       end)}
     else
-      false -> run
+      %{"fact" => nil} -> {:ok, false}
+      _ -> :unavailable
+    end
+  end
+
+  # A supervisor's key as an owner: of the supervision relation's one holder kind.
+  defp holder(supervision, key) do
+    case {supervision["holders"], key} do
+      {[kind], key} when is_binary(key) and key != "" -> %{"kind" => kind, "key" => key}
+      _ -> nil
     end
   end
 
