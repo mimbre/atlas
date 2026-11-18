@@ -23,6 +23,15 @@ defmodule AtlasE2E.Pull.Console do
   @open_for_you "/_open"
   @supervised_by_you "/_supervised"
 
+  # The submit key Control declares for each kind of dialog (`AtlasControl.Console`), as the
+  # TUI picks the kind (`AtlasTui.Interactions.content_context/1`: a form wins over a confirm),
+  # in tmux's spelling. A confirm block's submit is `["Enter", "y"]` (`confirmation/1`); a
+  # form's is `["Ctrl+S"]` (`editing/2`), bound in forms only, so a confirm ignores Ctrl+S.
+  @submit_keys %{confirm: "Enter", form: "C-s"}
+
+  @doc "The key that submits a dialog of `kind` (`:confirm` or `:form`); raises on any other."
+  def submit_key(kind), do: Map.fetch!(@submit_keys, kind)
+
   @doc "The product shell's tabs, in order: `[%{\"id\", \"label\", \"to\"}]`."
   def tabs, do: @shell_file |> File.read!() |> JSON.decode!() |> get_in(["shell", "tabs"])
 
@@ -168,7 +177,8 @@ defmodule AtlasE2E.Pull.Console do
       |> Enum.any?(&(String.contains?(&1, "› ") and String.contains?(&1, text)))
 
   @doc """
-  Pick up the issue `subject` from Open for you (`p`, then the confirm's submit). An issue
+  Pick up the issue `subject` from Open for you (`p`, then the submit key of its confirm
+  dialog, `submit_key(:confirm)`: Control's pick-up page is a confirm, not a form). An issue
   nobody supervises yet is listed there (Control's `/_open`: its run in the issue build's
   span, no human supervisor), not on the start page (Assigned to you: its Assignment names
   nobody; gatefix round 2).
@@ -179,13 +189,15 @@ defmodule AtlasE2E.Pull.Console do
     open_row(c, subject.issue_title, subject.issue)
     press(c, "p")
     await(c, &String.contains?(&1, "#{subject.issue}?"), "ask to pick up #{subject.issue}")
-    press(c, "C-s")
+    press(c, submit_key(:confirm))
     :ok
   end
 
   @doc """
   Hand the issue `subject` over to `to` (its display name) from its page (`v`), reached
   from Supervised by you (Control's `/_supervised`), where an issue melle picked up is.
+  Control's Hand over… page is a form (a choice of who), so it submits with
+  `submit_key(:form)`.
   """
   def hand_over(c, subject, to) do
     home(c)
@@ -204,7 +216,7 @@ defmodule AtlasE2E.Pull.Console do
           )
     end) || raise "the hand-over form never selected #{to}:\n#{screen(c)}"
 
-    press(c, "C-s")
+    press(c, submit_key(:form))
     :ok
   end
 
