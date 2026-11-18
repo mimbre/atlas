@@ -1,5 +1,9 @@
 # Tests tagged :rela run the pinned rela; they run only when ATLAS_RELA_BIN names its folder.
-ExUnit.start(exclude: if(System.get_env("ATLAS_RELA_BIN") in [nil, ""], do: [:rela], else: []))
+# A bare assert_receive waits up to 30 s for its message (bin/lib/test_waits.rb), not 100 ms.
+ExUnit.start(
+  assert_receive_timeout: 30_000,
+  exclude: if(System.get_env("ATLAS_RELA_BIN") in [nil, ""], do: [:rela], else: [])
+)
 
 # Gates and Flow run the model they are wired to: here, the one under test.
 Application.put_env(:atlas, :model, Model.AtlasEyra)

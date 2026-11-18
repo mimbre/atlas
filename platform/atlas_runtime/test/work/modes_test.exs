@@ -9,9 +9,6 @@ defmodule AtlasRuntime.Work.ModesTest do
 
   @moduletag capture_log: true
 
-  # Long enough for several heartbeats (100 ms), each of which tries to start buffered work.
-  @bound 800
-
   setup do
     %{bench: start!(%{"slots" => ["s1"]})}
   end
@@ -34,7 +31,7 @@ defmodule AtlasRuntime.Work.ModesTest do
     cancel_and_wait(first)
 
     # The slot is free and the attempt waits in the buffer; no heartbeat starts it.
-    Process.sleep(@bound)
+    heartbeats(8)
     refute launched?(bench, "complete second")
     assert work!(second.work_id).state == :buffered
 
@@ -112,7 +109,7 @@ defmodule AtlasRuntime.Work.ModesTest do
       File.rm!(Path.join(bench.dir, "gate"))
       await_state(work.work_id, :completed)
 
-      Process.sleep(@bound)
+      heartbeats(8)
       assert Work.mode() == :draining
       assert %F.Outcome.Capacity{accepting: false} = F.capacity(client())
     end
@@ -129,11 +126,12 @@ defmodule AtlasRuntime.Work.ModesTest do
       mode_bytes = File.read!(Path.join(bench.dir, "mode.json"))
 
       assert F.subscribe(client(), %{}) == %F.Outcome.Subscribed{}
-      # Past the millisecond of `changed_at`, so a rewrite on the repeat would differ.
-      Process.sleep(5)
+      # Past the millisecond of `changed_at`, so a rewrite on the repeat would differ: the
+      # second of two heartbeats is scheduled 100 ms after the first.
+      heartbeats(2)
       assert Work.set_mode(:draining, "local:op") == :draining
 
-      assert [] = for(%F.WorkChanged{} = n <- notifications(300), do: n)
+      assert [] = for(%F.WorkChanged{} = n <- notifications(heartbeats: 3), do: n)
       assert work!(second.work_id).revision == returned.revision
       assert File.read!(Path.join(bench.dir, "mode.json")) == mode_bytes
       cancel_and_wait(first)
@@ -148,9 +146,9 @@ defmodule AtlasRuntime.Work.ModesTest do
     assert Work.set_mode(:open, "local:op") == :open
 
     assert [%F.CapacityAvailable{capacity: %F.Capacity{accepting: true}}] =
-             for(%F.CapacityAvailable{} = n <- notifications(300), do: n)
+             for(%F.CapacityAvailable{} = n <- notifications(heartbeats: 3), do: n)
 
     assert Work.set_mode(:open, "local:op") == :open
-    assert [] = for(%F.CapacityAvailable{} = n <- notifications(300), do: n)
+    assert [] = for(%F.CapacityAvailable{} = n <- notifications(heartbeats: 3), do: n)
   end
 end

@@ -50,7 +50,7 @@ defmodule AtlasRuntime.Operations.ReleaseTest do
        %{bench: bench} do
     {bench, work, turn} = lost_turn(bench, &__MODULE__.unknown/2)
     next = submit!(bench, "complete after the release")
-    Process.sleep(300)
+    heartbeats(3)
     assert work!(next.work_id).state == :buffered
     assert W.subscribe(client(), %{}) == %W.Outcome.Subscribed{}
 
@@ -65,10 +65,8 @@ defmodule AtlasRuntime.Operations.ReleaseTest do
     assert turn(bench, turn)["state"] == "failed"
 
     # The change went out, and the slot takes the buffered work.
-    assert Enum.any?(
-             notifications(1_000),
-             &match?(%W.WorkChanged{revision: r} when r == stored.revision, &1)
-           )
+    revision = stored.revision
+    assert_receive {:atlas_runtime_work, %W.WorkChanged{revision: ^revision}}
 
     assert [%{slot: "s1"}] = await_state(next.work_id, :completed).attempts
     # Who released it stays private.

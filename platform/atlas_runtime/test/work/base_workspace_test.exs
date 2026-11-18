@@ -148,14 +148,15 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     work = submit_base!(code, "complete after a held archive")
     await(fn -> CodeStandIn.held?(code) end)
 
+    # While the archive is held, the core answers and goes on beating: were it blocked on
+    # the helper, neither a call nor a heartbeat would come before the release.
     for _ <- 1..5 do
-      {micros, %F.Outcome.Found{work: %{state: :starting}}} =
-        :timer.tc(fn -> F.get_work(client(), %{work_id: work.work_id}) end)
+      assert %F.Outcome.Found{work: %{state: :starting}} =
+               F.get_work(client(), %{work_id: work.work_id})
 
-      assert micros < 200_000
-      {micros, %F.Outcome.Capacity{}} = :timer.tc(fn -> F.capacity(client()) end)
-      assert micros < 200_000
-      Process.sleep(100)
+      assert %F.Outcome.Capacity{} = F.capacity(client())
+      heartbeats(1)
+      assert CodeStandIn.held?(code)
     end
 
     assert launches(bench) == []
@@ -250,13 +251,13 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
              F.cancel(client(), %{work_id: work.work_id, mode: "graceful"})
 
     assert %F.Outcome.Cancelling{} = F.cancel(client(), %{work_id: work.work_id, mode: "force"})
-    Process.sleep(200)
+    heartbeats(2)
     assert work!(work.work_id).state == :cancelling
     CodeStandIn.release(code)
     [attempt] = await_state(work.work_id, :cancelled).attempts
     assert attempt.result.reason == :cancel
     assert attempt.quiescent
-    Process.sleep(300)
+    heartbeats(3)
     assert launches(bench) == []
   end
 
@@ -283,7 +284,7 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     CodeStandIn.release(code)
     [attempt] = await_state(work.work_id, :failed).attempts
     assert attempt.result.reason == :time_limit
-    Process.sleep(300)
+    heartbeats(3)
     assert launches(bench) == []
   end
 
@@ -311,7 +312,7 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
 
     # Not prepared again at boot, and a fresh retry stays buffered while the helper lives.
     assert %F.Outcome.Accepted{} = F.retry(client(), %{work_id: work.work_id})
-    Process.sleep(500)
+    heartbeats(5)
     assert [%{state: :interrupted}, %{state: :buffered}] = work!(work.work_id).attempts
     assert CodeStandIn.archives(code) == ["atlas"]
     assert launches(bench) == []
@@ -343,10 +344,15 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     refute preparer_awaits_helper?()
     assert {_, 0} = System.cmd("/bin/kill", ["-0", Integer.to_string(pid)])
 
+    preparers = preparers()
+    assert preparers != []
     stop_work()
     refute Process.alive?(core)
-    # The preparer saw its owner go and killed the helper (its own `:DOWN`, not a timer).
-    await(fn -> signal_probe(pid, nil) != :alive end)
+    # The preparer saw its owner go and killed the helper (its own `:DOWN`, not a timer); it
+    # ends once it has the helper's exit status, so the helper is reaped by then. (The core
+    # is stopped: the harness's `await/1`, which wakes on the core, cannot serve here.)
+    for preparer <- preparers, do: AtlasTestAwait.down(preparer)
+    assert signal_probe(pid, nil) != :alive
 
     start_work!(bench,
       probe: &__MODULE__.signal_probe/2,
@@ -389,6 +395,14 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     after
       10_000 -> flunk("no matching write of #{work_id}")
     end
+  end
+
+  # The preparers (`Folders` frames on the stack) alive now.
+  defp preparers do
+    for pid <- Process.list(),
+        {:current_stacktrace, stack} <- [Process.info(pid, :current_stacktrace)],
+        Enum.any?(stack, &match?({AtlasRuntime.Work.Folders, _, _, _}, &1)),
+        do: pid
   end
 
   # A preparer (`Folders`) waiting on its helper's port: past the prepare_pid handshake.

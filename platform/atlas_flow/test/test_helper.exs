@@ -1,1 +1,1 @@
-ExUnit.start()
+ExUnit.start(AtlasTestAwait.exunit_options())

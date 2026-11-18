@@ -43,6 +43,8 @@ defmodule AtlasRuntime.MixProject do
       {:atlas_changeset, path: "../frameworks/changeset"},
       {:plug, "~> 1.19"},
       {:bandit, "~> 1.10"},
-      {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test}
+      {:rela_dsl, path: "../../products/software_factory/model/generator", only: :test},
+      # Tests wait on events, never on the clock (platform/frameworks/test_await).
+      {:atlas_test_await, path: "../frameworks/test_await", only: :test}
     ]
 end

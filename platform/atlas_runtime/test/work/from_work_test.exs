@@ -501,7 +501,7 @@ defmodule AtlasRuntime.Work.FromWorkTest do
     assert attempt.result.retryable
     send(preparer, :go)
 
-    Process.sleep(300)
+    heartbeats(3)
     assert launch_of(bench, "complete after restart") == nil
     assert Path.wildcard(Path.join([bench.dir, "scratch", "compose-*"])) == []
 

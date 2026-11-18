@@ -111,14 +111,6 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
     }
   end
 
-  defp eventually(fun, tries \\ 50) do
-    cond do
-      fun.() -> true
-      tries == 0 -> false
-      true -> Process.sleep(20) && eventually(fun, tries - 1)
-    end
-  end
-
   defp work_count(bench),
     do: bench.dir |> Path.join("work/work-*.json") |> Path.wildcard() |> length()
 
@@ -352,8 +344,8 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
       ref = Process.monitor(pid)
       assert_receive {:DOWN, ^ref, :process, _, _}
       # The core handles the end before the next call (its mailbox is in order only for one
-      # sender, so wait until the slots are free again, bounded).
-      assert eventually(fn -> Work.offer("flow-test") == %{"light_work" => 2} end)
+      # sender, so wait until the slots are free again, re-checked on the core's notifications).
+      assert await(fn -> Work.offer("flow-test") == %{"light_work" => 2} end)
     end
 
     test "O1: two profiles are offered the same total, and the source leases that many in all",

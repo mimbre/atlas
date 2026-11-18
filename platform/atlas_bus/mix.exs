@@ -11,7 +11,8 @@ defmodule AtlasBus.MixProject do
       lockfile: "../../products/software_factory/mix.lock",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
-      deps: []
+      # Tests wait on events, never on the clock (platform/frameworks/test_await).
+      deps: [{:atlas_test_await, path: "../frameworks/test_await", only: :test}]
     ]
   end
 

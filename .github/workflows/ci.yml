@@ -653,12 +653,45 @@ jobs:
       - run: mix format --check-formatted
       - run: mix test --warnings-as-errors
 
+  frameworks-test-await:
+    name: Shared test-await helper (platform/frameworks/test_await) and the test-waits check
+    needs: tested-tree
+    if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    defaults:
+      run:
+        working-directory: platform/frameworks/test_await
+    steps:
+      - uses: actions/checkout@v4
+      # No test under platform/ or products/ waits on the clock outside bin/lib/test_waits.allow
+      # (the check's own test first). Ruby only (the runner's), in well under a second.
+      - name: No real-timer waits in tests (bin/check test-waits)
+        working-directory: .
+        run: bin/check test-waits
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - name: The library names no system
+        run: |
+          if grep -rnE 'Atlas(Bus|Facts|Flow|Runtime|Control|Gates|Code|Learn)\b|atlas_(bus|facts|flow|runtime|control|gates|code|learn)\b' lib test mix.exs; then
+            echo "::error::platform/frameworks/test_await names a system. It is neutral: keep system values in the systems that use it."
+            exit 1
+          fi
+      # No dependencies, and none may appear without a lockfile.
+      - run: mix deps.get --check-locked
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      - run: mix test --warnings-as-errors
+
   # Every test job passed on this tree: record it, so a later run on the same tree (develop
   # after integration, the release pull request, master) skips its tests. Only when this
   # run tested it itself, and never from a fork.
   record-tested-tree:
     name: Record the tested tree
-    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, code-boundary-generator, code-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, swift, apple, runtime-backend-generator, runtime-backend-contract, frameworks-changeset, frameworks-body-limit]
+    needs: [tested-tree, generator, runtime-boundary-generator, runtime-boundary-contract, code-boundary-generator, code-boundary-contract, contract, runtime-model, model-dsl, model-contract, beam, tui, agent, swift, apple, runtime-backend-generator, runtime-backend-contract, frameworks-changeset, frameworks-body-limit, frameworks-test-await]
     if: >-
       needs.tested-tree.outputs.tested != 'true' && needs.tested-tree.outputs.tree != ''
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)

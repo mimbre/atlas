@@ -44,7 +44,7 @@ defmodule AtlasRuntime.Work.CapacityTest do
 
     for work <- [second, third], do: cancel_and_wait(work)
 
-    available = for %F.CapacityAvailable{} = n <- notifications(300), do: n
+    available = for %F.CapacityAvailable{} = n <- notifications(heartbeats: 3), do: n
     assert [%F.CapacityAvailable{capacity: %F.Capacity{accepting: true}}] = available
   end
 

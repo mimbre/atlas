@@ -1,6 +1,6 @@
 # Tests that need rela's Python tooling or a rela binary run at the integration level:
 # mix test --include integration (with platform/atlas_facts/rela/scripts/requirements.txt installed).
-ExUnit.start(exclude: [:integration])
+ExUnit.start(AtlasTestAwait.exunit_options(exclude: [:integration]))
 
 # Facts stores by the model it is wired to: here the neutral workshop, unless a test gives
 # one of its own (`model:`).

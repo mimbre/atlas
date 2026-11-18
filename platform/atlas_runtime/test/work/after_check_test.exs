@@ -348,7 +348,7 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
              F.cancel(client(), %{work_id: hung.work_id, mode: "graceful"})
 
     await_state(hung.work_id, :cancelled)
-    Process.sleep(300)
+    heartbeats(3)
     assert checks(bench) == []
 
     for work <- [failed, hung] do
@@ -375,12 +375,10 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
     :sys.suspend(core)
     cancel = Task.async(fn -> F.cancel(client(), %{work_id: work.work_id, mode: "graceful"}) end)
 
-    await(fn ->
-      match?({:message_queue_len, n} when n > 0, Process.info(core, :message_queue_len))
-    end)
+    await_message_queued(core)
 
     File.rm!(gate)
-    await(fn -> turn(bench, turn)["state"] == "finished" end)
+    await_service(bench, fn -> turn(bench, turn)["state"] == "finished" end)
     :sys.resume(core)
 
     assert %F.Outcome.Ended{work: %{state: :completed, attempts: [attempt]}} = Task.await(cancel)
@@ -399,7 +397,7 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
              output: %F.CheckOutput{tail: "", complete: true}
            } = attempt.result.work_product.check
 
-    Process.sleep(300)
+    heartbeats(3)
     assert checks(bench) == [] and jsonl(bench, "check-sandbox.jsonl") == []
 
     [stored] = Store.read_work(bench.dir, work.work_id).attempts
@@ -618,9 +616,9 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
     refute hd(completed.attempts).quiescent
     assert is_integer(pgid = hd(completed.attempts).check_pgid)
     assert [%{state: :completed, quiescent: false}] = work!(work.work_id).attempts
-    # Several heartbeats later the group (the sleep) still lives, and so the attempt stays
+    # Five heartbeats later the group (the sleep) still lives, and so the attempt stays
     # not quiescent: the turn's end alone settles nothing.
-    Process.sleep(500)
+    heartbeats(5)
     assert group_probe(pgid, 0) == :alive
     assert [%{quiescent: false}] = work!(work.work_id).attempts
     # The sleep ends within 2 s; the probe then finds its group gone.

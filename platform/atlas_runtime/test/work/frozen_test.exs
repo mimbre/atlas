@@ -166,17 +166,17 @@ defmodule AtlasRuntime.Work.FrozenTest do
 
     start_work!(bench,
       freeze_hook: fn frozen ->
-        send(test, {:frozen, frozen.frozen_id})
+        send(test, {:frozen, frozen.frozen_id, self()})
         Process.exit(self(), :kill)
       end
     )
 
     work = submit_base!(code, "write atlas/crash.txt cut off")
-    assert_receive {:frozen, frozen_id}, 10_000
+    assert_receive {:frozen, frozen_id, core}, 10_000
     orphan = Path.join([bench.dir, "frozen", frozen_id <> ".json"])
     assert File.exists?(orphan)
     # The crash came before the commit: the record never said completed.
-    await(fn -> GenServer.whereis(AtlasRuntime.Work.Server) == nil end)
+    assert AtlasTestAwait.down(core) in [:killed, :noproc]
     assert [%{state: :running}] = Store.read_work(bench.dir, work.work_id).attempts
 
     start_work!(bench)

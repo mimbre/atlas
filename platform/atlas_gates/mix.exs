@@ -25,5 +25,10 @@ defmodule AtlasGates.MixProject do
 
   # Gates reaches the other layers only over the Bus. The gate definitions are the
   # model's, wired by configuration (AtlasGates.Model); its tests wire a neutral model.
-  defp deps, do: [{:atlas_bus, in_umbrella: true}]
+  # Tests wait on events, never on the clock (platform/frameworks/test_await).
+  defp deps,
+    do: [
+      {:atlas_bus, in_umbrella: true},
+      {:atlas_test_await, path: "../frameworks/test_await", only: :test}
+    ]
 end

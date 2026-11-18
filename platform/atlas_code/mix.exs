@@ -37,6 +37,8 @@ defmodule AtlasCode.MixProject do
   defp deps,
     do: [
       {:atlas_bus, in_umbrella: true, runtime: false},
-      {:atlas_code_boundary, path: "boundary/contract"}
+      {:atlas_code_boundary, path: "boundary/contract"},
+      # Tests wait on events, never on the clock (platform/frameworks/test_await).
+      {:atlas_test_await, path: "../frameworks/test_await", only: :test}
     ]
 end

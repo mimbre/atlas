@@ -73,8 +73,9 @@ defmodule AtlasRuntime.Work.CancelTest do
       submit!(bench, "hang though slow to start", %{slot: "s1"}, client("c1", [:choose_slot]))
 
     assert_receive :start_held, 5_000
-    # The core gives up waiting for the start; the cancel reaches it while it is unanswered.
-    Process.sleep(1_200)
+    # The core gives up waiting for the start (start_timeout_ms); the cancel reaches it
+    # while it is unanswered.
+    core_idle()
 
     assert %F.Outcome.Cancelling{stage: :requested, work: %{state: :cancelling}} =
              F.cancel(client(), %{work_id: work.work_id, mode: "graceful"})
@@ -105,8 +106,8 @@ defmodule AtlasRuntime.Work.CancelTest do
     AtlasRuntime.Persistence.History.latch!(bench.dir, "s1", "turn-not-the-cores", at)
     work = submit!(bench, "complete once released", %{slot: "s1"}, client("c1", [:choose_slot]))
 
-    # Several heartbeats (100 ms) pass: the work waits, without a new revision each time.
-    Process.sleep(800)
+    # Several heartbeats pass: the work waits, without a new revision each time.
+    heartbeats(8)
     held = work!(work.work_id)
     assert held.state == :buffered
     assert held.revision <= 3
@@ -170,12 +171,10 @@ defmodule AtlasRuntime.Work.CancelTest do
     :sys.suspend(core)
     cancel = Task.async(fn -> F.cancel(client(), %{work_id: work.work_id, mode: "graceful"}) end)
 
-    await(fn ->
-      match?({:message_queue_len, n} when n > 0, Process.info(core, :message_queue_len))
-    end)
+    await_message_queued(core)
 
     File.rm!(gate)
-    await(fn -> turn(bench, turn)["state"] == "finished" end)
+    await_service(bench, fn -> turn(bench, turn)["state"] == "finished" end)
     :sys.resume(core)
 
     assert %F.Outcome.Ended{work: %{state: :completed, attempts: [attempt]}} = Task.await(cancel)
@@ -288,12 +287,15 @@ defmodule AtlasRuntime.Work.CancelTest do
     assert %F.Outcome.Cancelling{stage: :signalled} =
              F.cancel(client(), %{work_id: work.work_id, mode: "graceful"})
 
-    # Sample until the work ends. Each sample reads the turn's confirmation, then the child,
-    # then the work: the Service records the confirmation before the core hears of it, so a
-    # confirmation read first must find the child already gone, and the end read last must
-    # find the confirmation and no child.
-    samples =
-      Stream.repeatedly(fn ->
+    # Sample until the work ends, once now and after each change the Service handles (the
+    # leader's end, the confirmation) or the core notifies. Each sample reads the turn's
+    # confirmation, then the child, then the work: the Service records the confirmation
+    # before the core hears of it, so a confirmation read first must find the child already
+    # gone, and the end read last must find the confirmation and no child.
+    key = {__MODULE__, :samples}
+
+    AtlasTestAwait.until(
+      fn ->
         confirmed = confirmed_at(bench, turn_id)
 
         sample = %{
@@ -305,20 +307,19 @@ defmodule AtlasRuntime.Work.CancelTest do
         [attempt] = work!(work.work_id).attempts
         sample = Map.put(sample, :attempt, attempt)
 
-        if attempt.state == :cancelled do
-          Map.merge(sample, %{confirmed: confirmed_at(bench, turn_id), child: alive?(child)})
-        else
-          Process.sleep(10)
-          sample
-        end
-      end)
-      |> Enum.reduce_while([], fn sample, seen ->
-        cond do
-          sample.attempt.state == :cancelled -> {:halt, Enum.reverse([sample | seen])}
-          length(seen) > 1_000 -> flunk("the work did not end")
-          true -> {:cont, [sample | seen]}
-        end
-      end)
+        sample =
+          if attempt.state == :cancelled,
+            do:
+              Map.merge(sample, %{confirmed: confirmed_at(bench, turn_id), child: alive?(child)}),
+            else: sample
+
+        Process.put(key, [sample | Process.get(key, [])])
+        attempt.state == :cancelled
+      end,
+      wake: work_events()
+    )
+
+    samples = key |> Process.delete() |> Enum.reverse()
 
     {before, [ended]} = Enum.split(samples, -1)
 
@@ -440,7 +441,7 @@ defmodule AtlasRuntime.Work.CancelTest do
 
     # Not settled (I1): the slot does not take the next work while the group lives.
     next = submit!(bench, "complete after the group is gone")
-    Process.sleep(300)
+    heartbeats(3)
     assert work!(next.work_id).state == :buffered
     refute hd(work!(work.work_id).attempts).quiescent
 
