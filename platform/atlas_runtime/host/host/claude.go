@@ -402,14 +402,9 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 			protect(entry[0])
 		}
 	}
+	// A repository's own .git is the agent's: a job's folder is a Git checkout it may use (the Runtime
+	// commits the result from its own Git directory, never from this one).
 	protected = append(protected, filepath.Join(root, ".git"))
-	for _, repository := range repositories {
-		path, ok := repository.(string)
-		if !ok {
-			return "", errors.New("Materialized folder scope is incomplete")
-		}
-		protected = append(protected, filepath.Join(root, path, ".git"))
-	}
 	token, err := codeToken(home)
 	if err != nil {
 		return "", err

@@ -131,10 +131,36 @@ defmodule AtlasRuntime.Work.Folders do
       if moved, do: remove(aside)
     end
     |> case do
-      {:ok, _result} -> :ok
+      {:ok, _result} -> checkout(spec, home, folder)
       {:error, detail} -> {:error, detail}
     end
   end
+
+  # A job's base whose result goes back over Git (`git_base`): its repository folder becomes a
+  # Git checkout of the prepared base, the base's commit plus its dependencies, from the
+  # source's Git cache. The objects are copied in, so the agent's Git needs nothing outside the
+  # folder. Its own commits never travel: the Runtime takes the folder's end state.
+  defp checkout(%{git_base: ref, store: store, base_id: "sha256:" <> hex}, home, folder)
+       when is_binary(ref) do
+    manifest = Path.join([home, "snapshots", hex, "manifest.json"])
+    %{"roots" => [%{"root" => root}]} = manifest |> File.read!() |> JSON.decode!()
+    repo = Path.join(folder, root)
+    cache = Path.join([home, "sources", store, "git"])
+
+    git = fn args ->
+      {_, 0} = System.cmd("git", ["-C", repo | args], stderr_to_stdout: true)
+    end
+
+    git.(["init", "-q", "-b", "work"])
+    git.(["fetch", "-q", "--no-tags", "--update-head-ok", "--depth", "2", cache, ref <> ":work"])
+    git.(["reset", "-q", "--hard"])
+    git.(["config", "user.name", "Atlas agent"])
+    git.(["config", "user.email", "agent@atlas"])
+    git.(["config", "commit.gpgsign", "false"])
+    :ok
+  end
+
+  defp checkout(_spec, _home, _folder), do: :ok
 
   defp helper(:materialize, spec, home, folder, options, _hook),
     do: Workspaces.materialize(home, spec.base_id, folder, options)

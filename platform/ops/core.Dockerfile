@@ -59,7 +59,9 @@ RUN arch="${TARGETARCH:-amd64}" \
   && /tailscale/tailscale version
 
 
-FROM debian:bookworm-slim
+# The Elixir image, not plain Debian: Code prepares a base's dependencies itself
+# (AtlasCode.Dependencies: mix deps.get, with Hex, and npm ci), on the server's network.
+FROM hexpm/elixir:1.18.4-erlang-28.5.0.2-debian-bookworm-20260610-slim
 
 # git for the core's Code service (AtlasCode.Core), pinned: it reads base repositories
 # anonymously ("credentials": "none"), so no gh. perl, which Code's home lock
@@ -68,9 +70,11 @@ FROM debian:bookworm-slim
 ARG GIT_VERSION=1:2.39.5-0+deb12u2
 RUN apt-get update \
   && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 ca-certificates python3 \
-       "git=${GIT_VERSION}" \
+       "git=${GIT_VERSION}" nodejs npm \
   && rm -rf /var/lib/apt/lists/* \
   && git --version && perl -e 'use Fcntl qw(:flock); exit 0'
+ENV MIX_HOME=/opt/mix
+RUN mix local.hex --force && mix local.rebar --force && npm --version
 
 COPY --from=tailscale /tailscale/tailscale /tailscale/tailscaled /usr/local/bin/
 

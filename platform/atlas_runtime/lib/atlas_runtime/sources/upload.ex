@@ -84,8 +84,9 @@ defmodule AtlasRuntime.Sources.Upload do
   - `:max_result_bytes`: the most bytes of missing blobs one upload sends (default
     20 000 000, the contract's per-result cap, §6.2).
   - `:git`: the result over Git instead of a change set: `%{url, env, dir, base, ref, tree}`;
-    the folder `tree` is committed on `base` in the Git cache `dir` and pushed to `url` as
-    `ref`, `env` a function that answers Git's environment (the source's token).
+    the folder `tree` is committed on the base's commit under Code's prepared `base` in the
+    Git cache `dir`, without the dependencies `base` adds, and pushed to `url` as `ref`,
+    `env` a function that answers Git's environment (the source's token).
   """
   @spec run({String.t(), [atom()]}, source(), String.t(), String.t(), keyword()) :: outcome()
   def run(client, source, lease_id, work_id, options \\ []) do
@@ -104,9 +105,10 @@ defmodule AtlasRuntime.Sources.Upload do
     end
   end
 
-  # The result over Git (option `git`): the work's root committed on the base, every file
-  # Git does not ignore, and pushed to the source's Code as `ref`. The report then carries no
-  # manifest, so no blob is sent.
+  # The result over Git (option `git`): the work's root as it ended, every file Git does not
+  # ignore, less the dependencies Code's prepared base added, committed on the base's commit
+  # under it, and pushed to the source's Code as `ref`: it diffs against the repository's base
+  # with the agent's changes only. The report then carries no manifest, so no blob is sent.
   defp manifest(reader, work_id, attempt, nil), do: manifest(reader, work_id, attempt)
 
   defp manifest(_reader, work_id, _attempt, git) do
@@ -132,11 +134,19 @@ defmodule AtlasRuntime.Sources.Upload do
     try do
       git_cmd.(["read-tree", git.base])
       git_cmd.(["add", "-A", "."])
+      paths = index <> ".paths"
+      File.write!(paths, git_cmd.(["diff", "--name-only", "-z", git.base <> "^", git.base]))
+
+      if File.stat!(paths).size > 0 do
+        args = ["--ignore-unmatch", "--pathspec-from-file=" <> paths, "--pathspec-file-nul"]
+        git_cmd.(["--literal-pathspecs", "rm", "-r", "-q", "--cached" | args])
+      end
+
       tree = git_cmd.(["write-tree"])
 
       commit =
         git_cmd.(
-          ["-c", "commit.gpgsign=false", "commit-tree", tree, "-p", git.base] ++
+          ["-c", "commit.gpgsign=false", "commit-tree", tree, "-p", git.base <> "^"] ++
             ["-m", "Atlas result of #{work_id}"]
         )
 
@@ -144,6 +154,7 @@ defmodule AtlasRuntime.Sources.Upload do
       nil
     after
       File.rm(index)
+      File.rm(index <> ".paths")
     end
   end
 

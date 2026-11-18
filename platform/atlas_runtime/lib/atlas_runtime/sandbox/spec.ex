@@ -755,10 +755,8 @@ defmodule AtlasRuntime.Sandbox.Spec do
     writable_inspector(inspector, writable ++ [temporary])
     sockets = for [path, _] <- socket_entries(home, project ++ [temporary]), do: path
 
-    protected =
-      [home] ++
-        sockets ++
-        [clean(Path.join(root, ".git"))] ++ Enum.map(repositories, &repository_git(root, &1))
+    # A repository's own .git is the agent's (claude.go): only the folder's is protected.
+    protected = [home] ++ sockets ++ [clean(Path.join(root, ".git"))]
 
     protected =
       case code_token(home, facts) do

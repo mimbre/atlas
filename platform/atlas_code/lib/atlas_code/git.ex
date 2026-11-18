@@ -4,8 +4,9 @@ defmodule AtlasCode.Git do
   127.0.0.1 behind the core's tailnet ingress (TLS ends there).
 
   A base is a repository URL of its own, `/bases/<base_id>`, which advertises the ref
-  `refs/atlas/bases/<base_id>` on the base's commit (`AtlasCode.Service.base_repository/2`):
-  a Runtime fetches that ref and never names a commit. A Runtime pushes a job's result
+  `refs/atlas/bases/<base_id>` on the base's prepared commit, the base's commit plus its
+  dependencies (`AtlasCode.Service.base_repository/2`): a Runtime fetches that ref and never
+  names a commit. A Runtime pushes a job's result
   commit to the same URL, under the ref Flow named for it (`refs/atlas/results/<task>`).
 
   Every request needs `Authorization: Bearer <token>` with a Runtime's work source token: the

@@ -242,7 +242,8 @@ defmodule AtlasCode.Service do
 
   @doc """
   The cache repository that holds base `base_id` (`code-<hex>`, of snapshot `sha256:<hex>`,
-  one repository), with the ref `refs/atlas/bases/<base_id>` on the base's commit:
+  one repository), with the ref `refs/atlas/bases/<base_id>` on the base's prepared commit: a
+  child of the base's commit that adds its dependencies (`AtlasCode.Dependencies`).
   `{:ok, git_dir}`. Code's Git endpoint (`AtlasCode.Git`) serves it.
   """
   @spec base_repository(settings(), String.t()) :: {:ok, Path.t()}
@@ -252,9 +253,10 @@ defmodule AtlasCode.Service do
 
     {:ok, commit} = revision(settings.home, repository, handle)
     {:ok, dir} = acquire(settings, repository, commit, handle)
+    prepared = AtlasCode.Dependencies.prepared(dir, commit)
 
     {_, 0} =
-      System.cmd("git", ["--git-dir", dir, "update-ref", "refs/atlas/bases/" <> base_id, commit])
+      System.cmd("git", ["--git-dir", dir, "update-ref", "refs/atlas/bases/" <> base_id, prepared])
 
     {:ok, dir}
   end
