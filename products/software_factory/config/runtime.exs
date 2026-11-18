@@ -94,6 +94,12 @@ if config_env() != :test do
            :work_source,
            [
              port: source["port"],
+             ip:
+               case source["host"] do
+                 nil -> nil
+                 "::" -> {0, 0, 0, 0, 0, 0, 0, 0}
+                 host -> host |> String.to_charlist() |> :inet.parse_address() |> elem(1)
+               end,
              credentials_env:
                source["credentials_env"] ||
                  raise("#{file} has no flow.work_source.credentials_env")
