@@ -194,6 +194,7 @@ defmodule RelaDSL.SupervisionTest do
       end
       entity :case, label: "Case", plural: "cases", id_type: :manual do
         field :title, :string
+        #{get.(:case_fields)}
       end
       entity :part, label: "Part", plural: "parts", id_type: :manual do
         field :title, :string
@@ -312,6 +313,7 @@ defmodule RelaDSL.SupervisionTest do
                  %{
                    subflow: "case",
                    subject: nil,
+                   written_on: nil,
                    span: "work",
                    label: "Work",
                    states: ["open"],
@@ -333,6 +335,46 @@ defmodule RelaDSL.SupervisionTest do
     plain = model([])
 
     assert %{open_for_you: nil, supervised_by_you: nil} = plain.start_page()
+  end
+
+  # The span's work written on a component of its subject (`on:`), or on the subject.
+  @card """
+  entity :card, label: "Card", plural: "cards", id_type: :manual, id_prefix: "CD-" do
+    field :of, :string, required: true
+    field :expected, :string, set_by: [:flow]
+    field :flow_state, :string
+    top(false)
+  end
+  relation :card, label: "card", from: [:case], to: [:card], max_outgoing: 1,
+    component: [key: "CD-{key}", values: [of: "{key}"]]
+  """
+
+  test "a span names the kind its work is written on: the on: component's, else the subject's" do
+    on_card =
+      model(
+        composition: @entries,
+        concept:
+          @card <>
+            "select(:case, projection: [on: :card, state_field: :flow_state, field: :expected])"
+      )
+
+    assert [%{subflow: "case", subject: "case", written_on: "card"}] =
+             on_card.start_page().open_for_you.spans
+
+    on_case =
+      model(
+        composition: @entries,
+        case_fields: "field :expected, :string, set_by: [:flow]\nfield :flow_state, :string",
+        concept: "select(:case, projection: [state_field: :flow_state, field: :expected])"
+      )
+
+    assert [%{subflow: "case", subject: "case", written_on: "case"}] =
+             on_case.start_page().open_for_you.spans
+
+    unprojected = model(composition: @entries, concept: "select(:case, roles: [])")
+
+    assert [%{subflow: "case", subject: "case", written_on: "case"}] =
+             unprojected.start_page().open_for_you.spans
   end
 
   test "the start page's supervision entries need declared supervision and their keys" do
