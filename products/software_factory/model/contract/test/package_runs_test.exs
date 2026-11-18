@@ -322,7 +322,7 @@ defmodule Model.PackageRunsTest do
       assert work == Translate.offered_work(intent)
       assert work.work_key == @task
       assert work.input.base == %{base_id: base.base_id, manifest: base.manifest}
-      assert work.after_check == %{command: ["bin/check"]}
+      assert work.after_check == %{command: ["atlas/bin/check"]}
       assert {work.profile, work.cost_class} == {"deep_coding", "standard"}
       assert work.title == "author " <> @key
       assert work.instructions =~ ~r/\ABuild the package below/
@@ -381,7 +381,7 @@ defmodule Model.PackageRunsTest do
       assert fixing["state"] == "fixing"
       fix = fixing["pending"]["task"]
       assert fix["work"]["input"]["permissions"] == "workspace-write"
-      assert fix["work"]["after_check"] == %{"command" => ["bin/check"]}
+      assert fix["work"]["after_check"] == %{"command" => ["atlas/bin/check"]}
       # The change set it fixes is the author's (never the review's).
       author = FakeFacts.get("task", @task)["values"]
       assert fix["work"]["input"]["change_set"]["manifest"] == author["result_manifest"]
