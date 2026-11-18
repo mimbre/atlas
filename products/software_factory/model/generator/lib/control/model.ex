@@ -9,7 +9,9 @@ defmodule RelaDSL.Control.Model do
     * `start_page/0`: what a client opens on (`start_page`): `assigned` (what is assigned
       to it), `open` (open work, for everyone), `open_for_you` (the supervised spans a
       person may pick a run up in, each with the subject kinds of its `with:` subflows
-      (`with_subjects`), and their words) and `supervised_by_you` (the runs whose
+      (`with_subjects`), the kind its work is written on, whose read carries its presentation
+      (`written_on`: its projection's `on` component's kind, else the subject), and their
+      words) and `supervised_by_you` (the runs whose
       supervisor is the client, with `work`: the `kind`, `of`, `for` and `ended` names
       of a supervisor's running work, nil without `supervised_work`), both nil without
       supervision, and the start page's `actions`. Both carry the supervision
@@ -48,7 +50,7 @@ defmodule RelaDSL.Control.Model do
         do: RelaDSL.Control.Rules.shell(unquote(Macro.escape(d["shell"])), settings)
 
       @doc "What a client opens on: what is assigned to it, open work and the start actions."
-      def start_page, do: unquote(Macro.escape(start_page(d, flow_runtime)))
+      def start_page, do: unquote(Macro.escape(start_page(d, flow_runtime, presenters)))
 
       @doc "Every kind, as pages show it, sorted by name."
       def kinds, do: unquote(Macro.escape(kinds))
@@ -402,7 +404,7 @@ defmodule RelaDSL.Control.Model do
 
   # -- The start page ---------------------------------------------------------------------
 
-  defp start_page(d, flow_runtime) do
+  defp start_page(d, flow_runtime, presenters) do
     supervision = get_in(flow_runtime || %{}, ["flow_runtime", "supervision"])
 
     assigned =
@@ -445,6 +447,8 @@ defmodule RelaDSL.Control.Model do
                 %{
                   subflow: subflow,
                   subject: get_in(subjects, [subflow, "subject"]),
+                  written_on:
+                    written_on(presenters, subflow, get_in(subjects, [subflow, "subject"])),
                   span: span["name"],
                   label: span["label"],
                   states: span["states"],
@@ -494,6 +498,15 @@ defmodule RelaDSL.Control.Model do
           do: %{kind: kind, key: key, label: label}
         )
     }
+  end
+
+  # The kind a span's work is written on, whose Facts read carries its presentation: that
+  # of the presenter whose runs include the span's subflow (the kind its projection's `on`
+  # points at); else the subject itself.
+  defp written_on(presenters, subflow, subject) do
+    Enum.find_value(presenters, subject, fn p ->
+      if Enum.any?(p["flows"] || [], &(&1["name"] == subflow)), do: p["kind"]
+    end)
   end
 
   # -- Forms ------------------------------------------------------------------------------
