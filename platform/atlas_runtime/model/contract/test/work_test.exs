@@ -249,11 +249,12 @@ defmodule AtlasRuntimeModel.WorkTest do
       assert Enum.take(shape.(:work_record), -2) ==
                [{:source, :source, false}, {:imported, :imported, false}]
 
-      # Main's #330 F5 (b): `pending` (accepted before its import), optional and last.
+      # Main's #330 F5 (b): `pending` (accepted before its import); slice 2's `git_base`.
       assert shape.(:imported) == [
                {:source, :string, true},
                {:change_set, :string, false},
-               {:pending, :boolean, false}
+               {:pending, :boolean, false},
+               {:git_base, :string, false}
              ]
 
       # r2's folder.base_id is not added (r3, G1).
