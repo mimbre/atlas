@@ -41,7 +41,8 @@ defmodule Model.FlowFactsTest do
     "lease_revision" => "integer",
     "lease_report" => "string",
     "result_manifest" => "string",
-    "result_state" => "string"
+    "result_state" => "string",
+    "result_ref" => "string"
   }
   @attempt_lease %{"lease_id" => "string"}
 
