@@ -222,15 +222,19 @@ defmodule AtlasFlow.Runs.Run do
   Enter the branch for a task's `outcome` (`AtlasFlow.Activities.Task.step/4`): its
   `result` joins the run's tasks (`pending.tasks`, kept across entries), and its record
   `writes` join the entry's pending writes with their stable ids. Leaving the state drops
-  the task (`pending.task`), so a late result of its work is never taken.
+  the task (`pending.task`), so a late result of its work is never taken. A ladder task's
+  outcome is the ladder's step, and `ladder` (F2) becomes the run's `pending.ladder`,
+  kept across entries as the tasks are; nil leaves it as it is.
   """
-  def task_result(run, flow, subject, now, outcome, result, writes) do
+  def task_result(run, flow, subject, now, outcome, result, writes, ladder \\ nil) do
     {:task, spec} = flow.mechanism(run["state"])
 
-    with true <- outcome in Task.results(),
+    with true <- outcome in Task.results(spec),
          {:to, to} <- flow.next(run["state"], %{spec["field"] => outcome}, :result) do
       {:ok,
-       enter(run, flow, to, now, true, subject)
+       run
+       |> then(&if(ladder, do: put_in(&1, ["pending", "ladder"], ladder), else: &1))
+       |> enter(flow, to, now, true, subject)
        |> update_in(["pending", "writes"], &(writes ++ &1))
        |> update_in(["pending"], &Map.update(&1, "tasks", [result], fn l -> l ++ [result] end))
        |> Map.put("last_input", %{"version" => 1, "task" => result["key"], "outcome" => outcome})}
@@ -779,6 +783,7 @@ defmodule AtlasFlow.Runs.Run do
             "migrations",
             "effects",
             "tasks",
+            "ladder",
             "composition",
             "hand_over"
           ]),

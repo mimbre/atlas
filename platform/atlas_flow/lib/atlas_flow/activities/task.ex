@@ -12,7 +12,7 @@ defmodule AtlasFlow.Activities.Task do
      relation, on the projection's component when it names one) is not a fact of the
      spec's `machinery` kind, nothing is done: no task.
   2. **Intent first (obligation 2).** The task's key, `TK-<subject>-<n>`, and its intent
-     (version 2, `AtlasFlow.WorkSource.Translate.intent/6`) are stored in the run
+     (version 2, `AtlasFlow.WorkSource.Translate.intent/7`) are stored in the run
      (`pending.task`) before anything is sent, and the task fact (`records`: its kind and
      relation to the subject) is created after that. The key names no machine; it is the
      work's `work_key`.
@@ -42,36 +42,78 @@ defmodule AtlasFlow.Activities.Task do
   An assignment moved away from the machinery ends the task `abandoned` and unpins its
   result (`AtlasFlow.Results.unpin/3`, a cast): a late report is recorded on the task and
   ignored by the run, because the run left the state and no longer holds its key.
+
+  **The review → fix loop (F2; plan F2/F3 rev 3 §3.1, §3.3).** A task with `ladder: true`
+  is a step of the loop. Its end does not take the result's branch: `AtlasFlow.Ladder`
+  is asked what follows (`next/5`, with the subject's tasks as the run and the task facts
+  know them), and the run takes the branch of that step (`author`, `review`, `fix`,
+  `diagnose`, `fresh`, `stronger`, `ready`, `held`, `escalate`). The ladder it returns is
+  kept in the run (`pending.ladder`, across entries), with the next task's step as
+  `next`. The state that step leads to makes its intent from it, through
+  `Translate.intent/7`: the **original** base (the first author's, pinned by its snapshot,
+  never resolved again), the change set of the task it reviews, fixes or diagnoses (never a
+  review's), and the ladder's sections after the instructions. A review's `based_on` is
+  in its create; when it ends its `reviewed_revision` is the `published_revision` of the
+  task whose `result_fingerprints` it reviewed, or nothing while that one is unpublished.
+  Rung (e) writes nothing but the run: no `decision` fact. While the ladder waits
+  (`escalate`, `held`), the state an answer leads to asks the ladder with the subject's
+  `answer`, once the subject is assigned to a machinery again (E1). The profiles the
+  ladder may climb to are `config :atlas_flow, :ladder_profiles` (none: rung (c) is
+  skipped), its limits `:ladder_limits`.
   """
 
   require Logger
 
   alias AtlasBus.Digest
-  alias AtlasFlow.{Bases, Dispatch, Results, Talk}
+  alias AtlasFlow.{Bases, Dispatch, Ladder, Results, Talk}
   alias AtlasFlow.WorkSource.Translate
 
   @results ~w(completed check_failed stuck abandoned)
-  @kinds ~w(plan author review fix)
-  @roles ~w(architect developer)
-  @profiles ~w(deep_coding independent_review)
+  @ladder_results ~w(author review fix diagnose fresh stronger ready held escalate)
+  @kinds ~w(plan author review fix diagnose)
+  @roles ~w(architect developer investigator)
+  @profiles ~w(deep_coding independent_review deep_coding_max)
   @costs ~w(low standard high)
+  # The kinds that start from the loop's latest result, and how they read it.
+  @result_access %{"review" => "read", "diagnose" => "read", "fix" => "write"}
+  # A ladder step's kind (`fresh` and `stronger` are authors).
+  @step_kinds %{"fresh" => "author", "stronger" => "author"}
 
+  @doc "The results a task's end gives: the four, or for a ladder task the ladder's steps."
   def results, do: @results
+  def results(%{"ladder" => true}), do: @ladder_results
+  def results(_spec), do: @results
 
   @doc "Whether this runner can run the task `spec` (as the compiled subflow gives it)."
   def valid?(spec) do
     is_map(spec) and spec["kind"] in @kinds and spec["role"] in @roles and
       spec["profile"] in @profiles and spec["cost_class"] in @costs and text?(spec["field"]) and
-      input?(spec["input"]) and check?(spec["check"]) and text?(spec["instructions"]) and
-      texts?(spec["fields"] || []) and records?(spec["records"]) and text?(spec["machinery"])
+      spec["ladder"] in [nil, true] and input?(spec["kind"], spec["ladder"], spec["input"]) and
+      check?(spec["check"]) and checked?(spec) and text?(spec["instructions"]) and
+      texts?(spec["fields"] || []) and
+      records?(spec["records"]) and text?(spec["machinery"])
   end
 
   # A Code repository and the reference its base is resolved from, nothing else: never a
-  # path (D44), never a URL (a scheme, or `user@host:path`).
-  defp input?(%{"repository" => r, "base" => b} = input),
+  # path (D44), never a URL (a scheme, or `user@host:path`). Or, for a ladder task that
+  # reviews, fixes or diagnoses, the loop's latest result, read or written as its kind is.
+  defp input?(_kind, _ladder, %{"repository" => r, "base" => b} = input),
     do: map_size(input) == 2 and text?(r) and text?(b) and not url?(r) and not url?(b)
 
-  defp input?(_), do: false
+  defp input?(kind, true, %{"result" => "latest", "access" => access} = input),
+    do:
+      map_size(input) == 2 and Map.has_key?(@result_access, kind) and
+        @result_access[kind] == access
+
+  defp input?(_kind, _ladder, _input), do: false
+
+  # Lesson 7 (Flow plan §11 row 7; Main's D4): bin/check is the mandatory after-check, so
+  # a ladder author or fix (the fix, a fresh or stronger author) always has one, and its
+  # intent always carries `after_check`.
+  defp checked?(%{"ladder" => true, "kind" => kind} = spec) when kind in ["author", "fix"],
+    do: spec["check"] != nil
+
+  defp checked?(_spec), do: true
 
   defp check?(nil), do: true
   defp check?(command), do: is_list(command) and command != [] and texts?(command)
@@ -200,11 +242,14 @@ defmodule AtlasFlow.Activities.Task do
   The task's next step on `run`, in a state whose mechanism is `{:task, spec}`:
 
   - `:none`: nothing changes (no machinery, no base yet, waiting for its result);
-  - `{:pending, intent, writes}`: the task as the run is to hold it, and the record writes
-    to send after the run is stored;
-  - `{:result, outcome, result, writes}`: the task ended `outcome`; `result` goes in the run.
+  - `{:pending, intent, writes, ladder}`: the task as the run is to hold it, the record
+    writes to send after the run is stored, and the run's ladder (nil: unchanged);
+  - `{:result, outcome, result, writes, ladder}`: the task ended `outcome` (for a ladder
+    task the ladder's step); `result` goes in the run, and `ladder` (nil for a task that
+    is no ladder's) is kept as `pending.ladder`.
 
-  `ctx`: `assignee` (`assignee/4`), `number` (a function giving `number/2`) and `now`.
+  `ctx`: `assignee` (`assignee/4`), `number` (a function giving `number/2`) and `now`;
+  optionally `profiles` and `limits` for the ladder (else the application's).
   """
   def step(run, spec, subject, ctx) do
     intent = run["pending"]["task"]
@@ -217,24 +262,27 @@ defmodule AtlasFlow.Activities.Task do
         intend(run, spec, subject, ctx)
 
       ctx.assignee != {:machinery, intent["machinery"]} ->
-        abandon(intent, spec, ctx)
+        abandon(run, intent, spec, ctx)
 
       not Translate.intent?(intent) ->
         # A push-path intent (version 1) is never offered: it ends stuck.
-        ended(intent, spec, "stuck", %{"reason" => "unsupported intent"}, nil)
+        ended(run, intent, spec, "stuck", %{"reason" => "unsupported intent"}, nil, ctx)
 
       true ->
-        follow(intent, spec)
+        follow(run, intent, spec, ctx)
     end
   end
 
   defp intend(run, spec, subject, %{assignee: {:machinery, name}} = ctx) do
-    %{"repository" => repository, "base" => reference} = spec["input"]
-
-    with {:ok, base} <- base(run, repository, reference),
+    with {:ok, work} <- work(run, spec, subject, ctx),
          {:ok, n} <- ctx.number.() do
       key = key(subject["key"], n)
-      intent = Translate.intent(spec, subject, key, base, name, ctx.now)
+
+      intent =
+        spec
+        |> Translate.intent(subject, key, work.base, work.change_set, name, ctx.now)
+        |> update_in(["work", "instructions"], &(&1 <> Enum.join(work.sections)))
+        |> then(&if(work.loop, do: Map.put(&1, "loop", work.loop), else: &1))
 
       record =
         write(key, ["intent"], spec["records"]["kind"], %{
@@ -247,19 +295,112 @@ defmodule AtlasFlow.Activities.Task do
               "profile" => spec["profile"],
               "input" => JSON.encode!(spec["input"]),
               "client_key" => key,
-              "state" => "waiting"
+              "state" => "waiting",
+              "based_on" => work.loop && work.loop["based_on"]
             }),
           "links" => %{spec["records"]["relation"] => [subject["key"]]},
           "by" => "flow"
         })
 
-      {:pending, intent, [record]}
+      {:pending, intent, [record], work.ladder}
     else
       _no_base_or_unavailable -> :none
     end
   end
 
   defp intend(_run, _spec, _subject, _ctx), do: :none
+
+  # Where the next task starts: a task that is no ladder's (or the loop's first author)
+  # from the spec's base, as Bases holds it; a ladder step from what the ladder says.
+  defp work(run, %{"ladder" => true} = spec, subject, ctx) do
+    ladder = run["pending"]["ladder"]
+
+    cond do
+      match?(%{"next" => %{}}, ladder) ->
+        from_step(ladder["next"], Map.delete(ladder, "next"), spec, run)
+
+      match?(%{"awaiting" => %{}}, ladder) ->
+        answered(ladder, spec, run, subject, ctx)
+
+      spec["input"]["repository"] == nil ->
+        # A review, fix or diagnose with no step to take: nothing to start from.
+        :none
+
+      true ->
+        with {:ok, work} <- work(run, Map.delete(spec, "ladder"), subject, ctx),
+             do: {:ok, %{work | ladder: Map.put(ladder || %{}, "repository", repository(spec))}}
+    end
+  end
+
+  defp work(run, spec, _subject, _ctx) do
+    %{"repository" => repository, "base" => reference} = spec["input"]
+
+    with {:ok, base} <- base(run, repository, reference),
+         do: {:ok, %{base: base, change_set: nil, sections: [], loop: nil, ladder: nil}}
+  end
+
+  # The supervisor answered while the ladder waits: the step the answer leads to, when it
+  # is this state's; an answer the question does not offer, or that leads elsewhere,
+  # starts nothing (the ladder asks again).
+  defp answered(ladder, spec, run, subject, ctx) do
+    with {:ok, views} <- views(spec, run, nil, nil),
+         {{:task, step}, ladder} <-
+           Ladder.next(
+             ladder,
+             {:answer, (subject["values"] || %{})["answer"]},
+             views,
+             profiles(ctx),
+             limits(ctx)
+           ) do
+      from_step(step, ladder, spec, run, views)
+    else
+      _ -> :none
+    end
+  end
+
+  defp from_step(step, ladder, spec, run, views \\ nil) do
+    base = step["base"]
+
+    with true <- step_kind(step) == spec["kind"],
+         %{"base_id" => _, "manifest" => _, "base_snapshot" => _} <- base,
+         {:ok, views} <- if(views, do: {:ok, views}, else: views(spec, run, nil, nil)) do
+      {:ok,
+       %{
+         base: %{
+           base_id: base["base_id"],
+           manifest: base["manifest"],
+           snapshot_id: base["base_snapshot"]
+         },
+         change_set: change_set(step["change_set"]),
+         sections: Ladder.sections(spec["kind"], ladder, views),
+         loop: compact(Map.take(step, ~w(step rung based_on reviewed))),
+         ladder: ladder
+       }}
+    else
+      _ ->
+        Logger.warning("flow ladder: step #{inspect(step["step"])} does not run here")
+        :none
+    end
+  end
+
+  defp step_kind(step), do: @step_kinds[step["step"]] || step["kind"]
+
+  defp change_set(%{"manifest" => m, "fingerprints" => f}) when is_binary(m) and is_binary(f),
+    do: %{"manifest" => m, "fingerprints" => f}
+
+  defp change_set(_), do: nil
+
+  defp repository(spec), do: spec["input"]["repository"]
+
+  defp profiles(ctx),
+    do:
+      Map.get_lazy(ctx, :profiles, fn ->
+        Application.get_env(:atlas_flow, :ladder_profiles, [])
+      end)
+
+  defp limits(ctx),
+    do:
+      Map.get_lazy(ctx, :limits, fn -> Application.get_env(:atlas_flow, :ladder_limits, %{}) end)
 
   # The base of the spec's reference, from Bases' table only. A missing one is asked for:
   # Bases resolves it in its own task and reconciles the run's subject once it has it.
@@ -281,15 +422,15 @@ defmodule AtlasFlow.Activities.Task do
 
   # A held intent: its base kept servable, its task offered, its result read from the
   # task fact Delivery writes.
-  defp follow(intent, spec) do
-    servable(intent, spec)
+  defp follow(run, intent, spec, ctx) do
+    servable(intent, repository(spec) || (run["pending"]["ladder"] || %{})["repository"])
     key = intent["key"]
 
     case Talk.transition_read(spec["records"]["kind"], %{"key" => key, "plain" => true}) do
       %{"fact" => %{} = fact} ->
         case Translate.outcome(fact, spec["check"] != nil) do
           {:result, outcome, detail} ->
-            ended(intent, spec, outcome, detail, fact)
+            ended(run, intent, spec, outcome, detail, fact, ctx)
 
           :retry ->
             Dispatch.ready(key)
@@ -316,25 +457,27 @@ defmodule AtlasFlow.Activities.Task do
   # its reference again, so Delivery serves the same base also once the branch moved. It
   # asks whether Bases holds the manifest *for that snapshot*: whatever the reference's
   # cached base is now, and even when another snapshot (the same tree at a new revision)
-  # gave the same manifest. A cast; while a restore fails, each reconcile asks again.
-  defp servable(intent, spec) do
+  # gave the same manifest. A cast; while a restore fails, each reconcile asks again. A
+  # ladder step's base is the original base, so it is restored the same way.
+  defp servable(intent, repository) do
     manifest = get_in(intent, ["work", "input", "base", "manifest"])
     snapshot = intent["base_snapshot"]
 
-    if is_binary(manifest) and is_binary(snapshot) and not Bases.held?(manifest, snapshot),
-      do: Bases.restore(spec["input"]["repository"], snapshot, manifest)
+    if is_binary(repository) and is_binary(manifest) and is_binary(snapshot) and
+         not Bases.held?(manifest, snapshot),
+       do: Bases.restore(repository, snapshot, manifest)
 
     :ok
   end
 
-  defp abandon(intent, spec, ctx) do
+  defp abandon(run, intent, spec, ctx) do
     Results.unpin(intent["key"], ctx.now)
-    ended(intent, spec, "abandoned", %{"reason" => "assignment moved away"}, nil)
+    ended(run, intent, spec, "abandoned", %{"reason" => "assignment moved away"}, nil, ctx)
   end
 
   # The task ended: its result for the run, and the task fact's `state`, the only field
-  # the Engine writes after the create.
-  defp ended(intent, spec, outcome, detail, fact) do
+  # the Engine writes after the create (a review's verdict and reviewed revision too).
+  defp ended(run, intent, spec, outcome, detail, fact, ctx) do
     attempt = get_in(fact || %{}, ["values", "attempt"])
 
     result =
@@ -348,8 +491,143 @@ defmodule AtlasFlow.Activities.Task do
         "check" => detail["check"] && compact(detail["check"])
       })
 
-    {:result, outcome, result, [change(intent, spec, ["result"], %{"state" => outcome})]}
+    if spec["ladder"] == true,
+      do: ended_step(run, intent, spec, outcome, result, fact, ctx),
+      else:
+        {:result, outcome, result, [change(intent, spec, ["result"], %{"state" => outcome})], nil}
   end
+
+  # A ladder task ended: the ladder says what follows. Its result keeps what the ladder
+  # reads of it later (its kind, profile, base, what it reviewed and the verdict or
+  # diagnosis it gave). `:none` (a superseded verdict while a review of the latest result
+  # runs) leaves the task held: nothing moves.
+  defp ended_step(run, intent, spec, outcome, result, fact, ctx) do
+    loop = intent["loop"] || %{}
+    answer = get_in(fact || %{}, ["values", "answer"])
+
+    result =
+      Map.merge(
+        result,
+        compact(%{
+          "task_kind" => spec["kind"],
+          "profile" => intent["work"]["profile"],
+          "base" => intent_base(intent),
+          "step" => loop["step"],
+          "based_on" => loop["based_on"],
+          "reviewed" => loop["reviewed"]
+        })
+      )
+      |> Map.merge(answered_result(spec["kind"], answer))
+
+    with {:ok, facts} <- facts(spec, run),
+         {:ok, views} <- views(spec, run, result, facts),
+         {step, ladder} when step != :none <-
+           Ladder.next(
+             run["pending"]["ladder"],
+             {:ended, intent["key"]},
+             views,
+             profiles(ctx),
+             limits(ctx)
+           ) do
+      {name, ladder} = taken(step, ladder)
+      values = %{"state" => outcome} |> Map.merge(reviewed(spec, result, facts))
+      {:result, name, result, [change(intent, spec, ["result"], values)], ladder}
+    else
+      _ -> :none
+    end
+  end
+
+  defp taken({:task, step}, ladder), do: {step["step"], Map.put(ladder, "next", step)}
+  defp taken({tag, _}, ladder), do: {Atom.to_string(tag), Map.delete(ladder, "next")}
+
+  defp intent_base(intent) do
+    base = get_in(intent, ["work", "input", "base"]) || %{}
+
+    compact(%{
+      "base_id" => base["base_id"],
+      "manifest" => base["manifest"],
+      "base_snapshot" => intent["base_snapshot"]
+    })
+  end
+
+  defp answered_result("review", answer) do
+    case Ladder.verdict(answer) do
+      {:ok, verdict, findings} -> %{"verdict" => verdict, "findings" => findings}
+      :error -> %{}
+    end
+  end
+
+  defp answered_result("diagnose", answer),
+    do: compact(%{"diagnosis" => Ladder.diagnosis(answer)})
+
+  defp answered_result(_kind, _answer), do: %{}
+
+  # A review's verdict, and the revision it reviewed: the `published_revision` of the task
+  # whose result it was given (`based_on`), none while that one is unpublished.
+  defp reviewed(%{"kind" => "review"}, result, facts) do
+    revision =
+      Enum.find_value(facts, fn f ->
+        v = f["values"] || %{}
+
+        if v["kind"] in ["author", "fix"] and is_binary(result["based_on"]) and
+             v["result_fingerprints"] == result["based_on"],
+           do: v["published_revision"]
+      end)
+
+    compact(%{"verdict" => result["verdict"], "reviewed_revision" => revision})
+  end
+
+  defp reviewed(_spec, _result, _facts), do: %{}
+
+  # The subject's task facts, by key.
+  defp facts(spec, run) do
+    records = spec["records"]
+
+    case Talk.transition_read(records["kind"], %{
+           "linked" => %{records["relation"] => run["subject_key"]},
+           "plain" => true
+         }) do
+      %{"facts" => facts} when is_list(facts) -> {:ok, facts}
+      _ -> :unavailable
+    end
+  end
+
+  # The run's tasks as the ladder reads them (`AtlasFlow.Ladder`): each ended one's result
+  # in the run, `current` (the one ending now) last, with what Delivery wrote on its fact.
+  defp views(spec, run, current, facts) do
+    with {:ok, facts} <- if(facts, do: {:ok, facts}, else: facts(spec, run)) do
+      by_key = Map.new(facts, &{&1["key"], &1["values"] || %{}})
+      results = (run["pending"]["tasks"] || []) ++ List.wrap(current)
+
+      {:ok,
+       for r <- results, r["task_kind"] != nil do
+         v = by_key[r["key"]] || %{}
+
+         compact(%{
+           "key" => r["key"],
+           "kind" => r["task_kind"],
+           "outcome" => r["outcome"],
+           "reason" => r["reason"],
+           "profile" => r["profile"],
+           "base" => r["base"],
+           "check" => unfinished(r["check"]),
+           "based_on" => r["based_on"],
+           "reviewed" => r["reviewed"],
+           "answer" => v["answer"],
+           "result_state" => v["result_state"],
+           "result_manifest" => v["result_manifest"],
+           "result_fingerprints" => v["result_fingerprints"]
+         })
+       end}
+    end
+  end
+
+  # A check that gave no exit status did not finish (#297 case 4): the ladder reads it as
+  # one (`interrupted`), so the fix is told to run the check, not shown a failure.
+  defp unfinished(%{"ending" => "no_exit_status"} = check),
+    do: %{check | "ending" => "interrupted"}
+
+  defp unfinished(check), do: check
 
   defp change(intent, spec, tag, values),
     do:
