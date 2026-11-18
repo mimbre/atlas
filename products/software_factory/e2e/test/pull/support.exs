@@ -12,15 +12,34 @@ defmodule AtlasE2E.PullTest.Support do
     String.trim(resolved)
   end
 
+  @doc """
+  The stub built from the sources in this tree, once per content: its path names the
+  sha256 of `pull/stub`'s Go sources and `go.mod`. A binary built from other sources (an
+  earlier round's, left in the same temp folder) is never taken for it (gatefix round 1:
+  the gate's tests ran a stale `pe-test-stub/pull-stub` with the old tether). Built under a
+  unique name and renamed into place, so tests that build it at once never see half a file.
+  """
   def stub! do
-    out = Path.join(System.tmp_dir!(), "pe-test-stub/pull-stub")
+    out = Path.join([System.tmp_dir!(), "pe-test-stub-#{stub_digest()}", "pull-stub"])
 
     unless File.exists?(out) do
       gocache = Path.join(System.tmp_dir!(), "pe-test-gocache")
-      AtlasE2E.Pull.Stub.build!(out, env: [{"GOCACHE", gocache}])
+      partial = "#{out}.#{System.unique_integer([:positive])}"
+      AtlasE2E.Pull.Stub.build!(partial, env: [{"GOCACHE", gocache}])
+      File.rename!(partial, out)
     end
 
     out
+  end
+
+  @doc "The sha256 (hex) of the stub's sources: each `*.go` file and `go.mod`, by name."
+  def stub_digest(source \\ AtlasE2E.Pull.Stub.source()) do
+    files = Enum.sort(Path.wildcard(Path.join(source, "*.go")) ++ [Path.join(source, "go.mod")])
+
+    files
+    |> Enum.map(&[Path.basename(&1), 0, File.read!(&1), 0])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   def hub! do

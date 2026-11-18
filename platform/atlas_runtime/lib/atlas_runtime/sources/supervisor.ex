@@ -73,9 +73,13 @@ defmodule AtlasRuntime.Sources.Supervisor do
 
   # A remote puller's open (run at every open, not once here): without a `ca_file`, the
   # `{HttpTarget, :open}` with the caller's `target:` options as given (as before D5, so the
-  # OS store applies unless a test sets one); with one, `open/5`.
+  # OS store applies unless a test sets one); with one, `open/5`, through
+  # `HttpTarget.open_with_ca_file/5`. Either way the module is `HttpTarget`: the puller
+  # polls the module its open names (a `{__MODULE__, :open, …}` here made every poll call
+  # `Sources.Supervisor.poll/2`, which does not exist).
   defp open(%{"name" => name, "url" => url, "ca_file" => ca_file}, home, opts),
-    do: {__MODULE__, :open, [name, url, home, ca_file, Keyword.get(opts, :target, [])]}
+    do:
+      {HttpTarget, :open_with_ca_file, [name, url, home, ca_file, Keyword.get(opts, :target, [])]}
 
   defp open(%{"name" => name, "url" => url}, home, opts),
     do: {HttpTarget, :open, [name, url, home, Keyword.get(opts, :target, [])]}

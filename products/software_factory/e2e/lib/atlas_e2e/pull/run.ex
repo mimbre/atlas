@@ -111,7 +111,7 @@ defmodule AtlasE2E.Pull.Run do
       end
 
     teardown_started = Bench.now()
-    if ctx, do: quiet_stop(ctx)
+    teardown(ctx)
     reap = Bench.reap(run, fast: false, own_pgid: own.pgid)
     Bench.cancel(watchdog)
     Bench.duration(run, :phase, "teardown", Bench.now() - teardown_started)
@@ -230,6 +230,7 @@ defmodule AtlasE2E.Pull.Run do
     end)
 
     {:ok, edge} = Edge.start_link(port: edge_port, upstream: {{127, 0, 0, 1}, ws_port}, tls: tls)
+    Bench.started("edge", fn -> Edge.stop(edge) end)
     Bench.record(run, "listen", %{port: edge_port, name: "edge"})
 
     _reader = Stub.events!(run, stub: stub)
@@ -353,20 +354,30 @@ defmodule AtlasE2E.Pull.Run do
 
   # ---- teardown -----------------------------------------------------------------------
 
-  defp quiet_stop(ctx) do
-    for {what, stop} <- [
-          {"needs", fn -> Needs.fold(ctx.needs, :stop, 1, :ok, fn m, _ -> m.stop(ctx) end) end},
-          {"console", fn -> Console.stop(ctx.console) end},
-          {"edge", fn -> Edge.stop(ctx.edge) end}
-        ] do
-      case guard(stop) do
-        {:ok, _} ->
-          :ok
+  @doc false
+  # Before the reap, on every outcome: the needs' stops (with a context: setup passed), then
+  # all the run tied to itself as it started (`Bench.started/2`: the readers, the TUI's tmux
+  # server, the edge), the last started first, also when setup failed (`ctx` nil).
+  def teardown(ctx) do
+    needs =
+      if ctx do
+        case guard(fn -> Needs.fold(ctx.needs, :stop, 1, :ok, fn m, _ -> m.stop(ctx) end) end) do
+          {:ok, _} ->
+            [{"needs", :ok}]
 
-        {:error, kind, reason, _} ->
-          IO.puts("pull-e2e: stopping #{what}: #{Exception.format_banner(kind, reason)}")
+          {:error, kind, reason, _} ->
+            [{"needs", {:error, Exception.format_banner(kind, reason)}}]
+        end
+      else
+        []
       end
-    end
+
+    stopped = needs ++ Bench.stop_started()
+
+    for {what, {:error, banner}} <- stopped,
+        do: IO.puts("pull-e2e: stopping #{what}: #{banner}")
+
+    stopped
   end
 
   defp summary(run, cache, artifacts, total) do

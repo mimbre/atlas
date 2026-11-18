@@ -13,10 +13,69 @@ defmodule AtlasE2E.Pull.Console do
 
   defstruct [:tui, :socket, :reader, :server_pid]
 
+  # The product's generated shell: the tabs a client opens with, as Control boots them
+  # (`AtlasControl.Shell`). The bench finds a tab by its page, never by its words.
+  @shell_file Path.expand(
+                "../../../../model/targets/rela/atlas.json",
+                __DIR__
+              )
+  @external_resource @shell_file
+  @open_for_you "/_open"
+  @supervised_by_you "/_supervised"
+
+  @doc "The product shell's tabs, in order: `[%{\"id\", \"label\", \"to\"}]`."
+  def tabs, do: @shell_file |> File.read!() |> JSON.decode!() |> get_in(["shell", "tabs"])
+
+  @doc "The label of the shell's tab that opens `to` (a page path); raises when none does."
+  def tab_label(tabs \\ tabs(), to) do
+    case Enum.find(tabs, &(&1["to"] == to)) do
+      %{"label" => label} -> label
+      nil -> raise "the product's shell has no tab for #{to}: #{inspect(tabs)}"
+    end
+  end
+
+  @doc """
+  The tab the screen shows as active, as a label of `tabs`, or nil: the tab bar is the line
+  that shows every tab's label, the active one marked `▸ `.
+  """
+  def active_tab(screen, tabs \\ tabs()) do
+    labels = Enum.map(tabs, & &1["label"])
+
+    with bar when is_binary(bar) <-
+           screen
+           |> String.split("\n")
+           |> Enum.find(fn line -> Enum.all?(labels, &String.contains?(line, &1)) end) do
+      Enum.find(labels, &String.contains?(bar, "▸ " <> &1))
+    end
+  end
+
+  @doc """
+  Move to the shell's tab that opens `to` (Tab, the Console's Next tab, one at a time, each
+  waiting for the screen it causes), then wait until it is connected and showing it.
+  """
+  def tab(c, to) do
+    tabs = tabs()
+    label = tab_label(tabs, to)
+
+    Enum.reduce_while(0..length(tabs), nil, fn _, _ ->
+      if active_tab(ready(c), tabs) == label do
+        {:halt, :active}
+      else
+        press(c, "Tab")
+        {:cont, nil}
+      end
+    end) || raise "the TUI never showed the tab #{label}:\n#{screen(c)}"
+
+    ready(c)
+  end
+
   def start(run, instance) do
     socket = "pe-tui"
     sock_path = Tui.server(socket) |> List.last()
     Bench.record(run, "tmux_socket", %{socket: sock_path})
+    # Tied to the run before it starts: a setup that fails from here on still ends it (a
+    # kill-server with no server is only a status).
+    Bench.started("tmux server", fn -> Tui.kill_server(socket) end)
     tui = Tui.start(instance, socket, "tui1", "TUI")
 
     {pid, 0} =
@@ -108,9 +167,15 @@ defmodule AtlasE2E.Pull.Console do
       |> String.split("\n")
       |> Enum.any?(&(String.contains?(&1, "› ") and String.contains?(&1, text)))
 
-  @doc "Pick up the issue `subject` from the start page (`p`, then the confirm's submit)."
+  @doc """
+  Pick up the issue `subject` from Open for you (`p`, then the confirm's submit). An issue
+  nobody supervises yet is listed there (Control's `/_open`: its run in the issue build's
+  span, no human supervisor), not on the start page (Assigned to you: its Assignment names
+  nobody; gatefix round 2).
+  """
   def pick_up(c, subject) do
     home(c)
+    tab(c, @open_for_you)
     open_row(c, subject.issue_title, subject.issue)
     press(c, "p")
     await(c, &String.contains?(&1, "#{subject.issue}?"), "ask to pick up #{subject.issue}")
@@ -118,9 +183,13 @@ defmodule AtlasE2E.Pull.Console do
     :ok
   end
 
-  @doc "Hand the issue `subject` over to `to` (its display name) from its page (`v`)."
+  @doc """
+  Hand the issue `subject` over to `to` (its display name) from its page (`v`), reached
+  from Supervised by you (Control's `/_supervised`), where an issue melle picked up is.
+  """
   def hand_over(c, subject, to) do
     home(c)
+    tab(c, @supervised_by_you)
     open_row(c, subject.issue_title, subject.issue)
     press(c, "v")
     await(c, &String.contains?(&1, to), "offer #{to}")

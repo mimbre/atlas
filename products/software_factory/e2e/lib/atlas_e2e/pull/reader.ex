@@ -4,9 +4,14 @@ defmodule AtlasE2E.Pull.Reader do
   agents' FIFO (`:stub`) and `atlas-runtime events --follow` (`:rt`). Each line is decoded
   as JSON (a line that is not JSON is published as `%{"line" => text}`); `on_event` sees each
   published event (the stub registry). With `stub:` the command runs tethered
-  (`pull-stub tether --`): when this BEAM ends, however it ends, the stub sees its stdin end
-  and KILLs the command's group, so a `cat` on a FIFO never outlives it; and the Reader traps
-  its owner's exit, so `terminate/2` KILLs it when the owner dies. When the command ends, a `:port` event
+  (`pull-stub tether --`) in the tether's group, whose id is the Port's os pid: when this
+  BEAM ends, however it ends, the tether sees its stdin end and KILLs that group, so a `cat`
+  on a FIFO never outlives it. The Reader traps its owner's exit, and `terminate/2` KILLs the
+  group (the tether with its command; KILLing the tether alone would leave the command
+  behind) before it closes the Port. The group is recorded (`pgid`), so the reaper KILLs it
+  and its proof looks in it. A Reader is tied to the process that starts it (the run:
+  `AtlasE2E.Pull.Bench.started/2`), which stops it on every outcome, also when setup fails
+  while that process lives on. When the command ends, a `:port` event
   `%{what: name, status: status}` is published, so its end is an event too (S4 waits for the
   Runtime's events reader to end after the crash). Its OS pid is recorded in the registry.
   """
@@ -14,7 +19,12 @@ defmodule AtlasE2E.Pull.Reader do
 
   alias AtlasE2E.Pull.{Bench, Hub}
 
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+  def start_link(opts) do
+    with {:ok, reader} <- GenServer.start_link(__MODULE__, opts) do
+      Bench.started("reader #{opts[:name]}", fn -> stop(reader) end)
+      {:ok, reader}
+    end
+  end
 
   def os_pid(reader), do: GenServer.call(reader, :os_pid)
 
@@ -52,12 +62,25 @@ defmodule AtlasE2E.Pull.Reader do
       ])
 
     {:os_pid, os_pid} = Port.info(port, :os_pid)
-    if run = opts[:run], do: Bench.record(run, "port", %{pid: os_pid, name: opts[:name]})
+    # Tethered, the command runs in the tether's group: its id is the tether's pid.
+    group = if opts[:stub], do: os_pid
+
+    if run = opts[:run] do
+      line = %{pid: os_pid, pgid: group, name: opts[:name]}
+
+      Bench.record(
+        run,
+        "port",
+        Map.reject(line, &is_nil(elem(&1, 1))),
+        Keyword.take(opts, [:lstart])
+      )
+    end
 
     {:ok,
      %{
        port: port,
        os_pid: os_pid,
+       group: group,
        source: opts[:source],
        name: opts[:name],
        hub: opts[:hub] || Hub,
@@ -98,9 +121,13 @@ defmodule AtlasE2E.Pull.Reader do
   end
 
   @impl true
-  def terminate(_reason, %{port: port, os_pid: os_pid}) when is_port(port) do
-    Port.close(port)
+  def terminate(_reason, %{port: port, os_pid: os_pid} = state) when is_port(port) do
+    # The group first, while the tether leads it: the command ends with the tether. (Closing
+    # the Port first and KILLing the tether races the tether's own KILL of its group.) The
+    # pid too, for a tether not yet in a group of its own.
+    if state.group, do: Bench.signal(-state.group, "KILL")
     Bench.signal(os_pid, "KILL")
+    Port.close(port)
     :ok
   catch
     _, _ -> :ok
