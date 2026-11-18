@@ -7,7 +7,10 @@
 //	                                   Tethered: when its own stdin ends (the BEAM that started it is
 //	                                   gone, however it ended) it KILLs the child's group and exits
 //	pull-stub tether -- CMD ARGS...    the same tether without a new session or a session line (a
-//	                                   reader's command: `cat` on a FIFO, `events --follow`, tmux -C)
+//	                                   reader's command: `cat` on a FIFO, `events --follow`, tmux -C).
+//	                                   The tether leads a group of its own (its pid = its pgid, the
+//	                                   Port's os pid) and CMD stays in it: a KILL of that group ends
+//	                                   both, so a KILLed tether can never leave CMD behind
 //	pull-stub agent RUN ARGV0 ARGS...  the agent behind the Runtime's `codex` on PATH (pull/README.md):
 //	                                   speaks `codex exec --json`, reports to RUN/stub/events.fifo and
 //	                                   acts only on the command its gate RUN/stub/gates/<launch> gives;
@@ -93,10 +96,19 @@ func session(args []string, newSession bool) {
 	cmd.Stdin = stdinR
 	cmd.Stdout = writer
 	cmd.Stderr = writer
+	// The group the command runs in, and that the tether KILLs when its stdin ends.
+	group := 0
 	if newSession {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	} else {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		// Our own group, which the command inherits: the bench knows its id (our pid, the
+		// Port's os pid) before the command starts. A Port child that is already a session
+		// leader (OTP 28) leads its group already and may not move (EPERM).
+		syscall.Setpgid(0, 0)
+		if pgid, _ := syscall.Getpgid(0); pgid != os.Getpid() {
+			die(1, "tether: cannot lead a process group of its own")
+		}
+		group = os.Getpid()
 	}
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
@@ -116,16 +128,25 @@ func session(args []string, newSession bool) {
 		io.Copy(os.Stdout, reader)
 		close(copied)
 	}()
+	if newSession {
+		group = cmd.Process.Pid
+	}
 	go func() {
 		for received := range signals {
-			syscall.Kill(-cmd.Process.Pid, received.(syscall.Signal))
+			if newSession {
+				syscall.Kill(-group, received.(syscall.Signal))
+			} else {
+				// Our own group would send it back to us: the command only.
+				cmd.Process.Signal(received)
+			}
 		}
 	}()
 	// The tether: our stdin is the BEAM's Port; it ends when the BEAM closes the Port or dies.
+	// For a tether the group is ours too: the KILL ends us with the command.
 	go func() {
 		io.Copy(io.Discard, os.Stdin)
-		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		stdinW.Close()
+		syscall.Kill(-group, syscall.SIGKILL)
 		os.Exit(137)
 	}()
 	err = cmd.Wait()

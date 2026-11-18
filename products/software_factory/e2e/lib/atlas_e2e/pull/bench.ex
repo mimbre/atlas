@@ -31,8 +31,14 @@ defmodule AtlasE2E.Pull.Bench do
   60 s, a gate 10 s, tmux 10 s, `atlas-ops stop` 30 s); forced KILLs (always, checked as
   above; never the bench's own pgid: `kill_group/3`); then the **proof**: no recorded process
   of the run is alive, no process's command line holds `<run>`, no process is in a recorded
-  group, every recorded port refuses, the tmux socket is gone. What the proof finds is
-  killed and fails the reap (`{:error, table}`, exit 5).
+  group, every recorded port refuses, no tmux server answers on its socket (a socket file
+  no server answers on is removed: tmux leaves it behind). What the proof finds is killed
+  and fails the reap (`{:error, table}`, exit 5).
+
+  **Tied to the run** (`started/2`, `stop_started/0`): what the BEAM itself runs for the
+  run (the readers, the edge's listener, the TUI's tmux server) is tied, as it starts, to
+  the process that starts it, the run's; the run stops all of it on every outcome before
+  it reaps, also when setup fails before there is a context to stop.
   """
   require Logger
 
@@ -117,6 +123,39 @@ defmodule AtlasE2E.Pull.Bench do
     end
   rescue
     _ -> nil
+  end
+
+  # ---- tied to the run -------------------------------------------------------------------
+
+  @started :pull_started
+
+  @doc """
+  Tie `what` to the calling process (the run's): `stop` is called by `stop_started/0`.
+  Returns `stop`.
+  """
+  def started(what, stop) when is_function(stop, 0) do
+    Process.put(@started, [{what, stop} | Process.get(@started, [])])
+    stop
+  end
+
+  @doc """
+  Stop all that is tied to the calling process, the last started first, each whatever the
+  others do: `[{what, :ok | {:error, banner}}]` in the order stopped. Nothing is tied after.
+  """
+  def stop_started do
+    for {what, stop} <- Process.delete(@started) || [] do
+      result =
+        try do
+          stop.()
+          :ok
+        rescue
+          error -> {:error, Exception.format_banner(:error, error, __STACKTRACE__)}
+        catch
+          kind, reason -> {:error, Exception.format_banner(kind, reason, __STACKTRACE__)}
+        end
+
+      {what, result}
+    end
   end
 
   # ---- step budgets -------------------------------------------------------------------
@@ -293,9 +332,12 @@ defmodule AtlasE2E.Pull.Bench do
     cond do
       # A session's command: its own session, known once its line came.
       c.record? and c.session -> signal(-c.session, "KILL")
-      # A tethered command: the tether KILLs its group when the Port closes (below);
-      # signalling the tether first would leave the command behind.
-      c.tethered? -> :ok
+      # A session whose line has not come: its stub KILLs the command's session when the
+      # Port closes (below); signalling the stub first would leave the command behind.
+      c.record? -> :ok
+      # A tethered command: in the tether's group (its id is the tether's pid), which also
+      # ends when the Port closes (below); the KILL does not wait for the tether to see it.
+      c.tethered? -> signal(-c.session, "KILL")
       # A plain Port child: a session of its own (OTP 28).
       true -> signal(-c.session, "KILL") || signal(c.session, "KILL")
     end
@@ -640,17 +682,30 @@ defmodule AtlasE2E.Pull.Bench do
          }, l}
       end
 
-    sockets =
-      for %{"what" => "tmux_socket", "socket" => s} = l <- lines, File.exists?(s) do
-        File.rm(s)
+    # A tmux server's socket file outlives it (tmux leaves it behind): only a server that
+    # still answers on it is a leak. The file goes either way.
+    answers = opts[:socket_answers] || (&socket_answers?/1)
 
-        {%{
-           what: "tmux socket #{s}",
-           pid: nil,
-           pgid: nil,
-           stopped_by: "removed by the proof",
-           gone: false
-         }, l}
+    sockets =
+      for %{"what" => "tmux_socket", "socket" => s} = l <- lines,
+          File.exists?(s),
+          reduce: [] do
+        sockets ->
+          answering? = answers.(s)
+          File.rm(s)
+
+          if answering?,
+            do: [
+              {%{
+                 what: "tmux socket #{s}",
+                 pid: nil,
+                 pgid: nil,
+                 stopped_by: "a server still answers on it; removed by the proof",
+                 gone: false
+               }, l}
+              | sockets
+            ],
+            else: sockets
       end
 
     leaks = recorded ++ found ++ ports ++ sockets
@@ -673,6 +728,18 @@ defmodule AtlasE2E.Pull.Bench do
       stopped_by: by,
       gone: nil
     }
+
+  @doc "Whether something accepts a connect on the Unix socket `path`."
+  def socket_answers?(path) do
+    case :gen_tcp.connect({:local, path}, 0, [], 2_000) do
+      {:ok, socket} ->
+        :gen_tcp.close(socket)
+        true
+
+      {:error, _} ->
+        false
+    end
+  end
 
   @doc "Whether nothing accepts a connect on 127.0.0.1:`port`."
   def refuses?(port) do
@@ -706,7 +773,9 @@ defmodule AtlasE2E.Pull.Bench do
   Copy what a run leaves worth reading into `<artifacts>/<scenario>/` (git-ignored): the
   event logs (`wire.jsonl`, `stub.jsonl`, `rt.jsonl`, …), the Runtime's `service.log`, the
   core's and rela's logs, the registry, the durations, the S3 downtime, the last screen and
-  `error.txt`.
+  `error.txt`. It runs before the run folder is removed, on every failing path (setup, a
+  scenario, the watchdog, a failed reap), and prints where it kept them and which of the
+  logs a reader needs first (`logs/0`: the core's, rela's, the Runtime's) it did not find.
   """
   def keep(run, artifacts, scenario, error_text) do
     dir = Path.join(artifacts, scenario)
@@ -715,18 +784,43 @@ defmodule AtlasE2E.Pull.Bench do
     files =
       Path.wildcard(Path.join(run, "events/*.jsonl")) ++
         Path.wildcard(Path.join(run, "rt/*/h/service.log")) ++
-        Path.wildcard(Path.join(run, "inst/*.log")) ++
+        Path.wildcard(Path.join(run, "inst/**/*.log")) ++
         Enum.filter(
           Enum.map(~w(pids.jsonl durations.jsonl downtime.json screen.txt), &path(run, &1)),
           &File.exists?/1
         )
 
-    for file <- files do
-      name = file |> Path.relative_to(run) |> String.replace("/", "_")
-      File.cp(file, Path.join(dir, name))
-    end
+    kept =
+      for file <- files,
+          name = kept_name(run, file),
+          File.cp(file, Path.join(dir, name)) == :ok,
+          do: name
 
     File.write!(Path.join(dir, "error.txt"), error_text)
+    missing = missing_logs(kept)
+
+    IO.puts(
+      "pull-e2e: kept #{length(kept)} files in #{dir}" <>
+        if(missing == [], do: "", else: "; not found: #{Enum.join(missing, ", ")}")
+    )
+
     dir
   end
+
+  # What a kept file is called: its path under the run, `/` as `_`.
+  @doc false
+  def kept_name(run, file), do: file |> Path.relative_to(run) |> String.replace("/", "_")
+
+  # The logs read first after a failure, by what they are and a pattern of their kept name.
+  # (A function: a compiled regex cannot be a module attribute on OTP 28.)
+  defp logs,
+    do: [
+      {"core.log", ~r/^inst_(.+_)?core\.log$/},
+      {"rela's log", ~r/^inst_(.+_)?rela[^_]*\.log$/},
+      {"the Runtime's service.log", ~r/^rt_.+_service\.log$/}
+    ]
+
+  @doc false
+  def missing_logs(kept),
+    do: for({what, pattern} <- logs(), not Enum.any?(kept, &(&1 =~ pattern)), do: what)
 end

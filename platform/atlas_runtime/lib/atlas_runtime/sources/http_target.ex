@@ -56,6 +56,16 @@ defmodule AtlasRuntime.Sources.HttpTarget do
     end
   end
 
+  @doc """
+  `open/4` trusting only the CAs of the source's own `ca_file` (pull-e2e D5): the checked
+  open of `AtlasRuntime.Sources.Supervisor.open/5`, with the same answers. It is reached
+  through this module because the puller takes the module of its `open:` `{module, fun,
+  args}` as the target's (`{module, ref}`): an open given as any other module's would make
+  every poll call that module.
+  """
+  def open_with_ca_file(name, url, home, ca_file, opts),
+    do: AtlasRuntime.Sources.Supervisor.open(name, url, home, ca_file, opts)
+
   @doc "Closes the ref's connection."
   def close(%{conn: conn}), do: Transport.close(conn)
 

@@ -60,6 +60,25 @@ defmodule AtlasRuntime.Sources.SupervisorTest do
     end
   end
 
+  # The target the puller makes of that open (`Puller.target/1`): `{module, ref}`, the
+  # module being the open's own; closed at the test's end.
+  defp target(home, source, opts) do
+    {module, _fun, _args} = open_of(home, source, opts)
+    assert {:ok, ref} = open(home, source, opts)
+    {module, ref}
+  end
+
+  # A poll as the puller sends it (`Puller.start_poll/2`).
+  defp poll_input,
+    do: %{
+      runtime_id: "rt-test",
+      incarnation: "0123456789abcdef",
+      build: "0.1.0",
+      policy_version: 1,
+      offer: %{},
+      holdings: []
+    }
+
   # A directory outside the home, removed at the test's end.
   defp outside do
     dir = Path.join(System.tmp_dir!(), "d5-out-#{System.unique_integer([:positive])}")
@@ -94,7 +113,20 @@ defmodule AtlasRuntime.Sources.SupervisorTest do
       opts = [target: [cacertfile: "/t/ca.pem", uid: 7]]
 
       assert open_of(home, remote(%{"ca_file" => @ca_file}), opts) ==
-               {Sources, :open, [@name, url, home, @ca_file, [cacertfile: "/t/ca.pem", uid: 7]]}
+               {HttpTarget, :open_with_ca_file,
+                [@name, url, home, @ca_file, [cacertfile: "/t/ca.pem", uid: 7]]}
+    end
+
+    # The puller polls the module its open names (pull-e2e gatefix round 1: the ca_file's
+    # open named `Sources.Supervisor`, so every poll raised UndefinedFunctionError and no
+    # request left the Runtime).
+    test "every remote open names a puller target's module", %{home: home} do
+      for source <- [remote(), remote(%{"ca_file" => @ca_file})] do
+        {module, fun, args} = open_of(home, source, [])
+        behaviours = module.module_info(:attributes) |> Keyword.get_values(:behaviour)
+        assert Puller.Target in List.flatten(behaviours)
+        assert function_exported?(module, fun, length(args))
+      end
     end
   end
 
@@ -161,6 +193,17 @@ defmodule AtlasRuntime.Sources.SupervisorTest do
 
       File.rm!(ca)
       assert {:ok, %{status: 200}} = Transport.request(get(), conn: conn)
+      assert_received {:served, "/work-source/v1/poll"}
+    end
+
+    test "with a ca_file the puller's target polls the source", ctx do
+      File.rename!(F.cacertfile(ctx.pki, ctx.home), Path.join(ctx.home, @ca_file))
+      source = remote(%{"url" => ctx.url, "ca_file" => @ca_file})
+
+      # As the puller polls: `module.poll(ref, input)`. The test server's `{}` is no poll
+      # answer; what counts is that the poll reached it.
+      {module, ref} = target(ctx.home, source, [])
+      capture_log(fn -> module.poll(ref, poll_input()) end)
       assert_received {:served, "/work-source/v1/poll"}
     end
 

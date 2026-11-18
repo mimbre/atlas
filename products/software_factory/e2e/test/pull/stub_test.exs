@@ -25,6 +25,27 @@ defmodule AtlasE2E.Pull.StubTest do
     refute child["pgid"] == caller["pgid"]
   end
 
+  # Gatefix round 1: a stub built from other sources (an earlier round's, in the same temp
+  # folder) was taken for this tree's, and the gate tested the old tether.
+  test "the tests' stub is the one built from this tree's sources", %{stub: stub} do
+    assert Path.basename(Path.dirname(stub)) == "pe-test-stub-#{Support.stub_digest()}"
+
+    copy = Support.tmp!("stub-src")
+    on_exit(fn -> File.rm_rf!(copy) end)
+
+    for file <- ["main.go", "go.mod"],
+        do: File.cp!(Path.join(Stub.source(), file), Path.join(copy, file))
+
+    assert Support.stub_digest(copy) == Support.stub_digest()
+
+    # Any change to a source is another stub.
+    File.write!(Path.join(copy, "main.go"), "\n", [:append])
+    refute Support.stub_digest(copy) == Support.stub_digest()
+    File.write!(Path.join(copy, "extra.go"), "package main\n")
+    File.cp!(Path.join(Stub.source(), "main.go"), Path.join(copy, "main.go"))
+    refute Support.stub_digest(copy) == Support.stub_digest()
+  end
+
   test "session prints its line first and exits with the child's status", %{stub: stub} do
     {out, 3} = System.cmd(stub, ["session", "--", "/bin/sh", "-c", "echo child; exit 3"])
     assert [first, "child"] = String.split(out, "\n", trim: true)
