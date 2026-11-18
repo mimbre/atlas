@@ -732,7 +732,7 @@
               "base": "develop",
               "repository": "github.com/mimbre/atlas"
             },
-            "instructions": "Do the job below in the repository you are given, starting from its base. End your answer with what you did and what is left open.",
+            "instructions": "Do the job below in the folder you are given: it holds the files of the repository at its base. The Runtime records your changes itself; do not use git and do not commit. Do not run bin/check: the sandbox has no network for its dependencies. End your answer with what you did and what is left open.",
             "kind": "author",
             "machinery": "machinery",
             "profile": "deep_coding",

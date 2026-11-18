@@ -322,7 +322,9 @@
       "job": {
         "choices": [],
         "choice_states": [],
-        "migrations": [],
+        "migrations": [
+          {"from":"9d3344521082b52910d3a4e637a7e2278746a9e76dae06a2ffcbfc5c376e202b","to":"3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59","states":{"done":"done","stuck":"stuck","working":"working"},"reason":"Only the agent's instruction changed"}
+        ],
         "subject": "job",
         "projection": {
           "on": "assignment",
