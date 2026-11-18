@@ -94,6 +94,7 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
   """
   use AtlasRuntime.Test.WorkSourceFacade.Implementation
 
+  alias AtlasRuntime.Test.GitBase
   alias AtlasRuntime.Test.WorkSourceFacade, as: F
 
   @epoch ~U[2026-11-17 12:00:00Z]
@@ -123,12 +124,19 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
           next: 1,
           blobs: %{},
           stored_bytes: 0,
-          served: []
+          served: [],
+          git: GitBase.url()
         }
       end)
 
     pid
   end
+
+  @doc """
+  Where the source's Code serves its bases over Git (`AtlasRuntime.Test.GitBase`): the
+  `git` import option of a puller of this source.
+  """
+  def git(source), do: %{url: Agent.get(source, & &1.git), env: fn -> [] end}
 
   @doc "The source this process calls from now on."
   def use(source), do: Process.put(__MODULE__, source)
@@ -141,11 +149,33 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
   (`%{sha256 => bytes}`): its manifests and their write entries' blobs.
   """
   def add_work(source, work, blobs \\ %{}) do
+    serve_base(source, work, blobs)
+
     Agent.update(source, fn s ->
       s = Enum.reduce(blobs, s, fn {sha, bytes}, s -> store(s, sha, bytes) end)
       %{s | queue: s.queue ++ [%{work: work, names: MapSet.new(Map.keys(blobs))}]}
     end)
   end
+
+  # The work's base over Git, as Code serves it: each file its manifest names, from `blobs`.
+  defp serve_base(source, %{input: %{base: %{base_id: id, manifest: manifest}}}, blobs)
+       when is_binary(:erlang.map_get(manifest, blobs)) do
+    files =
+      case JSON.decode(blobs[manifest]) do
+        {:ok, %{"roots" => roots}} when is_list(roots) ->
+          for %{"entries" => entries} when is_list(entries) <- roots,
+              %{"kind" => "file", "path" => path, "sha256" => sha} <- entries,
+              is_binary(blobs[sha]),
+              do: {path, blobs[sha]}
+
+        _ ->
+          []
+      end
+
+    GitBase.serve(Agent.get(source, & &1.git), id, files)
+  end
+
+  defp serve_base(_source, _work, _blobs), do: :ok
 
   @doc """
   A base of one root `atlas` with `files` (`%{path => content}`), as a source offers it

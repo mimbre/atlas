@@ -240,6 +240,25 @@ defmodule AtlasCode.Service do
           response() | {:tar, non_neg_integer(), (function() -> :sent | :close)}
   def get_archive(settings, id, path), do: archive(settings, id, path)
 
+  @doc """
+  The cache repository that holds base `base_id` (`code-<hex>`, of snapshot `sha256:<hex>`,
+  one repository), with the ref `refs/atlas/bases/<base_id>` on the base's commit:
+  `{:ok, git_dir}`. Code's Git endpoint (`AtlasCode.Git`) serves it.
+  """
+  @spec base_repository(settings(), String.t()) :: {:ok, Path.t()}
+  def base_repository(settings, "code-" <> hex = base_id) do
+    {:ok, _id, %{"repositories" => [%{"repository" => repository, "revision" => handle}]}} =
+      manifest(settings.home, "sha256:" <> hex)
+
+    {:ok, commit} = revision(settings.home, repository, handle)
+    {:ok, dir} = acquire(settings, repository, commit, handle)
+
+    {_, 0} =
+      System.cmd("git", ["--git-dir", dir, "update-ref", "refs/atlas/bases/" <> base_id, commit])
+
+    {:ok, dir}
+  end
+
   @doc "`POST /v1/changes`."
   @spec create_change(settings(), term()) :: response()
   def create_change(settings, request),

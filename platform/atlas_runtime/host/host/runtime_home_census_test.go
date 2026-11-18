@@ -166,6 +166,7 @@ var censusNotHome = map[string]string{
 	"stderr": "the facts helper's private temp directory",
 	// Below sources (<home>/sources/<name>, work acquisition M2 W3: sources/credential.ex).
 	"token": "source directory (<home>/sources/<name>/token, sources/credential.ex)",
+	"git":   "source directory (<home>/sources/<name>/git, the source's Git cache of bases, sources/import.ex)",
 }
 
 type censusSite struct {

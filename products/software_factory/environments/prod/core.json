@@ -26,6 +26,7 @@
   },
   "code": {
     "data": "/data/code",
+    "git_port": 7597,
     "repositories": ["mimbre/atlas"],
     "home": "/data/code-home",
     "sources": {
