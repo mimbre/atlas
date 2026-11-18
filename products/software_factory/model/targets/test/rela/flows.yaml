@@ -363,6 +363,7 @@ flows:
   package:
     label: Package
     subject: package
+    run_as: system:atlas-flow
     per_subject: one
     start:
       - on: create
@@ -377,16 +378,115 @@ flows:
         label: Authoring
         on:
           change:
-            - { to: authored, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
-            - { to: check_failed, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
-            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
-            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
-      authored:
-        label: Authored
-        final: true
-      check_failed:
-        label: Check failed
-        final: true
+            - { to: authoring, roles: [atlas-flow], when: "entity.task_result == 'author'" }
+            - { to: reviewing, roles: [atlas-flow], when: "entity.task_result == 'review'" }
+            - { to: fixing, roles: [atlas-flow], when: "entity.task_result == 'fix'" }
+            - { to: diagnosing, roles: [atlas-flow], when: "entity.task_result == 'diagnose'" }
+            - { to: fresh, roles: [atlas-flow], when: "entity.task_result == 'fresh'" }
+            - { to: stronger, roles: [atlas-flow], when: "entity.task_result == 'stronger'" }
+            - { to: ready, roles: [atlas-flow], when: "entity.task_result == 'ready'" }
+            - { to: held, roles: [atlas-flow], when: "entity.task_result == 'held'" }
+            - { to: awaiting_decision, roles: [atlas-flow], when: "entity.task_result == 'escalate'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandon'" }
+      reviewing:
+        label: Reviewing
+        on:
+          change:
+            - { to: authoring, roles: [atlas-flow], when: "entity.task_result == 'author'" }
+            - { to: reviewing, roles: [atlas-flow], when: "entity.task_result == 'review'" }
+            - { to: fixing, roles: [atlas-flow], when: "entity.task_result == 'fix'" }
+            - { to: diagnosing, roles: [atlas-flow], when: "entity.task_result == 'diagnose'" }
+            - { to: fresh, roles: [atlas-flow], when: "entity.task_result == 'fresh'" }
+            - { to: stronger, roles: [atlas-flow], when: "entity.task_result == 'stronger'" }
+            - { to: ready, roles: [atlas-flow], when: "entity.task_result == 'ready'" }
+            - { to: held, roles: [atlas-flow], when: "entity.task_result == 'held'" }
+            - { to: awaiting_decision, roles: [atlas-flow], when: "entity.task_result == 'escalate'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandon'" }
+      fixing:
+        label: Fixing
+        on:
+          change:
+            - { to: authoring, roles: [atlas-flow], when: "entity.task_result == 'author'" }
+            - { to: reviewing, roles: [atlas-flow], when: "entity.task_result == 'review'" }
+            - { to: fixing, roles: [atlas-flow], when: "entity.task_result == 'fix'" }
+            - { to: diagnosing, roles: [atlas-flow], when: "entity.task_result == 'diagnose'" }
+            - { to: fresh, roles: [atlas-flow], when: "entity.task_result == 'fresh'" }
+            - { to: stronger, roles: [atlas-flow], when: "entity.task_result == 'stronger'" }
+            - { to: ready, roles: [atlas-flow], when: "entity.task_result == 'ready'" }
+            - { to: held, roles: [atlas-flow], when: "entity.task_result == 'held'" }
+            - { to: awaiting_decision, roles: [atlas-flow], when: "entity.task_result == 'escalate'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandon'" }
+      diagnosing:
+        label: Diagnosing
+        on:
+          change:
+            - { to: authoring, roles: [atlas-flow], when: "entity.task_result == 'author'" }
+            - { to: reviewing, roles: [atlas-flow], when: "entity.task_result == 'review'" }
+            - { to: fixing, roles: [atlas-flow], when: "entity.task_result == 'fix'" }
+            - { to: diagnosing, roles: [atlas-flow], when: "entity.task_result == 'diagnose'" }
+            - { to: fresh, roles: [atlas-flow], when: "entity.task_result == 'fresh'" }
+            - { to: stronger, roles: [atlas-flow], when: "entity.task_result == 'stronger'" }
+            - { to: ready, roles: [atlas-flow], when: "entity.task_result == 'ready'" }
+            - { to: held, roles: [atlas-flow], when: "entity.task_result == 'held'" }
+            - { to: awaiting_decision, roles: [atlas-flow], when: "entity.task_result == 'escalate'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandon'" }
+      fresh:
+        label: Authoring afresh
+        on:
+          change:
+            - { to: authoring, roles: [atlas-flow], when: "entity.task_result == 'author'" }
+            - { to: reviewing, roles: [atlas-flow], when: "entity.task_result == 'review'" }
+            - { to: fixing, roles: [atlas-flow], when: "entity.task_result == 'fix'" }
+            - { to: diagnosing, roles: [atlas-flow], when: "entity.task_result == 'diagnose'" }
+            - { to: fresh, roles: [atlas-flow], when: "entity.task_result == 'fresh'" }
+            - { to: stronger, roles: [atlas-flow], when: "entity.task_result == 'stronger'" }
+            - { to: ready, roles: [atlas-flow], when: "entity.task_result == 'ready'" }
+            - { to: held, roles: [atlas-flow], when: "entity.task_result == 'held'" }
+            - { to: awaiting_decision, roles: [atlas-flow], when: "entity.task_result == 'escalate'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandon'" }
+      stronger:
+        label: Authoring stronger
+        on:
+          change:
+            - { to: authoring, roles: [atlas-flow], when: "entity.task_result == 'author'" }
+            - { to: reviewing, roles: [atlas-flow], when: "entity.task_result == 'review'" }
+            - { to: fixing, roles: [atlas-flow], when: "entity.task_result == 'fix'" }
+            - { to: diagnosing, roles: [atlas-flow], when: "entity.task_result == 'diagnose'" }
+            - { to: fresh, roles: [atlas-flow], when: "entity.task_result == 'fresh'" }
+            - { to: stronger, roles: [atlas-flow], when: "entity.task_result == 'stronger'" }
+            - { to: ready, roles: [atlas-flow], when: "entity.task_result == 'ready'" }
+            - { to: held, roles: [atlas-flow], when: "entity.task_result == 'held'" }
+            - { to: awaiting_decision, roles: [atlas-flow], when: "entity.task_result == 'escalate'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandon'" }
+      ready:
+        label: Ready
+        on:
+          change:
+            - { to: stuck, when: "entity.answer == 'abandon'" }
+      held:
+        label: Held
+        outputs:
+          - set: { properties: { answer: none } }
+        on:
+          change:
+            - { to: fresh, when: "not (entity.answer == '') and not (entity.answer == 'none') and not (entity.answer == 'stronger') and not (entity.answer == 'abandon') and not (entity.answer == 'retry')" }
+            - { to: stronger, when: "entity.answer == 'stronger'" }
+            - { to: stuck, when: "entity.answer == 'abandon'" }
+            - { to: authoring, when: "entity.answer == 'retry' and entity.retry_step == 'author'" }
+            - { to: reviewing, when: "entity.answer == 'retry' and entity.retry_step == 'review'" }
+            - { to: fixing, when: "entity.answer == 'retry' and entity.retry_step == 'fix'" }
+            - { to: diagnosing, when: "entity.answer == 'retry' and entity.retry_step == 'diagnose'" }
+            - { to: fresh, when: "entity.answer == 'retry' and entity.retry_step == 'fresh'" }
+            - { to: stronger, when: "entity.answer == 'retry' and entity.retry_step == 'stronger'" }
+      awaiting_decision:
+        label: Awaiting a decision
+        outputs:
+          - set: { properties: { answer: none } }
+        on:
+          change:
+            - { to: fresh, when: "not (entity.answer == '') and not (entity.answer == 'none') and not (entity.answer == 'stronger') and not (entity.answer == 'abandon') and not (entity.answer == 'retry')" }
+            - { to: stronger, when: "entity.answer == 'stronger'" }
+            - { to: stuck, when: "entity.answer == 'abandon'" }
       stuck:
         label: Stuck
         final: true

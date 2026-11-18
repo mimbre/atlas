@@ -319,7 +319,7 @@
     },
     "package": {
       "prod": {
-        "digest": "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
+        "digest": "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214",
         "history": [
           {
             "digest": "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
@@ -340,18 +340,40 @@
               "stuck",
               "waiting"
             ]
+          },
+          {
+            "digest": "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214",
+            "states": [
+              "authoring",
+              "awaiting_decision",
+              "diagnosing",
+              "fixing",
+              "fresh",
+              "held",
+              "ready",
+              "reviewing",
+              "stronger",
+              "stuck",
+              "waiting"
+            ]
           }
         ],
         "states": [
-          "authored",
           "authoring",
-          "check_failed",
+          "awaiting_decision",
+          "diagnosing",
+          "fixing",
+          "fresh",
+          "held",
+          "ready",
+          "reviewing",
+          "stronger",
           "stuck",
           "waiting"
         ]
       },
       "test": {
-        "digest": "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
+        "digest": "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214",
         "history": [
           {
             "digest": "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
@@ -372,12 +394,34 @@
               "stuck",
               "waiting"
             ]
+          },
+          {
+            "digest": "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214",
+            "states": [
+              "authoring",
+              "awaiting_decision",
+              "diagnosing",
+              "fixing",
+              "fresh",
+              "held",
+              "ready",
+              "reviewing",
+              "stronger",
+              "stuck",
+              "waiting"
+            ]
           }
         ],
         "states": [
-          "authored",
           "authoring",
-          "check_failed",
+          "awaiting_decision",
+          "diagnosing",
+          "fixing",
+          "fresh",
+          "held",
+          "ready",
+          "reviewing",
+          "stronger",
           "stuck",
           "waiting"
         ]

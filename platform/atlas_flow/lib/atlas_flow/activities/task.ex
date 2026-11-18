@@ -55,11 +55,38 @@ defmodule AtlasFlow.Activities.Task do
   review's), and the ladder's sections after the instructions. A review's `based_on` is
   in its create; when it ends its `reviewed_revision` is the `published_revision` of the
   task whose `result_fingerprints` it reviewed, or nothing while that one is unpublished.
-  Rung (e) writes nothing but the run: no `decision` fact. While the ladder waits
+  Rung (e) writes no `decision` fact. While the ladder waits
   (`escalate`, `held`), the state an answer leads to asks the ladder with the subject's
-  `answer`, once the subject is assigned to a machinery again (E1). The profiles the
+  `answer`, and runs its step once the subject is assigned to a machinery again (E1). An
+  answer the ladder does not take (one the question does not offer, or whose step is not
+  that state's) runs nothing: the run takes `held` or `escalate` again, with or without a
+  hand-back, so the supervisor is asked again. The profiles the
   ladder may climb to are `config :atlas_flow, :ladder_profiles` (none: rung (c) is
   skipped), its limits `:ladder_limits`.
+
+  **Asking the supervisor (F2-P; Main's D1, D2, D3).** When the ladder asks (`held`,
+  `escalate`), the Engine writes two fields on the subject, by `flow`, beside the task
+  fact's `state`. So a subject with ladder tasks has both fields:
+
+    * `question`: the question, as JSON (`AtlasFlow.Ladder`'s `question` map: its
+      `answers`, `options`, `recommended`, `continue`, …);
+    * `retry_step`: the step that `retry` leads to (the held task's again, as the
+      ladder gives it for that answer, e.g. `review`), or `none` when the question does
+      not offer `retry`. The subflow branches `retry` on it to the state of that step.
+
+  At rung (e), when the recommended option is safe to continue on and touches no
+  authority (the question's `continue`, D1), the run takes the `fresh` branch and runs
+  that step while the ladder still waits for the answer. So the subject stays with its
+  machinery, and the supervisor is only asked. Otherwise the run takes `escalate`, and
+  the state it leads to hands the subject to the supervisor. Each ask resets the
+  subject's `answer` to `none` in the same write, so an answer to an earlier question is
+  never taken for this one.
+
+  An answer while that work runs (Main's ruling): the default itself is recorded and
+  changes nothing; another answer the question offers cancels the running task
+  (`AtlasFlow.Dispatch.cancel/3`, the graceful cancel the Runtime sees on its next poll)
+  and the run follows the answer, with nothing of the cancelled task's result read. Once
+  a task has ended, its result is taken as always, and an answer is a normal one.
   """
 
   require Logger
@@ -69,7 +96,7 @@ defmodule AtlasFlow.Activities.Task do
   alias AtlasFlow.WorkSource.Translate
 
   @results ~w(completed check_failed stuck abandoned)
-  @ladder_results ~w(author review fix diagnose fresh stronger ready held escalate)
+  @ladder_results ~w(author review fix diagnose fresh stronger ready held escalate abandon)
   @kinds ~w(plan author review fix diagnose)
   @roles ~w(architect developer investigator)
   @profiles ~w(deep_coding independent_review deep_coding_max)
@@ -269,12 +296,12 @@ defmodule AtlasFlow.Activities.Task do
         ended(run, intent, spec, "stuck", %{"reason" => "unsupported intent"}, nil, ctx)
 
       true ->
-        follow(run, intent, spec, ctx)
+        follow(run, intent, spec, subject, ctx)
     end
   end
 
   defp intend(run, spec, subject, %{assignee: {:machinery, name}} = ctx) do
-    with {:ok, work} <- work(run, spec, subject, ctx),
+    with {:ok, work} <- work(run, spec, subject, ctx) |> asked_again(run, ctx),
          {:ok, n} <- ctx.number.() do
       key = key(subject["key"], n)
 
@@ -304,7 +331,26 @@ defmodule AtlasFlow.Activities.Task do
 
       {:pending, intent, [record], work.ladder}
     else
+      {:result, _, _, _, _} = asked -> asked
       _no_base_or_unavailable -> :none
+    end
+  end
+
+  # Not with a machinery: no task. An answer the waiting ladder does not take asks again
+  # all the same (F-1): nothing runs for it, so it need not wait for a hand-back.
+  defp intend(run, %{"ladder" => true} = spec, subject, ctx) do
+    case run["pending"]["ladder"] do
+      %{"next" => %{}} ->
+        :none
+
+      %{"awaiting" => %{}} = ladder ->
+        case answered(ladder, spec, run, subject, ctx) |> asked_again(run, ctx) do
+          {:result, _, _, _, _} = asked -> asked
+          _ -> :none
+        end
+
+      _ ->
+        :none
     end
   end
 
@@ -340,23 +386,48 @@ defmodule AtlasFlow.Activities.Task do
   end
 
   # The supervisor answered while the ladder waits: the step the answer leads to, when it
-  # is this state's; an answer the question does not offer, or that leads elsewhere,
-  # starts nothing (the ladder asks again).
+  # is this state's. An answer the question does not offer (a typo, `fresh` where it is
+  # not offered, …), or one whose step does not run in this state, starts nothing: the
+  # ladder asks again (`{:ask, …}`), and the run goes back to `held` or
+  # `awaiting_decision` (F-1), never left in a task state with no task.
   defp answered(ladder, spec, run, subject, ctx) do
-    with {:ok, views} <- views(spec, run, nil, nil),
-         {{:task, step}, ladder} <-
-           Ladder.next(
-             ladder,
-             {:answer, (subject["values"] || %{})["answer"]},
-             views,
-             profiles(ctx),
-             limits(ctx)
-           ) do
-      from_step(step, ladder, spec, run, views)
-    else
-      _ -> :none
+    answer = (subject["values"] || %{})["answer"]
+
+    with {:ok, views} <- views(spec, run, nil, nil) do
+      case Ladder.next(ladder, {:answer, answer}, views, profiles(ctx), limits(ctx)) do
+        {{:task, step}, resumed} ->
+          with :none <- from_step(step, resumed, spec, run, views),
+               do: {:ask, ask(ladder), ladder, answer, views}
+
+        {{tag, _} = asked, ladder} when tag in [:held, :escalate] ->
+          {:ask, asked, ladder, answer, views}
+
+        _ ->
+          :none
+      end
     end
   end
+
+  # The question the waiting ladder asks again, as `Ladder.next/5` gives it for an answer
+  # it does not take.
+  defp ask(%{"awaiting" => %{"on" => "escalation", "question" => q}}), do: {:escalate, q}
+
+  defp ask(%{"awaiting" => %{"on" => "held"} = a}),
+    do: {:held, Map.take(a, ~w(reason task question))}
+
+  # Asked again: the run takes the `held` or `escalate` branch, with the ladder still
+  # waiting, and the question and `retry_step` are written again (D2, D3). Entering the
+  # state resets `answer`, and its owner hands the subject to the supervisor (B-3). The
+  # result joins the run's tasks as a record of the answer; it names no task.
+  defp asked_again({:ask, {tag, _} = asked, ladder, answer, views}, run, ctx) do
+    ladder = Map.delete(ladder, "next")
+    outcome = Atom.to_string(tag)
+    result = %{"outcome" => outcome, "answer" => answer, "reason" => "answer_not_taken"}
+    by = {run["key"], ["question", run["entry"]]}
+    {:result, outcome, result, asked(asked, ladder, by, run, views, ctx), ladder}
+  end
+
+  defp asked_again(other, _run, _ctx), do: other
 
   defp from_step(step, ladder, spec, run, views \\ nil) do
     base = step["base"]
@@ -422,29 +493,96 @@ defmodule AtlasFlow.Activities.Task do
 
   # A held intent: its base kept servable, its task offered, its result read from the
   # task fact Delivery writes.
-  defp follow(run, intent, spec, ctx) do
+  defp follow(run, intent, spec, subject, ctx) do
     servable(intent, repository(spec) || (run["pending"]["ladder"] || %{})["repository"])
     key = intent["key"]
 
     case Talk.transition_read(spec["records"]["kind"], %{"key" => key, "plain" => true}) do
       %{"fact" => %{} = fact} ->
         case Translate.outcome(fact, spec["check"] != nil) do
+          # Ended: its result is the task's own, taken as always; an answer that came
+          # meanwhile is a normal answer, read on the next step.
           {:result, outcome, detail} ->
             ended(run, intent, spec, outcome, detail, fact, ctx)
 
-          :retry ->
-            Dispatch.ready(key)
-            :none
-
-          :waiting ->
-            if offerable?(fact), do: Dispatch.ready(key)
-            :none
+          not_ended ->
+            with :none <- continued_answer(run, intent, spec, subject, ctx) do
+              if not_ended == :retry or offerable?(fact), do: Dispatch.ready(key)
+              :none
+            end
         end
 
       _absent_or_unavailable ->
         :none
     end
   end
+
+  # Main's ruling on D1 (F2-P): while the loop runs on the recommended default and its
+  # question is still open (`awaiting` on the escalation, with a `continue` step), the
+  # supervisor's answer is read while a task of that work runs.
+  #
+  #   * the default itself (the recommended option): it is recorded (`answered`, and the
+  #     question closed); the running task goes on, nothing else changes;
+  #   * another answer the question offers: the running task is cancelled (Dispatch's
+  #     graceful cancel, `lease_end_cause` `answer`), its result is unpinned, and the run
+  #     takes the branch of the step the answer leads to. The cancelled task joins the
+  #     run's tasks without a `task_kind`, so the ladder never reads its (partial) result.
+  #     `abandon` is one too: the task is cancelled and the run takes `abandon` (its
+  #     subflow leads it to an end, `stuck` for a package);
+  #   * an answer the question does not offer: the work goes on.
+  defp continued_answer(run, intent, %{"ladder" => true} = spec, subject, ctx) do
+    ladder = run["pending"]["ladder"] || %{}
+    answer = (subject["values"] || %{})["answer"]
+
+    # An open escalation with a task running is D1's: without a `continue` step the run
+    # waits in a state with no task.
+    with %{"on" => "escalation", "question" => q} <- ladder["awaiting"],
+         true <- is_binary(answer) and answer in (q["answers"] || []) do
+      if answer == (ladder["choice"] || %{})["id"] do
+        {:pending, intent, [], Map.merge(ladder, %{"awaiting" => nil, "answered" => answer})}
+      else
+        follow_answer(run, intent, spec, ladder, answer, ctx)
+      end
+    else
+      _ -> :none
+    end
+  end
+
+  defp continued_answer(_run, _intent, _spec, _subject, _ctx), do: :none
+
+  defp follow_answer(run, intent, spec, ladder, answer, ctx) do
+    with {:ok, views} <- views(spec, run, nil, nil),
+         {name, ladder} <-
+           followed(
+             Ladder.next(ladder, {:answer, answer}, views, profiles(ctx), limits(ctx)),
+             answer
+           ) do
+      Dispatch.cancel(intent["key"], "answer")
+      Results.unpin(intent["key"], ctx.now)
+
+      result =
+        compact(%{
+          "key" => intent["key"],
+          "machinery" => intent["machinery"],
+          "outcome" => "cancelled",
+          "reason" => "answer",
+          "answer" => answer
+        })
+
+      writes = [change(intent, spec, ["result"], %{"state" => "cancelled"})]
+      {:result, name, result, writes, ladder}
+    else
+      _ -> :none
+    end
+  end
+
+  # The branch an answer leads to, and the ladder to keep: the step it runs next, or, for
+  # `abandon` (the ladder resumes and runs nothing), the `abandon` branch.
+  defp followed({{:task, step}, resumed}, _answer),
+    do: {step["step"], Map.put(resumed, "next", step)}
+
+  defp followed({:none, resumed}, "abandon"), do: {"abandon", resumed}
+  defp followed(_next, _answer), do: :none
 
   # No lease yet, or the last one was lost: Dispatch is to offer it (again).
   defp offerable?(fact) do
@@ -531,14 +669,66 @@ defmodule AtlasFlow.Activities.Task do
            ) do
       {name, ladder} = taken(step, ladder)
       values = %{"state" => outcome} |> Map.merge(reviewed(spec, result, facts))
-      {:result, name, result, [change(intent, spec, ["result"], values)], ladder}
+
+      writes = [
+        change(intent, spec, ["result"], values)
+        | asked(step, ladder, {intent["key"], ["question"]}, run, views, ctx)
+      ]
+
+      {:result, name, result, writes, ladder}
     else
       _ -> :none
     end
   end
 
   defp taken({:task, step}, ladder), do: {step["step"], Map.put(ladder, "next", step)}
+
+  # D1: rung (e) with a safe default that touches no authority. The default runs (its
+  # `continue` step) while the ladder keeps waiting for the supervisor's answer.
+  defp taken({:escalate, %{"continue" => %{"step" => _} = step}}, ladder),
+    do: {step["step"], Map.put(ladder, "next", step)}
+
   defp taken({tag, _}, ladder), do: {Atom.to_string(tag), Map.delete(ladder, "next")}
+
+  # D2 and D3: when the ladder asks, the subject's `question` and the step `retry` leads
+  # to. One write, under an id of `by` (its task's key; the run's entry when an answer is
+  # asked again); nothing when the ladder does not ask.
+  defp asked(step, ladder, {key, tag}, run, views, ctx) do
+    case question(step) do
+      nil ->
+        []
+
+      question ->
+        [
+          write(key, tag, run["subject_kind"], %{
+            "op" => "change",
+            "key" => run["subject_key"],
+            # A new question: an answer to an earlier one is not this one's (D1 runs on
+            # with no state that resets it).
+            "values" => %{
+              "question" => JSON.encode!(question),
+              "retry_step" => retry_step(ladder, views, ctx),
+              "answer" => "none"
+            },
+            "by" => "flow"
+          })
+        ]
+    end
+  end
+
+  defp question({:held, %{"question" => %{} = q}}), do: q
+  defp question({:escalate, %{} = q}), do: q
+  defp question(_step), do: nil
+
+  # The step the answer `retry` leads to, as the ladder gives it (pure: the same ladder
+  # and tasks give the same step when the answer comes); `none` when the question does
+  # not offer it (the ladder then asks again).
+  defp retry_step(ladder, views, ctx) do
+    case Ladder.next(ladder, {:answer, "retry"}, views, profiles(ctx), limits(ctx)) do
+      {{:task, %{"step" => step}}, _} -> step
+      _ -> "none"
+    end
+  end
 
   defp intent_base(intent) do
     base = get_in(intent, ["work", "input", "base"]) || %{}

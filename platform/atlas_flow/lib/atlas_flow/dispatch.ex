@@ -86,6 +86,25 @@ defmodule AtlasFlow.Dispatch do
   @doc "The Engine made (or holds) the intent of `task_key`: read the ready set again."
   def ready(task_key, server \\ __MODULE__), do: GenServer.cast(server, {:ready, task_key})
 
+  @doc """
+  The Engine no longer wants task `task_key` (F2-P: the supervisor's answer moved its run
+  on, Main's D1 ruling). A cast, sent while the Engine works out the run's next step:
+  the task leaves the ready set at once, so it is not offered again meanwhile. `cause` is
+  not used: the lease's `lease_end_cause` is `answer`, the one cause the Engine cancels
+  a task for.
+
+  The cancel itself follows the durable record, not this cast. The Engine's store writes
+  the task fact's `state: cancelled` only after the run that no longer holds the task is
+  stored (store first, then cancel). Every sweep (on its timer, and before each poll) cancels
+  a live lease whose task fact says so, the way a supervision change cancels one: an
+  `offered` lease is written `lost`, an `accepted` or `started` one `cancel_requested`
+  and named in its holder's polls' `cancel` until its work ends; an `ended` one stands.
+  So the cancel survives a Facts failure (the next sweep tries again) and a Dispatch
+  restart (the fact is read again), and nothing about it is kept in memory.
+  """
+  def cancel(task_key, cause, server \\ __MODULE__),
+    do: GenServer.cast(server, {:cancel, task_key, cause})
+
   @doc "Runs the sweep now and answers once it ran."
   def sweep(server \\ __MODULE__), do: GenServer.call(server, :sweep, :infinity)
 
@@ -183,6 +202,10 @@ defmodule AtlasFlow.Dispatch do
   @impl true
   def handle_cast({:ready, _task_key}, state),
     do: {:noreply, state |> resync_ready() |> serve_parked()}
+
+  # The lease is cancelled once the task fact says so (`cancel/3`); here only the ready set.
+  def handle_cast({:cancel, task_key, _cause}, state),
+    do: {:noreply, %{state | ready: Map.delete(state.ready, task_key)}}
 
   @impl true
   def handle_info(:tick, state) do
@@ -372,11 +395,17 @@ defmodule AtlasFlow.Dispatch do
   defp grantable?(nil, _holder), do: false
 
   defp grantable?(fact, _holder) do
-    case Leases.value(fact, "lease_state") do
-      nil -> Leases.value(fact, "lease_id") == nil
-      "lost" -> true
-      "done" -> Translate.no_result?(fact["values"])
-      _ -> false
+    # The Engine cancelled it (F2-P, `cancel/3`): never leased again, whatever the ready
+    # set still says.
+    if Leases.value(fact, "state") == "cancelled" do
+      false
+    else
+      case Leases.value(fact, "lease_state") do
+        nil -> Leases.value(fact, "lease_id") == nil
+        "lost" -> true
+        "done" -> Translate.no_result?(fact["values"])
+        _ -> false
+      end
     end
   end
 
@@ -444,6 +473,10 @@ defmodule AtlasFlow.Dispatch do
           :unavailable -> {state, seen}
         end
 
+      # The Engine cancelled its task (`cancel/3`): its stored task fact says so.
+      lease.state != :expired and lease.cancel != true and cancelled?(lease.task_key) ->
+        {cancel_lease(state, id, lease, "answer"), seen}
+
       lease.state != :expired and lease.subject != nil ->
         {answer, seen} = supervision(state, seen, lease.subject)
         {supervise(state, id, lease, answer), seen}
@@ -464,8 +497,12 @@ defmodule AtlasFlow.Dispatch do
   defp supervise(state, _id, %{holder: holder}, {:supervised, holder, _}), do: state
   defp supervise(state, _id, _lease, :unavailable), do: state
 
-  defp supervise(state, id, lease, _changed) do
-    case end_lease(lease.task_key, id, ["offered"], "lost", "supervision") do
+  defp supervise(state, id, lease, _changed), do: cancel_lease(state, id, lease, "supervision")
+
+  # The graceful cancel (§3.7): an offered lease is lost; an accepted or started one is
+  # cancel_requested, named in its holder's next poll; an ended one stands.
+  defp cancel_lease(state, id, lease, cause) do
+    case end_lease(lease.task_key, id, ["offered"], "lost", cause) do
       :ended ->
         drop(state, id)
 
@@ -478,7 +515,7 @@ defmodule AtlasFlow.Dispatch do
                id,
                ["accepted", "started"],
                "cancel_requested",
-               "supervision"
+               cause
              ) do
           :ended -> put_in(state.leases[id].cancel, true)
           :gone -> cancelled_already(state, id, lease)
@@ -522,6 +559,15 @@ defmodule AtlasFlow.Dispatch do
   end
 
   defp drop(state, id), do: %{state | leases: Map.delete(state.leases, id)}
+
+  # Whether the Engine wrote the task cancelled (F2-P); a failed read is no, for now: the
+  # next sweep reads it again.
+  defp cancelled?(task_key) do
+    case Leases.read(task_key) do
+      {:ok, fact} -> Leases.value(fact, "state") == "cancelled"
+      _ -> false
+    end
+  end
 
   ## Ready set and boot
 

@@ -82,7 +82,7 @@ defmodule AtlasFlow.Runs.Projection do
          {:ok, %{} = run} <- Store.latest(config, name, kind, fact["key"]),
          true <- run["definition_sha256"] == subflow.digest(),
          {:ok, run} <- supervised(runner, subflow, run) do
-      {:ok, Presentation.of_run(run, subflow, fact, &owner(runner, &1, run))}
+      {:ok, Presentation.of_run(run, subflow, fact, &owner(runner, &1, run)) |> entered(run)}
     else
       # Facts did not say who supervises the run: write nothing, never the decider.
       {:error, :supervision_unavailable} = error -> error
@@ -90,6 +90,12 @@ defmodule AtlasFlow.Runs.Projection do
       _ -> {:ok, nil}
     end
   end
+
+  # When the run entered its state (F2-P): a manual owner set before that entry is one of
+  # an earlier entry.
+  defp entered(%{"done" => true} = current, _run), do: current
+  defp entered(%{} = current, run), do: Map.put(current, "entered_at", run["entered_at"])
+  defp entered(nil, _run), do: nil
 
   # Who the state names, with a configured actor (`config`) as the environment's settings
   # fill it, or the run's human supervisor in its stead inside a supervised span
@@ -239,6 +245,12 @@ defmodule AtlasFlow.Runs.Projection do
     # first look at a fact (nothing expected yet) is none, so an owner handed over before
     # it stays.
     moved? = values != %{} and blank(fact["values"][field]) != nil
+
+    # A new entry into the state the fact shows is a move too (F2-P, B-3): the run left it
+    # and came back between two projections (e.g. held → fresh → held in one reconcile, an
+    # answer the ladder did not take), so a manual owner linked before that entry is the
+    # earlier entry's and does not stay.
+    moved? = moved? or reentered?(projection["state_field"], fact, current, relation)
 
     held_field = projection["handover_field"]
     owners = get_in(fact, ["links", relation]) || []
@@ -401,6 +413,27 @@ defmodule AtlasFlow.Runs.Projection do
     why = current["why"] || current["name"]
     to = if owner, do: " → #{owner}", else: ""
     "Flow #{name}: #{why}#{to}"
+  end
+
+  # The fact shows the run's state already, and its owner was set by hand before the run
+  # entered that state: in an earlier entry of it. Facts stores a link's `since` to the
+  # second, so the entry is compared to the second as well: a link set in the second the
+  # run entered counts as set after it, and stays.
+  defp reentered?(nil, _fact, _current, _relation), do: false
+
+  defp reentered?(field, fact, current, relation) do
+    current["done"] != true and blank(fact["values"][field]) != nil and
+      fact["values"][field] == current["name"] and Presentation.manual?(fact, relation) and
+      before?(get_in(fact, ["origins", relation, "since"]), current["entered_at"])
+  end
+
+  defp before?(since, entered) do
+    with {:ok, since, _} <- DateTime.from_iso8601(to_string(since)),
+         {:ok, entered, _} <- DateTime.from_iso8601(to_string(entered)) do
+      DateTime.compare(since, DateTime.truncate(entered, :second)) == :lt
+    else
+      _ -> false
+    end
   end
 
   defp state_value(nil, _fact, _current), do: %{}

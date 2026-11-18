@@ -396,7 +396,7 @@ defmodule AtlasFlow.Activities.ReviewFixTest do
       assert Task.valid?(review) and Task.valid?(fix) and Task.valid?(author)
 
       assert Task.results(review) ==
-               ~w(author review fix diagnose fresh stronger ready held escalate)
+               ~w(author review fix diagnose fresh stronger ready held escalate abandon)
 
       assert Task.results(Map.delete(author, "ladder")) == Task.results()
 

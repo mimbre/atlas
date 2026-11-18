@@ -46,6 +46,8 @@ defmodule Model.GoldenTest do
   # Slice 14: follow_through, new, takes an accepted decision until work is based on it.
   # F1.4: package, new, authors a package on its machinery. Its version is the pinned
   # rela's (26.11.3), drawn with `mix model.gen` and ATLAS_RELA_BIN.
+  # F2-P: package runs the review → fix loop (was 5987474d0b335c85). Its new version is
+  # the pinned rela's, drawn with ATLAS_RELA_BIN by the rela-pinned worker.
   @versions [
     {"issue", [issue: "de930a7511675ac8"]},
     {"pull_request", [pull_request: "0ef9fa7df6aab982"]},
@@ -57,7 +59,7 @@ defmodule Model.GoldenTest do
     {"decision", [decide: "e2ad1048cd8a4748"]},
     {"follow_through", [follow_through: "c78849a1df469267"]},
     {"to_do", [to_do: "c8e174fc1ec59364"]},
-    {"package", [package: "5987474d0b335c85"]}
+    {"package", [package: "4c665df5ef84d793"]}
   ]
 
   defp below_header(text),

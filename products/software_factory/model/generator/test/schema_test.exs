@@ -721,7 +721,8 @@ defmodule RelaDSL.SchemaTest do
                    stronger: :stronger,
                    ready: :ready,
                    held: :held,
-                   escalate: :escalated
+                   escalate: :escalated,
+                   abandon: :stuck
                  ],
                  do: {to, ["atlas-flow"], "entity.task_result == '#{step}'"}
                )
@@ -1400,7 +1401,8 @@ defmodule RelaDSL.SchemaTest do
   defp steps,
     do:
       "on: [author: :authoring, review: :reviewing, fix: :fixing, diagnose: :diagnosing, " <>
-        "fresh: :fresh, stronger: :stronger, ready: :ready, held: :held, escalate: :escalated]"
+        "fresh: :fresh, stronger: :stronger, ready: :ready, held: :held, escalate: :escalated, " <>
+        "abandon: :stuck]"
 
   defp result_input(access), do: [result: :latest, access: access]
 
@@ -1457,6 +1459,7 @@ defmodule RelaDSL.SchemaTest do
       "  final :ready",
       "  final :held",
       "  final :escalated",
+      "  final :stuck",
       "end"
     ]
 

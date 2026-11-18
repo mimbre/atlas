@@ -612,6 +612,17 @@
             "flow"
           ]
         },
+        "question": {
+          "multiline": true,
+          "set_by": [
+            "flow"
+          ]
+        },
+        "retry_step": {
+          "set_by": [
+            "flow"
+          ]
+        },
         "state": {
           "set_by": [
             "flow"

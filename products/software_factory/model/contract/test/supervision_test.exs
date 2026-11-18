@@ -129,7 +129,11 @@ defmodule Model.SupervisionTest do
   end
 
   test "the issue build is the one span: its author state, with its packages' runs" do
-    assert %{"issue" => [%{"name" => "build", "states" => ["author"], "with" => ["package"]}]} =
+    assert %{
+             "issue" => [
+               %{"name" => "build", "states" => ["author"], "with" => ["package", "pull_request"]}
+             ]
+           } =
              AtlasEyra.supervision()["spans"]
 
     flows = committed("atlas/flows.json")["flows"]

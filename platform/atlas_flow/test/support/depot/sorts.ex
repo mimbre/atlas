@@ -476,7 +476,8 @@ defmodule AtlasFlow.Sorts.Written do
       stronger: :stronger,
       ready: :ready,
       held: :held,
-      escalate: :escalated
+      escalate: :escalated,
+      abandon: :stuck
     ]
 
     subflow :sort, subject: :box do
@@ -571,6 +572,7 @@ defmodule AtlasFlow.Sorts.Written do
       final(:ready)
       final(:held)
       final(:escalated)
+      final(:stuck)
     end
   end
 
@@ -724,7 +726,8 @@ defmodule AtlasFlow.Sorts.Loop do
       stronger: :stronger,
       ready: :ready,
       held: :held,
-      escalate: :awaiting_decision
+      escalate: :awaiting_decision,
+      abandon: :stuck
     ]
 
     type(:slip_operation, values: [:choice, :pickup, :hand_over])

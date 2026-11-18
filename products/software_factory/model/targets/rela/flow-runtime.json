@@ -161,7 +161,8 @@
         "choices": [],
         "choice_states": [],
         "migrations": [
-          {"from":"ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c","to":"457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747","preserve_entry":true,"states":{"authored":"authored","authoring":"authoring","check_failed":"check_failed","stuck":"stuck","waiting":"waiting"},"reason":"The author task's input is a Code repository and reference; same states"}
+          {"from":"ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c","to":"457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747","preserve_entry":true,"states":{"authored":"authored","authoring":"authoring","check_failed":"check_failed","stuck":"stuck","waiting":"waiting"},"reason":"The author task's input is a Code repository and reference; same states"},
+          {"from":"457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747","to":"ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214","states":{"authored":"stuck","authoring":"authoring","check_failed":"stuck","stuck":"stuck","waiting":"waiting"},"reason":"The review and fix loop: each task is a ladder step; a run that ended authored or check_failed is stuck"}
         ],
         "subject": "package",
         "projection": {
@@ -585,7 +586,8 @@
               "author"
             ],
             "with": [
-              "package"
+              "package",
+              "pull_request"
             ]
           }
         ]
