@@ -95,9 +95,10 @@ case "$state" in
 esac
 control_ts_key=""
 [ "$(backend_state)" = Running ] || fail "node is not Running"
-# Restate the restricted preferences for persisted nodes as well. No tags, routes or SSH.
+# Restate the restricted preferences for persisted nodes as well. No routes, exit node or SSH
+# (`tailscale set` has no tags flag; tags come only with `up`).
 ts set --accept-dns=false --accept-routes=false --ssh=false --hostname="$hostname" \
-  --advertise-routes= --advertise-tags= --advertise-exit-node=false ||
+  --advertise-routes= --advertise-exit-node=false ||
   fail "cannot restrict node preferences"
 "$app/release/bin/atlas" start &
 core_pid=$!
@@ -111,14 +112,26 @@ for _ in {1..100}; do
   sleep 0.1
 done
 [ -n "$ready" ] || fail "Control did not become loopback-reachable"
+# Two Serve sessions must not write the serve config at once (etag mismatch): each next one
+# waits until the previous one's port is in it.
+serve_after() {
+  for _ in {1..100}; do
+    ts serve status 2>/dev/null | grep -q ":$1" && return
+    sleep 0.1
+  done
+}
 # No --bg: the route lives only with this supervised process. No Funnel.
 tailscale --socket="$sock" serve --tls-terminated-tcp="$tls_port" "tcp://localhost:$control_port" &
 serve_pid=$!
+last_port="$tls_port"
 if [ -n "$source_port" ]; then
+  serve_after "$last_port"
   tailscale --socket="$sock" serve --tls-terminated-tcp="$source_port" "tcp://localhost:$source_port" &
   source_pid=$!
+  last_port="$source_port"
 fi
 if [ -n "$git_port" ]; then
+  serve_after "$last_port"
   tailscale --socket="$sock" serve --tls-terminated-tcp="$git_port" "tcp://localhost:$git_port" &
   git_pid=$!
 fi
