@@ -19,6 +19,13 @@ defmodule AtlasRuntime.Sources.Import do
   holds are then kept as a running total through every `Store.put/6`, so an import costs
   one listing however many blobs it stores.
 
+  **One import per source store at a time.** From that listing to its last write, an import
+  holds its source's lock (`AtlasRuntime.Sources.StoreLock`), so the store has the one
+  writer it assumes: a second import for the same source (another lease on the same base)
+  waits, and then finds the blobs the first one stored. Its wait counts against its own
+  deadline, which starts at the call. The lock is released however the import ends, killed
+  included.
+
   **Validation.** The base is checked by the S5c P6 validator, the helper's
   `workspace base-import` (entries, roots, paths, symlinks, modes, case folding and every
   blob's sha256 again). It stages the base under `<home>/bases/.staging-*` (entries.json
@@ -38,7 +45,7 @@ defmodule AtlasRuntime.Sources.Import do
   source did not serve a blob). Neither names a Runtime path.
   """
 
-  alias AtlasRuntime.Sources.Store
+  alias AtlasRuntime.Sources.{Store, StoreLock}
 
   # The helper's limits: a base's line 1 (B7) and a change set file (snapshot compose).
   @max_base_line 64 * 1024 * 1024
@@ -78,8 +85,16 @@ defmodule AtlasRuntime.Sources.Import do
     fetch = until_deadline(fetch, options[:deadline_at])
 
     with {:ok, source} <- source(source),
-         {:ok, base, change_set} <- input(lease),
-         {:ok, source} <- scan(home, source),
+         {:ok, base, change_set} <- input(lease) do
+      StoreLock.hold(home, source.name, fn ->
+        locked(home, source, base, change_set, fetch, options)
+      end)
+    end
+  end
+
+  # From the store's one listing to its last write, under the source's store lock.
+  defp locked(home, source, base, change_set, fetch, options) do
+    with {:ok, source} <- scan(home, source),
          {:ok, base_file, source} <-
            obtain(home, source, base.manifest, fetch, {:at_most, @max_base_line}),
          base_files = base_files(base_file),

@@ -9,7 +9,8 @@ defmodule AtlasRuntime.Sources.ImportTest do
   use ExUnit.Case, async: true
 
   alias AtlasRuntime.Model.Work, as: M
-  alias AtlasRuntime.Sources.{Import, Store}
+  alias AtlasRuntime.Sources.{Import, Store, StoreLock}
+  alias AtlasTestAwait, as: Await
   alias AtlasRuntime.Work.Frozen
   alias AtlasRuntime.Workspaces
 
@@ -543,6 +544,44 @@ defmodule AtlasRuntime.Sources.ImportTest do
                  fetch(src)
                )
     end
+
+    # The lock lasts to the import's last write: the change set's blobs, after the helper.
+    test "a second import of the same source waits while the first writes its change set's blobs",
+         %{home: home} = c do
+      new = "new file\n"
+      {cs_sha, cs_bytes, fingerprints} = change_set(c.baseline_id, [file("lib/b.ex", new)])
+      blobs = c.blobs |> Map.put(cs_sha, cs_bytes) |> Map.put(sha256(new), new)
+      ref = %{manifest: cs_sha, fingerprints: fingerprints}
+      first = source(gated(blobs, sha256(new)))
+      second = source(blobs)
+
+      a =
+        Task.async(fn ->
+          Import.base(home, policy("flow-prod"), lease(c.manifest, ref), fetch(first))
+        end)
+
+      assert_receive {:writing, writer}
+      assert writer == a.pid
+
+      b =
+        Task.async(fn ->
+          Import.base(home, policy("flow-prod"), lease(c.manifest, ref), fetch(second))
+        end)
+
+      Await.until(
+        fn -> StoreLock.waiting(home, "flow-prod") == [b.pid] or fetched(second) != [] end,
+        wake: [{:trace, StoreLock}, {:trace, second}]
+      )
+
+      send(a.pid, :go)
+      Await.down(a.pid)
+      Await.down(b.pid)
+
+      assert {:ok, %{baseline_id: id, change_set: %{}}} = Task.await(a)
+      assert {:ok, %{baseline_id: ^id, change_set: %{}}} = Task.await(b)
+      assert id == c.baseline_id
+      assert fetched(second) == []
+    end
   end
 
   # The shared base fixture (work acquisition M3, #317 Q4): Flow's Bases writes an atlas-base
@@ -807,5 +846,88 @@ defmodule AtlasRuntime.Sources.ImportTest do
              Import.base(home, policy("flow-prod"), %{work: %{}}, fetch(src))
 
     assert fetched(src) == []
+  end
+
+  ## One import per source store at a time (StoreLock; CI end_to_end_test "local works next
+  ## to leases": two leases on one base imported at once, one failed "cannot store blob")
+
+  # The source's blobs, with `gated` streamed in full and then held before its end until
+  # the test sends `:go`: the import that streams it is in the middle of its write, with its
+  # `.partial-*` file open. It tells the test `{:writing, pid}` first.
+  defp gated(blobs, gated) do
+    test = self()
+    bytes = Map.fetch!(blobs, gated)
+
+    hold =
+      Stream.flat_map([nil], fn _ ->
+        send(test, {:writing, self()})
+        receive do: (:go -> [])
+      end)
+
+    Map.put(blobs, gated, {:stream, byte_size(bytes), Stream.concat([bytes], hold)})
+  end
+
+  test "a second import of the same source waits for the first one's last write; both succeed",
+       %{home: home} do
+    {manifest, blobs} = base(@files)
+    first = source(gated(blobs, manifest))
+    second = source(blobs)
+
+    a =
+      Task.async(fn -> Import.base(home, policy("flow-prod"), lease(manifest), fetch(first)) end)
+
+    assert_receive {:writing, writer}
+    assert writer == a.pid
+
+    b =
+      Task.async(fn -> Import.base(home, policy("flow-prod"), lease(manifest), fetch(second)) end)
+
+    # The second import has either queued for the store's lock, or (with no lock) listed
+    # the store, removing the first one's temporary file, and fetched.
+    Await.until(
+      fn -> StoreLock.waiting(home, "flow-prod") == [b.pid] or fetched(second) != [] end,
+      wake: [{:trace, StoreLock}, {:trace, second}]
+    )
+
+    send(a.pid, :go)
+    Await.down(a.pid)
+    Await.down(b.pid)
+
+    assert {:ok, %{baseline_id: id}} = Task.await(a)
+    assert {:ok, %{baseline_id: ^id}} = Task.await(b)
+    # It ran after the first one: every blob was in the store already.
+    assert fetched(second) == []
+    assert StoreLock.holder(home, "flow-prod") == nil
+  end
+
+  test "an import killed while it holds its source's lock releases it: the waiting one goes on",
+       %{home: home} do
+    {manifest, blobs} = base(@files)
+    first = source(gated(blobs, manifest))
+    second = source(blobs)
+
+    # Not linked to the test: it is killed, as the puller kills an import past its deadline.
+    a = spawn(fn -> Import.base(home, policy("flow-prod"), lease(manifest), fetch(first)) end)
+    assert_receive {:writing, ^a}
+    assert StoreLock.holder(home, "flow-prod") == a
+
+    b =
+      Task.async(fn -> Import.base(home, policy("flow-prod"), lease(manifest), fetch(second)) end)
+
+    Await.until(fn -> StoreLock.waiting(home, "flow-prod") == [b.pid] end,
+      wake: {:trace, StoreLock}
+    )
+
+    Process.exit(a, :kill)
+    Await.down(b.pid)
+
+    assert {:ok, %{baseline_id: "sha256:" <> _}} = Task.await(b)
+    # The killed import stored nothing: the second one fetched the manifest and every blob.
+    assert Enum.sort(fetched(second)) == Enum.sort(Map.keys(blobs))
+    assert StoreLock.holder(home, "flow-prod") == nil
+    assert StoreLock.waiting(home, "flow-prod") == []
+    # Nothing partial is left: the killed writer's temporary file was removed by the scan.
+    assert {:ok, names} = File.ls(Store.blobs_dir(home, "flow-prod"))
+    assert Enum.sort(names) == Enum.sort(Map.keys(blobs))
   end
 end

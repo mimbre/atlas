@@ -23,11 +23,12 @@ defmodule AtlasRuntime.Sources.EndToEndTest do
   import AtlasRuntime.WorkHarness
 
   alias AtlasRuntime.Boundary.Work, as: B
-  alias AtlasRuntime.Sources.{Local, Puller, Rights}
+  alias AtlasRuntime.Sources.{Local, Puller, Rights, StoreLock}
   alias AtlasRuntime.Test.FakeSourceTarget
   alias AtlasRuntime.Test.FakeWorkSource, as: Source
   alias AtlasRuntime.Test.WorkSourceFacade, as: S
   alias AtlasRuntime.Work
+  alias AtlasTestAwait, as: Await
 
   @moduletag capture_log: true
 
@@ -246,5 +247,59 @@ defmodule AtlasRuntime.Sources.EndToEndTest do
 
     assert length(Work.holdings(@name)) == 4
     assert length(Work.holdings("local")) == 4
+  end
+
+  # CI's "local works next to leases" failed "cannot store blob" when two leases on one base
+  # were imported at once: the second import's store scan removed the temporary file the
+  # first was still writing. Here that moment is made certain: the first lease's first blob
+  # is held after its bytes, before its end, until the second lease's import has either
+  # queued for the source's store lock or (with no lock) scanned the store and fetched.
+  test "two leases on one base imported at once: the second waits for the first one's writes; both run",
+       ctx do
+    test = self()
+    once = start_supervised!({Agent, fn -> true end}, id: :first_blob)
+
+    FakeSourceTarget.hook(ctx.target, :get_blob, fn real, {lease_id, _sha256} ->
+      with {:ok, blob} <- real.() do
+        if Agent.get_and_update(once, &{&1, false}) do
+          hold =
+            Stream.flat_map([nil], fn _ ->
+              send(test, {:writing, lease_id, self()})
+              receive do: (:go -> [])
+            end)
+
+          {:ok, %{blob | content: Stream.concat(blob.content, hold)}}
+        else
+          {:ok, blob}
+        end
+      end
+    end)
+
+    keys = ["task-1", "task-2"]
+    add(ctx, "task-1", "complete")
+    puller!(ctx)
+
+    # The second lease is offered only now, so its import's scan comes after the first
+    # import's temporary file is open (polled in one batch, both scans could come first).
+    assert_receive {:writing, first, writer}
+    add(ctx, "task-2", "complete")
+    %{home: home} = Work.runtime()
+    {FakeSourceTarget, %{hooks: hooks}} = ctx.target
+
+    Await.until(
+      fn ->
+        StoreLock.waiting(home, @name) != [] or
+          Enum.any?(FakeSourceTarget.calls(ctx.target, :get_blob), &(elem(&1, 0) != first))
+      end,
+      wake: [{:trace, StoreLock}, {:trace, hooks}]
+    )
+
+    send(writer, :go)
+    await(fn -> Enum.all?(keys, &ended?(ctx.source, &1)) end)
+
+    for key <- keys do
+      assert [%{reports: [%S.Accepted{}, %S.Started{}, %S.Ended{result: %{kind: :completed}}]}] =
+               leases(ctx.source, key)
+    end
   end
 end

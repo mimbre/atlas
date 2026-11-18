@@ -4,8 +4,10 @@ defmodule AtlasRuntime.Application do
 
   @impl true
   def start(_type, _args) do
+    # The source stores' one-writer lock (Import.base/5) comes first, so it outlives every
+    # import started afterwards.
     children =
-      [AtlasRuntime.Output, local_output()] ++
+      [AtlasRuntime.Sources.StoreLock, AtlasRuntime.Output, local_output()] ++
         output_endpoint(
           Application.get_env(:atlas_runtime, :server_lifecycle, false),
           AtlasRuntime.Settings.get()
