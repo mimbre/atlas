@@ -55,8 +55,15 @@ defmodule AtlasE2E.Instance do
   and `atlas` run with; nothing started but the stand-in GitHub. `start/0` starts rela and
   the core on it; a proof that runs inside the core's node starts them itself.
   """
-  def prepare do
-    dir = Path.join(System.tmp_dir!(), "atlas-e2e-#{System.os_time(:millisecond)}")
+  def prepare, do: prepare(%{}, [])
+
+  @doc """
+  `prepare/0` with `extra` deep-merged into the settings (a map merges into a map, any other
+  value replaces), in `dir:` when given (the pull-e2e's `<run>/inst`, so nothing of the run
+  lies outside its folder) instead of a new folder under the system temp directory.
+  """
+  def prepare(extra, opts) when is_map(extra) and is_list(opts) do
+    dir = opts[:dir] || Path.join(System.tmp_dir!(), "atlas-e2e-#{System.os_time(:millisecond)}")
     File.mkdir_p!(dir)
     [rela_port, control_port] = free_ports(2)
 
@@ -110,6 +117,7 @@ defmodule AtlasE2E.Instance do
       "escape_ms" => 250
     }
 
+    settings = deep_merge(settings, extra)
     file = Path.join(dir, "test.json")
     File.write!(file, JSON.encode!(settings))
 
@@ -201,7 +209,14 @@ defmodule AtlasE2E.Instance do
   """
   def code(dir), do: %{"data" => Path.join(dir, "code"), "repositories" => ["mimbre/atlas"]}
 
-  defp free_ports(n) do
+  @doc false
+  def deep_merge(%{} = left, %{} = right),
+    do: Map.merge(left, right, fn _key, l, r -> deep_merge(l, r) end)
+
+  def deep_merge(_left, right), do: right
+
+  @doc "`n` free loopback ports (each was bound once and released)."
+  def free_ports(n) do
     sockets =
       for _ <- 1..n do
         {:ok, socket} = :gen_tcp.listen(0, ip: {127, 0, 0, 1}, reuseaddr: true)
