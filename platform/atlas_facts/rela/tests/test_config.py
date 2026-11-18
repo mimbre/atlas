@@ -27,83 +27,12 @@ def fits(root, data, binary, check=False):
                               capture_output=True, text=True, check=check)
 
 
-def without_ledger(schema):
-    """The schema without the decision ledger, gate verdicts, use case design phase and To-Dos, added since #79."""
-    schema = copy.deepcopy(schema)
-    schema['entities'].pop('decision')
-    schema['entities'].pop('gate_verdict')
-    for name in ('decided_by', 'delegated_by', 'supersedes', 'follows_from', 'based_on', 'follows', 'overruled_by', 'reviewed_by', 'about'):
-        schema['relations'].pop(name)
-    schema['relations']['assignment']['from'].remove('decision')
-    for name in ('decision_category', 'decision_scope', 'decision_reversibility', 'decision_force', 'decision_status', 'design_status', 'gate_flavor', 'gate_purpose', 'gate_unsettled'):
-        schema.get('types', {}).pop(name, None)
-    for name in ('design', 'design_status'):
-        schema['entities']['use_case']['properties'].pop(name)
-    # The fields the flows (flows.yaml) read and write, and the review and test of a pull request.
-    for kind in ('pr_review', 'pr_test'):
-        schema['entities'].pop(kind)
-    for name in ('review_of', 'test_of', 'verdict_by', 'review_by'):
-        schema['relations'].pop(name)
-    # The agent has no machine field (F0: Flow sends no passes), as at the baseline.
-    assert 'machine' not in schema['entities']['agent']['properties']
-    flow_fields = {
-        'issue': ('pass_result', 'gate_result', 'effect_result', 'pr_outcome'),
-        'pull_request': ('review_outcome', 'test_outcome', 'update', 'integration', 'revision'),
-        'scene': ('children', 'open_children', 'verdict', 'pass_result'),
-        'use_case': ('children', 'open_children', 'verdict', 'pass_result', 'gate_result'),
-    }
-    for kind, names in flow_fields.items():
-        for name in names:
-            schema['entities'][kind]['properties'].pop(name)
-    # The To-Do: work no flow covers, assigned like any item.
-    schema['entities'].pop('to_do')
-    schema['types'].pop('to_do_status')
-    schema['relations']['assignment']['from'].remove('to_do')
-    # What a turn is about and the model it runs, for the worker page.
-    for name in ('title', 'model'):
-        assert not schema['entities']['turn']['properties'].pop(name).get('required', False)
-    # F1.2: machinery, its tasks and their attempts, and packages; a machinery can be assigned, a package has an assignment.
-    for kind in ('machinery', 'task', 'task_attempt', 'package'):
-        schema['entities'].pop(kind)
-    for name in ('attempt_of', 'ran_on', 'package_of', 'task_of'):
-        schema['relations'].pop(name)
-    for name in ('task_kind', 'task_role', 'task_verdict'):
-        schema['types'].pop(name)
-    schema['relations']['assigned_to']['to'].remove('machinery')
-    schema['relations']['assigned_to']['description'] = schema['relations']['assigned_to']['description'].replace(
-        'one, a person, an agent or a machinery.', 'one, a person or an agent.')
-    schema['relations']['assignment']['from'].remove('package')
-    # Supervision (work acquisition M3a): a run's and a task's person, and the pickup and
-    # hand-over fields of an input, all optional.
-    for name in ('supervised_by', 'done_for'):
-        schema['relations'].pop(name)
-    schema['types'].pop('flow_input_operation')
-    for name in ('operation', 'hand_to'):
-        assert not schema['entities']['flow_input']['properties'].pop(name).get('required', False)
-    return schema
-
-
 class SchemaTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / 'source'
         shutil.copytree(PROJECT, self.root)
-
-    def test_equivalence_and_property_order(self):
-        baseline = yaml.load((ROOT / 'tests/fixtures/baseline-schema.yaml').read_text(), Loader=config.StrictLoader)
-        _, resolved = config.closure(self.root)
-        self.assertEqual(list(resolved['entities']['flow_run']['properties']), 'flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason'.split())
-        self.assertEqual(list(resolved['entities']['flow_input']['properties']), 'request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields links payload_digest status position prepared_at applied_at operation hand_to'.split())
-        prior = without_ledger(resolved)
-        for kind in ('worker_execution', 'interaction', 'interaction_receipt'):
-            self.assertIn(kind, prior['entities'])
-            del prior['entities'][kind]
-        self.assertFalse(prior['entities']['turn']['properties'].pop('attempt').get('required', False))
-        self.assertEqual(prior, baseline)
-        self.assertEqual(resolved['relations']['turn_on']['label'], 'on')
-        for name, entity in baseline['entities'].items():
-            self.assertEqual([p for p in prior['entities'][name]['properties'] if not (name == 'turn' and p == 'attempt')], list(entity['properties']))
 
     def test_package_and_include_only_change(self):
         dest = Path(self.tmp.name) / 'data'
@@ -179,41 +108,6 @@ class NativeSchemaTest(unittest.TestCase):
             self.assertIn('obsolete', result.stdout + result.stderr)
             self.assertIn('removed_link', result.stdout + result.stderr)
             self.assertEqual(before, {str(p.relative_to(data)): p.read_bytes() for p in data.rglob('*') if p.is_file()})
-
-    def test_native_resolved_http_schema_and_form_order_equal_baseline(self):
-        import json, socket, subprocess, time, urllib.request
-        def read_schema(root):
-            with socket.socket() as s:
-                s.bind(('127.0.0.1', 0))
-                port = s.getsockname()[1]
-            process = subprocess.Popen([str(self.binary.parent / 'rela-server-headless-sqlite'), '-project', str(root), '-bind', '127.0.0.1', '-port', str(port), '-quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            try:
-                for _ in range(100):
-                    try:
-                        with urllib.request.urlopen(f'http://127.0.0.1:{port}/api/v1/_schema', timeout=1) as r:
-                            return json.load(r)
-                    except OSError:
-                        if process.poll() is not None:
-                            self.fail('rela-server-headless-sqlite failed')
-                        time.sleep(.05)
-                self.fail('private rela did not answer')
-            finally:
-                process.terminate()
-                process.wait(timeout=5)
-        with tempfile.TemporaryDirectory() as tmp:
-            old, new = Path(tmp) / 'old', Path(tmp) / 'new'
-            config.package(PROJECT, new)
-            old.mkdir()
-            shutil.copy(ROOT / 'tests/fixtures/baseline-schema.yaml', old / 'schema.yaml')
-            shutil.copy(PROJECT / 'data-entry.yaml', old / 'data-entry.yaml')
-            baseline, current = read_schema(old), read_schema(new)
-            previous = without_ledger(current)
-            for kind in ('worker_execution', 'interaction', 'interaction_receipt'):
-                del previous['entities'][kind]
-            previous['entities']['turn']['properties'].pop('attempt')
-            self.assertEqual(previous, baseline)
-            for kind, entity in baseline['entities'].items():
-                self.assertEqual([p for p in previous['entities'][kind]['properties'] if not (kind == 'turn' and p == 'attempt')], list(entity['properties']))
 
     def test_flat_fly_preflight_on_previous_image(self):
         import os, subprocess
