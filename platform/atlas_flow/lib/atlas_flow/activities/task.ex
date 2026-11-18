@@ -55,7 +55,14 @@ defmodule AtlasFlow.Activities.Task do
   review's), and the ladder's sections after the instructions. A review's `based_on` is
   in its create; when it ends its `reviewed_revision` is the `published_revision` of the
   task whose `result_fingerprints` it reviewed, or nothing while that one is unpublished.
-  Rung (e) writes no `decision` fact. While the ladder waits
+  Rung (e) writes no `decision` fact.
+
+  **Red CI (F3-L).** The ladder reads what Landing recorded of the result's publication
+  (`review_ci`, `published_revision`, `review_url` on its task fact), so a review that
+  ends on a result whose CI is red leads to a fix, not `ready`. A fix state entered with
+  no step to take (from `ready`, once CI turned red; F3-M's branch) asks the ladder with
+  `{:ci_failed, key}` for the latest result, and runs the fix it gives; otherwise nothing.
+  While the ladder waits
   (`escalate`, `held`), the state an answer leads to asks the ladder with the subject's
   `answer`, and runs its step once the subject is assigned to a machinery again (E1). An
   answer the ladder does not take (one the question does not offer, or whose step is not
@@ -369,8 +376,9 @@ defmodule AtlasFlow.Activities.Task do
         answered(ladder, spec, run, subject, ctx)
 
       spec["input"]["repository"] == nil ->
-        # A review, fix or diagnose with no step to take: nothing to start from.
-        :none
+        # A review, fix or diagnose with no step to take: nothing to start from, unless
+        # the latest result's CI is red (F3-L): the ladder's fix of it.
+        ci_fix(run, ladder, spec, ctx)
 
       true ->
         with {:ok, work} <- work(run, Map.delete(spec, "ladder"), subject, ctx),
@@ -384,6 +392,19 @@ defmodule AtlasFlow.Activities.Task do
     with {:ok, base} <- base(run, repository, reference),
          do: {:ok, %{base: base, change_set: nil, sections: [], loop: nil, ladder: nil}}
   end
+
+  defp ci_fix(run, ladder, %{"kind" => "fix"} = spec, ctx) do
+    with {:ok, views} <- views(spec, run, nil, nil),
+         %{"key" => key} <- Ladder.latest(views),
+         {{:task, step}, ladder} <-
+           Ladder.next(ladder, {:ci_failed, key}, views, profiles(ctx), limits(ctx)) do
+      from_step(step, ladder, spec, run, views)
+    else
+      _ -> :none
+    end
+  end
+
+  defp ci_fix(_run, _ladder, _spec, _ctx), do: :none
 
   # The supervisor answered while the ladder waits: the step the answer leads to, when it
   # is this state's. An answer the question does not offer (a typo, `fresh` where it is
@@ -806,7 +827,11 @@ defmodule AtlasFlow.Activities.Task do
            "answer" => v["answer"],
            "result_state" => v["result_state"],
            "result_manifest" => v["result_manifest"],
-           "result_fingerprints" => v["result_fingerprints"]
+           "result_fingerprints" => v["result_fingerprints"],
+           # What Landing recorded of its publication (F3-L): the ladder's red CI.
+           "published_revision" => v["published_revision"],
+           "review_url" => v["review_url"],
+           "review_ci" => v["review_ci"]
          })
        end}
     end

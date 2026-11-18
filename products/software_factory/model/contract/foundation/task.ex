@@ -7,13 +7,18 @@ defmodule Model.Task do
   human supervisor of its flow (`done_for`), whom Flow copies onto it.
 
   A record: Flow writes every field (`set_by: [:flow]`), and no state of a subflow reads
-  it; branches read the run's own task results. The fields Code adds from F3 on (change
-  id, review id, `fpr_`, PR URL) come with F3.
+  it; branches read the run's own task results.
 
   F2 adds the `diagnose` kind (an `investigator` finds out why work keeps failing, and
   changes nothing) and a task's two revisions in Code (plan F2/F3 rev 3 §3.2): the one
   its result was published as (`published_revision`, an author or fix), and the one a
   review reviewed (`reviewed_revision`: that task's, once it is published).
+
+  F3 adds what Flow's Landing records of a publication (plan F2/F3 rev 3 §3.2, F3-L):
+  the Code change it was published as (`code_change_id`), the review it is on
+  (`review_id`, and its link as Code gave it, `review_url`), the change's `fpr_`
+  fingerprint (`published_fingerprint`), the review's CI at that revision (`review_ci`),
+  and when Landing marked the review ready (`marked_ready_at`).
   """
   use RelaDSL
 
@@ -137,6 +142,42 @@ defmodule Model.Task do
       description: "The revision a review task reviewed: the published revision of that result",
       set_by: [:flow],
       label: "Reviewed revision"
+    )
+
+    field(:code_change_id, :string,
+      description: "The Code change its result was published as",
+      set_by: [:flow],
+      label: "Code change id"
+    )
+
+    field(:review_id, :string,
+      description: "The Code review its result was published on",
+      set_by: [:flow],
+      label: "Review id"
+    )
+
+    field(:review_url, :string,
+      description: "The link of that review, as Code gave it",
+      set_by: [:flow],
+      label: "Review URL"
+    )
+
+    field(:published_fingerprint, :string,
+      description: "The fpr_ fingerprint of the change it was published as",
+      set_by: [:flow],
+      label: "Published fingerprint"
+    )
+
+    field(:review_ci, :string,
+      description: "The review's CI at its published revision: success, failure, pending or none",
+      set_by: [:flow],
+      label: "Review CI"
+    )
+
+    field(:marked_ready_at, :datetime,
+      description: "When Flow marked the review ready",
+      set_by: [:flow],
+      label: "Marked ready at"
     )
 
     field(:base_id, :string,

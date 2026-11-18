@@ -55,6 +55,18 @@ defmodule AtlasFlow.Ladder do
     * an abandoned task (a lost lease) is started once more; abandoned again → `held`,
       asking `retry | stronger | abandon` (Main's ruling 2).
 
+  **Red CI** (plan §3.2 item 4, F3-L). Landing records the CI of the review a result is
+  published on as that task's `"review_ci"` (with its `"published_revision"` and
+  `"review_url"`), at that revision only. When the latest result's is `failure`:
+
+    * a review of it ends (Landing held the signal for the verdict): `approved` is no
+      `ready` but a fix of that result; `changes_required` a fix that carries both, the
+      review's findings and the CI failure;
+    * `{:ci_failed, key}` (no review in flight, nothing since but its approval): a fix of
+      it. Anything else, or a ladder waiting for its supervisor, → `:none`.
+
+  A CI fix counts toward the rung's budget, as any fix does.
+
   **Ladder** (#297 §4.1): no rung → (a) `diagnose` the latest result (read-only) → (b)
   `fresh` → (c) `stronger` (`deep_coding_max`; skipped when not offered, plan §7) → (d) a
   final `diagnose` that phrases the scope choice → (e) `escalate`. The diagnosis goes into
@@ -93,8 +105,9 @@ defmodule AtlasFlow.Ladder do
 
   @doc """
   The step after `event`, and the ladder to keep. `ladder` is the run's `pending.ladder`
-  (nil at first); `event` is `{:ended, key}` (the task that just ended) or `{:answer, a}`
-  (one of the waiting question's `answers`); `tasks` the package's tasks (above);
+  (nil at first); `event` is `{:ended, key}` (the task that just ended), `{:answer, a}`
+  (one of the waiting question's `answers`) or `{:ci_failed, key}` (the published result
+  `key`'s CI is red; F3-L); `tasks` the package's tasks (above);
   `profiles` the profiles the supervisor's policy offers (rung (c) needs
   `deep_coding_max`); `limits` may set `"budget"`, `"rereviews"` and `"retries"` (the
   defaults: 2, 1 and 1).
@@ -120,6 +133,9 @@ defmodule AtlasFlow.Ladder do
 
       {:answer, answer} ->
         answered(answer, ladder, ctx)
+
+      {:ci_failed, key} ->
+        ci_failed(key, remember(ladder, tasks), ctx)
     end
   end
 
@@ -189,18 +205,27 @@ defmodule AtlasFlow.Ladder do
           else: rereview("superseded", review, latest, ladder, ctx)
 
       true ->
-        case verdict(review["answer"]) do
-          {:ok, "approved", _} ->
+        case {verdict(review["answer"]), ci_red?(latest)} do
+          # Red CI waited for this verdict: the fix carries it, with any findings (F3-L).
+          {{:ok, _verdict, findings}, true} ->
+            fix_or_climb(
+              latest,
+              findings ++ [ci_finding(latest)],
+              %{ladder | "rereviews" => %{}},
+              ctx
+            )
+
+          {{:ok, "approved", _}, false} ->
             {{:ready, %{"task" => latest["key"], "review" => review["key"]}},
              %{ladder | "rereviews" => %{}}}
 
-          {:ok, "changes_required", []} ->
+          {{:ok, "changes_required", []}, false} ->
             rereview("no_findings", review, latest, ladder, ctx)
 
-          {:ok, "changes_required", findings} ->
+          {{:ok, "changes_required", findings}, false} ->
             fix_or_climb(latest, findings, %{ladder | "rereviews" => %{}}, ctx)
 
-          :error ->
+          {:error, _red} ->
             rereview("no_verdict", review, latest, ladder, ctx)
         end
     end
@@ -257,6 +282,40 @@ defmodule AtlasFlow.Ladder do
         author("fresh", rung(ladder, "b"), ctx)
     end
   end
+
+  # -- Red CI (F3-L) -------------------------------------------------------------------------
+
+  # The latest result's CI is red with no review in flight: a fix of it, when nothing
+  # followed it but its approval (a run that went `ready` before CI turned red).
+  defp ci_failed(key, ladder, ctx) do
+    latest = latest(ctx.tasks)
+
+    if ladder["awaiting"] == nil and latest != nil and latest["key"] == key and ci_red?(latest) and
+         approved_since?(latest, ctx),
+       do: fix_or_climb(latest, [ci_finding(latest)], %{ladder | "rereviews" => %{}}, ctx),
+       else: {:none, ladder}
+  end
+
+  defp approved_since?(latest, ctx) do
+    ctx.tasks
+    |> Enum.drop_while(&(&1["key"] != latest["key"]))
+    |> Enum.drop(1)
+    |> Enum.all?(
+      &(&1["kind"] == "review" and &1["based_on"] == latest["result_fingerprints"] and
+          match?({:ok, "approved", _}, verdict(&1["answer"])))
+    )
+  end
+
+  defp ci_red?(task), do: task["review_ci"] == "failure"
+
+  defp ci_finding(task),
+    do:
+      String.slice(
+        "CI failed at the published revision #{task["published_revision"]}" <>
+          if(is_binary(task["review_url"]), do: " (#{task["review_url"]})", else: ""),
+        0,
+        @finding_chars
+      )
 
   # -- An answer resumes ---------------------------------------------------------------------
 
@@ -777,15 +836,28 @@ defmodule AtlasFlow.Ladder do
             &1["outcome"] in ["completed", "check_failed"])
       )
 
-    body =
-      case last do
-        %{"kind" => "review"} ->
-          "The review found:\n\n" <> Enum.map_join(found(last), "\n", &("- " <> &1))
+    # Red CI on the latest result (F3-L): the review approved it, or found more.
+    latest = latest(tasks)
+    ci = if latest && ci_red?(latest), do: "Its CI is red: " <> ci_finding(latest) <> "."
 
-        %{} ->
+    body =
+      case {last, found(last || %{}), ci} do
+        {%{"kind" => "review"}, [], ci} when is_binary(ci) ->
+          ci
+
+        {%{"kind" => "review"}, findings, ci} ->
+          Enum.join(
+            [
+              "The review found:\n\n" <> Enum.map_join(findings, "\n", &("- " <> &1))
+              | List.wrap(ci)
+            ],
+            "\n\n"
+          )
+
+        {%{}, _, _} ->
           check_text(last["check"])
 
-        nil ->
+        {nil, _, _} ->
           check_text(nil)
       end
 

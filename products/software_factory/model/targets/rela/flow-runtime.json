@@ -14,7 +14,8 @@
       "senders": {
         "task": [
           "flow/dispatch",
-          "flow/delivery"
+          "flow/delivery",
+          "flow/landing"
         ],
         "task_attempt": [
           "flow/delivery"

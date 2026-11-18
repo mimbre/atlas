@@ -27,13 +27,14 @@ defmodule AtlasFlow.Application do
   end
 
   @doc """
-  The work source's processes (plan m3 §3.1, A2): the result store, Bases, Dispatch and
-  Delivery, only when `config :atlas_flow, :work_source` is set; none by default. With the
+  The work source's processes (plan m3 §3.1, A2): the result store, Bases, Dispatch,
+  Delivery and Landing (F3-L: it publishes checked results to Code and marks drafts
+  ready), only when `config :atlas_flow, :work_source` is set; none by default. With the
   work source set and no result store directory (`config :atlas_flow, :results, dir:`),
   Flow does not start: every result would be too large.
 
   They run under one supervisor, in that order, `rest_for_one`: the store rebuilds its pins
-  from Facts before it serves a call, and Dispatch and Delivery start after it. That
+  from Facts before it serves a call, and Dispatch, Delivery and Landing start after it. That
   supervisor starts before the Engine, so the Engine's first round finds Bases' table.
 
   The HTTP listener (`AtlasFlow.Backend.Listener`, A3) comes last, and only when the work
@@ -51,7 +52,8 @@ defmodule AtlasFlow.Application do
               {AtlasFlow.Results, pins: &result_pins/0},
               AtlasFlow.Bases,
               AtlasFlow.Dispatch,
-              AtlasFlow.Delivery
+              AtlasFlow.Delivery,
+              AtlasFlow.Landing
             ] ++ listener(settings)
 
           {:ok,
