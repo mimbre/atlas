@@ -11,7 +11,8 @@ defmodule AtlasFlow.WorkSource.Translate do
                     "after_check" => %{"command" => [...]} (only with a check),
                     "input" => %{"base" => %{"base_id", "manifest"},
                                  "change_set" => %{"manifest", "fingerprints"} (F2 only),
-                                 "permissions" => "workspace-write" | "read-only"}}}
+                                 "permissions" => "workspace-write" | "read-only",
+                                 "result_ref" => "refs/atlas/results/<key>" (a job's only)}}}
 
   Title and instructions are built as `AtlasFlow.Activities.Task.request/3` builds them;
   the base comes from `AtlasFlow.Bases`. A review, fix or diagnose (F2) also gets a frozen
@@ -119,6 +120,21 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   def root_check(intent, _repository), do: intent
 
+  @doc """
+  The intent of task `key` with its result over Git: `input.result_ref`, the ref
+  `refs/atlas/results/<key>` the Runtime pushes its result commit to in the base's Code
+  repository, instead of a change set. Only for a task outside any ladder and without an
+  after-check (a job's task): nothing publishes or reworks its result from a change set.
+  """
+  def result_ref(intent, key, true) do
+    if get_in(intent, ["work", "after_check"]) == nil and
+         get_in(intent, ["work", "input", "permissions"]) == "workspace-write",
+       do: put_in(intent, ["work", "input", "result_ref"], "refs/atlas/results/" <> key),
+       else: intent
+  end
+
+  def result_ref(intent, _key, false), do: intent
+
   @doc "The permissions a task kind's work runs with: read-only for a review or a diagnose."
   def permissions(kind) when kind in @read_only, do: "read-only"
   def permissions(_kind), do: "workspace-write"
@@ -174,6 +190,9 @@ defmodule AtlasFlow.WorkSource.Translate do
       permissions: input["permissions"]
     }
 
+    offered =
+      if ref = input["result_ref"], do: Map.put(offered, :result_ref, ref), else: offered
+
     case input["change_set"] do
       %{"manifest" => manifest, "fingerprints" => fingerprints} ->
         Map.put(offered, :change_set, %{
@@ -189,6 +208,16 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   @doc "The lease's input as the task fact keeps it (`input`, JSON): what `get_blob` scopes by."
   def lease_input(%{"work" => %{"input" => input}}), do: JSON.encode!(input)
+
+  @doc "The result ref of a lease input the task fact keeps (`result_ref/3`), or nil."
+  def input_result_ref(input) when is_binary(input) do
+    case JSON.decode(input) do
+      {:ok, %{"result_ref" => ref}} when is_binary(ref) -> ref
+      _ -> nil
+    end
+  end
+
+  def input_result_ref(_input), do: nil
 
   @doc "The base manifest of a lease input the task fact keeps, or nil."
   def input_manifest(input) when is_binary(input) do

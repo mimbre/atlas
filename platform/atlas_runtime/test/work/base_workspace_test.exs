@@ -276,7 +276,7 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     write_policy!(bench.dir, %{
       "profiles" => %{
         "light_work" => %{
-          "permissions" => ["read-only", "workspace-write"],
+          "permissions" => ["read-only", "materialized-folder"],
           "cost_classes" => ["standard"],
           "options" => [%{"provider" => "openai", "harness" => "codex", "model" => "gpt-test"}],
           "limits" => %{"max_duration" => 1}

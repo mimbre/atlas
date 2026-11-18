@@ -38,8 +38,8 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   use AtlasRuntimeBoundary.Generator.Schema
 
   # 0.2.0: change_set declares its base (required), which the Runtime always sent and
-  # needs back on import.
-  version "0.2.0"
+  # needs back on import. 0.3.0: a work's input may name a result_ref (the result over Git).
+  version("0.3.0")
 
   # The Runtime's own enumerations (as in the work contract, which this one does not name).
   @attempt_states [
@@ -61,55 +61,55 @@ defmodule AtlasRuntimeBoundary.WorkSource do
 
   # The calling Runtime: opaque. A remote source knows it by its per-Runtime credential.
   defmodel :client do
-    field :id, :string, required: true
-    field :rights, {:list, {:enum, [:lease]}}, required: true
+    field(:id, :string, required: true)
+    field(:rights, {:list, {:enum, [:lease]}}, required: true)
   end
 
   ## poll (§5.2)
 
   defmodel :poll_input do
-    field :runtime_id, :string, required: true
+    field(:runtime_id, :string, required: true)
     # New on every boot of the Runtime (§5.3 item 5).
-    field :incarnation, :string, required: true
-    field :build, :string, required: true
-    field :policy_version, :integer, required: true
+    field(:incarnation, :string, required: true)
+    field(:build, :string, required: true)
+    field(:policy_version, :integer, required: true)
     # The Runtime's free slots and the execution profiles it can serve now (Main's O1): each
     # available profile names the same total, which is what the source may lease in all, not
     # per profile. Empty when full. The Runtime keeps one poll open, even when full.
-    field :offer, {:map, :integer}, required: true
-    field :holdings, {:list, :holding}, required: true
+    field(:offer, {:map, :integer}, required: true)
+    field(:holdings, {:list, :holding}, required: true)
   end
 
   # A lease the Runtime holds, as its persisted state has it.
   defmodel :holding do
-    field :lease_id, :string, required: true
-    field :state, {:enum, @attempt_states}, required: true
+    field(:lease_id, :string, required: true)
+    field(:state, {:enum, @attempt_states}, required: true)
     # The last harness event or output byte.
-    field :last_progress_at, :datetime
+    field(:last_progress_at, :datetime)
   end
 
   # The answer comes early when there is a lease or a cancel, else at poll_max.
   defmodel :polled do
     # New leases, each within the offer.
-    field :leases, {:list, :lease}, required: true
+    field(:leases, {:list, :lease}, required: true)
     # Held leases to cancel (§3.7 cancel stages); still current until the work ends.
-    field :cancel, {:list, :string}, required: true
+    field(:cancel, {:list, :string}, required: true)
     # Holdings that are not, or no longer, current: the Runtime cancels their attempts.
-    field :lease_lost, {:list, :string}, required: true
-    field :timing, :timing, required: true
+    field(:lease_lost, {:list, :string}, required: true)
+    field(:timing, :timing, required: true)
   end
 
   # Seconds. A lease not renewed for lease_ttl is self-fenced by the Runtime (§5.3 item 2).
   defmodel :timing do
-    field :lease_ttl, :integer, required: true, range: 1..86_400
-    field :poll_max, :integer, required: true, range: 1..25
+    field(:lease_ttl, :integer, required: true, range: 1..86_400)
+    field(:poll_max, :integer, required: true, range: 1..25)
   end
 
   defmodel :lease do
     # Made by the source; opaque. The Runtime's client key for the work (I3).
-    field :lease_id, :string, required: true
-    field :expires_at, :datetime, required: true
-    field :work, :offered_work, required: true
+    field(:lease_id, :string, required: true)
+    field(:expires_at, :datetime, required: true)
+    field(:work, :offered_work, required: true)
   end
 
   ## Work as offered (§5.1): the work request without slot, folder, resume_from or
@@ -117,48 +117,51 @@ defmodule AtlasRuntimeBoundary.WorkSource do
 
   defmodel :offered_work do
     # The source's stable key for the work; the turn's idempotency key for outside effects.
-    field :work_key, :string, required: true
-    field :title, :string, required: true
+    field(:work_key, :string, required: true)
+    field(:title, :string, required: true)
     # The text the agent receives.
-    field :instructions, :string, required: true
+    field(:instructions, :string, required: true)
     # An execution profile of the Runtime's policy.
-    field :profile, :string, required: true
-    field :cost_class, {:enum, [:low, :standard, :high]}, required: true
-    field :input, :work_input, required: true
-    field :after_check, :after_check
+    field(:profile, :string, required: true)
+    field(:cost_class, {:enum, [:low, :standard, :high]}, required: true)
+    field(:input, :work_input, required: true)
+    field(:after_check, :after_check)
   end
 
   # A base, optionally with a frozen change set on top (from_work across machines). Its
-  # blobs come from the same source (F6).
+  # blobs come from the same source (F6). result_ref: when given, the result goes back over
+  # Git, not as a change set: the Runtime commits its folder on the base's commit and pushes
+  # it to the source's Code under this ref, and its ended report carries no change set.
   defmodel :work_input do
-    field :base, :base_ref, required: true
-    field :change_set, :change_set_ref
-    field :permissions, {:enum, @permissions}, required: true
+    field(:base, :base_ref, required: true)
+    field(:change_set, :change_set_ref)
+    field(:permissions, {:enum, @permissions}, required: true)
+    field(:result_ref, :string)
   end
 
   # manifest: the sha256 of the blob that holds the base's entries in the change-set
   # entry shape; get_blob serves it and every blob its write entries name.
   defmodel :base_ref do
-    field :base_id, :string, required: true
-    field :manifest, :string, required: true
+    field(:base_id, :string, required: true)
+    field(:manifest, :string, required: true)
   end
 
   # manifest: as for a base. fingerprints: each root's csf_ fingerprint, checked against
   # the change set when it is imported.
   defmodel :change_set_ref do
-    field :manifest, :string, required: true
-    field :fingerprints, {:list, :root_fingerprint}, required: true
+    field(:manifest, :string, required: true)
+    field(:fingerprints, {:list, :root_fingerprint}, required: true)
   end
 
   defmodel :root_fingerprint do
-    field :root, :string, required: true
-    field :fingerprint, :string, required: true
+    field(:root, :string, required: true)
+    field(:fingerprint, :string, required: true)
   end
 
   # An argv list, never a shell line; timeout in seconds, within the Runtime's cap.
   defmodel :after_check do
-    field :command, {:list, :string}, required: true
-    field :timeout, :integer
+    field(:command, {:list, :string}, required: true)
+    field(:timeout, :integer)
   end
 
   ## report (§5.2, §5.3)
@@ -167,9 +170,12 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   # with the same revision and content is recorded again (idempotent); any other revision
   # than the last recorded one or the next is rejected as a conflict.
   defmodel :report_input do
-    field :lease_id, :string, required: true
-    field :revision, :integer, required: true, range: 1..2_147_483_647
-    field :report, {:one_of, [:accepted, :refused, :started, :ended], tag: :state}, required: true
+    field(:lease_id, :string, required: true)
+    field(:revision, :integer, required: true, range: 1..2_147_483_647)
+
+    field(:report, {:one_of, [:accepted, :refused, :started, :ended], tag: :state},
+      required: true
+    )
   end
 
   # The lease's work is persisted under it; the attempt starts only after recorded.
@@ -178,20 +184,22 @@ defmodule AtlasRuntimeBoundary.WorkSource do
 
   # The Runtime's policy does not take the lease's work.
   defmodel :refused do
-    field :reason,
-          {:enum,
-           [
-             :not_permitted,
-             :invalid,
-             :unsupported_workspace,
-             :policy_forbids,
-             :no_permitted_option,
-             :too_large
-           ]},
-          required: true
+    field(
+      :reason,
+      {:enum,
+       [
+         :not_permitted,
+         :invalid,
+         :unsupported_workspace,
+         :policy_forbids,
+         :no_permitted_option,
+         :too_large
+       ]},
+      required: true
+    )
 
     # Never a path on the Runtime's machine.
-    field :detail, :string
+    field(:detail, :string)
   end
 
   defmodel :started do
@@ -200,62 +208,64 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   # change_set: the attempt's frozen result, when it produced one. Its write entries'
   # blobs are what put_blob may upload.
   defmodel :ended do
-    field :result, :result, required: true
+    field(:result, :result, required: true)
     # One record per turn.
-    field :provenance, {:list, :provenance}, required: true
-    field :change_set, :change_set
+    field(:provenance, {:list, :provenance}, required: true)
+    field(:change_set, :change_set)
   end
 
   defmodel :result do
-    field :kind, {:enum, @result_kinds}, required: true
+    field(:kind, {:enum, @result_kinds}, required: true)
 
-    field :reason,
-          {:enum,
-           [
-             :time_limit,
-             :quota,
-             :launch,
-             :workspace,
-             :model_changed,
-             :cancel,
-             :superseded,
-             :runtime_stop,
-             :lease_lost
-           ]}
+    field(
+      :reason,
+      {:enum,
+       [
+         :time_limit,
+         :quota,
+         :launch,
+         :workspace,
+         :model_changed,
+         :cancel,
+         :superseded,
+         :runtime_stop,
+         :lease_lost
+       ]}
+    )
 
     # Advice; retries belong to the source (I4).
-    field :retryable, :boolean, required: true
-    field :never_started, :boolean, required: true
+    field(:retryable, :boolean, required: true)
+    field(:never_started, :boolean, required: true)
     # The final agent message, at most 8 KB.
-    field :answer, :string
-    field :check, :check_result
+    field(:answer, :string)
+    field(:check, :check_result)
   end
 
   # The after-check's outcome (§3.10).
   defmodel :check_result do
-    field :command, {:list, :string}, required: true
-    field :exit_status, :integer
-    field :signal, :string
-    field :error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found, :helper_failed]}
-    field :timed_out, :boolean, required: true
-    field :duration_ms, :integer, required: true
-    field :output_tail, :string, required: true
+    field(:command, {:list, :string}, required: true)
+    field(:exit_status, :integer)
+    field(:signal, :string)
+    field(:error, {:enum, [:sandbox_unavailable, :leaves_folder, :not_found, :helper_failed]})
+    field(:timed_out, :boolean, required: true)
+    field(:duration_ms, :integer, required: true)
+    field(:output_tail, :string, required: true)
   end
 
   defmodel :provenance do
-    field :provider, :string, required: true
-    field :harness, :string, required: true
-    field :harness_version, :string
-    field :runtime_build, :string, required: true
-    field :machine, :string, required: true
-    field :slot, :string, required: true
-    field :configured_model, :string, required: true
-    field :reported_model, :string
-    field :profile, :string, required: true
-    field :policy_version, :integer, required: true
-    field :turn_id, :string, required: true
-    field :started_at, :datetime, required: true
-    field :ended_at, :datetime
+    field(:provider, :string, required: true)
+    field(:harness, :string, required: true)
+    field(:harness_version, :string)
+    field(:runtime_build, :string, required: true)
+    field(:machine, :string, required: true)
+    field(:slot, :string, required: true)
+    field(:configured_model, :string, required: true)
+    field(:reported_model, :string)
+    field(:profile, :string, required: true)
+    field(:policy_version, :integer, required: true)
+    field(:turn_id, :string, required: true)
+    field(:started_at, :datetime, required: true)
+    field(:ended_at, :datetime)
   end
 
   # The frozen result: its change set per root, each with its csf_ fingerprint.
@@ -269,55 +279,55 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   # serves); a source stores it as reported, and a change set given back as a later work's
   # input must sit on exactly the base that work's input imports to.
   defmodel :change_set do
-    field :base, :string, required: true
-    field :roots, {:list, :change_root}, required: true
+    field(:base, :string, required: true)
+    field(:roots, {:list, :change_root}, required: true)
   end
 
   defmodel :change_root do
-    field :root, :string, required: true
-    field :fingerprint, :string, required: true
-    field :entries, {:list, :change_entry}, required: true
+    field(:root, :string, required: true)
+    field(:fingerprint, :string, required: true)
+    field(:entries, {:list, :change_entry}, required: true)
   end
 
   # A write carries kind, mode, size and sha256 (and target for a symlink); a delete only
   # its path. Paths are relative to their root.
   defmodel :change_entry do
-    field :path, :string, required: true
-    field :op, {:enum, [:write, :delete]}, required: true
-    field :kind, {:enum, [:file, :symlink]}
-    field :mode, {:enum, [:"100644", :"100755", :"120000"]}
-    field :size, :integer
-    field :sha256, :string
-    field :target, :string
+    field(:path, :string, required: true)
+    field(:op, {:enum, [:write, :delete]}, required: true)
+    field(:kind, {:enum, [:file, :symlink]})
+    field(:mode, {:enum, [:"100644", :"100755", :"120000"]})
+    field(:size, :integer)
+    field(:sha256, :string)
+    field(:target, :string)
   end
 
   # missing: for ended, the referenced blobs the source does not hold yet, each to be
   # sent with put_blob; empty for every other report.
   defmodel :recorded do
-    field :missing, {:list, :string}, required: true
+    field(:missing, {:list, :string}, required: true)
   end
 
   ## Blobs (§5.2)
 
   defmodel :get_blob_input do
-    field :lease_id, :string, required: true
-    field :sha256, :string, required: true
+    field(:lease_id, :string, required: true)
+    field(:sha256, :string, required: true)
   end
 
   # One blob, as a byte stream; the Runtime checks its sha256 and size as it reads.
   defmodel :blob do
-    field :sha256, :string, required: true
-    field :size, :integer, required: true
-    field :content, :stream, required: true
+    field(:sha256, :string, required: true)
+    field(:size, :integer, required: true)
+    field(:content, :stream, required: true)
   end
 
   # size: the bytes the stream will carry, so a source can refuse too_large before reading;
   # it still counts while reading.
   defmodel :put_blob_input do
-    field :lease_id, :string, required: true
-    field :sha256, :string, required: true
-    field :size, :integer, required: true, range: 0..9_007_199_254_740_991
-    field :content, :stream, required: true
+    field(:lease_id, :string, required: true)
+    field(:sha256, :string, required: true)
+    field(:size, :integer, required: true, range: 0..9_007_199_254_740_991)
+    field(:content, :stream, required: true)
   end
 
   ## Outcomes shared by several capabilities
@@ -326,37 +336,40 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   # neither the last recorded nor the next, or the same revision with another report.
   # digest_mismatch: put_blob's bytes do not have the given sha256 or size.
   defmodel :rejected do
-    field :reason, {:enum, [:invalid, :conflict, :digest_mismatch]}, required: true
-    field :detail, :string
+    field(:reason, {:enum, [:invalid, :conflict, :digest_mismatch]}, required: true)
+    field(:detail, :string)
   end
 
   ## Capabilities (§5.2)
 
-  invalid_input :rejected, set: [reason: :invalid], detail: :detail
+  invalid_input(:rejected, set: [reason: :invalid], detail: :detail)
 
-  defcapability :poll,
+  defcapability(:poll,
     input: :poll_input,
     outcomes: [polled: :polled, rejected: :rejected],
     right: :lease
+  )
 
   # lease_lost: the lease is not the work's current, unexpired one, or an accepted came
   # after the accept deadline. Nothing of it is recorded.
-  defcapability :report,
+  defcapability(:report,
     input: :report_input,
     outcomes: [recorded: :recorded, lease_lost: nil, rejected: :rejected],
     right: :lease
+  )
 
   # not_found: the lease is not current, its input names no such blob, or the source has
   # none. A blob is never found through another lease or another source.
-  defcapability :get_blob,
+  defcapability(:get_blob,
     input: :get_blob_input,
     outcomes: [blob: :blob, not_found: nil, rejected: :rejected],
     right: :lease
+  )
 
   # Fenced first (lease_lost), then the reference (not_referenced: no recorded ended of
   # this lease references the blob), then the caps (too_large: past the per-result or the
   # store cap, also while the bytes stream in). Stored again is stored.
-  defcapability :put_blob,
+  defcapability(:put_blob,
     input: :put_blob_input,
     outcomes: [
       stored: nil,
@@ -366,4 +379,5 @@ defmodule AtlasRuntimeBoundary.WorkSource do
       rejected: :rejected
     ],
     right: :lease
+  )
 end

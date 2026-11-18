@@ -222,70 +222,68 @@ defmodule AtlasRuntime.Sources.Import do
   defp too_large?(size, {:at_most, cap}), do: size > cap
   defp too_large?(_size, _want), do: false
 
-  # The base's file blobs this source's store lacks, over Git from Code: the base's ref into
-  # the source's Git cache, then each blob from its tree, by the first path the manifest
-  # names it at, in one `git cat-file --batch`.
+  # The base's ref into the source's Git cache (one commit deep: its tree is all a work
+  # needs, and a result is committed on it), then each file blob the store lacks from its
+  # tree, by the first path the manifest names it at, in one `git cat-file --batch`.
   defp obtain_base(home, source, base, base_files, git) do
     missing =
       for {sha, size} <- base_files.files, not Store.has?(home, source.name, sha), do: {sha, size}
 
-    if missing == [] do
-      {:ok, source}
-    else
-      dir = Path.join([home, "sources", source.name, "git"])
-      ref = "refs/atlas/bases/" <> base.base_id
-      {_, 0} = System.cmd("git", ["init", "--bare", "--quiet", dir], stderr_to_stdout: true)
+    dir = Path.join([home, "sources", source.name, "git"])
+    ref = "refs/atlas/bases/" <> base.base_id
+    {_, 0} = System.cmd("git", ["init", "--bare", "--quiet", dir], stderr_to_stdout: true)
 
-      fetch = [
-        "--git-dir",
-        dir,
-        "fetch",
-        "--quiet",
-        "--no-tags",
-        git.url <> "/bases/" <> base.base_id
-      ]
+    fetch = [
+      "--git-dir",
+      dir,
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      "--depth",
+      "1",
+      git.url <> "/bases/" <> base.base_id
+    ]
 
-      env = [{"GIT_TERMINAL_PROMPT", "0"} | git.env.()]
-      {_, 0} = System.cmd("git", fetch ++ ["+#{ref}:#{ref}"], env: env, stderr_to_stdout: true)
+    env = [{"GIT_TERMINAL_PROMPT", "0"} | git.env.()]
+    {_, 0} = System.cmd("git", fetch ++ ["+#{ref}:#{ref}"], env: env, stderr_to_stdout: true)
 
-      {tree, 0} = System.cmd("git", ["--git-dir", dir, "ls-tree", "-r", "-z", "--full-tree", ref])
+    {tree, 0} = System.cmd("git", ["--git-dir", dir, "ls-tree", "-r", "-z", "--full-tree", ref])
 
-      oids =
-        for record <- :binary.split(tree, <<0>>, [:global, :trim_all]), into: %{} do
-          [meta, path] = :binary.split(record, "\t")
-          [_mode, _type, oid] = String.split(meta, " ")
-          {path, oid}
-        end
-
-      batch = Path.join(dir, "batch-#{System.unique_integer([:positive])}")
-
-      File.write!(
-        batch <> ".in",
-        Enum.map(missing, fn {sha, _} -> [oids[base_files.paths[sha]], ?\n] end)
-      )
-
-      script = ~s(exec git --git-dir "$1" cat-file --batch < "$2" > "$3")
-      {_, 0} = System.cmd("sh", ["-c", script, "sh", dir, batch <> ".in", batch <> ".out"])
-
-      try do
-        File.open!(batch <> ".out", [:read, :binary], fn out ->
-          Enum.reduce_while(missing, {:ok, source}, fn {sha, size}, {:ok, source} ->
-            [_oid, "blob", length] =
-              out |> IO.binread(:line) |> String.trim_trailing() |> String.split(" ")
-
-            content = IO.binread(out, String.to_integer(length))
-            "\n" = IO.binread(out, 1)
-
-            case store(home, source, sha, %{size: byte_size(content), content: [content]}, size) do
-              {:ok, _path, source} -> {:cont, {:ok, source}}
-              other -> {:halt, other}
-            end
-          end)
-        end)
-      after
-        File.rm(batch <> ".in")
-        File.rm(batch <> ".out")
+    oids =
+      for record <- :binary.split(tree, <<0>>, [:global, :trim_all]), into: %{} do
+        [meta, path] = :binary.split(record, "\t")
+        [_mode, _type, oid] = String.split(meta, " ")
+        {path, oid}
       end
+
+    batch = Path.join(dir, "batch-#{System.unique_integer([:positive])}")
+
+    File.write!(
+      batch <> ".in",
+      Enum.map(missing, fn {sha, _} -> [oids[base_files.paths[sha]], ?\n] end)
+    )
+
+    script = ~s(exec git --git-dir "$1" cat-file --batch < "$2" > "$3")
+    {_, 0} = System.cmd("sh", ["-c", script, "sh", dir, batch <> ".in", batch <> ".out"])
+
+    try do
+      File.open!(batch <> ".out", [:read, :binary], fn out ->
+        Enum.reduce_while(missing, {:ok, source}, fn {sha, size}, {:ok, source} ->
+          [_oid, "blob", length] =
+            out |> IO.binread(:line) |> String.trim_trailing() |> String.split(" ")
+
+          content = IO.binread(out, String.to_integer(length))
+          "\n" = IO.binread(out, 1)
+
+          case store(home, source, sha, %{size: byte_size(content), content: [content]}, size) do
+            {:ok, _path, source} -> {:cont, {:ok, source}}
+            other -> {:halt, other}
+          end
+        end)
+      end)
+    after
+      File.rm(batch <> ".in")
+      File.rm(batch <> ".out")
     end
   end
 

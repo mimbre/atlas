@@ -939,6 +939,12 @@
             "flow"
           ]
         },
+        "result_ref": {
+          "label": "Result ref",
+          "set_by": [
+            "flow"
+          ]
+        },
         "result_state": {
           "label": "Result state",
           "set_by": [

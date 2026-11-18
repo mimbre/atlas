@@ -1,11 +1,12 @@
 defmodule AtlasCode.Git do
   @moduledoc """
-  Code's Git endpoint for Runtimes: Git's smart HTTP protocol (`git http-backend`), read
-  only, on 127.0.0.1 behind the core's tailnet ingress (TLS ends there).
+  Code's Git endpoint for Runtimes: Git's smart HTTP protocol (`git http-backend`), on
+  127.0.0.1 behind the core's tailnet ingress (TLS ends there).
 
   A base is a repository URL of its own, `/bases/<base_id>`, which advertises the ref
   `refs/atlas/bases/<base_id>` on the base's commit (`AtlasCode.Service.base_repository/2`):
-  a Runtime fetches that ref and never names a commit.
+  a Runtime fetches that ref and never names a commit. A Runtime pushes a job's result
+  commit to the same URL, under the ref Flow named for it (`refs/atlas/results/<task>`).
 
   Every request needs `Authorization: Bearer <token>` with a Runtime's work source token: the
   credentials secret Flow's work source reads (`{runtime_id: {holder, token_sha256}}`, in the
@@ -68,7 +69,12 @@ defmodule AtlasCode.Git do
       {"CONTENT_LENGTH", Integer.to_string(byte_size(body))},
       {"CONTENT_TYPE", header(conn, "content-type")},
       {"HTTP_CONTENT_ENCODING", header(conn, "content-encoding")},
-      {"GIT_PROTOCOL", header(conn, "git-protocol")}
+      {"GIT_PROTOCOL", header(conn, "git-protocol")},
+      # A Runtime pushes its result commit (refs/atlas/results/<task>) with receive-pack.
+      {"REMOTE_USER", "runtime"},
+      {"GIT_CONFIG_COUNT", "1"},
+      {"GIT_CONFIG_KEY_0", "http.receivepack"},
+      {"GIT_CONFIG_VALUE_0", "true"}
     ]
 
     port =
