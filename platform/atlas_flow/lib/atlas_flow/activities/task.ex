@@ -317,6 +317,7 @@ defmodule AtlasFlow.Activities.Task do
         |> Translate.intent(subject, key, work.base, work.change_set, name, ctx.now)
         |> update_in(["work", "instructions"], &(&1 <> Enum.join(work.sections)))
         |> then(&if(work.loop, do: Map.put(&1, "loop", work.loop), else: &1))
+        |> Translate.root_check(repository(spec) || (work.ladder || %{})["repository"])
 
       record =
         write(key, ["intent"], spec["records"]["kind"], %{

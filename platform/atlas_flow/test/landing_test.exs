@@ -471,7 +471,7 @@ defmodule AtlasFlow.LandingTest do
       assert intent["key"] == "TK-B-1-9"
       assert intent["work"]["input"]["change_set"]["manifest"] == author["result_manifest"]
       assert intent["work"]["input"]["permissions"] == "workspace-write"
-      assert intent["work"]["after_check"] == %{"command" => ["bin/check"]}
+      assert intent["work"]["after_check"] == %{"command" => ["loop/bin/check"]}
       assert String.contains?(intent["work"]["instructions"], author["published_revision"])
       assert ladder["fixes"] == ready["pending"]["ladder"]["fixes"] + 1
 
