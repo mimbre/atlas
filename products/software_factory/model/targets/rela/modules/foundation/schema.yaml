@@ -376,6 +376,9 @@ entities:
       result_state:
         type: string
         description: 'Whether its result is stored: incomplete, complete, too large or invalid'
+      result_ref:
+        type: string
+        description: The Git ref its result commit was pushed to in Code's repository (a job's task)
   task_attempt:
     label: Task attempt
     plural: task_attempts

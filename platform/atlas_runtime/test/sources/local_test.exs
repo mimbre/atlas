@@ -594,8 +594,10 @@ defmodule AtlasRuntime.Sources.LocalTest do
     end
 
     test "the retry is not leased while no option serves it, never cycles, and runs once one does",
-         %{bench: bench, code: code, clock: clock} do
-      {:added, id} = Local.add(client(), base_work(code, "complete write"))
+         %{bench: bench, clock: clock} do
+      # A folder workspace-write work: claude cannot serve it (a base work's folder it can).
+      write = put_in(request(bench, "complete write").workspace.permissions, "workspace-write")
+      {:added, id} = Local.add(client(), B.WorkRequest.new!(write))
       id |> lease!(1) |> run!(1)
       assert harnesses(bench, id) == ["codex"]
 

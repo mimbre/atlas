@@ -518,6 +518,9 @@ defmodule AtlasRuntime.Sources.Local do
     do: {profile, permission(workspace)}
 
   defp permission(%{url: _}), do: "dedicated-repository"
+  # A base or from_work folder the Runtime materialized (as `Work.Turns.permission/1`).
+  defp permission(%{base_id: _, permissions: :workspace_write}), do: "materialized-folder"
+  defp permission(%{work_id: _, permissions: :workspace_write}), do: "materialized-folder"
   defp permission(%{permissions: permissions}), do: to_string(perm_to_request(permissions))
 
   # The lease if it is its work's current one and has not expired.

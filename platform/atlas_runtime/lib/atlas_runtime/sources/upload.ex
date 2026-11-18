@@ -83,6 +83,9 @@ defmodule AtlasRuntime.Sources.Upload do
     core's, `AtlasRuntime.Work.runtime/0`);
   - `:max_result_bytes`: the most bytes of missing blobs one upload sends (default
     20 000 000, the contract's per-result cap, §6.2).
+  - `:git`: the result over Git instead of a change set: `%{url, env, dir, base, ref, tree}`;
+    the folder `tree` is committed on `base` in the Git cache `dir` and pushed to `url` as
+    `ref`, `env` a function that answers Git's environment (the source's token).
   """
   @spec run({String.t(), [atom()]}, source(), String.t(), String.t(), keyword()) :: outcome()
   def run(client, source, lease_id, work_id, options \\ []) do
@@ -91,13 +94,56 @@ defmodule AtlasRuntime.Sources.Upload do
     with {:ok, work} <- read_work(reader, work_id),
          {:ok, attempt} <- ended_attempt(work, Keyword.get(options, :attempt)),
          {:ok, redact} <- redaction(client, work_id, options),
-         manifest = manifest(reader, work_id, attempt.attempt),
+         manifest = manifest(reader, work_id, attempt.attempt, options[:git]),
          report = report(lease_id, work, attempt, manifest, redact),
          {:recorded, missing} <- call(source, :report, report) do
       upload(reader, source, lease_id, work_id, attempt.attempt, manifest, missing, options)
     else
       :lease_lost -> stop(:lease_lost, lease_id)
       {:error, _} = error -> error
+    end
+  end
+
+  # The result over Git (option `git`): the work's root committed on the base, every file
+  # Git does not ignore, and pushed to the source's Code as `ref`. The report then carries no
+  # manifest, so no blob is sent.
+  defp manifest(reader, work_id, attempt, nil), do: manifest(reader, work_id, attempt)
+
+  defp manifest(_reader, work_id, _attempt, git) do
+    index = Path.join(git.dir, "index-" <> work_id)
+
+    env =
+      [
+        {"GIT_DIR", git.dir},
+        {"GIT_WORK_TREE", git.tree},
+        {"GIT_INDEX_FILE", index},
+        {"GIT_TERMINAL_PROMPT", "0"},
+        {"GIT_AUTHOR_NAME", "Atlas Runtime"},
+        {"GIT_AUTHOR_EMAIL", "runtime@atlas"},
+        {"GIT_COMMITTER_NAME", "Atlas Runtime"},
+        {"GIT_COMMITTER_EMAIL", "runtime@atlas"}
+      ] ++ git.env.()
+
+    git_cmd = fn args ->
+      {out, 0} = System.cmd("git", args, env: env, cd: git.tree, stderr_to_stdout: true)
+      String.trim(out)
+    end
+
+    try do
+      git_cmd.(["read-tree", git.base])
+      git_cmd.(["add", "-A", "."])
+      tree = git_cmd.(["write-tree"])
+
+      commit =
+        git_cmd.(
+          ["-c", "commit.gpgsign=false", "commit-tree", tree, "-p", git.base] ++
+            ["-m", "Atlas result of #{work_id}"]
+        )
+
+      git_cmd.(["push", "--quiet", git.url, "+#{commit}:#{git.ref}"])
+      nil
+    after
+      File.rm(index)
     end
   end
 

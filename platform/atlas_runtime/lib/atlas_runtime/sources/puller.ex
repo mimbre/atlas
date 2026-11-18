@@ -147,7 +147,7 @@ defmodule AtlasRuntime.Sources.Puller do
 
   alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.{Policy, Provenance, Work}
-  alias AtlasRuntime.Sources.{Credential, Import, LeaseClock, LeaseShape, Rights, Upload}
+  alias AtlasRuntime.Sources.{Credential, Import, LeaseClock, LeaseShape, Rights, Store, Upload}
   alias AtlasRuntime.Work.Queue
 
   @accept_deadline_ms 30_000
@@ -1077,11 +1077,38 @@ defmodule AtlasRuntime.Sources.Puller do
   defp upload(state, id, revision) do
     {module, ref} = state.target
     work_id = state.leases[id].work_id
-    {client, options} = {state.client, state.upload}
+    {client, options} = {state.client, git_result(state, id, work_id) ++ state.upload}
 
     start_job(state, id, :upload, state.upload_timeout_ms, fn ->
       Upload.run(client, module.uploader(ref, revision), id, work_id, options)
     end)
+  end
+
+  # A lease whose input names a result_ref: the result goes back to the source's Code as a
+  # commit on the base, pushed from the source's Git cache, instead of as a change set.
+  defp git_result(state, id, work_id) do
+    name = state.name
+
+    with %{work: %{input: %{result_ref: result_ref, base: base}}} when is_binary(result_ref) <-
+           state.leases[id][:lease],
+         home when is_binary(home) <- runtime_home(),
+         %{"git_url" => url} <- policy_source(home, name) do
+      {:ok, manifest} = Store.get(home, name, base.manifest)
+      %{"roots" => [%{"root" => root}]} = manifest |> File.read!() |> JSON.decode!()
+
+      [
+        git: %{
+          url: url <> "/bases/" <> base.base_id,
+          env: fn -> git_env(home, name) end,
+          dir: Path.join([home, "sources", name, "git"]),
+          base: "refs/atlas/bases/" <> base.base_id,
+          ref: result_ref,
+          tree: Path.join(Work.Folders.path(home, work_id), root)
+        }
+      ]
+    else
+      _ -> []
+    end
   end
 
   defp uploaded(state, id, answer) do

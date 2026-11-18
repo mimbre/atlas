@@ -102,9 +102,9 @@ defmodule AtlasRuntime.Work.Turns do
 
   @doc "The workspace permission a request's policy check uses (design §7 step 1)."
   def permission(%M.Base{permissions: :read_only}), do: "read-only"
-  def permission(%M.Base{permissions: :workspace_write}), do: "workspace-write"
+  def permission(%M.Base{permissions: :workspace_write}), do: "materialized-folder"
   def permission(%M.FromWork{permissions: :read_only}), do: "read-only"
-  def permission(%M.FromWork{permissions: :workspace_write}), do: "workspace-write"
+  def permission(%M.FromWork{permissions: :workspace_write}), do: "materialized-folder"
   def permission(%{url: _}), do: "dedicated-repository"
   def permission(%{permissions: :read_only}), do: "read-only"
   def permission(%{permissions: :workspace_write}), do: "workspace-write"
