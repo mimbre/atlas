@@ -13,6 +13,7 @@ defmodule Model.Software do
       Model.PrReview,
       Model.PrTest,
       Model.Delivery,
+      Model.Job,
       Model.FollowThrough
     ]
 end

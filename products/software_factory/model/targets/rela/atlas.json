@@ -579,6 +579,29 @@
         }
       }
     },
+    "job": {
+      "create": {
+        "ask": [
+          "title",
+          "description"
+        ],
+        "id": {
+          "digits": 2,
+          "prefix": "JB-Atlas-"
+        }
+      },
+      "properties": {
+        "description": {
+          "multiline": true
+        },
+        "task_result": {
+          "label": "Task result",
+          "set_by": [
+            "flow"
+          ]
+        }
+      }
+    },
     "machinery": {
       "by_hand": false,
       "primary": "name",

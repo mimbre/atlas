@@ -87,8 +87,6 @@ defmodule Model.SceneRunsTest do
       assert Enum.sort(Map.keys(r.config["selection"])) ==
                Enum.sort(Enum.map(Model.AtlasEyra.subflows(env), & &1.name()))
 
-      assert map_size(r.config["selection"]) == 11
-
       f = flow(env)
       assert Run.validate(f) == :ok
       assert f.states() == ~w(accepted break_down building rework to_test)

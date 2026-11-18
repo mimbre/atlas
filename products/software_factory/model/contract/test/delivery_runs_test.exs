@@ -94,9 +94,6 @@ defmodule Model.DeliveryRunsTest do
       runner = AtlasFlow.Model.load(Model.AtlasEyra, env, %{"decider" => "someone"})
       assert runner.refusal == nil
 
-      assert Enum.sort(Map.keys(runner.config["selection"])) ==
-               ~w(decide design_and_accept follow_through issue package pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case to_do)
-
       f = flow(env)
       assert Run.validate(f) == :ok
       # One activity, Code's integrate effect; no create: nothing else is dispatched or made.

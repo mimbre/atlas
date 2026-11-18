@@ -199,6 +199,25 @@ entities:
       revision:
         type: string
         description: The exact revision of the pull request this test is for (its head commit)
+  job:
+    label: Job
+    plural: jobs
+    id_type: manual
+    id_prefix: JB-
+    description: |
+      One piece of agent work: one agent does it on its supervisor's Runtime.
+      The id is its Atlas code, e.g. JB-Atlas-01.
+    properties:
+      title:
+        type: string
+        required: true
+        description: What to do
+      description:
+        type: string
+        description: The details
+      task_result:
+        type: string
+        description: 'Flow: how its agent task ended (completed, check_failed, stuck, abandoned); the run''s own, never written'
 relations:
   package_of:
     label: package of

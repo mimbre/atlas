@@ -33,6 +33,7 @@ defmodule Model.AtlasEyra do
     Decision,
     Delivery,
     FollowThrough,
+    Job,
     Package,
     PrReview,
     PrTest,
@@ -63,7 +64,7 @@ defmodule Model.AtlasEyra do
   relation(:assignment,
     label: "assignment",
     description: "What belongs to being assigned, for one fact; made and deleted with it.",
-    from: [:scene, :use_case, :issue, :package, :pull_request, :decision, :to_do],
+    from: [:scene, :use_case, :issue, :job, :package, :pull_request, :decision, :to_do],
     to: [:assignment],
     max_outgoing: 1,
     inverse: {:assignment_of, "assignment of"}
@@ -83,7 +84,7 @@ defmodule Model.AtlasEyra do
     label: "task of",
     description: "A task belongs to one package or issue; they have their tasks.",
     from: [:task],
-    to: [:package, :issue],
+    to: [:package, :issue, :job],
     max_outgoing: 1,
     inverse: {:tasks, "tasks"},
     parent: true,
@@ -174,6 +175,8 @@ defmodule Model.AtlasEyra do
 
   extend_entity(:use_case, create: [id: [prefix: "UC-Atlas-", digits: 2]])
 
+  extend_entity(:job, create: [id: [prefix: "JB-Atlas-", digits: 2]])
+
   extend_entity(:issue,
     create: [id: [prefix: "IS-Atlas-", digits: 2], defaults: [stage: :specification]],
     completion: [
@@ -243,6 +246,7 @@ defmodule Model.AtlasEyra do
       :flow_input,
       :flow_run,
       :issue,
+      :job,
       :package,
       :pull_request,
       :pr_review,
@@ -257,7 +261,7 @@ defmodule Model.AtlasEyra do
     comment: "The principal flows run their outputs as: resets, created reviews and tests.",
     read: ["*"],
     create: [:pr_review, :pr_test],
-    update: [:issue, :pull_request, :pr_review, :pr_test, :use_case, :scene, :decision]
+    update: [:issue, :job, :pull_request, :pr_review, :pr_test, :use_case, :scene, :decision]
   )
 
   role("maintainer",
@@ -287,7 +291,8 @@ defmodule Model.AtlasEyra do
       Decision,
       FollowThrough,
       ToDo,
-      Package
+      Package,
+      Job
     ])
 
     link(:pr_review,

@@ -101,7 +101,7 @@ defmodule Model.OpenForYouTest do
 
   test "an open issue is open for a person, who picks it up, then supervises it", c do
     m = c.m
-    [span] = Pages.open_for_you_rule(m).spans
+    span = Enum.find(Pages.open_for_you_rule(m).spans, &(&1.subflow == "issue"))
     list = "list:#{span.subflow}:#{span.span}"
     to = Pages.path({:item, "issue", @issue})
 
