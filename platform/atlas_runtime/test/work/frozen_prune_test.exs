@@ -66,9 +66,9 @@ defmodule AtlasRuntime.Work.FrozenPruneTest do
     }
   end
 
-  defp await_pruned(id) do
-    await(fn -> match?(%F.Outcome.Pruned{}, F.get_work(client(), %{work_id: id})) end)
-  end
+  # The executor pruned its record of the work (it was aged above). The local source keeps
+  # its own copy of the work (C6); the frozen reads are the executor's.
+  defp await_pruned(bench, id), do: await(fn -> is_nil(Store.read_work(bench.dir, id)) end)
 
   defp blob?(bench, sha256), do: File.regular?(FrozenStore.blob_path(bench.dir, sha256))
 
@@ -83,7 +83,7 @@ defmodule AtlasRuntime.Work.FrozenPruneTest do
     [%{fingerprint: fingerprint}] = first.roots
 
     edit_and_restart!(bench, [{one.work_id, &aged/1}])
-    await_pruned(one.work_id)
+    await_pruned(bench, one.work_id)
 
     assert %F.Outcome.Pruned{work_id: id, kind: :completed} =
              F.get_frozen(client(), %{work_id: one.work_id})
@@ -131,7 +131,7 @@ defmodule AtlasRuntime.Work.FrozenPruneTest do
         {two.work_id, &refer(&1, unquote(reference), one.work_id, fingerprint)}
       ])
 
-      await_pruned(one.work_id)
+      await_pruned(bench, one.work_id)
 
       # Retained: frozen is answered, the default attempt from the store, the blob streams.
       assert ^first = F.get_frozen(client(), %{work_id: one.work_id})
@@ -154,7 +154,7 @@ defmodule AtlasRuntime.Work.FrozenPruneTest do
 
       # Pruning the work that named it as well: now it is a tombstone.
       edit_and_restart!(bench, [{two.work_id, &aged/1}])
-      await_pruned(two.work_id)
+      await_pruned(bench, two.work_id)
 
       await(fn ->
         match?(%F.Outcome.Pruned{}, F.get_frozen(client(), %{work_id: one.work_id}))

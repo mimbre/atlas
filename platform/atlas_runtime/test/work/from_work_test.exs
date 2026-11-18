@@ -226,8 +226,10 @@ defmodule AtlasRuntime.Work.FromWorkTest do
 
   test "a client without choose_path runs base → from_work → from_work; each result is cumulative, and no request or refusal names a path",
        %{bench: bench, code: code} do
-    # The owner without choose_path (the harness client holds it on develop, D44).
-    reader = {"c1", [:submit, :cancel, :read]}
+    # The owner without choose_path (the harness client holds it on develop, D44). It holds
+    # read_all, as the CLI's client does: the executor checks a from_work source as a reader
+    # of the local source's record (M2 A6).
+    reader = {"c1", [:submit, :cancel, :read, :read_all]}
     refute :choose_path in elem(reader, 1)
 
     {first, first_frozen} = source!(code, "write atlas/a.txt a")
@@ -313,9 +315,11 @@ defmodule AtlasRuntime.Work.FromWorkTest do
 
     write_policy!(bench.dir)
 
-    # Of all those submits, only the admin's work was written.
-    assert length(Path.wildcard(Path.join(bench.dir, "work/*.json"))) ==
-             length(Enum.filter(before, &String.ends_with?(&1, ".json"))) + 1
+    # Of all those submits, only the admin's work was written (once its lease landed).
+    await(fn ->
+      length(Path.wildcard(Path.join(bench.dir, "work/*.json"))) ==
+        length(Enum.filter(before, &String.ends_with?(&1, ".json"))) + 1
+    end)
 
     # (f) retry resume: true of a from_work work.
     follow = submit_from!(source.work_id, "complete follow", "read-only")
@@ -384,8 +388,9 @@ defmodule AtlasRuntime.Work.FromWorkTest do
     end
 
     start_work!(bench, retention: @retention)
-    await(fn -> match?(%F.Outcome.Pruned{}, F.get_work(client(), %{work_id: gone.work_id})) end)
-    await(fn -> match?(%F.Outcome.Pruned{}, F.get_work(client(), %{work_id: kept.work_id})) end)
+    # The executor prunes its records (the local source keeps its own copies, C6).
+    await(fn -> is_nil(Store.read_work(bench.dir, gone.work_id)) end)
+    await(fn -> is_nil(Store.read_work(bench.dir, kept.work_id)) end)
 
     assert %F.Outcome.Pruned{work_id: id, kind: :completed} =
              F.submit(client(), from_request(gone.work_id, "from gone", "read-only"))

@@ -1,11 +1,14 @@
 defmodule AtlasRuntime.Work do
   @moduledoc """
-  The Runtime's work core, the executor: an implementation of the work contract
-  (`AtlasRuntime.Boundary.Work.Implementation`, design §1.5). Callers never call it; they
-  call the facade `AtlasRuntime.Boundary.Work`, which checks rights, input and outcomes.
-  Since the CLI cut-over (M2 A6) the facade's implementation is the local work source's
-  (`AtlasRuntime.Sources.Local.Work`), which reaches this one as the `local` source; the
-  work sources' pullers reach it through `accept_lease/3` and the calls below.
+  The Runtime's work core, the executor. It is no implementation of the work contract: work
+  reaches it only as a work source's lease (M2 A7, the cut-over), through the pullers' calls
+  below (`accept_lease/3`, `lease_imported/2`, `release_lease/1`, `offer/1`, `offer_done/2`,
+  `available/1`, `holdings/1`). It has no submit and no retry, and keeps no client key but the sources'
+  lease ids. Callers never call it; they call the facade `AtlasRuntime.Boundary.Work`, whose
+  implementation is the local work source's (`AtlasRuntime.Sources.Local.Work`): that adds
+  the CLI's work to the local source, and answers the reads (`get_work`, `list_work`,
+  `cancel`, `turn_output`, `capacity`, `subscribe`, `get_frozen`, `get_frozen_blob`) from
+  the functions here, which take a work contract client and input and answer its outcomes.
 
   The behaviour lives in `AtlasRuntime.Work.Server` (the process that owns the work
   records) and the modules under `AtlasRuntime.Work`: `Store` (persistence through the
@@ -14,8 +17,8 @@ defmodule AtlasRuntime.Work do
 
   It is started only by `host/service.exs`, after the Service, never by
   `AtlasRuntime.Application`. While it is not running every capability answers with a
-  declared outcome meaning "not running": `submit`/`retry` `at_capacity: not_accepting`,
-  `get_work`/`find_work`/`turn_output`/`cancel` `not_found`, `list_work` empty, `capacity`
+  declared outcome meaning "not running": `get_work`/`turn_output`/`cancel` `not_found`,
+  `list_work` empty, `capacity`
   not accepting, `subscribe` `subscribed` with no notifications. `get_frozen` and
   `get_frozen_blob` (S5a) `not_found`.
 
@@ -29,8 +32,6 @@ defmodule AtlasRuntime.Work do
   `notification` is a `AtlasRuntime.Boundary.Work.WorkChanged`, `CapacityAvailable` or
   `Heartbeat` struct (`AtlasRuntime.Work.Notifications`).
   """
-  use AtlasRuntime.Boundary.Work.Implementation
-
   alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.Work.Server
 
@@ -149,9 +150,9 @@ defmodule AtlasRuntime.Work do
     do: call({:accept_lease, source, lease, imported}, fn -> :not_running end)
 
   @doc """
-  The `at_capacity` outcome a submit gets for `reason` now (M2 A6: the local work source's
-  add answers `not_accepting` as the work contract does), or the stopped core's while the
-  core is not running.
+  The work contract's `at_capacity` outcome for `reason` now: the local work source's add and
+  retry answer `not_accepting` with it (M2 A6), or the stopped core's while the core is not
+  running.
   """
   @spec at_capacity(:not_accepting) :: B.Outcome.AtCapacity.t()
   def at_capacity(reason) when reason in [:not_accepting],
@@ -161,11 +162,13 @@ defmodule AtlasRuntime.Work do
   Checks `input` (a work request) for `client` as a submit would, without creating
   anything and without its client key (M2 A5: the local work source refuses a typo when the
   work is added). `:ok` (a profile unavailable now included: the work waits),
-  `{:refused, reason, detail}` with a reason of the work contract's `refused`, or
-  `{:refused, :not_accepting, detail}` while the core takes no new work or is not running.
+  `{:refused, reason, detail}` with a reason of the work contract's `refused`,
+  `{:pruned, work_id, kind}` for a `from_work` whose source was pruned (the contract's
+  `pruned`), or `{:refused, :not_accepting, detail}` while the core takes no new work or is
+  not running.
   """
   @spec check_request(AtlasRuntime.Sources.Rights.client(), B.WorkRequest.t()) ::
-          :ok | {:refused, atom(), String.t() | nil}
+          :ok | {:refused, atom(), String.t() | nil} | {:pruned, String.t(), atom()}
   def check_request(client, %B.WorkRequest{} = input),
     do:
       call({:check_request, client, input}, fn ->
@@ -193,8 +196,7 @@ defmodule AtlasRuntime.Work do
     source and the others whose poll is open with an empty offer, ordered by priority, each
     up to its `max_slots` minus what it holds. A source that does not poll is held nothing.
   - **How long:** the slots are reserved for this poll only, until `offer_done/2` or the end
-    of the calling process (the core monitors it). No other source and no direct submit
-    takes them meanwhile, and each lease accepted from them takes one. A new offer to the
+    of the calling process (the core monitors it). No other source takes them meanwhile, and each lease accepted from them takes one. A new offer to the
     same source replaces its reservation.
 
   `:not_running` while the core is not running.
@@ -263,46 +265,40 @@ defmodule AtlasRuntime.Work do
   @spec holdings(String.t()) :: [map()]
   def holdings(name) when is_binary(name), do: call({:holdings, name}, fn -> [] end)
 
-  @impl true
-  def submit(client, input), do: call({:submit, client, input}, &not_accepting/0)
+  ## The reads and the cancel, for `AtlasRuntime.Sources.Local.Work`: a work contract client
+  ## and input, the contract's outcomes, under that client's visibility (§3.2)
 
-  @impl true
-  def retry(client, input), do: call({:retry, client, input}, &not_accepting/0)
-
-  @impl true
+  @doc "Cancels a work the client owns (§3.7)."
   def cancel(client, input), do: call({:cancel, client, input}, &not_found/0)
 
-  @impl true
+  @doc "A work the client may read."
   def get_work(client, input), do: call({:get_work, client, input}, &not_found/0)
 
-  @impl true
-  def find_work(client, input), do: call({:find_work, client, input}, &not_found/0)
-
-  @impl true
+  @doc "The works the client may read."
   def list_work(client, input),
     do: call({:list_work, client, input}, fn -> %B.Outcome.Works{works: [], sequence: 0} end)
 
-  @impl true
+  @doc "The Runtime's capacity."
   def capacity(client),
     do:
       call({:capacity, client}, fn ->
         struct!(B.Outcome.Capacity, Map.from_struct(stopped_capacity()))
       end)
 
-  @impl true
+  @doc "A page of a turn's output the client may read."
   def turn_output(client, input), do: call({:turn_output, client, input}, &not_found/0)
 
-  @impl true
+  @doc "Subscribes the calling process to the changes the client may see."
   def subscribe(client, input),
     do: call({:subscribe, client, input, self()}, fn -> %B.Outcome.Subscribed{} end)
 
   # S5a P8 (design §3.9 "Reading a frozen result"): through the one reply path, as every
   # capability, so a later reply rule (B32) covers them too; `not_found` without the core.
-  @impl true
+  @doc "A completed attempt's frozen result the client may read."
   def get_frozen(client, %B.GetFrozenInput{} = input),
     do: call({:get_frozen, client, input}, &not_found/0)
 
-  @impl true
+  @doc "A blob of a frozen result the client may read."
   def get_frozen_blob(client, %B.GetFrozenBlobInput{} = input),
     do: call({:get_frozen_blob, client, input}, &not_found/0)
 

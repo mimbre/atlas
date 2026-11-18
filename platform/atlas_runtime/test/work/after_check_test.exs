@@ -205,7 +205,7 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
   test "while the check runs the attempt is running at the boundary, with no result" do
     {bench, code} = bench!()
     work = submit_check!(code, "complete before a slow check", %{command: ["sleep", "1"]})
-    await(fn -> private_attempt(bench.dir, work.work_id, 1).checking == true end)
+    await(fn -> match?(%{checking: true}, private_attempt(bench.dir, work.work_id, 1)) end)
 
     assert [%F.Attempt{state: :running, result: nil, timestamps: timestamps}] =
              work!(work.work_id).attempts

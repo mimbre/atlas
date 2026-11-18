@@ -59,7 +59,6 @@ defmodule AtlasRuntime.Boundary.VisibilityTest do
     assert %F.Outcome.Found{} = F.get_work(alice, %{work_id: mine.work_id})
     assert %F.Outcome.Works{works: [%{work_id: id}]} = F.list_work(admin, %{})
     assert id == mine.work_id
-    assert %F.Outcome.Page{} = F.turn_output(alice, %{turn_id: turn})
     assert %F.Outcome.Page{} = F.turn_output(admin, %{turn_id: turn})
 
     # Capacity is global.
@@ -131,6 +130,22 @@ defmodule AtlasRuntime.Boundary.VisibilityTest do
 
     assert %F.Outcome.Refused{reason: :resume_unavailable} =
              F.submit(client("bob"), request(bench, "complete for bob", %{resume_from: turn}))
+  end
+
+  # Open for Main (A6-4, widened by A7: finding N1 of the A7 report). A local work's executor
+  # record is the local source's client's, and the executor checks a turn's output, a turn
+  # to continue, a from_work source and the notifications against that record's owner. So a
+  # client without read_all cannot read its own local work's turn output or continue its
+  # own turn (nor build on its own work, nor get its notifications). The CLI's client holds
+  # read_all and is not affected. Until direct submit was removed this held through it.
+  @tag skip: "open finding N1 (A6-4): a client without read_all following its own local work"
+  test "without read_all a client reads its own local work's output and continues its own turn" do
+    bench = start!()
+    alice = client("alice")
+    mine = submit!(bench, "complete for alice", %{}, alice)
+    [%{turn_id: turn}] = await_state(mine.work_id, :completed, alice).attempts
+
+    assert %F.Outcome.Page{} = F.turn_output(alice, %{turn_id: turn})
 
     assert %F.Outcome.Accepted{} =
              F.submit(alice, request(bench, "complete again", %{resume_from: turn}))

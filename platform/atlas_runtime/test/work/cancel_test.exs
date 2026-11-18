@@ -4,6 +4,8 @@ defmodule AtlasRuntime.Work.CancelTest do
 
   import AtlasRuntime.WorkHarness
   alias AtlasRuntime.Boundary.Work, as: F
+  alias AtlasRuntime.Sources.Local
+  alias AtlasRuntime.Work.Store
   alias AtlasRuntime.WorkHarness.SlowStart
 
   @moduletag capture_log: true
@@ -20,10 +22,12 @@ defmodule AtlasRuntime.Work.CancelTest do
     assert %F.Outcome.Ended{work: %{state: :cancelled, attempts: [attempt]}} =
              F.cancel(client(), %{work_id: waiting.work_id, mode: "graceful"})
 
-    assert attempt.result.never_started
-    assert attempt.result.kind == :cancelled
+    # No slot was free, so it was never leased: it ends at the local source, never started,
+    # and the executor never has it (M2 A7).
     assert attempt.quiescent
     refute attempt.timestamps.started_at
+    assert {:ok, %{state: :ended, result: %{kind: :cancelled}}} = Local.get(waiting.work_id)
+    assert Store.read_work(bench.dir, waiting.work_id) == nil
 
     # A slot frees; the cancelled work still never launches.
     F.cancel(client(), %{work_id: hd(busy).work_id, mode: "force"})
@@ -106,11 +110,17 @@ defmodule AtlasRuntime.Work.CancelTest do
     AtlasRuntime.Persistence.History.latch!(bench.dir, "s1", "turn-not-the-cores", at)
     work = submit!(bench, "complete once released", %{slot: "s1"}, client("c1", [:choose_slot]))
 
-    # Several heartbeats pass: the work waits, without a new revision each time.
+    # Leased and released, it waits for the latched slot; several heartbeats pass without a
+    # new revision.
+    await(fn ->
+      match?(%{attempts: [%{lease_hold: nil}]}, Store.read_work(bench.dir, work.work_id))
+    end)
+
+    before = work!(work.work_id)
     heartbeats(8)
     held = work!(work.work_id)
     assert held.state == :buffered
-    assert held.revision <= 3
+    assert held.revision == before.revision
 
     {:ok, _} =
       AtlasRuntime.Work.Turns.command(bench.service, %{

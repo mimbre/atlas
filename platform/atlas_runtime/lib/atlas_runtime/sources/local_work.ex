@@ -3,8 +3,9 @@ defmodule AtlasRuntime.Sources.Local.Work do
   The work contract's implementation behind `AtlasRuntime.Boundary.Work` (M2 plan A6, the
   CLI cut-over): every work command of the CLI (`backend.sock`) goes to the built-in local
   work source (`AtlasRuntime.Sources.Local`), and the executor (`AtlasRuntime.Work`) is
-  reached only as the local source reaches it, under the local source's client
-  (`AtlasRuntime.Sources.Rights.client("local")`).
+  reached only as the local source reaches it: the local source's client id
+  (`AtlasRuntime.Sources.Rights.client_id("local")`), whose record it is, with the
+  caller's own rights, so a work's paths are cut for the caller as the core cuts them (D44).
 
   - `submit` adds the work to the local source's queue (`Local.add/3`: checked against the
     policy at once, the client key the source's, I3/I7). The source's puller leases it to
@@ -33,49 +34,50 @@ defmodule AtlasRuntime.Sources.Local.Work do
   the local source's puller and `Upload` (that client) read and cancel it, and nobody else
   does.
 
-  **Until A7 (Main's Deviation 2).** While no local source runs (a test that starts only the
-  executor), `submit` is the executor's direct submit, and every other capability the
-  executor's own answer. The service always starts the local source (a policy without
-  `sources` has `local`, Main's A6 Q2). Removing the direct path is A7's.
+  **The only way in (M2 A7, the cut-over).** No work reaches the executor except as a lease:
+  the executor has no submit and keeps no client key of the CLI's (I3, I7 are this source's,
+  `Local.Store`). While no local source runs (the policy names `sources` without `local`, or
+  its store was refused) `submit` answers `at_capacity(not_accepting)`, and `retry` and a key
+  find nothing (`not_found`: no local work exists then). The reads the work sources and
+  `Upload` make as their own clients (`get_work`, `list_work`, `cancel`, `get_frozen`,
+  `get_frozen_blob`), and `turn_output`, `capacity` and `subscribe`, are the executor's
+  answers under the caller's own visibility.
   """
   use AtlasRuntime.Boundary.Work.Implementation
 
   alias AtlasRuntime.Boundary.Work, as: B
-  alias AtlasRuntime.Model.LocalSource.{QueueKeyEntry, QueuedWork}
+  alias AtlasRuntime.Model.LocalSource.{FromWork, QueueKeyEntry, QueuedWork}
   alias AtlasRuntime.Sources.{Local, Rights}
   alias AtlasRuntime.Work, as: Executor
 
   @impl true
   def submit(client, input) do
-    if Local.running?() do
-      case Local.add(client, input) do
-        {:added, id} -> %B.Outcome.Accepted{work: view!(id)}
-        {:existing, id} -> %B.Outcome.Existing{work: view!(id)}
-        {:conflict, id} -> refused(:conflict, "client key #{input.client_key} names work #{id}")
-        {:refused, :not_accepting, _detail} -> Executor.at_capacity(:not_accepting)
-        {:refused, reason, detail} -> refused(reason, detail)
-        :not_running -> Executor.at_capacity(:not_accepting)
-      end
-    else
-      Executor.submit(client, input)
+    case Local.add(client, input) do
+      {:added, id} -> %B.Outcome.Accepted{work: view!(client, id)}
+      {:existing, id} -> %B.Outcome.Existing{work: view!(client, id)}
+      {:conflict, id} -> refused(:conflict, "client key #{input.client_key} names work #{id}")
+      {:refused, :not_accepting, _detail} -> Executor.at_capacity(:not_accepting)
+      {:refused, reason, detail} -> refused(reason, detail)
+      {:pruned, id, kind} -> %B.Outcome.Pruned{work_id: id, kind: kind}
+      :not_running -> Executor.at_capacity(:not_accepting)
     end
   end
 
   @impl true
   def get_work(client, %{work_id: id} = input) do
     case local(client, id) do
-      {:ok, work} -> %B.Outcome.Found{work: view(work)}
-      {:pruned, entry} -> pruned(entry)
+      {:ok, work} -> %B.Outcome.Found{work: view(client, work)}
+      {:pruned, entry} -> pruned(client, entry)
       :none -> Executor.get_work(client, input)
     end
   end
 
   @impl true
-  def find_work({client_id, _rights} = client, %{client_key: key} = input) do
+  def find_work({client_id, _rights} = client, %{client_key: key}) do
     case Local.find(client_id, key) do
-      {:ok, work} -> %B.Outcome.Found{work: view(work)}
-      {:pruned, entry} -> pruned(entry)
-      _ -> Executor.find_work(client, input)
+      {:ok, work} -> %B.Outcome.Found{work: view(client, work)}
+      {:pruned, entry} -> pruned(client, entry)
+      _ -> %B.Outcome.NotFound{}
     end
   end
 
@@ -103,7 +105,7 @@ defmodule AtlasRuntime.Sources.Local.Work do
     rest =
       for {id, l} <- Enum.sort_by(locals, fn {_id, l} -> {l.priority, l.position} end),
           not MapSet.member?(listed, id),
-          work = view(l),
+          work = view(client, l),
           listed?(work, input),
           do: work
 
@@ -116,15 +118,15 @@ defmodule AtlasRuntime.Sources.Local.Work do
       {:ok, %QueuedWork{state: :queued} = work} ->
         case Local.cancel(id) do
           {:ended, ended} -> %B.Outcome.Ended{work: queued(ended)}
-          _ -> cancel_leased(work, input)
+          _ -> cancel_leased(client, work, input)
         end
 
       {:ok, work} ->
         _ = Local.cancel(id)
-        cancel_leased(work, input)
+        cancel_leased(client, work, input)
 
       {:pruned, _entry} ->
-        Executor.cancel(Rights.client("local"), input)
+        Executor.cancel(reader(client), input)
 
       :none ->
         Executor.cancel(client, input)
@@ -135,13 +137,15 @@ defmodule AtlasRuntime.Sources.Local.Work do
   def retry(client, %{work_id: id} = input) do
     case owned(client, id) do
       {:ok, work} ->
-        with :ok <- Executor.check_request(client, Local.to_request(work)),
+        with :ok <- fresh_conversation(work, input),
+             :ok <- Executor.check_request(client, Local.to_request(work)),
              {kind, queued} when kind in [:queued, :pending] <-
                Local.retry(id, input.resume == true, ended_here?(id)) do
-          %B.Outcome.Accepted{work: view(queued)}
+          %B.Outcome.Accepted{work: view(client, queued)}
         else
           {:refused, :not_accepting, _detail} -> Executor.at_capacity(:not_accepting)
           {:refused, reason, detail} -> refused(reason, detail)
+          {:pruned, source, _kind} -> refused(:conflict, "work #{source} is pruned")
           _not_found -> %B.Outcome.NotFound{}
         end
 
@@ -149,7 +153,12 @@ defmodule AtlasRuntime.Sources.Local.Work do
         refused(:invalid, "work #{entry.work_id} was pruned; its request is gone")
 
       :none ->
-        Executor.retry(client, input)
+        # Only the adder retries a local work; a work of a source is that source's to lease
+        # again. A reader with read_all is told so; any other client sees nothing.
+        case local(client, id) do
+          :none -> %B.Outcome.NotFound{}
+          _visible -> refused(:not_permitted, "the work is another client's")
+        end
     end
   end
 
@@ -166,7 +175,7 @@ defmodule AtlasRuntime.Sources.Local.Work do
   def get_frozen(client, %{work_id: id} = input) do
     case local(client, id) do
       :none -> Executor.get_frozen(client, input)
-      _local -> Executor.get_frozen(Rights.client("local"), input)
+      _local -> Executor.get_frozen(reader(client), input)
     end
   end
 
@@ -174,7 +183,7 @@ defmodule AtlasRuntime.Sources.Local.Work do
   def get_frozen_blob(client, %{work_id: id} = input) do
     case local(client, id) do
       :none -> Executor.get_frozen_blob(client, input)
-      _local -> Executor.get_frozen_blob(Rights.client("local"), input)
+      _local -> Executor.get_frozen_blob(reader(client), input)
     end
   end
 
@@ -210,6 +219,20 @@ defmodule AtlasRuntime.Sources.Local.Work do
 
   defp visible?({client_id, rights}, owner), do: client_id == owner or :read_all in rights
 
+  # A from_work work always runs in a fresh conversation (§3.9, B5): its retry with resume is
+  # refused when asked. Whether another work has a conversation to continue is checked when
+  # the retry's lease is accepted (Main's round 2).
+  defp fresh_conversation(%QueuedWork{request: %{workspace: %FromWork{}}}, %{resume: true}),
+    do: {:refused, :resume_unavailable, "a from_work work always runs in a fresh conversation"}
+
+  defp fresh_conversation(_work, _input), do: :ok
+
+  # The executor's record of a local work is the local source's client's. A caller whose
+  # visibility of that work was checked here reads and acts on it as that client id with
+  # its own rights: the record is found, and its paths are cut as for the caller (D44),
+  # never shown with the local source's choose_path.
+  defp reader({_client_id, rights}), do: {Rights.client_id("local"), rights}
+
   # Whether the executor's current attempt of a local work has ended (its `ended` may still
   # be on its way to the source).
   defp ended_here?(work_id) do
@@ -222,8 +245,8 @@ defmodule AtlasRuntime.Sources.Local.Work do
     end
   end
 
-  defp cancel_leased(work, input) do
-    case Executor.cancel(Rights.client("local"), input) do
+  defp cancel_leased(client, work, input) do
+    case Executor.cancel(reader(client), input) do
       # Leased, not yet accepted by the executor: its lease is cancelled at the source.
       %B.Outcome.NotFound{} -> %B.Outcome.Cancelling{stage: :requested, work: queued(work)}
       outcome -> overlay(outcome, work)
@@ -231,15 +254,15 @@ defmodule AtlasRuntime.Sources.Local.Work do
   end
 
   # The work of the local work `id` right after it was added.
-  defp view!(id) do
+  defp view!(client, id) do
     {:ok, work} = Local.get(id)
-    view(work)
+    view(client, work)
   end
 
   # A local work: the executor's record once leased, shown as the adder's; otherwise as the
   # source holds it.
-  defp view(%QueuedWork{} = local) do
-    case Executor.get_work(Rights.client("local"), %B.GetWorkInput{work_id: local.work_id}) do
+  defp view(client, %QueuedWork{} = local) do
+    case Executor.get_work(reader(client), %B.GetWorkInput{work_id: local.work_id}) do
       %B.Outcome.Found{work: work} -> work |> as_local(local) |> next_attempt(local)
       _ -> queued(local)
     end
@@ -267,8 +290,8 @@ defmodule AtlasRuntime.Sources.Local.Work do
 
   defp next_attempt(work, _local), do: work
 
-  defp pruned(%QueueKeyEntry{} = entry) do
-    case Executor.get_work(Rights.client("local"), %B.GetWorkInput{work_id: entry.work_id}) do
+  defp pruned(client, %QueueKeyEntry{} = entry) do
+    case Executor.get_work(reader(client), %B.GetWorkInput{work_id: entry.work_id}) do
       %B.Outcome.Found{work: work} -> %B.Outcome.Found{work: as_local(work, entry)}
       _ -> %B.Outcome.Pruned{work_id: entry.work_id, kind: entry.final_kind}
     end

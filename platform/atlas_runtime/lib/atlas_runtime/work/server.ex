@@ -1,8 +1,9 @@
 defmodule AtlasRuntime.Work.Server do
   @moduledoc """
   The work core's process: it owns the work records and is the only writer of
-  `$ATLAS_RUNTIME_HOME/work/` (`AtlasRuntime.Work.Store`). `AtlasRuntime.Work`, the
-  boundary's implementation, calls it; nothing else does.
+  `$ATLAS_RUNTIME_HOME/work/` (`AtlasRuntime.Work.Store`). `AtlasRuntime.Work` calls it;
+  nothing else does. Work comes in only as a work source's lease (M2 A7): there is no
+  submit and no retry, and the key index holds only the sources' lease ids.
 
   **Write-ahead (I2).** Every change is persisted (record, then sequence) before any
   notification or answer mentions it: `commit/2` writes, then notifies, and handlers reply
@@ -68,7 +69,7 @@ defmodule AtlasRuntime.Work.Server do
   `interrupted`, not `completed`.
 
   **After-check (design §3.10; s5a-plan B16–B18, B23, B24, B28; P10a).** A work may carry
-  `after_check: {command, timeout}`. At submit it is checked in this order: only a `base` or
+  `after_check: {command, timeout}`. When its lease is accepted it is checked in this order: only a `base` or
   `from_work` work (the folder the Runtime chose, whose turn ran as `materialized-folder` or
   read-only, the two profiles the check can carry; otherwise `unsupported_workspace`), the
   argv rules and the timeout cap (`invalid`), the profile's `allow_after_check`
@@ -91,8 +92,8 @@ defmodule AtlasRuntime.Work.Server do
 
   **Checking under cancel, deadline, restart (design §5, §6 step 2; s5a-plan B19–B21, P10b).**
   `checking` is a sub-stage of `running`: whatever stops the check, the attempt ends
-  `completed`, never `cancelling`, `cancelled`, `failed` or `interrupted`. A `cancel` (or a
-  `retry` that supersedes it) runs the cancel stages on the check's group: `cancel_stage:
+  `completed`, never `cancelling`, `cancelled`, `failed` or `interrupted`. A `cancel` runs
+  the cancel stages on the check's group: `cancel_stage:
   requested` and `cancel_requested_at` are committed, then the helper is told
   `{"stop":"signal"}` (`signalled`, `signalled_at`) or, with `force`, `{"stop":"kill"}`
   (`forced`, `forced_at`), and after `cancel_grace` a check still running is killed. The
@@ -113,8 +114,8 @@ defmodule AtlasRuntime.Work.Server do
   recorded or prepared.
 
   **Leases (decision §5.3 item 1; M2 plan C2, C3).** `{:accept_lease, source, lease,
-  imported}` turns a lease's offered work into a request and runs the same submit checks as
-  the source's client. A remote source's base is the one its puller imported (A3, W5:
+  imported}` turns a lease's offered work into a request and runs the admission checks of
+  the source's client (`admit/4`). A remote source's base is the one its puller imported (A3, W5:
   `imported`), recorded on the work as `imported` and composed by the preparer from the
   source's own store, never fetched from Code. **Accept first (Main's #330 F5 (b)):** the
   puller accepts a remote lease before its import (`imported` nil): the record is created
@@ -145,13 +146,15 @@ defmodule AtlasRuntime.Work.Server do
   offer, and the source's puller offers again), until `{:offer_done, source, used}` gives
   back what is left or the asking process ends (it is monitored). Each lease accepted
   meanwhile takes one reserved slot, and its held attempt keeps that slot: while its
-  accept is reported and while its own import runs (Main's #330 F5 (a)). Nothing else is
-  held for a source: an import that fails or a lease that is lost ends that attempt, and
-  its slot is free. The reservations and the held attempts are the promised slots
-  (`Queue.promised/2`): an attempt that came in without a lease starts only into a free
-  slot beyond them, and room for a direct submit counts them as taken, so a direct submit
-  between an offer and its accept never takes the slot the lease was offered. A leased
-  attempt, once released, is tried first.
+  accept is reported and while its own import runs (Main's #330 F5 (a), (b): the lease is
+  accepted before its import, so an importing lease is a held attempt, not a separate
+  promise). Nothing else is held for a source: an import that fails or a lease that is lost
+  ends that attempt, and its slot is free. The reservations and the held attempts are the
+  promised slots (`Queue.promised/2`). Nothing else is given them: another source's offer
+  counts the other polls' reservations as taken, and an attempt without a lease (only a
+  work recorded before the cut-over has one, M2 A7) starts only into a free slot beyond
+  them; there is no direct submit (M2 A7). Room (`capacity_available`) counts them as
+  taken. A leased attempt, once released, is tried first.
 
   **Stop (design §13.1 Q9).** From `{:stop, force, by}` on the core is `stopping` (in memory
   only, never persisted): it takes no new work and starts nothing; buffered work stays.
@@ -366,13 +369,7 @@ defmodule AtlasRuntime.Work.Server do
   ## Capabilities
 
   @impl true
-  def handle_call({:submit, client, %B.WorkRequest{} = input}, _from, state) do
-    case submit(state, client, input) do
-      {:reply, outcome, state} -> {:reply, outcome, state, {:continue, :dispatch}}
-    end
-  end
-
-  # M2 A6: the CLI's add while the core takes no new work answers as a submit would.
+  # M2 A6: the CLI's add while the core takes no new work answers `at_capacity`.
   def handle_call({:at_capacity, reason}, _from, state),
     do: {:reply, at_capacity(state, reason), state}
 
@@ -429,11 +426,6 @@ defmodule AtlasRuntime.Work.Server do
   def handle_call({:holdings, source}, _from, state) when is_binary(source),
     do: {:reply, holdings(state, source), state}
 
-  def handle_call({:retry, client, %B.RetryInput{} = input}, _from, state) do
-    {outcome, state} = retry(state, client, input)
-    {:reply, outcome, state, {:continue, :dispatch}}
-  end
-
   def handle_call({:cancel, client, %B.CancelInput{} = input}, _from, state) do
     {outcome, state} = cancel(state, client, input)
     {:reply, outcome, state, {:continue, :dispatch}}
@@ -455,29 +447,6 @@ defmodule AtlasRuntime.Work.Server do
 
         record ->
           %B.Outcome.Found{work: project(state, client, record)}
-      end
-
-    {:reply, outcome, state}
-  end
-
-  def handle_call(
-        {:find_work, {client_id, _} = client, %B.FindWorkInput{client_key: key}},
-        _from,
-        state
-      ) do
-    outcome =
-      case state.index[{client_id, key}] do
-        nil ->
-          %B.Outcome.NotFound{}
-
-        %{pruned: true} = entry ->
-          %B.Outcome.Pruned{work_id: entry.work_id, kind: entry.final_kind}
-
-        entry ->
-          case state.works[entry.work_id] do
-            nil -> %B.Outcome.NotFound{}
-            record -> %B.Outcome.Found{work: project(state, client, record)}
-          end
       end
 
     {:reply, outcome, state}
@@ -753,12 +722,13 @@ defmodule AtlasRuntime.Work.Server do
   defp down(state, pid, _reason),
     do: {:noreply, %{state | notifications: Notifications.down(state.notifications, pid)}}
 
-  ## Submit (§3.2, §3.3)
+  ## Admission (§3.2, §3.3)
 
-  # `lease`: a lease's work (accept_lease), `%{work_key, imported}` (`imported`: the
-  # M.Imported of a remote source's imported input, or nil), `:check` for the local work
-  # source's add-time check (nothing is created), or nil.
-  defp submit(state, {_client_id, rights} = client, input, lease \\ nil) do
+  # The checks of a request for `client`, then its record. `lease`: a lease's work
+  # (accept_lease), `%{work_key, imported}` (`imported`: the M.Imported of a remote source's
+  # imported input, or nil), or `:check` for the local work source's add-time check
+  # (nothing is created). There is no other way in (M2 A7).
+  defp submit(state, {_client_id, rights} = client, input, lease) do
     cond do
       input.slot && not Enum.member?(rights, :choose_slot) ->
         refused(state, :not_permitted, "naming a slot needs the right choose_slot")
@@ -793,7 +763,7 @@ defmodule AtlasRuntime.Work.Server do
 
     cond do
       entry && entry.pruned ->
-        refused(state, :conflict, "client key #{key} named work #{entry.work_id}, pruned")
+        refused(state, :conflict, "lease #{key} named work #{entry.work_id}, pruned")
 
       entry ->
         case state.works[entry.work_id] do
@@ -801,12 +771,8 @@ defmodule AtlasRuntime.Work.Server do
             {:reply, %B.Outcome.Existing{work: project(state, client, record)}, state}
 
           _ ->
-            refused(state, :conflict, "client key #{key} names another request")
+            refused(state, :conflict, "lease #{key} names another request")
         end
-
-      # A lease was taken within an offer: never at_capacity (a drain returns it).
-      is_nil(lease) and not open?(state) ->
-        {:reply, at_capacity(state, :not_accepting), state}
 
       input.slot && input.slot not in Policy.slots(policy) ->
         refused(state, :invalid, "unknown slot #{input.slot}")
@@ -844,8 +810,8 @@ defmodule AtlasRuntime.Work.Server do
       true ->
         with {:ok, source} <- source(state, client, input.workspace),
              {:ok, resume} <- resume_from(state, client, input),
-             {:ok, _selection} <- check_policy(state, policy, request, resume),
-             true <- lease != nil || room?(state) || {:full} do
+             {:ok, _selection} <- check_policy(state, policy, request, resume) do
+          # A lease was taken within an offer: never at_capacity (a drain returns it).
           if lease == :check,
             do: {:reply, :ok, state},
             else: create(state, client, key, request, resume, source, lease)
@@ -860,14 +826,8 @@ defmodule AtlasRuntime.Work.Server do
           {:pruned, outcome} ->
             {:reply, outcome, state}
 
-          {:at_capacity, _reason, _} when lease != nil ->
+          {:at_capacity, _reason, _} ->
             refused(state, :no_permitted_option, "profile #{request.profile} is unavailable now")
-
-          {:at_capacity, reason, _} ->
-            {:reply, at_capacity(state, reason), state}
-
-          {:full} ->
-            {:reply, at_capacity(state, :full), state}
         end
     end
   end
@@ -954,9 +914,7 @@ defmodule AtlasRuntime.Work.Server do
 
   defp create(state, {client_id, _rights} = client, key, request, resume, source, lease) do
     # A local lease's work keeps the local work id (Main's A6 Q1).
-    id =
-      (is_map(lease) && lease[:work_id]) ||
-        "work-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    id = lease[:work_id] || "work-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
 
     now = now()
 
@@ -970,7 +928,7 @@ defmodule AtlasRuntime.Work.Server do
         resume_point: model_resume_point(resume),
         quiescent: false,
         # C3: a lease's attempt waits for the source's recorded accept, across a restart too.
-        lease_hold: if(lease, do: true)
+        lease_hold: true
       )
 
     record =
@@ -979,29 +937,22 @@ defmodule AtlasRuntime.Work.Server do
         client: client_id,
         client_key: key,
         # A lease's turn carries the source's work_key (obligation 8), never the lease.
-        idempotency_key: (lease && lease.work_key) || key || id,
+        idempotency_key: lease.work_key,
         revision: 0,
         sequence: 0,
         request: request,
         attempts: [attempt],
         source: source,
         # A3: the imported base (and change set) this work materializes from.
-        imported: lease && lease.imported
+        imported: lease.imported
       )
 
     state = commit(state, record)
-
-    state =
-      if key do
-        entry =
-          M.KeyIndexEntry.new!(client: client_id, client_key: key, work_id: id, pruned: false)
-
-        index = Map.put(state.index, {client_id, key}, entry)
-        Store.put_index!(state.dir, index)
-        %{state | index: index}
-      else
-        state
-      end
+    # The key index holds only the sources' lease ids (`key` is the lease id, M2 A7).
+    entry = M.KeyIndexEntry.new!(client: client_id, client_key: key, work_id: id, pruned: false)
+    index = Map.put(state.index, {client_id, key}, entry)
+    Store.put_index!(state.dir, index)
+    state = %{state | index: index}
 
     {:reply, %B.Outcome.Accepted{work: project(state, client, state.works[id])}, state}
   end
@@ -1102,8 +1053,8 @@ defmodule AtlasRuntime.Work.Server do
   # Attempt `n` of a local work this executor has recorded: the same lease again is
   # `existing`; an attempt it has already recorded (`n` or later: that lease was lost) is
   # refused, so it never runs twice; otherwise attempt `n - 1` must have ended, and the new
-  # attempt is held like any lease's until the source records the accept (C3). The retry's
-  # own checks are the executor's retry's (the policy now, a conversation to continue).
+  # attempt is held like any lease's until the source records the accept (C3). Its checks:
+  # the policy now, and a conversation to continue when it resumes.
   defp local_retry_lease(state, lease_id, work_key, n, resume?) do
     {client_id, _rights} = Rights.client("local")
     record = state.works[work_key]
@@ -1166,7 +1117,7 @@ defmodule AtlasRuntime.Work.Server do
         {{:unavailable, reason}, state}
 
       {:ok, _selection} ->
-        state = add_attempt(state, record, current, :after, resume, true)
+        state = add_attempt(state, record, current, resume)
         # The record's key is its current lease: the holdings and the reports follow it, and
         # the earlier lease's key names nothing any more.
         earlier = {client_id, record.client_key}
@@ -1335,8 +1286,9 @@ defmodule AtlasRuntime.Work.Server do
   # The local work source's add-time check (M2 A5, decision §5.4: a typo is refused at
   # once): the submit checks of `client`, without its client key (the local source keeps
   # the keys, I3) and without creating anything. `:ok` (also for a profile unavailable now:
-  # the work waits in the queue), `{:refused, reason, detail}`, or `{:refused,
-  # :not_accepting, detail}` while the core does not take new work.
+  # the work waits in the queue), `{:refused, reason, detail}`, `{:pruned, work_id, kind}`
+  # (a from_work source pruned), or `{:refused, :not_accepting, detail}` while the core does
+  # not take new work.
   defp check_request(state, client, input) do
     if open?(state) do
       case submit(state, client, %{input | client_key: nil}, :check) do
@@ -1346,8 +1298,9 @@ defmodule AtlasRuntime.Work.Server do
         {:reply, %B.Outcome.Refused{reason: reason, detail: detail}, _state} ->
           {:refused, reason, detail}
 
-        {:reply, %B.Outcome.Pruned{work_id: id}, _state} ->
-          {:refused, :conflict, "work #{id} is pruned"}
+        # A from_work source whose frozen result was pruned: the work contract's `pruned`.
+        {:reply, %B.Outcome.Pruned{work_id: id, kind: kind}, _state} ->
+          {:pruned, id, kind}
       end
     else
       {:refused, :not_accepting, "the Runtime is #{state.mode}"}
@@ -1496,59 +1449,7 @@ defmodule AtlasRuntime.Work.Server do
     end
   end
 
-  ## Retry (§3.2 retry table)
-
-  defp retry(state, client, input) do
-    case visible(state, client, input.work_id) do
-      nil ->
-        {%B.Outcome.NotFound{}, state}
-
-      record when record.client != elem(client, 0) ->
-        not_owner(state)
-
-      record ->
-        current = Queue.current(record)
-        rule = Queue.retry_rule(current)
-        resume = if input.resume, do: resume_source(state, record)
-        policy = Policy.load(state.dir)
-
-        check =
-          cond do
-            # A from_work work always runs in a fresh conversation (§3.9, B5).
-            input.resume && match?(%M.FromWork{}, record.request.workspace) ->
-              {:refused, :resume_unavailable,
-               "a from_work work always runs in a fresh conversation"}
-
-            input.resume && is_nil(resume) ->
-              {:refused, :resume_unavailable,
-               "no earlier attempt left a conversation to continue"}
-
-            true ->
-              check_policy(state, policy, record.request, resume)
-          end
-
-        cond do
-          match?({:refused, _, _}, check) ->
-            {:refused, reason, detail} = check
-            {%B.Outcome.Refused{reason: reason, detail: detail}, state}
-
-          match?({:at_capacity, _, _}, check) ->
-            {at_capacity(state, :profile_unavailable), state}
-
-          not open?(state) ->
-            {at_capacity(state, :not_accepting), state}
-
-          rule != :replace and not room?(state) ->
-            {at_capacity(state, :full), state}
-
-          true ->
-            state = add_attempt(state, record, current, rule, resume)
-
-            {%B.Outcome.Accepted{work: project(state, client, state.works[record.work_id])},
-             state}
-        end
-    end
-  end
+  ## A local retry's attempt (Main's round 2: a lease of the next attempt)
 
   # The newest attempt's conversation: from its turn if it ran, else the point it would
   # have resumed from.
@@ -1570,7 +1471,8 @@ defmodule AtlasRuntime.Work.Server do
       workspace: point.workspace && Map.from_struct(point.workspace)
     }
 
-  defp add_attempt(state, record, current, rule, resume, lease_hold \\ nil) do
+  # Attempt n+1 after a terminal attempt n, held until its source recorded the accept (C3).
+  defp add_attempt(state, record, current, resume) do
     now = now()
 
     next =
@@ -1580,21 +1482,10 @@ defmodule AtlasRuntime.Work.Server do
         timestamps: M.Timestamps.new!(received_at: now, accepted_at: now),
         resume_point: model_resume_point(resume),
         quiescent: false,
-        # C3: a lease's attempt waits for the source's recorded accept.
-        lease_hold: lease_hold
+        lease_hold: true
       )
 
-    replaced =
-      if rule == :replace,
-        do: never_started(current, :superseded, now),
-        else: current
-
-    record = %{record | attempts: List.replace_at(record.attempts, -1, replaced) ++ [next]}
-    state = commit(state, record)
-
-    if rule == :supersede,
-      do: request_cancel(state, record.work_id, current.attempt, :superseded, :graceful),
-      else: state
+    commit(state, %{record | attempts: record.attempts ++ [next]})
   end
 
   ## Cancel (§3.7)
@@ -1861,8 +1752,8 @@ defmodule AtlasRuntime.Work.Server do
 
   # The gate is read again for each start: a start that found the Service stopping closes
   # it for the ones after it.
-  # An attempt that came in without a lease starts only into a slot no source was
-  # promised (M2 plan A1).
+  # An attempt of a work recorded without a lease (before the cut-over, M2 A7) starts only
+  # into a slot no source was promised (M2 plan A1).
   defp try_start(state, id) do
     if open?(state) and (Queue.leased?(state.works[id]) or unpromised?(state)),
       do: start(state, id),
@@ -3369,8 +3260,8 @@ defmodule AtlasRuntime.Work.Server do
   defp refused(state, reason, detail),
     do: {:reply, %B.Outcome.Refused{reason: reason, detail: detail}, state}
 
-  # §3.2 Ownership: retry and cancel act only on the caller's own work. A work another
-  # client owns is visible here only through read_all, which grants reading, never acting.
+  # §3.2 Ownership: cancel acts only on the caller's own work. A work another client owns
+  # is visible here only through read_all, which grants reading, never acting.
   defp not_owner(state),
     do:
       {%B.Outcome.Refused{reason: :not_permitted, detail: "the work is another client's"}, state}

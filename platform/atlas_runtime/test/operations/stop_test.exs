@@ -9,6 +9,7 @@ defmodule AtlasRuntime.Operations.StopTest do
   alias AtlasRuntime.Boundary.Operations, as: F
   alias AtlasRuntime.Boundary.Work, as: W
   alias AtlasRuntime.Service
+  alias AtlasRuntime.Sources.Local
   alias AtlasRuntime.Work.Store
   alias AtlasRuntimeBoundary.Generator.NotPermitted
 
@@ -127,9 +128,11 @@ defmodule AtlasRuntime.Operations.StopTest do
     assert_receive {:halted, 0}, 5_000
     assert "service-stop" in commands()
 
-    # Buffered work stays stored, unchanged, and never launched.
+    # Buffered work stays queued at the local source (no slot was offered), unchanged, and
+    # never launched: the executor never had it.
     assert work!(waiting.work_id) == held
-    assert [%{state: :buffered}] = Store.read_work(bench.dir, waiting.work_id).attempts
+    assert {:ok, %{state: :queued}} = Local.get(waiting.work_id)
+    assert Store.read_work(bench.dir, waiting.work_id) == nil
     refute Enum.any?(launches(bench), &(&1["goal"] == "complete after the stop"))
   end
 
@@ -239,7 +242,10 @@ defmodule AtlasRuntime.Operations.StopTest do
     bench = bench!(800)
     {soft, hard, waiting} = running!(bench)
     assert %{mode: :draining} = F.drain(@operator)
-    assert [%{state: :returned}] = await_state(waiting.work_id, :returned).attempts
+    # A drain returns the leases the executor accepted and has not started; the waiting
+    # work was never leased, so it stays queued at the local source (decision §6.3 S2).
+    assert {:ok, %{state: :queued}} = Local.get(waiting.work_id)
+    assert [%{state: :buffered}] = work!(waiting.work_id).attempts
     bytes = File.read!(mode_file(bench))
 
     assert %F.Outcome.Stopping{mode: :stopping} = F.stop(@operator, %{})

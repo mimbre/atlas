@@ -451,11 +451,24 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
     end
 
     # Review dev1 finding 4 (V8): a lease being imported keeps its slot on the start path
-    # too. A direct submit (Deviation 2: no local source runs here) is admitted, but does
-    # not start in that slot; the lease runs once imported.
-    test "a direct submit while a lease imports does not start in its slot; the lease runs once imported",
+    # too. After the cut-over (M2 A7) there is no direct submit, so the contender is the
+    # source's own next poll, with a third work waiting to be leased: the check during the
+    # import answers at once, that poll is offered nothing and leases nothing, and the lease
+    # runs in its slot once imported. A work recorded before the cut-over, the other
+    # contender, is covered by lease_admission_test's "a promised slot is its lease's".
+    test "while a lease imports, the fence check does not wait on it and nothing else takes its slot; the lease runs once imported",
          ctx do
       test = self()
+      first = ctx.lease_id
+
+      Source.add_base_work(ctx.source, %{
+        work_key: "task-3",
+        title: "task-3",
+        instructions: "hang",
+        profile: "light_work",
+        cost_class: :standard,
+        input: %{permissions: :"workspace-write"}
+      })
 
       FakeSourceTarget.hook(ctx.target, :get_blob, fn real, input ->
         send(test, {:importing, self(), input})
@@ -464,19 +477,33 @@ defmodule AtlasRuntime.Sources.SelfFencingTest do
 
       poll = Task.async(fn -> Puller.poll_now(ctx.puller) end)
       assert_receive {:importing, importer, {slow, _sha}}, 5_000
+      slow_work = Puller.leases(ctx.puller)[slow].work_id
 
-      assert %B.Outcome.Accepted{work: %{work_id: direct}} =
-               B.submit(client(), request(ctx.bench, "hang direct"))
+      # The check answers while the import hangs; the lease stays importing.
+      assert :ok = check!(ctx)
+      assert Puller.leases(ctx.puller)[slow].phase == :importing
+      assert Process.alive?(importer)
 
-      assert [%{state: :buffered, slot: nil}] = attempts(client(), direct)
+      # The next poll renews it and is offered nothing: task-3 is not leased.
+      assert :polled = GenServer.call(ctx.puller, :poll_now, 5_000)
+
+      assert %{offer: offer, holdings: held} =
+               List.last(FakeSourceTarget.calls(ctx.target, :poll))
+
+      assert offer == %{}
+      assert slow in Enum.map(held, & &1.lease_id)
+      assert Enum.sort(Map.keys(Puller.leases(ctx.puller))) == Enum.sort([first, slow])
+      assert [%{state: :buffered, slot: nil}] = attempts(slow_work)
 
       FakeSourceTarget.hook(ctx.target, :get_blob, nil)
       send(importer, :go)
       assert :polled = Task.await(poll, 5_000)
 
-      leased = Puller.leases(ctx.puller)[slow].work_id
-      await_state(leased, :running, @client)
-      assert [%{state: :buffered, slot: nil}] = attempts(client(), direct)
+      # Imported: the lease runs in the slot the running lease does not use.
+      assert %{attempts: [%{slot: slot}]} = await_state(slow_work, :running, @client)
+      assert [%{slot: first_slot}] = attempts(Puller.leases(ctx.puller)[first].work_id)
+      assert Enum.sort([slot, first_slot]) == ["s1", "s2"]
+      assert Enum.sort(Map.keys(Puller.leases(ctx.puller))) == Enum.sort([first, slow])
     end
   end
 

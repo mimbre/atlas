@@ -75,7 +75,7 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
   defp await_checking(bench, work_id) do
     await(fn ->
       attempt = private_attempt(bench.dir, work_id, 1)
-      attempt.checking == true and is_integer(attempt.check_pgid) and attempt
+      attempt != nil and attempt.checking == true and is_integer(attempt.check_pgid) and attempt
     end)
   end
 
@@ -219,29 +219,25 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
 
   ## retry during checking (B20; review S2)
 
-  test "a retry during the check supersedes it through the check's cancel stages: attempt 1 ends completed with check.cancelled, never cancelled, keeping an earlier cancel's reason and time; attempt 2 starts only after it ends" do
+  # M2 A7: a retry is the local source's next lease of an ended attempt (Main's round 2), so
+  # nothing supersedes a check: a retry while it runs is refused and changes nothing.
+  test "a retry during the check is refused and changes nothing, also after a cancel; once attempt 1 ended completed, attempt 2 starts after it" do
     {bench, code} = bench!()
     obstinate = ["sh", "-c", "trap '' INT; : > atlas/trapped; sleep 30"]
 
-    # A retry alone: the supersede signals the check's group, the attempt stays running.
+    # A retry alone: refused, the check runs on.
     plain = submit_check!(code, "complete before a long check", %{command: ["sleep", "30"]})
     await_checking(bench, plain.work_id)
-    assert %F.Outcome.Accepted{} = F.retry(client(), %{work_id: plain.work_id})
+    assert %F.Outcome.Refused{reason: :conflict} = F.retry(client(), %{work_id: plain.work_id})
 
-    assert %F.CheckResult{cancelled: true, interrupted: false, timed_out: false} =
-             await_check(plain.work_id, 1)
+    assert %{state: :running, checking: true, cancel_stage: nil} =
+             private_attempt(bench.dir, plain.work_id, 1)
 
-    first = attempt!(plain.work_id, 1)
-    assert first.state == :completed and first.result.kind == :completed
-    assert first.result.work_product.frozen
-    assert first.cancel_reason == :superseded and first.cancel_stage in [:signalled, :forced]
-    assert first.timestamps.cancel_requested_at && first.timestamps.signalled_at
-    refute Enum.any?(written_states(plain.work_id), &(&1 in [:cancelling, :cancelled, :failed]))
-    await_checking_n(bench, plain.work_id, 2)
+    assert [%{state: :running}] = work!(plain.work_id).attempts
     F.cancel(client(), %{work_id: plain.work_id, mode: "force"})
-    await_check(plain.work_id, 2)
+    await_check(plain.work_id, 1)
 
-    # A cancel first, then the retry: the retry neither resets nor renames that cancel.
+    # A cancel first, then the retry: refused; the cancel is neither reset nor renamed.
     work = submit_check!(code, "complete before an obstinate check", %{command: obstinate})
     await_checking(bench, work.work_id)
     trapped = Path.join(expected_folder(bench.dir, work.work_id), "atlas/trapped")
@@ -251,17 +247,13 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
              F.cancel(client(), %{work_id: work.work_id, mode: "graceful"})
 
     cancelled = private_attempt(bench.dir, work.work_id, 1)
-    assert %F.Outcome.Accepted{} = F.retry(client(), %{work_id: work.work_id})
+    assert %F.Outcome.Refused{reason: :conflict} = F.retry(client(), %{work_id: work.work_id})
 
     retried = private_attempt(bench.dir, work.work_id, 1)
     assert retried.state == :running and retried.checking == true
     assert retried.cancel_reason == :cancel
-    assert retried.cancel_stage in [:signalled, :forced]
     assert retried.timestamps.cancel_requested_at == cancelled.timestamps.cancel_requested_at
-    assert retried.timestamps.signalled_at == cancelled.timestamps.signalled_at
-
-    # While attempt 1's check still runs (SIGINT ignored), attempt 2 has not started.
-    assert %{state: :buffered, timestamps: %{started_at: nil}} = attempt!(work.work_id, 2)
+    assert [_] = work!(work.work_id).attempts
 
     assert %F.CheckResult{cancelled: true, signal: "SIGKILL", interrupted: false} =
              await_check(work.work_id, 1)
@@ -275,7 +267,8 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
     assert DateTime.diff(t.forced_at, t.signalled_at, :millisecond) >= 250
     refute Enum.any?(written_states(work.work_id), &(&1 in [:cancelling, :cancelled, :failed]))
 
-    # Attempt 2 starts only once attempt 1 has ended.
+    # Ended: the retry is attempt 2, which starts only once attempt 1 has ended.
+    assert %F.Outcome.Accepted{} = F.retry(client(), %{work_id: work.work_id})
     await_checking_n(bench, work.work_id, 2)
     second = attempt!(work.work_id, 2)
     assert DateTime.compare(second.timestamps.started_at, t.ended_at) != :lt

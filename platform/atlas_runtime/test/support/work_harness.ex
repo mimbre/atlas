@@ -1,8 +1,11 @@
 defmodule AtlasRuntime.WorkHarness do
   @moduledoc """
   The work core's test bench: a Runtime home with a `policy.json`, a fake Codex and Claude
-  on `PATH` (`fake-native work`, which never launches a provider), the real Service and
-  `AtlasRuntime.Work`. Callers go through the facade `AtlasRuntime.Boundary.Work` only.
+  on `PATH` (`fake-native work`, which never launches a provider), the real Service,
+  `AtlasRuntime.Work` and, as `host/service.exs` starts them, the policy's built-in `local`
+  work source and its puller (`AtlasRuntime.Sources.Supervisor`). Callers go through the
+  facade `AtlasRuntime.Boundary.Work` only, so every work reaches the executor as a lease of
+  the local source (M2 A7: the executor has no submit).
 
   Timer values: heartbeat 100 ms, cancel grace 300 ms. Waits wake on the core's own
   notifications (`work_events/0`: each work change and each heartbeat), never on the clock;
@@ -44,9 +47,17 @@ defmodule AtlasRuntime.WorkHarness do
   # A reader of every work, for waits only (`work_events/0`).
   @watcher {"harness-await", [:read, :read_all]}
   @options [heartbeat_ms: 100, cancel_grace_ms: 300]
+  # The local puller polls at once and checks every 50 ms.
+  @puller [tick: 50, min_poll_ms: 20, retry_ms: 20]
 
-  @doc "Starts a home, a Service and the core; `policy` overrides policy.json fields."
+  @doc """
+  Starts a home, a Service, the core and the local work source; `policy` overrides
+  policy.json fields. `options` are the core's, and `local: false`: no local source (a test
+  that starts the sources itself, or leases to the executor directly). See `start_local!/1`.
+  """
   def start!(policy \\ %{}, options \\ []) do
+    {local?, options} = Keyword.pop(options, :local, true)
+
     dir =
       Path.join(
         System.tmp_dir!(),
@@ -76,6 +87,7 @@ defmodule AtlasRuntime.WorkHarness do
     context = %{dir: dir, workspace: workspace, options: options}
     context = Map.put(context, :service, start_service!(context))
     context = Map.put(context, :work, start_work!(context))
+    if local?, do: start_local!(context)
 
     on_exit(fn ->
       stop_all()
@@ -114,6 +126,23 @@ defmodule AtlasRuntime.WorkHarness do
     File.write!(Path.join(dir, "policy.json"), JSON.encode!(policy))
   end
 
+  @doc """
+  The policy's built-in `local` source and its puller, supervised by the test (stopped
+  before its `on_exit`), when `local` is the policy's only source (a policy without
+  `sources` included); nil otherwise: a test of remote sources starts its own.
+  """
+  def start_local!(context) do
+    sources = AtlasRuntime.Policy.sources(AtlasRuntime.Policy.load(context.dir))
+
+    if sources != [] and Enum.all?(sources, &(&1["kind"] == "builtin")) do
+      start_supervised!(%{
+        id: :local_source,
+        type: :supervisor,
+        start: {AtlasRuntime.Sources.Supervisor, :start_link, [context.dir, [puller: @puller]]}
+      })
+    end
+  end
+
   @doc "A Service on the home; `probe` is its restart reconciliation's process check."
   def start_service!(context, probe \\ nil) do
     File.rm(Path.join(context.dir, "runtime.sock"))
@@ -122,7 +151,14 @@ defmodule AtlasRuntime.WorkHarness do
     pid
   end
 
-  @doc "The work core on the home, following `context.service`."
+  @doc """
+  The work core on the home, following `context.service`. A local puller already running
+  (the bench restarts the core alone) is stopped before the core starts and started again
+  after it, as `host/service.exs` starts the pullers after the core: a puller adopts the
+  leases the core holds when it starts. Stopped first, the old puller never polls the new
+  core: a poll answer it got there and lost to its restart would hold the work leased at
+  the source, unaccepted, until the source's accept deadline (30 s).
+  """
   def start_work!(context, options \\ []) do
     options =
       @options
@@ -130,9 +166,25 @@ defmodule AtlasRuntime.WorkHarness do
       |> Keyword.merge(options)
       |> Keyword.put(:service, context.service)
 
+    stopped? = stop_local_puller()
     {:ok, pid} = AtlasRuntime.Work.start_link(context.dir, options)
     Process.unlink(pid)
+    if stopped?, do: start_local_puller()
     pid
+  end
+
+  @local_puller {AtlasRuntime.Sources.Puller, "local"}
+
+  defp stop_local_puller do
+    case Process.whereis(AtlasRuntime.Sources.Supervisor) do
+      nil -> false
+      sup -> Supervisor.terminate_child(sup, @local_puller) == :ok
+    end
+  end
+
+  defp start_local_puller do
+    {:ok, _} = Supervisor.restart_child(AtlasRuntime.Sources.Supervisor, @local_puller)
+    :ok
   end
 
   @doc """
@@ -258,12 +310,18 @@ defmodule AtlasRuntime.WorkHarness do
   end
 
   @doc """
-  A local client with the work rights and choose_path (the harness's requests name a
-  folder, D44), without read_all or choose_slot.
+  The harness's own client `c1`: the work rights, choose_path (the harness's requests name a
+  folder, D44) and read_all, as the CLI's socket client holds them, without choose_slot. A
+  local work's executor record is the local source's client's (M2 A6), so the executor
+  checks a turn to continue, a work to build on, a turn's output and the notifications of a
+  local work as a reader of that record: read_all.
   """
-  def client(id \\ "c1", extra \\ []), do: {id, [:submit, :cancel, :read, :choose_path | extra]}
+  def client, do: client("c1", [:read_all])
 
-  @doc "Submits through the facade and asserts `accepted`."
+  @doc "A local client `id` with the work rights and choose_path, plus `extra`."
+  def client(id, extra \\ []), do: {id, [:submit, :cancel, :read, :choose_path | extra]}
+
+  @doc "Adds a work through the facade (to the local source) and asserts `accepted`."
   def submit!(context, instructions, extra \\ %{}, client \\ client()) do
     assert %F.Outcome.Accepted{work: work} =
              F.submit(client, request(context, instructions, extra))

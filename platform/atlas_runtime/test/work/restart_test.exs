@@ -197,16 +197,22 @@ defmodule AtlasRuntime.Work.RestartTest do
     assert attempt.provenance.configured_model == "unknown"
   end
 
-  test "a superseded attempt still cancelling behind its successor ends at restart; the successor waits for its quiescence",
+  # I1 through the local retry (Main's round 2; M2 A7: the executor has no retry of its own,
+  # so nothing supersedes a live attempt): the retry of an attempt a restart ended without
+  # its process provably gone is the next lease, which waits for that quiescence.
+  test "an attempt still cancelling ends at restart, not quiescent; its retry waits for its quiescence",
        %{bench: bench} do
     stop_work()
     start_work!(bench, cancel_grace_ms: 60_000)
     work = submit!(bench, "stubborn superseded")
     session_recorded(bench, work)
-    assert %F.Outcome.Accepted{} = F.retry(client(), %{work_id: work.work_id})
-    assert [%{state: :cancelling}, %{state: :buffered}] = work!(work.work_id).attempts
 
-    # Its turn is unknown after the restart: n ends cancelled, but not quiescent, so n+1 waits.
+    assert %F.Outcome.Cancelling{} =
+             F.cancel(client(), %{work_id: work.work_id, mode: "graceful"})
+
+    assert [%{state: :cancelling}] = work!(work.work_id).attempts
+
+    # Its turn is unknown after the restart: n ends cancelled, but not quiescent.
     verdict = :atomics.new(1, [])
 
     probe = fn _pid, _launched ->
@@ -215,14 +221,15 @@ defmodule AtlasRuntime.Work.RestartTest do
 
     crash_and_restart(bench, &__MODULE__.alive/2, probe: probe)
 
-    [first, second] =
-      await_work(work.work_id, &match?([%{state: :cancelled}, _], &1.attempts)).attempts
-
-    assert first.result.reason == :superseded
+    [first] = await_work(work.work_id, &match?([%{state: :cancelled}], &1.attempts)).attempts
     refute first.quiescent
+
+    # The retry is accepted (n is terminal), and n+1 is leased, but waits: after the heartbeats
+    # whose passes would have started it, n is still not quiescent and n+1 still buffered.
+    assert %F.Outcome.Accepted{} = F.retry(client(), %{work_id: work.work_id})
+    await_work(work.work_id, &match?([_, %{state: :buffered}], &1.attempts))
     heartbeats(3)
-    assert [_, %{state: :buffered}] = work!(work.work_id).attempts
-    assert second.state == :buffered
+    assert [%{quiescent: false}, %{state: :buffered}] = work!(work.work_id).attempts
 
     :atomics.put(verdict, 1, 1)
     await_work(work.work_id, &match?([%{quiescent: true}, %{state: :running}], &1.attempts))

@@ -10,8 +10,9 @@ defmodule AtlasRuntime.Sources.EndToEndTest do
      sends nothing more of the lease; after `lease_ttl + grace` the second takes a fresh
      lease of the same work; a stale report under the first lease is `lease_lost` and lands
      nothing.
-  3. Local direct submits next to leases: every lease is accepted and runs; none is refused,
-     whatever the direct submits get.
+  3. Local works next to leases (M2 A7: no direct submit; the CLI's work comes as the
+     built-in local source's leases): every lease of both sources is accepted and runs, and
+     none is refused.
 
   Every lease names a base the puller imports from this source (A3, W5: the A4 cases rerun
   on an imported base): its blobs through `get_blob` into the source's own store, the tree
@@ -22,7 +23,7 @@ defmodule AtlasRuntime.Sources.EndToEndTest do
   import AtlasRuntime.WorkHarness
 
   alias AtlasRuntime.Boundary.Work, as: B
-  alias AtlasRuntime.Sources.{Puller, Rights}
+  alias AtlasRuntime.Sources.{Local, Puller, Rights}
   alias AtlasRuntime.Test.FakeSourceTarget
   alias AtlasRuntime.Test.FakeWorkSource, as: Source
   alias AtlasRuntime.Test.WorkSourceFacade, as: S
@@ -171,18 +172,57 @@ defmodule AtlasRuntime.Sources.EndToEndTest do
     assert %B.Outcome.Works{works: [_one]} = B.list_work(@client, %{})
   end
 
-  test "local direct submits next to leases: every lease is accepted and runs, none is refused",
+  test "local works next to leases: every lease of both sources is accepted and runs, none is refused",
        ctx do
+    # The policy names the local source too, after flow-test; its puller runs beside.
+    write_policy!(ctx.bench.dir, %{
+      "sources" => [
+        %{
+          "name" => @name,
+          "kind" => "remote",
+          "url" => "https://flow-test.example/",
+          "credential_file" => "sources/flow-test/token",
+          "priority" => 1,
+          "max_slots" => 2,
+          "max_store_bytes" => 2_147_483_648
+        },
+        %{
+          "name" => "local",
+          "kind" => "builtin",
+          "priority" => 2,
+          "max_slots" => 2,
+          "max_store_bytes" => 2_147_483_648
+        }
+      ]
+    })
+
+    start_supervised!(%{id: Local, start: {Local, :start_link, [ctx.bench.dir, []]}})
+
+    start_supervised!(
+      {Puller,
+       name: "local",
+       target: Local.Target.new(),
+       register: Local.puller_name(),
+       tick: 50,
+       min_poll_ms: 20,
+       retry_ms: 20},
+      id: :local_puller
+    )
+
     keys = for n <- 1..4, do: "task-#{n}"
     for key <- keys, do: add(ctx, key, "complete")
     puller!(ctx)
 
     local =
-      for n <- 1..4,
-          do: B.submit(client(), request(ctx.bench, "local #{n}", %{client_key: "local-#{n}"}))
+      for n <- 1..4 do
+        assert %B.Outcome.Accepted{work: work} =
+                 B.submit(
+                   client(),
+                   request(ctx.bench, "complete local #{n}", %{client_key: "local-#{n}"})
+                 )
 
-    # The direct submits do run next to the leases (what else they get is theirs).
-    assert Enum.any?(local, &match?(%B.Outcome.Accepted{}, &1))
+        work
+      end
 
     await(fn -> Enum.all?(keys, &ended?(ctx.source, &1)) end)
 
@@ -191,6 +231,20 @@ defmodule AtlasRuntime.Sources.EndToEndTest do
                leases(ctx.source, key)
     end
 
+    # The executor's record completes first; the local source records the end once the
+    # puller's report (sent off the puller) reaches it, so that is awaited too.
+    for work <- local do
+      assert [%{state: :completed}] = await_state(work.work_id, :completed).attempts
+
+      await(
+        fn ->
+          match?({:ok, %{state: :ended, result: %{kind: :completed}}}, Local.get(work.work_id))
+        end,
+        "the local source records #{work.work_id} ended, completed"
+      )
+    end
+
     assert length(Work.holdings(@name)) == 4
+    assert length(Work.holdings("local")) == 4
   end
 end

@@ -5,9 +5,11 @@ defmodule AtlasRuntime.Work.Store do
 
   - `work/<work_id>.json`: one `work_record` per work;
   - `work/index.json`: every `key_index_entry`, (client, client key) → `work_id`, kept as a
-    tombstone once its record is pruned (I7). A pruned work without a client key keeps a
-    tombstone too: an entry whose `client_key` is its own `work_id`, held in the index under
-    `{:pruned, work_id}` so that no client key looks it up;
+    tombstone once its record is pruned (I7). Since the cut-over (M2 A7) the client is a work
+    source's and the key its lease id; the CLI's client keys are the local source's
+    (`AtlasRuntime.Sources.Local.Store`). A pruned work without a client key (recorded before
+    the cut-over) keeps a tombstone too: an entry whose `client_key` is its own `work_id`,
+    held in the index under `{:pruned, work_id}` so that no client key looks it up;
   - `work/sequence`: the change sequence, as decimal text.
 
   Every file is written to a temporary file and renamed into place, so a reader sees the

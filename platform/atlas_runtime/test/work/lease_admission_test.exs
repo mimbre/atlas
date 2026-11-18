@@ -4,8 +4,8 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
   `Work.accept_lease/3` keys the work by the lease, holds its attempt until
   `Work.release_lease/1`, across a restart too, and never answers `at_capacity`;
   `Queue.offer/4` shares the free slots by strict priority with caps; and `Work.offer/1`
-  reserves what it offers until `Work.offer_done/2`, so a direct submit between an offer and
-  its accept never takes the offered slot.
+  reserves what it offers until `Work.offer_done/2`, so no other source's offer takes the
+  offered slot meanwhile. A lease is the executor's only way in (M2 A7).
 
   Main's decisions: the offer is the total of free slots and the profiles available (O1);
   only the sources polling right now share the free slots, and nothing is held for a source
@@ -111,12 +111,48 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
     }
   end
 
+  # A buffered work as a direct submit recorded it before the cut-over (M2 A7): the CLI's
+  # client and key, no lease, never held; written while the core is stopped.
+  defp legacy_record!(bench, instructions) do
+    request = request(bench, instructions)
+
+    record =
+      M.WorkRecord.new!(
+        work_id: "work-00000000000000a7",
+        client: elem(client(), 0),
+        client_key: "cli-key",
+        idempotency_key: "cli-key",
+        revision: 1,
+        sequence: 1,
+        request:
+          M.Request.new!(
+            title: instructions,
+            instructions: instructions,
+            profile: "light_work",
+            cost_class: :standard,
+            workspace: M.Folder.new!(path: request.workspace.path, permissions: :read_only)
+          ),
+        attempts: [
+          M.Attempt.new!(
+            attempt: 1,
+            state: :buffered,
+            timestamps: M.Timestamps.new!(received_at: DateTime.utc_now()),
+            quiescent: false
+          )
+        ]
+      )
+
+    Store.put_work!(bench.dir, record)
+    record
+  end
+
   defp work_count(bench),
     do: bench.dir |> Path.join("work/work-*.json") |> Path.wildcard() |> length()
 
   describe "accept_lease" do
     setup do
-      bench = start!()
+      # The executor alone: these tests lease to it directly, as a puller would.
+      bench = start!(%{}, local: false)
       %{bench: bench, code: imported_base!(bench)}
     end
 
@@ -215,9 +251,9 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
       assert :not_found = Work.release_lease("work-none")
     end
 
-    test "no lease path ever returns at_capacity: random offer/accept/submit/release runs",
+    test "no lease path ever returns at_capacity: random offer/accept/release runs",
          %{bench: bench, code: code} do
-      # Two slots and a buffer of one: local submits fill the Runtime fast.
+      # Two slots and a buffer of one: leases beyond an offer fill the Runtime fast.
       write_policy!(bench.dir, sources(%{"local" => %{"max_slots" => 0}}))
       :rand.seed(:exsss, {7, 11, 13})
 
@@ -239,14 +275,6 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
             ids = for l <- leases, do: elem({:accepted, _} = accept(code, l), 1)
             assert :ok = Work.offer_done(@source, used)
             %{acc | leases: leases ++ acc.leases, accepted: ids ++ acc.accepted}
-
-          1 ->
-            outcome = F.submit(client(), request(bench, "local #{n}"))
-
-            assert match?(%F.Outcome.Accepted{}, outcome) or
-                     match?(%F.Outcome.AtCapacity{}, outcome)
-
-            acc
 
           2 when acc.accepted != [] ->
             assert Work.release_lease(Enum.random(acc.accepted)) in [:released]
@@ -393,41 +421,48 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
       assert :ok = Work.offer_done(@source, 0)
     end
 
-    test "local submit between offer and accept does not take the reserved slot", %{
+    # #330's "a direct submit between offer and accept never takes the reserved slot", after
+    # the cut-over (M2 A7): there is no direct submit, so the only attempt that may start
+    # without a lease is one of a work recorded before the cut-over. Another source's offer is
+    # covered by "an offer is reserved for its poll only" above.
+    test "a promised slot is its lease's: a work recorded without a lease does not take it", %{
       bench: bench,
       code: code
     } do
-      # One slot and a buffer of one: the local work may wait, the lease must not.
       write_policy!(
         bench.dir,
         Map.put(sources(%{"local" => %{"max_slots" => 0}}), "slots", ["s1"])
       )
 
+      # The one slot is offered and its lease accepted: held, it keeps that slot.
       assert Work.offer(@source) == %{"light_work" => 1}
-
-      # Each call below is answered after the dispatch the call before it led to: the local
-      # work is buffered in no slot after its submit, after the accept and after offer_done.
-      local = submit!(bench, "hang local")
-      assert %{state: :buffered, attempts: [%{slot: nil}]} = work!(local.work_id)
-
-      assert {:accepted, id} =
-               accept(code, lease(code, "lease-1", "wk-1", "hang lease"))
-
+      assert {:accepted, id} = accept(code, lease(code, "lease-1", "wk-1", "hang lease"))
       assert :ok = Work.offer_done(@source, 1)
-      assert %{state: :buffered, attempts: [%{slot: nil}]} = work!(local.work_id)
+
+      # A restart (the hold is persisted) finds a buffered work recorded before the cut-over:
+      # no lease, the CLI's client and key.
+      stop_work()
+      legacy = legacy_record!(bench, "hang legacy")
+      start_work!(bench)
+
+      # Each call is answered after the boot's dispatch and the one the call before it led to.
+      assert %{state: :buffered, attempts: [%{slot: nil}]} = work!(legacy.work_id)
       assert [%{work_id: ^id, held: true, state: :buffered}] = Work.holdings(@source)
+      assert Work.offer("flow-test") == %{}
+      assert :ok = Work.offer_done("flow-test", 0)
       assert launches(bench) == []
 
-      # Recorded: the lease takes the slot it was offered; the local work waits behind it.
+      # Recorded: the lease takes the slot it was promised; the old work waits behind it.
       assert :released = Work.release_lease(id)
       assert %{attempts: [%{slot: "s1"}]} = await_state(id, :running, @client)
-      assert work!(local.work_id).state == :buffered
+      assert %{state: :buffered, attempts: [%{slot: nil}]} = work!(legacy.work_id)
 
+      # Once the lease's slot is free, the old work starts in it.
       F.cancel(@client, %{work_id: id, mode: "force"})
       await_state(id, :cancelled, @client)
-      await_launch(bench, local)
-      F.cancel(client(), %{work_id: local.work_id, mode: "force"})
-      await_state(local.work_id, :cancelled)
+      assert %{attempts: [%{slot: "s1"}]} = await_launch(bench, legacy)
+      F.cancel(client(), %{work_id: legacy.work_id, mode: "force"})
+      await_state(legacy.work_id, :cancelled)
     end
   end
 
@@ -464,6 +499,19 @@ defmodule AtlasRuntime.Work.LeaseAdmissionTest do
       %{name: "flow-prod", priority: 2, max_slots: 4},
       %{name: "local", priority: 1, max_slots: 6}
     ]
+
+    test "an attempt without a lease starts only beyond the reservations and held attempts" do
+      # Recorded before the cut-over (M2 A7): the CLI's client, no lease.
+      works = %{"w1" => held_record("w1", "c1", :buffered, nil)}
+      none = MapSet.new()
+
+      assert Queue.unpromised(works, ["s1"], none, %{}) == 1
+      # An open offer reserves the one free slot, and a held lease keeps it the same way.
+      assert Queue.unpromised(works, ["s1"], none, %{"flow-prod" => 1}) == 0
+      held = Map.put(works, "w2", held_record("w2", "source:flow-prod"))
+      assert Queue.unpromised(held, ["s1"], none, %{}) == 0
+      assert Queue.unpromised(held, ["s1", "s2"], none, %{}) == 1
+    end
 
     test "a held attempt is buffered but never startable" do
       works = %{
