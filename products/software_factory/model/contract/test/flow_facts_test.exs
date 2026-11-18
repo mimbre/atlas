@@ -72,14 +72,15 @@ defmodule Model.FlowFactsTest do
     assert schema()["types"]["task_role"]["values"] == ~w(architect developer investigator)
     assert schema()["types"]["task_verdict"]["values"] == ~w(approved changes_required)
 
-    # §3.2's fields, M3's lease fields and F2's two revisions, no more: F3's (change id,
-    # review id, fpr_, PR URL) wait.
+    # §3.2's fields, M3's lease fields, F2's two revisions and what F3-L's Landing records
+    # of a publication (change id, review id and link, fpr_, CI, marked ready), no more.
     assert Enum.sort(Map.keys(entities["task"]["properties"])) ==
              Enum.sort(
                ~w(kind role profile input client_key work_id attempt state result_kind
                reason check_exit_status check_ending check_output_tail verdict answer
                result_fingerprints based_on base_id base_snapshot base_revision
-               published_revision reviewed_revision) ++
+               published_revision reviewed_revision code_change_id review_id review_url
+               published_fingerprint review_ci marked_ready_at) ++
                  Map.keys(@task_lease)
              )
 

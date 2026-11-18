@@ -811,6 +811,12 @@
             "flow"
           ]
         },
+        "code_change_id": {
+          "label": "Code change id",
+          "set_by": [
+            "flow"
+          ]
+        },
         "expires_at": {
           "label": "Expires at",
           "set_by": [
@@ -864,7 +870,19 @@
             "flow"
           ]
         },
+        "marked_ready_at": {
+          "label": "Marked ready at",
+          "set_by": [
+            "flow"
+          ]
+        },
         "profile": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "published_fingerprint": {
+          "label": "Published fingerprint",
           "set_by": [
             "flow"
           ]
@@ -900,6 +918,24 @@
         },
         "result_state": {
           "label": "Result state",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "review_ci": {
+          "label": "Review CI",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "review_id": {
+          "label": "Review id",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "review_url": {
+          "label": "Review URL",
           "set_by": [
             "flow"
           ]

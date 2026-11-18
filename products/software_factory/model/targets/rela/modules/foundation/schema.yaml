@@ -319,6 +319,24 @@ entities:
       reviewed_revision:
         type: string
         description: 'The revision a review task reviewed: the published revision of that result'
+      code_change_id:
+        type: string
+        description: The Code change its result was published as
+      review_id:
+        type: string
+        description: The Code review its result was published on
+      review_url:
+        type: string
+        description: The link of that review, as Code gave it
+      published_fingerprint:
+        type: string
+        description: The fpr_ fingerprint of the change it was published as
+      review_ci:
+        type: string
+        description: 'The review''s CI at its published revision: success, failure, pending or none'
+      marked_ready_at:
+        type: datetime
+        description: When Flow marked the review ready
       base_id:
         type: string
         description: The Runtime base it started from

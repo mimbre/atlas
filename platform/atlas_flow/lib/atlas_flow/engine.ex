@@ -41,6 +41,12 @@ defmodule AtlasFlow.Engine do
 
   It reaches Facts only over the Bus, as the endpoint `flow`.
 
+  **Landing (F3-L).** Once a reconcile stored a task result whose check passed (exit 0)
+  in a run, it casts `{:publish, task_key}` to `AtlasFlow.Landing` (option `landing:`),
+  once per newly stored result. A cast, never a call: Landing talks to Code, and the
+  Engine never waits on it (lesson 1). A cast lost while Landing is down is Landing's boot
+  read to find.
+
   Tasks go through Flow's work source (`AtlasFlow.Activities.Task`, plan m3 A4). The
   Engine reads only what Facts and `AtlasFlow.Bases`' table hold, and never calls Code or a
   Runtime. `{:reconcile, kind, key}` reconciles that subject's runs now and projects them:
@@ -106,6 +112,7 @@ defmodule AtlasFlow.Engine do
      %{
        every: Keyword.get(opts, :every, 60_000),
        clock: Keyword.get(opts, :clock, {Clock, nil}),
+       landing: Keyword.get(opts, :landing, AtlasFlow.Landing),
        runner: runner,
        runs: [],
        refusal: nil,
@@ -489,6 +496,7 @@ defmodule AtlasFlow.Engine do
         {state, :ok, []}
 
       {:ok, runs} ->
+        checked(state, state.runs, runs)
         {sooner(%{state | runs: Store.merge(state.runs, runs)}), :ok, runs}
 
       {:error, why} ->
@@ -496,6 +504,25 @@ defmodule AtlasFlow.Engine do
         {state, :failed, []}
     end
   end
+
+  # The task results whose check passed that `runs` hold and the runs as last `known` did
+  # not: Landing publishes each (F3-L). A cast, so a blocked Landing delays nothing here.
+  defp checked(state, known, runs) do
+    before = MapSet.new(for run <- known, t <- tasks(run), do: t["key"])
+
+    keys =
+      for run <- runs,
+          t <- tasks(run),
+          get_in(t, ["check", "exit_status"]) == 0,
+          is_binary(t["key"]),
+          not MapSet.member?(before, t["key"]),
+          uniq: true,
+          do: t["key"]
+
+    Enum.each(keys, &GenServer.cast(state.landing, {:publish, &1}))
+  end
+
+  defp tasks(run), do: (run["pending"] || %{})["tasks"] || []
 
   defp run_subjects(runs),
     do: Enum.uniq(for run <- runs, do: {run["subject_kind"], run["subject_key"]})
@@ -636,6 +663,7 @@ defmodule AtlasFlow.Engine do
         # Parents returned by composition are required projections too. Keep each
         # projection as its own mailbox step, including subjects absent from the plan.
         projects = for {k, key} <- run_subjects(runs), do: {:project, k, key}
+        checked(state, state.runs, runs)
         state = %{state | runs: Store.merge(state.runs, runs)}
         update_in(state.round.steps, &Enum.uniq(&1 ++ projects))
 
