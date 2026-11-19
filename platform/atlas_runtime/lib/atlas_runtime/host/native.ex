@@ -117,8 +117,11 @@ defmodule AtlasRuntime.Agent.Native do
          (is_nil(session) || (is_binary(session) && session != "")) do
       File.mkdir_p!(folder)
 
+      # MIX_HOME, MIX_ARCHIVES and HEX_HOME locate the toolchain's Hex: a version manager sets them
+      # beside PATH (asdf's exec-env), and without them Mix finds no Hex and tries to download it.
       kept =
-        ~w(HOME USER LOGNAME PATH TMPDIR LANG LC_ALL LC_CTYPE CODEX_HOME CLAUDE_CONFIG_DIR)
+        ~w(HOME USER LOGNAME PATH TMPDIR LANG LC_ALL LC_CTYPE CODEX_HOME CLAUDE_CONFIG_DIR
+           MIX_HOME MIX_ARCHIVES HEX_HOME)
 
       unset =
         for {key, _} <- System.get_env(), key not in kept, do: {String.to_charlist(key), false}
