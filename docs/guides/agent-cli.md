@@ -36,6 +36,8 @@ atlas do IS-Atlas-07 "Pick up"
 atlas do IS-Atlas-07 "Hand to…" --to mac-mini
 ```
 
+Since IS-Atlas-25, picking up a flow is enough: its tasks run on the supervisor's Runtimes without a hand-over.
+
 `actions` and `do` act as the person at the TUI (the environment's `tui_user`): an action only a person may take, as Pick up, is offered to them. With `ATLAS_AS=<agent key>` they act as that agent, and Control offers and allows what it offers and allows an agent. The other commands stay an agent's.
 
 ## Restarting a completed scene or use case
