@@ -360,6 +360,26 @@ defmodule AtlasFlow.Runs.RunTest do
     assert Enum.count(FakeFacts.sent(), &(&1["values"]["mark"] == "entered")) == 1
   end
 
+  test "a deleted subject ends its run; a fact made later under its key gets a new run", %{
+    clock: clock
+  } do
+    assert {:ok, [first]} = reconcile(clock)
+    assert first["status"] == "active"
+
+    FakeFacts.reserve("box", "B-1")
+    assert {:ok, [ended]} = reconcile(clock)
+    assert {ended["key"], ended["status"]} == {first["key"], "ended"}
+    assert {:ok, [^ended]} = reconcile(clock)
+
+    # Facts lets the key go and a new box is made under it: a run of its own.
+    FakeFacts.release("box", "B-1")
+    FakeFacts.put("box", subject())
+    assert {:ok, [second]} = reconcile(clock)
+    assert {second["generation"], second["status"], second["entry"]} == {2, "active", 1}
+    assert FakeFacts.get("box", "B-1")["values"]["mark"] == "entered"
+    assert stored() == ended
+  end
+
   test "input before the deadline cancels the old entry and completed runs never reopen", %{
     clock: clock
   } do

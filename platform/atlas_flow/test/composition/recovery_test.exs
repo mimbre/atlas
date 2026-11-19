@@ -165,14 +165,14 @@ defmodule AtlasFlow.Composition.RecoveryTest do
     assert Map.take(values("tray", "T-2"), ~w(cups open_cups)) == %{"cups" => 1, "open_cups" => 0}
 
     # Deleted: T-1 is empty again; its tally, started once it had cups, keeps waiting.
-    # The deleted cup's run stays as it was and stops no other run.
+    # The deleted cup's run ends where it was and stops no other run.
     orphan = run(c, "pour", "C-1")
     GenServer.call(FakeFacts, {:drop, "cup", "C-1"})
     {:ok, _} = hint(c, [{"tray", "T-1"}])
     assert Map.take(values("tray", "T-1"), ~w(cups open_cups)) == %{"cups" => 0, "open_cups" => 0}
     assert run(c, "tally", "T-1")["state"] == "counting"
     assert {:ok, _} = reconcile(c)
-    assert run(c, "pour", "C-1") == orphan
+    assert run(c, "pour", "C-1") == Map.put(orphan, "status", "ended")
   end
 
   test "two subflows on one subject keep their own cursors and starts", c do
