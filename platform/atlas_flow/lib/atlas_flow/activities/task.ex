@@ -804,9 +804,11 @@ defmodule AtlasFlow.Activities.Task do
 
   # What a task that proposes facts (`creates`) asks its agent: the file, at the top of
   # the repository, and its form.
-  defp proposal_format(%{"creates" => %{"kind" => kind, "file" => file}}),
-    do:
-      "\n\n## Your proposal\n\nWrite the #{kind}s you propose to the file `#{file}` at the top of the repository: a JSON list with one object per #{kind}, in order, each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done). Atlas makes them from that file; write nothing into Atlas yourself."
+  defp proposal_format(%{"creates" => %{"kind" => kind, "file" => file}}) do
+    kind = String.replace(kind, "_", " ")
+
+    "\n\n## Your proposal\n\nWrite the #{kind}s you propose to the file `#{file}` at the top of the repository: a JSON list with one object per #{kind}, in order, each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done). Atlas makes them from that file; write nothing into Atlas yourself."
+  end
 
   defp proposal_format(_spec), do: ""
 
