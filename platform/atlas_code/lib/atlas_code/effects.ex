@@ -5,7 +5,7 @@ defmodule AtlasCode.Effects do
   hand. Update the branch from its base when it is behind; wait for CI on that result;
   merge it when CI is green, fenced by the head GitHub must still have; refuse on a
   conflict, red CI, a closed pull or a head that moved. And `publish`: a job's result as
-  a pull request (see "Publish" below).
+  a GitHub pull (see "Publish" below).
 
   `handle/2` takes one body, `%{"operation" => "submit" | "lookup", "request" => r,
   "digest" => d}`, and answers it:
@@ -67,7 +67,7 @@ defmodule AtlasCode.Effects do
   (`refs/atlas/results/<task>`) a Runtime pushed the task's result commit to in Code's
   copy of that repository (`AtlasCode.Service.result/3`), resolved once when it is
   accepted. Code pushes that commit to the branch `atlas/<task>` on GitHub and opens a
-  pull request from it onto `base`, titled with the payload's `title`, its body the
+  pull from it onto `base`, titled with the payload's `title`, its body the
   `description`. Done, with `reference` and `outputs` `%{"url"}`, is that pull's web
   address. A repeat first looks the branch's pull up, so it is never opened twice; a
   branch already at another commit is refused `branch_taken`.
@@ -475,7 +475,7 @@ defmodule AtlasCode.Effects do
     Enum.join(
       [
         if(is_binary(description) and String.trim(description) != "", do: description),
-        "Atlas job #{r["subject"]}, task #{task}: merging this pull request finishes the job.",
+        "Atlas job #{r["subject"]}, task #{task}: merging this finishes the job.",
         "<sub>Written by an AI agent (Atlas job #{r["subject"]}).</sub>"
       ]
       |> Enum.reject(&is_nil/1),
