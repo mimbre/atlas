@@ -122,9 +122,10 @@ defmodule Model.IssueRunsTest do
     assert FakeFacts.get("task", @review)["values"]["verdict"] == "changes_required"
     assert FakeFacts.get("task", @review)["values"]["state"] == "completed"
 
-    # The follow-up is a new issue under the issue's use case, made by Flow for ada.
+    # The follow-up is a new issue under the issue's use case, made by Flow for ada, with
+    # an issue's create defaults (its stage).
     made = FakeFacts.get("issue", "IS-Atlas-02")
-    assert made["values"] == follow_up
+    assert made["values"] == Map.put(follow_up, "stage", "specification")
     assert made["links"] == %{"in_use_case" => ["UC-Atlas-01"]}
 
     # One fix on the author's result (the base the review had), with the review's findings.

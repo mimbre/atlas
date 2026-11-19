@@ -89,7 +89,8 @@ defmodule RelaDSL.Flow.Model do
          %{
            "prefix" => prefix,
            "digits" => get_in(spec, ["create", "id", "digits"]) || 2,
-           "prefixes" => [prefix | spec["id_prefixes"] || []]
+           "prefixes" => [prefix | spec["id_prefixes"] || []],
+           "defaults" => get_in(spec, ["create", "defaults"]) || %{}
          }}
       end)
 
@@ -150,7 +151,7 @@ defmodule RelaDSL.Flow.Model do
       @doc "Every gate, by name, as data."
       def gates, do: unquote(Macro.escape(RelaDSL.Atlas.gate_data(gates)))
 
-      @doc "How the key of a fact of each kind is made: `prefix`, `digits`, `prefixes`."
+      @doc "How a fact of each kind is made: its key's `prefix`, `digits`, `prefixes`, and the `defaults` of a create."
       def ids, do: unquote(Macro.escape(ids))
     end
   end
