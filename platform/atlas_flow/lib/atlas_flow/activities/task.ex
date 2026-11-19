@@ -903,11 +903,12 @@ defmodule AtlasFlow.Activities.Task do
     end)
   end
 
-  # One fact of `kind` per entry, linked through `relation` to `under`, numbered after the
-  # facts of that kind there are, by Flow for the run's supervisor (its cause names the
-  # task that proposed them, in the `what` of the subject).
+  # One fact of `kind` per entry, with the kind's create defaults under it (as a create by
+  # hand has them), linked through `relation` to `under`, numbered after the facts of that
+  # kind there are, by Flow for the run's supervisor (its cause names the task that
+  # proposed them, in the `what` of the subject).
   defp make(kind, entries, relation, under, intent, tag, what, run, ctx) do
-    with %{"prefix" => prefix, "digits" => digits} <- (ctx[:ids] || %{})[kind],
+    with %{"prefix" => prefix, "digits" => digits} = ids <- (ctx[:ids] || %{})[kind],
          %{"facts" => facts} when is_list(facts) <-
            Talk.transition_read(kind, %{"plain" => true}) do
       first = HandOver.next_number(%{"prefix" => prefix}, Enum.map(facts, & &1["key"]))
@@ -922,7 +923,7 @@ defmodule AtlasFlow.Activities.Task do
           write(intent["key"], [tag, Integer.to_string(i)], kind, %{
             "op" => "create",
             "key" => key,
-            "values" => entry,
+            "values" => Map.merge(ids["defaults"] || %{}, entry),
             "links" => %{relation => [under]},
             "by" => "flow",
             "cause" => cause
