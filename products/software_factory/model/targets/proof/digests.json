@@ -727,12 +727,23 @@
     },
     "test_and_accept_scene": {
       "prod": {
-        "digest": "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f",
+        "digest": "95d5d0981bc11f7e9f6544c1f2c06c57d3063d6117d668877e48b84abe78c104",
         "history": [
           {
             "digest": "79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444",
             "states": [
               "accepted",
+              "break_down",
+              "building",
+              "rework",
+              "to_test"
+            ]
+          },
+          {
+            "digest": "95d5d0981bc11f7e9f6544c1f2c06c57d3063d6117d668877e48b84abe78c104",
+            "states": [
+              "accepted",
+              "accepting",
               "break_down",
               "building",
               "rework",
@@ -752,6 +763,7 @@
         ],
         "states": [
           "accepted",
+          "accepting",
           "break_down",
           "building",
           "rework",
@@ -759,12 +771,23 @@
         ]
       },
       "test": {
-        "digest": "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f",
+        "digest": "95d5d0981bc11f7e9f6544c1f2c06c57d3063d6117d668877e48b84abe78c104",
         "history": [
           {
             "digest": "79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444",
             "states": [
               "accepted",
+              "break_down",
+              "building",
+              "rework",
+              "to_test"
+            ]
+          },
+          {
+            "digest": "95d5d0981bc11f7e9f6544c1f2c06c57d3063d6117d668877e48b84abe78c104",
+            "states": [
+              "accepted",
+              "accepting",
               "break_down",
               "building",
               "rework",
@@ -784,6 +807,7 @@
         ],
         "states": [
           "accepted",
+          "accepting",
           "break_down",
           "building",
           "rework",

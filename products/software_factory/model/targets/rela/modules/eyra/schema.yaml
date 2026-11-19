@@ -63,7 +63,10 @@ entities:
         description: 'Flow: how many of them are not finished'
       verdict:
         type: string
-        description: 'Flow: the acceptor''s verdict (none, accept, reject)'
+        description: 'Flow: the acceptor''s verdict (none, accept, reject), or its supervisor''s acceptance of its use cases (accept)'
+      task_result:
+        type: string
+        description: 'Flow: how its break-down''s agent task ended (completed, check_failed, stuck, abandoned); the run''s own, never written'
       pass_result:
         type: string
         description: 'Flow: how the last pass ended (none, delivered, failed)'
