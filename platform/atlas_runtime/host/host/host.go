@@ -284,8 +284,12 @@ func run(args []string) (err error) {
 			environment = os.Environ()
 		}
 		// Workers inspect their folder with this executable against this home's record and baseline.
+		// Git reads no user or system configuration and no user excludes file: the user's are
+		// denied, and Git refuses to run (or warns on every command) when it cannot read them.
 		environment = append(environment, "PATH="+filepath.Dir(inspector)+":"+os.Getenv("PATH"),
-			"ATLAS_RUNTIME_HOME="+runtimeHome, "ATLAS_RUNTIME_EXECUTABLE="+inspector)
+			"ATLAS_RUNTIME_HOME="+runtimeHome, "ATLAS_RUNTIME_EXECUTABLE="+inspector,
+			"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=core.excludesFile", "GIT_CONFIG_VALUE_0="+os.DevNull)
 		for _, cache := range [][2]string{{"TMPDIR", "tmp"}, {"GOCACHE", "go-build"}, {"GOTMPDIR", "go-tmp"},
 			{"XDG_CACHE_HOME", "cache"}, {"npm_config_cache", "npm"}} {
 			path := filepath.Join(scratch, cache[1])

@@ -2970,6 +2970,26 @@
                 "{tmp}/bin/atlas-runtime"
               ],
               [
+                "GIT_CONFIG_GLOBAL",
+                "/dev/null"
+              ],
+              [
+                "GIT_CONFIG_NOSYSTEM",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_COUNT",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_KEY_0",
+                "core.excludesFile"
+              ],
+              [
+                "GIT_CONFIG_VALUE_0",
+                "/dev/null"
+              ],
+              [
                 "TMPDIR",
                 "{home}/scratch/t1/tmp"
               ],
@@ -3272,6 +3292,26 @@
                 "{tmp}/bin/atlas-runtime"
               ],
               [
+                "GIT_CONFIG_GLOBAL",
+                "/dev/null"
+              ],
+              [
+                "GIT_CONFIG_NOSYSTEM",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_COUNT",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_KEY_0",
+                "core.excludesFile"
+              ],
+              [
+                "GIT_CONFIG_VALUE_0",
+                "/dev/null"
+              ],
+              [
                 "TMPDIR",
                 "{home}/scratch/t1/tmp"
               ],
@@ -3565,6 +3605,26 @@
               [
                 "ATLAS_RUNTIME_EXECUTABLE",
                 "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "GIT_CONFIG_GLOBAL",
+                "/dev/null"
+              ],
+              [
+                "GIT_CONFIG_NOSYSTEM",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_COUNT",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_KEY_0",
+                "core.excludesFile"
+              ],
+              [
+                "GIT_CONFIG_VALUE_0",
+                "/dev/null"
               ],
               [
                 "TMPDIR",
@@ -3872,6 +3932,26 @@
               [
                 "ATLAS_RUNTIME_EXECUTABLE",
                 "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "GIT_CONFIG_GLOBAL",
+                "/dev/null"
+              ],
+              [
+                "GIT_CONFIG_NOSYSTEM",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_COUNT",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_KEY_0",
+                "core.excludesFile"
+              ],
+              [
+                "GIT_CONFIG_VALUE_0",
+                "/dev/null"
               ],
               [
                 "TMPDIR",
@@ -4268,6 +4348,26 @@
                 "{user}/bin/atlas-runtime"
               ],
               [
+                "GIT_CONFIG_GLOBAL",
+                "/dev/null"
+              ],
+              [
+                "GIT_CONFIG_NOSYSTEM",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_COUNT",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_KEY_0",
+                "core.excludesFile"
+              ],
+              [
+                "GIT_CONFIG_VALUE_0",
+                "/dev/null"
+              ],
+              [
                 "TMPDIR",
                 "{home}/scratch/t1/tmp"
               ],
@@ -4651,6 +4751,26 @@
                 "{tmp}/bin/atlas-runtime"
               ],
               [
+                "GIT_CONFIG_GLOBAL",
+                "/dev/null"
+              ],
+              [
+                "GIT_CONFIG_NOSYSTEM",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_COUNT",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_KEY_0",
+                "core.excludesFile"
+              ],
+              [
+                "GIT_CONFIG_VALUE_0",
+                "/dev/null"
+              ],
+              [
                 "TMPDIR",
                 "{home}/scratch/t1/tmp"
               ],
@@ -4946,6 +5066,26 @@
               [
                 "ATLAS_RUNTIME_EXECUTABLE",
                 "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "GIT_CONFIG_GLOBAL",
+                "/dev/null"
+              ],
+              [
+                "GIT_CONFIG_NOSYSTEM",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_COUNT",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_KEY_0",
+                "core.excludesFile"
+              ],
+              [
+                "GIT_CONFIG_VALUE_0",
+                "/dev/null"
               ],
               [
                 "TMPDIR",
