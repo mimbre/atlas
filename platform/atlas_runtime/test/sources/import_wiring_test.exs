@@ -29,23 +29,28 @@ defmodule AtlasRuntime.Sources.ImportWiringTest do
   @client Rights.client(@name)
   @files %{"README.md" => "imported base\n", "lib/a.ex" => "defmodule A, do: nil\n"}
 
-  defp sources(max_store_bytes),
+  defp sources(max_store_bytes, extra),
     do: %{
       "sources" => [
-        %{
-          "name" => @name,
-          "kind" => "remote",
-          "url" => "https://flow-test.example/",
-          "credential_file" => "sources/flow-test/token",
-          "priority" => 1,
-          "max_slots" => 2,
-          "max_store_bytes" => max_store_bytes
-        }
+        Map.merge(
+          %{
+            "name" => @name,
+            "kind" => "remote",
+            "url" => "https://flow-test.example/",
+            "credential_file" => "sources/flow-test/token",
+            "priority" => 1,
+            "max_slots" => 2,
+            "max_store_bytes" => max_store_bytes
+          },
+          extra
+        )
       ]
     }
 
   setup context do
-    bench = start!(sources(Map.get(context, :max_store_bytes, 2_147_483_648)))
+    bench =
+      start!(sources(Map.get(context, :max_store_bytes, 2_147_483_648), context[:source] || %{}))
+
     source = Source.start(name: @name)
     Source.use(source)
     target = FakeSourceTarget.new(source)
@@ -253,6 +258,25 @@ defmodule AtlasRuntime.Sources.ImportWiringTest do
       {manifest, blobs} = Source.base(@files)
       Source.add_work(ctx.source, offered(%{base: %{base_id: "b-1", manifest: manifest}}), blobs)
       assert_import_refused(ctx)
+    end
+
+    # IS-Atlas-08: a job's lease (its result goes back over Git) that never started is
+    # reported ended without a result, and the lease is done: nothing is pushed from the
+    # work folder it never had.
+    @tag import: [max_base_bytes: 4], source: %{"git_url" => "https://flow-test.example/code"}
+    test "with a result_ref: reported ended without a result, the lease done", ctx do
+      {manifest, blobs} = Source.base(@files)
+      base = %{base_id: "b-1", manifest: manifest}
+
+      Source.add_work(
+        ctx.source,
+        offered(%{base: base, result_ref: "refs/atlas/results/task-1"}),
+        blobs
+      )
+
+      assert_import_refused(ctx)
+      assert [%S.Accepted{}, %S.Ended{change_set: nil}] = reports(ctx.source, "task-1")
+      assert [:done] = ctx.puller |> Puller.leases() |> Map.values() |> Enum.map(& &1.phase)
     end
   end
 end
