@@ -26,6 +26,11 @@ defmodule AtlasFlow.Bases do
   for one reference share one resolution. When Code fails or takes longer than 15 s the
   reference is `:unavailable`; Bases tries again after 30 s and keeps the notifies waiting.
 
+  **A reference moves.** Its cached base is fresh for 10 s after it was resolved; after that
+  `cached/3` answers `:missing`, so the next task asks again and gets the branch's current
+  revision. Resolving again costs Code one `ls-remote`: a revision Bases already snapshotted
+  keeps its base.
+
   **Pinned by snapshot (M3 A4).** A lease keeps the Code snapshot its base was made from
   (`base_snapshot`, beside `base_id` on its intent and task fact). Code snapshots are
   immutable by id, while a reference moves. So after a restart (an empty table), Bases
@@ -50,6 +55,7 @@ defmodule AtlasFlow.Bases do
 
   @timeout 15_000
   @retry 30_000
+  @fresh 10_000
 
   @type base :: %{base_id: String.t(), manifest: String.t(), snapshot_id: String.t()}
 
@@ -57,22 +63,31 @@ defmodule AtlasFlow.Bases do
 
   @doc """
   Starts Bases. Options: `name` (default `AtlasFlow.Bases`, also its table's name),
-  `client` (an `AtlasFlow.Code.Client`, default the facade), `clock`, `timeout`, `retry`.
+  `client` (an `AtlasFlow.Code.Client`, default the facade), `clock`, `timeout`, `retry`,
+  `fresh` (how long a resolved reference is served, in ms).
   """
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, Keyword.put(opts, :name, name), name: name)
   end
 
-  @doc "The base of `reference` as cached: `{:ok, base}`, `:missing` or `:unavailable`. Never calls Code."
+  @doc """
+  The base of `reference` as cached: `{:ok, base}`, `:missing` (also once its resolution is
+  no longer fresh) or `:unavailable`. Never calls Code.
+  """
   @spec cached(String.t(), String.t(), atom()) :: {:ok, base()} | :missing | :unavailable
   def cached(repository, reference, server \\ __MODULE__) do
     case lookup(server, {:reference, repository, reference}) do
-      {:ok, {:ok, base}} -> {:ok, base}
+      {:ok, {:ok, base, resolved}} -> if fresh?(server, resolved), do: {:ok, base}, else: :missing
       {:ok, :unavailable} -> :unavailable
       :none -> :missing
       :no_table -> :unavailable
     end
+  end
+
+  defp fresh?(server, resolved) do
+    {:ok, {clock, fresh}} = lookup(server, :freshness)
+    DateTime.diff(Clock.now(clock), resolved, :millisecond) < fresh
   end
 
   @doc """
@@ -304,6 +319,8 @@ defmodule AtlasFlow.Bases do
 
     client = Keyword.get(opts, :client, Client.default())
     :ets.insert(table, {:client, client})
+    clock = Keyword.get(opts, :clock)
+    :ets.insert(table, {:freshness, {clock, Keyword.get(opts, :fresh, @fresh)}})
     {:ok, tasks} = Task.Supervisor.start_link()
 
     {:ok,
@@ -311,7 +328,7 @@ defmodule AtlasFlow.Bases do
        table: table,
        client: client,
        tasks: tasks,
-       clock: Keyword.get(opts, :clock),
+       clock: clock,
        timeout: Keyword.get(opts, :timeout, @timeout),
        retry: Keyword.get(opts, :retry, @retry),
        # {repository, reference} => %{status: :idle | :resolving | :waiting, notifies, task, timer}
@@ -426,7 +443,12 @@ defmodule AtlasFlow.Bases do
       {:ok, revision, made} ->
         :ets.insert(state.table, {{:revision, repository, revision}, made})
         keep_manifest(state.table, made)
-        :ets.insert(state.table, {{:reference, repository, reference}, {:ok, made.base}})
+        resolved = Clock.now(state.clock)
+
+        :ets.insert(
+          state.table,
+          {{:reference, repository, reference}, {:ok, made.base, resolved}}
+        )
 
         Enum.each(entry.notifies, &send_notify/1)
         %{state | pending: Map.delete(state.pending, key)}
