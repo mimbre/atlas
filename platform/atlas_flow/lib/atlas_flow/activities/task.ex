@@ -57,7 +57,7 @@ defmodule AtlasFlow.Activities.Task do
   **A proposal (slice 7).** A spec's `creates` (`%{"kind", "file"}`) asks its agent, after
   the instructions, to write what it proposes to that file at the top of the repository: a
   JSON list of `{title, description}`. When the task completed, Flow reads the file from
-  its pinned result (`AtlasFlow.Results`) and makes one fact of that kind per entry,
+  its result commit (`refs/atlas/results/<key>`, through Bases and Code) and makes one fact of that kind per entry,
   linked to the subject through the kind's parent relation to it and numbered after the
   facts of that kind there are (the model's `ids`), `by` Flow with the run's supervisor in
   its cause; the agent never writes into Atlas. With no such file, the task ends `stuck`.
@@ -813,9 +813,15 @@ defmodule AtlasFlow.Activities.Task do
   # A completed task that proposes facts: one create per entry of its file, under the
   # subject (the kind's parent relation to it), numbered after the facts of that kind
   # there are, by Flow for the run's supervisor. With no such file, or none Flow can read,
-  # it ends stuck; `:unavailable` while Facts does not answer.
-  defp proposed(%{"creates" => %{"kind" => kind, "file" => file}}, "completed", run, intent, ctx) do
-    with {:ok, entries} <- proposal(intent["key"], file),
+  # it ends stuck; `:unavailable` while its result, Code or Facts does not answer.
+  defp proposed(
+         %{"creates" => %{"kind" => kind, "file" => file}} = spec,
+         "completed",
+         run,
+         intent,
+         ctx
+       ) do
+    with {:ok, entries} <- proposal(run, repository(spec), intent["key"], file),
          [relation] <-
            for([r, to] <- (ctx[:parents] || %{})[kind] || [], to == run["subject_kind"], do: r),
          %{"prefix" => prefix, "digits" => digits} <- (ctx[:ids] || %{})[kind],
@@ -849,22 +855,35 @@ defmodule AtlasFlow.Activities.Task do
 
   defp proposed(_spec, outcome, _run, _intent, _ctx), do: {outcome, []}
 
-  # The entries of the file at the top of the repository in the task's result: each with a
-  # title, and its description when it has one.
-  defp proposal(task_key, file) do
-    with {:ok, %{"roots" => roots}} when is_list(roots) <- Results.manifest(task_key),
+  # The entries of the file at the top of the repository in the task's result commit
+  # (`refs/atlas/results/<key>`), which Bases resolves through Code like a branch (asked
+  # for, and the run reconciled once it is there): each with a title, and its description
+  # when it has one. The file's blob is read from Code here, on the Engine's path: one
+  # small read, once per break-down.
+  defp proposal(run, repository, task_key, file) do
+    root = Bases.root_of(repository)
+
+    with {:ok, base} <- base(run, repository, Translate.result_ref(task_key)),
+         {:ok, %{"roots" => roots}} <- read_json(base.manifest, base.snapshot_id),
          %{"sha256" => sha} <-
-           Enum.find_value(roots, fn root ->
-             Enum.find(root["entries"] || [], &(&1["op"] == "write" and &1["path"] == file))
+           Enum.find_value(roots, :no_proposal, fn r ->
+             r["root"] == root && Enum.find(r["entries"] || [], &(&1["path"] == file))
            end),
-         {:ok, _size, content} <- Results.blob(sha),
-         {:ok, [_ | _] = list} <- JSON.decode(IO.iodata_to_binary(Enum.to_list(content))),
-         entries = for(%{"title" => t} = e <- list, text?(t), do: entry(t, e["description"])),
-         [_ | _] <- entries do
-      {:ok, entries}
+         {:ok, list} <- read_json(sha, base.snapshot_id) do
+      case for %{"title" => t} = e <- List.wrap(list), text?(t), do: entry(t, e["description"]) do
+        [] -> :no_proposal
+        entries -> {:ok, entries}
+      end
     else
-      _ -> :no_proposal
+      :no_proposal -> :no_proposal
+      {:error, _invalid_json} -> :no_proposal
+      _missing_or_unavailable -> :unavailable
     end
+  end
+
+  defp read_json(sha, snapshot_id) do
+    with {:ok, _size, content} <- Bases.blob(sha, snapshot_id),
+         do: JSON.decode(IO.iodata_to_binary(Enum.to_list(content)))
   end
 
   defp entry(title, description) when is_binary(description),
