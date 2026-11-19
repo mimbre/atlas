@@ -77,7 +77,7 @@ defmodule Model.IssueRunsTest do
     %{runner: runner, clock: clock, code: code}
   end
 
-  test "a review that asks for changes leads to one fix on the result, which is published",
+  test "a review's blocking finding leads to one fix, which is published; its follow-up becomes an issue under the use case",
        c do
     issue()
     assert reconcile(c)["pending"]["task"] == nil
@@ -113,11 +113,19 @@ defmodule Model.IssueRunsTest do
     assert work.input.permissions == "workspace-write"
     assert work.input.result_ref == "refs/atlas/results/" <> @review
     assert work.instructions =~ ~s("verdict")
+    assert work.instructions =~ ~s("follow_ups")
 
-    finish(lease: leased, answer: verdict("changes_required", ["A second typo."]))
+    follow_up = %{"title" => "Add a contributing guide", "description" => "Newcomers ask."}
+    answer = verdict("changes_required", ["A second typo."], [follow_up])
+    finish(lease: leased, answer: answer)
     assert settle(c)["state"] == "fixing"
     assert FakeFacts.get("task", @review)["values"]["verdict"] == "changes_required"
     assert FakeFacts.get("task", @review)["values"]["state"] == "completed"
+
+    # The follow-up is a new issue under the issue's use case, made by Flow for ada.
+    made = FakeFacts.get("issue", "IS-Atlas-02")
+    assert made["values"] == follow_up
+    assert made["links"] == %{"in_use_case" => ["UC-Atlas-01"]}
 
     # One fix on the author's result (the base the review had), with the review's findings.
     fixing = settle(c)
@@ -128,6 +136,7 @@ defmodule Model.IssueRunsTest do
     assert work.profile == "deep_coding"
     assert work.input.result_ref == "refs/atlas/results/" <> @fix
     assert work.instructions =~ "A second typo."
+    refute work.instructions =~ "contributing guide"
 
     finish(lease: leased, answer: "Fixed the second typo.")
     publishing = settle(c)
@@ -197,10 +206,11 @@ defmodule Model.IssueRunsTest do
     assert_receive {:"$gen_cast", {:reconcile, "issue", @key}}, 2_000
   end
 
-  defp verdict(verdict, findings),
+  defp verdict(verdict, findings, follow_ups),
     do:
       "I looked at it.\n\n```json\n" <>
-        JSON.encode!(%{"verdict" => verdict, "findings" => findings}) <> "\n```\n"
+        JSON.encode!(%{"verdict" => verdict, "findings" => findings, "follow_ups" => follow_ups}) <>
+        "\n```\n"
 
   # Reconciles until the run holds an intent or rests.
   defp settle(c, rounds \\ 4) do

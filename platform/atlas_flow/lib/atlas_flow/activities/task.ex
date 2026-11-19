@@ -62,6 +62,13 @@ defmodule AtlasFlow.Activities.Task do
   facts of that kind there are (the model's `ids`), `by` Flow with the run's supervisor in
   its cause; the agent never writes into Atlas. With no such file, the task ends `stuck`.
 
+  **Follow-ups.** A review's spec may name a kind, `follow_ups`: its agent is asked to split
+  what it finds into blocking findings (within the subject's scope; they go to the one fix
+  and decide its verdict) and follow-ups (outside it), which it adds to its JSON block as
+  `follow_ups`, `[{title, description}]` (`Ladder.follow_ups/1`). When the review ends,
+  whatever its verdict, Flow makes one fact of that kind per follow-up under the subject's
+  nearest parent, as it makes a proposal's, with the review in its cause.
+
   An assignment moved away from the machinery ends the task `abandoned` and unpins its
   result (`AtlasFlow.Results.unpin/3`, a cast): a late report is recorded on the task and
   ignored by the run, because the run left the state and no longer holds its key.
@@ -156,7 +163,8 @@ defmodule AtlasFlow.Activities.Task do
       spec["ladder"] in [nil, true] and input?(spec["kind"], spec["ladder"], spec["input"]) and
       check?(spec["check"]) and checked?(spec) and text?(spec["instructions"]) and
       texts?(spec["fields"] || []) and texts?(spec["parents"] || []) and
-      creates?(spec["creates"]) and records?(spec["records"]) and text?(spec["machinery"])
+      creates?(spec["creates"]) and (spec["follow_ups"] == nil or text?(spec["follow_ups"])) and
+      records?(spec["records"]) and text?(spec["machinery"])
   end
 
   defp creates?(nil), do: true
@@ -362,7 +370,9 @@ defmodule AtlasFlow.Activities.Task do
         |> Translate.intent(subject, key, work.base, work.change_set, name, ctx.now)
         |> update_in(
           ["work", "instructions"],
-          &(&1 <> parents <> Enum.join(work.sections) <> proposal_format(spec))
+          &(&1 <>
+              parents <>
+              Enum.join(work.sections) <> proposal_format(spec) <> follow_ups_format(spec))
         )
         |> then(&if(work.loop, do: Map.put(&1, "loop", work.loop), else: &1))
         |> Translate.root_check(repository(spec) || (work.ladder || %{})["repository"])
@@ -790,15 +800,15 @@ defmodule AtlasFlow.Activities.Task do
     values = %{"state" => outcome, "verdict" => result["verdict"]}
     run_outcome = if asks?, do: "changes_required", else: outcome
 
-    case proposed(spec, run_outcome, run, intent, ctx) do
-      :unavailable ->
-        :none
+    with {next, made} <- proposed(spec, run_outcome, run, intent, ctx),
+         {:ok, follow_ups} <- follow_ups(spec, outcome, answer, run, intent, ctx) do
+      result =
+        if next == run_outcome, do: result, else: Map.put(result, "reason", "no proposal")
 
-      {next, made} ->
-        result =
-          if next == run_outcome, do: result, else: Map.put(result, "reason", "no proposal")
-
-        {:result, next, result, [change(intent, spec, ["result"], values) | made], nil}
+      {:result, next, result, [change(intent, spec, ["result"], values) | made ++ follow_ups],
+       nil}
+    else
+      :unavailable -> :none
     end
   end
 
@@ -811,6 +821,13 @@ defmodule AtlasFlow.Activities.Task do
   end
 
   defp proposal_format(_spec), do: ""
+
+  # What a review with follow-ups (`follow_ups`) asks its agent: to split what it found.
+  defp follow_ups_format(%{"follow_ups" => kind}),
+    do:
+      "\n\n## Follow-ups\n\nSplit what you find. Your `findings` are only what blocks: what must change for the result to do what the #{kind} asks, within its scope; they go to one fix, and only they decide your verdict. Anything outside its scope (a nice-to-have, hardening, an edge case, a neighbouring improvement) is a follow-up: add it to your JSON block as \"follow_ups\": [{\"title\": \"…\", \"description\": \"…\"}], each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done). Atlas makes each a new #{kind} beside this one; it is not fixed now, and a result with only follow-ups is approved."
+
+  defp follow_ups_format(_spec), do: ""
 
   # A completed task that proposes facts: one create per entry of its file, under the
   # subject (the kind's parent relation to it), numbered after the facts of that kind
@@ -826,28 +843,18 @@ defmodule AtlasFlow.Activities.Task do
     with {:ok, entries} <- proposal(run, repository(spec), intent["key"], file),
          [relation] <-
            for([r, to] <- (ctx[:parents] || %{})[kind] || [], to == run["subject_kind"], do: r),
-         %{"prefix" => prefix, "digits" => digits} <- (ctx[:ids] || %{})[kind],
-         %{"facts" => facts} when is_list(facts) <-
-           Talk.transition_read(kind, %{"plain" => true}) do
-      first = HandOver.next_number(%{"prefix" => prefix}, Enum.map(facts, & &1["key"]))
-      supervisor = run["supervised_by"]
-      by = if is_binary(supervisor), do: "For #{supervisor}: ", else: ""
-      cause = "#{by}proposed by #{intent["key"]} in the break-down of #{run["subject_key"]}"
-
-      made =
-        for {entry, i} <- Enum.with_index(entries) do
-          key = prefix <> String.pad_leading(Integer.to_string(first + i), digits, "0")
-
-          write(intent["key"], ["creates", Integer.to_string(i)], kind, %{
-            "op" => "create",
-            "key" => key,
-            "values" => entry,
-            "links" => %{relation => [run["subject_key"]]},
-            "by" => "flow",
-            "cause" => cause
-          })
-        end
-
+         {:ok, made} <-
+           make(
+             kind,
+             entries,
+             relation,
+             run["subject_key"],
+             intent,
+             "creates",
+             "break-down",
+             run,
+             ctx
+           ) do
       {"completed", made}
     else
       :no_proposal -> {"stuck", []}
@@ -856,6 +863,77 @@ defmodule AtlasFlow.Activities.Task do
   end
 
   defp proposed(_spec, outcome, _run, _intent, _ctx), do: {outcome, []}
+
+  # A review's follow-ups (a spec's `follow_ups` names their kind), whatever its verdict:
+  # outside the subject's scope, so never fixed now; one fact of that kind per follow-up,
+  # under the subject's nearest parent (through the kind's parent relation to that parent's
+  # kind). Nothing is made when the subject has no such parent; `:unavailable` while Facts
+  # does not answer.
+  defp follow_ups(%{"follow_ups" => kind}, outcome, answer, run, intent, ctx)
+       when outcome in ["completed", "check_failed"] do
+    relations = ctx[:parents] || %{}
+
+    with [_ | _] = entries <- Ladder.follow_ups(answer),
+         %{"fact" => %{} = subject} <-
+           Talk.transition_read(run["subject_kind"], %{
+             "key" => run["subject_key"],
+             "plain" => true
+           }),
+         {relation, parent} <- under(subject, run["subject_kind"], kind, relations) do
+      make(kind, entries, relation, parent, intent, "follow_ups", "review", run, ctx)
+    else
+      [] -> {:ok, []}
+      nil -> {:ok, []}
+      _ -> :unavailable
+    end
+  end
+
+  defp follow_ups(_spec, _outcome, _answer, _run, _intent, _ctx), do: {:ok, []}
+
+  # The subject's nearest parent a fact of `kind` can hang under: `{relation, key}`, the
+  # relation leading from `kind` to that parent's kind.
+  defp under(subject, subject_kind, kind, relations) do
+    Enum.find_value(relations[subject_kind] || [], fn [from, to] ->
+      with [key | _] when is_binary(key) <- List.wrap(get_in(subject, ["links", from])),
+           [relation | _] <- for([r, ^to] <- relations[kind] || [], do: r) do
+        {relation, key}
+      else
+        _ -> nil
+      end
+    end)
+  end
+
+  # One fact of `kind` per entry, linked through `relation` to `under`, numbered after the
+  # facts of that kind there are, by Flow for the run's supervisor (its cause names the
+  # task that proposed them, in the `what` of the subject).
+  defp make(kind, entries, relation, under, intent, tag, what, run, ctx) do
+    with %{"prefix" => prefix, "digits" => digits} <- (ctx[:ids] || %{})[kind],
+         %{"facts" => facts} when is_list(facts) <-
+           Talk.transition_read(kind, %{"plain" => true}) do
+      first = HandOver.next_number(%{"prefix" => prefix}, Enum.map(facts, & &1["key"]))
+      supervisor = run["supervised_by"]
+      by = if is_binary(supervisor), do: "For #{supervisor}: ", else: ""
+      cause = "#{by}proposed by #{intent["key"]} in the #{what} of #{run["subject_key"]}"
+
+      made =
+        for {entry, i} <- Enum.with_index(entries) do
+          key = prefix <> String.pad_leading(Integer.to_string(first + i), digits, "0")
+
+          write(intent["key"], [tag, Integer.to_string(i)], kind, %{
+            "op" => "create",
+            "key" => key,
+            "values" => entry,
+            "links" => %{relation => [under]},
+            "by" => "flow",
+            "cause" => cause
+          })
+        end
+
+      {:ok, made}
+    else
+      _ -> :unavailable
+    end
+  end
 
   # The entries of the file at the top of the repository in the task's result commit
   # (`refs/atlas/results/<key>`), which Bases resolves through Code like a branch (asked

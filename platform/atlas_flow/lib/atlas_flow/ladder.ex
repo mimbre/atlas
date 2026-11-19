@@ -681,6 +681,30 @@ defmodule AtlasFlow.Ladder do
   defp findings(_), do: :error
 
   @doc """
+  A review's follow-ups from its answer's JSON block (the one `verdict/1` reads): its
+  `follow_ups`, each `{"title", "description"}`, as entries `%{"title", "description"}`
+  (the description left out when it is none), at most 20, the title clipped to 300
+  characters and the description to 2000. An entry without a title is left out; `[]`
+  when the answer has no such block or no follow-ups.
+  """
+  def follow_ups(answer) do
+    case last_json(answer) do
+      {:ok, %{"follow_ups" => list}} when is_list(list) ->
+        for %{"title" => t} = f <- Enum.take(list, @findings), text?(t) do
+          title = t |> String.trim() |> String.slice(0, @finding_chars)
+
+          case clip(f["description"]) do
+            nil -> %{"title" => title}
+            description -> %{"title" => title, "description" => description}
+          end
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  @doc """
   A diagnosis from a diagnose task's answer, which ends with a JSON block `{cause,
   evidence, advice, needs?, decision?}` (#297 §4.1 a): the map, or nil when it cannot be
   parsed. `cause` is one of `wrong_assumption`, `unclear_spec`, `flaky_test`,
