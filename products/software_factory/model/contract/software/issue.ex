@@ -1,48 +1,14 @@
 defmodule Model.Issue do
   @moduledoc """
   The issue kind, its gates, selection and migration policy. Model.Delivery declares
-  its `issue` subflow: an issue is built in one pull request and done when that is merged.
+  its `issue` subflow: an agent builds it on its supervisor's Runtime, a second agent
+  reviews it, one fix follows changes required, Code opens its pull request (`pr_url`),
+  and its supervisor merges it; merged (`pr_state`, as the GitHub connector copies it)
+  is done.
 
-  How it reads:
-
-    * `author` presents "Build it" to the issue's owner (the coordinator, unless someone
-      assigned it by hand) from the moment the issue exists, as the legacy flow
-      `build_and_merge` did; the owner's Runtime works on it through the handover, as
-      today.
-    * Whoever builds it opens the pull request and links it to the issue (`in_issue`).
-      The pull request's own subflow reports back through the composition's link
-      (`pr_outcome`): `integrated` ends it as `done`. Changes requested on it, or a
-      closed one, leave the issue to be built, as today: the pull request presents
-      the changes, and a closed one is followed by another.
-
-  Slice 9 runs it on Flow's durable runs (`select`), in place of the legacy flow
-  `build_and_merge`. The parity fixes keep it to what runs today, where an agent builds
-  an issue through its Runtime turns and opens and links its pull request by hand:
-
-    * no passes yet (author, review, rework): the pass specs are no pass contract a
-      runner accepts (`AtlasFlow.Activities.Pass.valid?/1`: a routing field, a frozen
-      request), and a pass needs what does not exist yet: a machine field on the agent
-      to route by, Code materializing the target, a packet freeze and review-packet
-      contract, another vendor for the review, Runtime's pass receiver configured in an
-      environment; a definition a runner refuses would refuse every selected subflow;
-    * no gates in the subflow yet (`delivery_evidence`, `review`): both are smart gates,
-      and Gates has no evaluator for one, nor their evidence (packet, tests, findings)
-      or advice (Jev, the review pass); a gate Gates cannot answer would stop every
-      reconcile on its run. The gates stay defined, for when the passes come back;
-    * no publish effect yet: Code has no receiver that passed the effect contract (as
-      slice 8 found for integrate), so the pull request is opened and linked by hand;
-    * no timers: each waited on a pass, a gate or the effect; with them gone, a timer
-      would only move a waiting issue to a person after a fixed time, which nothing does
-      today;
-    * no `needs_person` and no `closed`: only the failures and timeouts above led to the
-      person's choice, and its choices led to the states that went; a person's choice
-      would also need a relation that names the maintainer of an issue, which none
-      does; and a closed pull request does not close its issue today;
-    * it starts when the issue is created, not at `stage == 'development'`: the legacy
-      flow presents every open issue whatever its stage, and a run that has not started
-      presents nothing. The stage start belongs with the passes.
-
-  `pass_result`, `gate_result` and `effect_result` stay on the kind, unwritten, for them.
+  `pass_result`, `gate_result`, `effect_result` and `pr_outcome` stay on the kind with
+  what earlier flows wrote; no flow writes them now. The gates stay defined, for when
+  smart gates judge a review's findings.
   """
   use RelaDSL
 
@@ -96,6 +62,40 @@ defmodule Model.Issue do
         "Flow: where its pull request is (none, open, changes_requested, integrated, closed)"
     )
 
+    # What its subflow's task branch reads: the run's own result, never written.
+    field(:task_result, :string,
+      description:
+        "Flow: how its agent task ended (completed, check_failed, stuck, abandoned); the run's own, never written",
+      set_by: [:flow],
+      label: "Task result"
+    )
+
+    field(:publication, :string,
+      description: "Flow: how opening its pull request ended (done, refused)",
+      set_by: [:flow],
+      label: "Publication"
+    )
+
+    field(:pr_url, :github_pull_url,
+      description:
+        "Flow: the pull request Code opened from its result, which its supervisor merges",
+      set_by: [:flow],
+      label: "Pull request"
+    )
+
+    field(:pr_state, :pull_request_state,
+      description: "GitHub: its pull request's state",
+      set_by: :connector,
+      label: "Pull request state"
+    )
+
+    connector(
+      system: :github,
+      address: :pr_url,
+      fields: [pr_state: :state],
+      until: [pr_state: [:merged, :closed]]
+    )
+
     create(ask: [:title, :description])
   end
 
@@ -124,14 +124,10 @@ defmodule Model.Issue do
     policy: [max_rounds: 3, binds: :fingerprint]
 
   # How the runs of issue are selected, imported from the issue as it was before the
-  # subflow ran, and presented: on its Assignment, as the legacy flow build_and_merge did,
-  # which no longer drives an issue. The first row that holds gives the entry. An issue
-  # whose pull request already reported its merge is completed history (no entry writes,
-  # nothing rerun). Any other issue (every one today: no flow wrote pr_outcome, and no pass,
-  # gate or effect ever ran on one, so there is no private work, packet or review round to
-  # carry) matches no row and starts in `author`, as a new one does, writing nothing: what
-  # it showed and its owner stay. Its pull requests, open or merged, are already linked to
-  # it; their runs report to it through the composition's link.
+  # subflow ran, and presented: on its Assignment. The first row that holds gives the
+  # entry. An issue whose pull request already reported its merge is completed history
+  # (no entry writes, nothing rerun). Any other issue matches no row and starts in
+  # `working`, as a new one does, writing nothing: what it showed and its owner stay.
   select(:issue,
     choices: [],
     projection: [
@@ -171,5 +167,16 @@ defmodule Model.Issue do
       rework: :author
     ],
     reason: "Slice 9: selected without its passes, gates and publish effect; built by hand"
+  )
+
+  # Slice 6: an issue is built like the job was (Model.Delivery). An issue still to be
+  # built (`author`, where it waited for a pull request by hand) re-enters `working`
+  # unsupervised, open for anyone to pick up; nothing runs until it is handed to a
+  # machinery. A done one stays done. Its facts are kept as they are.
+  migrate(:issue,
+    from: "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
+    to: "f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda",
+    states: [author: :working, done: :done],
+    reason: "Slice 6: built by an agent, reviewed, fixed once and merged by its supervisor"
   )
 end

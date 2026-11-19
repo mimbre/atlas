@@ -81,7 +81,7 @@ defmodule AtlasCode.EffectsTest do
     assert length(FakeGitHub.writes(c.gh)) == 1
   end
 
-  test "a job's result is published as one pull, the same answer for every repeat", c do
+  test "a subject's result is published as one pull, the same answer for every repeat", c do
     # The fix's result, on the author's, after a review that asked for changes.
     result = FakeGitHub.sha("result")
     ref = "refs/atlas/results/TK-JB-1-3"

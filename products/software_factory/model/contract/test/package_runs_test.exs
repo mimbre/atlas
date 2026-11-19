@@ -1054,7 +1054,7 @@ defmodule Model.PackageRunsTest do
   defp restore_env(app, key, nil), do: Application.delete_env(app, key)
   defp restore_env(app, key, value), do: Application.put_env(app, key, value)
 
-  # The issue's run, in its span `build` (state `author`), supervised by `supervisor` (a
+  # The issue's run, in its span `build` (state `working`), supervised by `supervisor` (a
   # person's key, or nil): as Flow keeps it once someone picked it up.
   defp issue_run(c, supervisor) do
     config = c.runner.config
@@ -1066,7 +1066,7 @@ defmodule Model.PackageRunsTest do
       "subject_key" => @issue,
       "generation" => 1,
       "definition_sha256" => flow.digest(),
-      "state" => "author",
+      "state" => "working",
       "entry" => 1,
       "entered_at" => DateTime.to_iso8601(@now),
       "status" => "active",

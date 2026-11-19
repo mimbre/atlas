@@ -108,7 +108,7 @@ if config_env() != :test do
   # Code's receiver of Flow's integrate and publish effects (AtlasCode.Effects), with its
   # journal in `code.data`, the repositories it may integrate and publish to
   # (`code.repositories`, owner/repo) and GitHub reached with the GitHub connector's
-  # settings: no secret of its own. A publication reads the job's result from the core's
+  # settings: no secret of its own. A publication reads the issue's result from the core's
   # Code service (`code.home`). Flow runs these effects only through a receiver it is told
   # of, so both come from this one block; without it every subflow with such an effect is
   # refused, and Flow runs none.

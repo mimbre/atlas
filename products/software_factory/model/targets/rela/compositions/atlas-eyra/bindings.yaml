@@ -7,7 +7,6 @@ relations:
     - scene
     - use_case
     - issue
-    - job
     - package
     - pull_request
     - decision
@@ -39,7 +38,6 @@ relations:
     to:
     - package
     - issue
-    - job
     max_outgoing: 1
     inverse:
       id: tasks

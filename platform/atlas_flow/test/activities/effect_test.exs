@@ -229,7 +229,7 @@ defmodule AtlasFlow.Activities.EffectTest do
 
       refute Map.has_key?(i["request"], "target")
 
-      # A job's review ran on that result: the result is still the author's, and the review
+      # A subject's review ran on that result: the result is still the author's, and the review
       # goes with it.
       review = %{
         "key" => "TK-B-1-3",

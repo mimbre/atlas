@@ -39,7 +39,12 @@ defmodule AtlasFlow.Activities.Task do
      writes the task fact's `state` and nothing else: it never writes `input` again after
      the create (Dispatch writes the lease's input, fenced).
 
-  **A job's review and fix.** A review or fix outside any ladder names `input:
+  **Why it is to be done.** A spec's `parents` names fields of the subject's parents (the
+  relations the model marks `parent`, `ctx.parents`), nearest first: each parent's are
+  added after the subject's own `fields`, under `## <kind> <key>: <field>`. Facts not
+  answering makes no intent this round.
+
+  **A subject's review and fix.** A review or fix outside any ladder names `input:
   %{"repository", "result" => "latest"}`: its base is the run's latest result
   (`Translate.latest_result/1`), the commit its author's Runtime pushed to
   `refs/atlas/results/<key>`, which Bases resolves through Code like a branch. It works
@@ -124,7 +129,7 @@ defmodule AtlasFlow.Activities.Task do
   @step_kinds %{"fresh" => "author", "stronger" => "author"}
 
   @doc """
-  The results a task's end gives: the four, for a job's review also `changes_required`,
+  The results a task's end gives: the four, for a review outside any ladder also `changes_required`,
   or for a ladder task the ladder's steps.
   """
   def results, do: @results
@@ -141,14 +146,14 @@ defmodule AtlasFlow.Activities.Task do
       spec["profile"] in @profiles and spec["cost_class"] in @costs and text?(spec["field"]) and
       spec["ladder"] in [nil, true] and input?(spec["kind"], spec["ladder"], spec["input"]) and
       check?(spec["check"]) and checked?(spec) and text?(spec["instructions"]) and
-      texts?(spec["fields"] || []) and
+      texts?(spec["fields"] || []) and texts?(spec["parents"] || []) and
       records?(spec["records"]) and text?(spec["machinery"])
   end
 
   # A Code repository and the reference its base is resolved from, nothing else: never a
   # path (D44), never a URL (a scheme, or `user@host:path`). Or, for a ladder task that
   # reviews, fixes or diagnoses, the loop's latest result, read or written as its kind is.
-  # Or, for a review or fix outside any ladder (a job's), a repository and the run's latest
+  # Or, for a review or fix outside any ladder (a subject's), a repository and the run's latest
   # result, which Code serves as a base of that repository.
   defp input?(_kind, _ladder, %{"repository" => r, "base" => b} = input),
     do: map_size(input) == 2 and text?(r) and text?(b) and not url?(r) and not url?(b)
@@ -332,13 +337,14 @@ defmodule AtlasFlow.Activities.Task do
 
   defp intend(run, spec, subject, %{assignee: {:machinery, name}} = ctx) do
     with {:ok, work} <- work(run, spec, subject, ctx) |> asked_again(run, ctx),
+         {:ok, parents} <- parents(spec, run["subject_kind"], subject, ctx[:parents] || %{}),
          {:ok, n} <- ctx.number.() do
       key = key(subject["key"], n)
 
       intent =
         spec
         |> Translate.intent(subject, key, work.base, work.change_set, name, ctx.now)
-        |> update_in(["work", "instructions"], &(&1 <> Enum.join(work.sections)))
+        |> update_in(["work", "instructions"], &(&1 <> parents <> Enum.join(work.sections)))
         |> then(&if(work.loop, do: Map.put(&1, "loop", work.loop), else: &1))
         |> Translate.root_check(repository(spec) || (work.ladder || %{})["repository"])
         |> Translate.result_ref(key, work.ladder == nil)
@@ -388,6 +394,44 @@ defmodule AtlasFlow.Activities.Task do
 
   defp intend(_run, _spec, _subject, _ctx), do: :none
 
+  # The spec's `parents` fields of each parent, walked up from the subject through the
+  # parent relations (`%{kind => [[relation, parent kind]]}`), nearest first: the first
+  # parent each one links to, at most 8 up.
+  defp parents(%{"parents" => [_ | _] = fields}, kind, subject, relations),
+    do: up(fields, kind, subject, relations, 8, "")
+
+  defp parents(_spec, _kind, _subject, _relations), do: {:ok, ""}
+
+  defp up(_fields, _kind, _fact, _relations, 0, text), do: {:ok, text}
+
+  defp up(fields, kind, fact, relations, depth, text) do
+    parent =
+      Enum.find_value(relations[kind] || [], fn [relation, to] ->
+        case List.wrap(get_in(fact, ["links", relation])) do
+          [key | _] when is_binary(key) -> {to, key}
+          _ -> nil
+        end
+      end)
+
+    with {to, key} <- parent,
+         %{"fact" => %{} = found} <-
+           Talk.transition_read(to, %{"key" => key, "plain" => true}) do
+      values = found["values"] || %{}
+
+      sections =
+        for field <- fields,
+            value = values[field],
+            is_binary(value) and String.trim(value) != "",
+            do: "\n\n## #{to} #{key}: #{field}\n\n#{value}"
+
+      up(fields, to, found, relations, depth - 1, text <> Enum.join(sections))
+    else
+      nil -> {:ok, text}
+      %{"fact" => nil} -> {:ok, text}
+      _ -> :unavailable
+    end
+  end
+
   # Where the next task starts: a task that is no ladder's (or the loop's first author)
   # from the spec's base, as Bases holds it; a ladder step from what the ladder says.
   defp work(run, %{"ladder" => true} = spec, subject, ctx) do
@@ -411,7 +455,7 @@ defmodule AtlasFlow.Activities.Task do
     end
   end
 
-  # A task that is no ladder's starts from its spec's base reference; a job's review or fix
+  # A task that is no ladder's starts from its spec's base reference; a subject's review or fix
   # from the run's latest result (`refs/atlas/results/<key>`), with the review's answer
   # format or the findings of the review before it.
   defp work(run, spec, _subject, _ctx) do
@@ -425,7 +469,7 @@ defmodule AtlasFlow.Activities.Task do
         %{"result" => "latest"} ->
           tasks = run["pending"]["tasks"] || []
           key = Translate.latest_result(tasks)
-          {key && Translate.result_ref(key), job_sections(spec["kind"], tasks)}
+          {key && Translate.result_ref(key), result_sections(spec["kind"], tasks)}
       end
 
     with true <- is_binary(reference),
@@ -433,7 +477,7 @@ defmodule AtlasFlow.Activities.Task do
          do: {:ok, %{base: base, change_set: nil, sections: sections, loop: nil, ladder: nil}}
   end
 
-  defp job_sections("fix", tasks) do
+  defp result_sections("fix", tasks) do
     findings = (Translate.latest_review(tasks) || %{})["findings"] || []
 
     [
@@ -442,7 +486,7 @@ defmodule AtlasFlow.Activities.Task do
     ]
   end
 
-  defp job_sections(kind, _tasks), do: Ladder.sections(kind, %{}, [])
+  defp result_sections(kind, _tasks), do: Ladder.sections(kind, %{}, [])
 
   defp ci_fix(run, ladder, %{"kind" => "fix"} = spec, ctx) do
     with {:ok, views} <- views(spec, run, nil, nil),
@@ -708,8 +752,8 @@ defmodule AtlasFlow.Activities.Task do
   end
 
   # A task that is no ladder's ended: its kind joins its result, so a publication tells the
-  # job's result from its review (`Translate.latest_result/1`); a review's verdict and
-  # findings too, and its verdict goes on its task fact; a fix's answer too. A job's review
+  # subject's result from its review (`Translate.latest_result/1`); a review's verdict and
+  # findings too, and its verdict goes on its task fact; a fix's answer too. A subject's review
   # that asks for changes gives the run `changes_required`; its task fact keeps how it ended.
   defp ended_task(intent, spec, outcome, result, fact) do
     answer = get_in(fact || %{}, ["values", "answer"])

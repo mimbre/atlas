@@ -533,6 +533,10 @@
     "issue": {
       "completion": [
         {
+          "field": "pr_state",
+          "value": "merged"
+        },
+        {
           "field": "state",
           "over": "in_issue",
           "value": "merged"
@@ -543,6 +547,19 @@
           "value": "merged"
         }
       ],
+      "connector": {
+        "address": "pr_url",
+        "fields": {
+          "pr_state": "state"
+        },
+        "system": "github",
+        "until": {
+          "pr_state": [
+            "merged",
+            "closed"
+          ]
+        }
+      },
       "create": {
         "ask": [
           "title",
@@ -576,36 +593,6 @@
         },
         "flux_ref": {
           "set_by": "connector"
-        }
-      }
-    },
-    "job": {
-      "connector": {
-        "address": "pr_url",
-        "fields": {
-          "pr_state": "state"
-        },
-        "system": "github",
-        "until": {
-          "pr_state": [
-            "merged",
-            "closed"
-          ]
-        }
-      },
-      "create": {
-        "ask": [
-          "title",
-          "description"
-        ],
-        "id": {
-          "digits": 2,
-          "prefix": "JB-Atlas-"
-        }
-      },
-      "properties": {
-        "description": {
-          "multiline": true
         },
         "pr_state": {
           "label": "Pull request state",

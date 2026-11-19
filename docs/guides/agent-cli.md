@@ -31,9 +31,9 @@ An agent that plans gets the same actions as tools: `atlas tools` lists them, ma
 Whatever a page in the TUI offers works from the command line too, without a command of its own. `atlas actions <code>` lists the actions Control offers on its page (label, key and where it goes). `atlas do <code> "<label or key>"` does one as the TUI does: it opens the action's page and submits its confirm, or its form with the values the form holds and those given as `--<input> <text>` (`--<input>-file <path>` and `-` read as for `put`). It prints the page Control shows after it, its blocks as the contract lays them out, or with `--json` the page as Control sent it. `--help` prints the action's page, with the inputs its form asks, and submits nothing; a name the form does not ask is answered with the inputs it does.
 
 ```sh
-atlas actions JB-Atlas-07
-atlas do JB-Atlas-07 "Pick up"
-atlas do JB-Atlas-07 "Hand to…" --to mac-mini
+atlas actions IS-Atlas-07
+atlas do IS-Atlas-07 "Pick up"
+atlas do IS-Atlas-07 "Hand to…" --to mac-mini
 ```
 
 `actions` and `do` act as the person at the TUI (the environment's `tui_user`): an action only a person may take, as Pick up, is offered to them. With `ATLAS_AS=<agent key>` they act as that agent, and Control offers and allows what it offers and allows an agent. The other commands stay an agent's.

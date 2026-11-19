@@ -6,7 +6,7 @@ defmodule AtlasCode.Git do
   A base is a repository URL of its own, `/bases/<base_id>`, which advertises the ref
   `refs/atlas/bases/<base_id>` on the base's prepared commit, the base's commit plus its
   dependencies (`AtlasCode.Service.base_repository/2`): a Runtime fetches that ref and never
-  names a commit. A Runtime pushes a job's result
+  names a commit. A Runtime pushes a subject's result
   commit to the same URL, under the ref Flow named for it (`refs/atlas/results/<task>`).
 
   Every request needs `Authorization: Bearer <token>` with a Runtime's work source token: the
