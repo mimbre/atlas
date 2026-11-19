@@ -17,6 +17,7 @@ defmodule AtlasFlow.Runs.Store do
   """
 
   require Logger
+  alias AtlasFlow.{Dispatch, Results}
   alias AtlasFlow.Runs.{HandOver, Run}
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
@@ -569,6 +570,9 @@ defmodule AtlasFlow.Runs.Store do
 
   defp react(_config, _d, _run, _flow, _now, 0), do: {:error, :transition_limit}
 
+  defp react(config, d, %{"status" => "ended"} = run, flow, now, remaining),
+    do: reused(config, d, run, flow, now, remaining)
+
   defp react(config, d, run, flow, now, remaining) do
     if run["definition_sha256"] != flow.digest() do
       migrations = config["selection"][run["flow"]]["migrations"] || []
@@ -768,11 +772,20 @@ defmodule AtlasFlow.Runs.Store do
           end
         end
 
-      # A deleted subject leaves its run as it is: nothing moves it or is
-      # written for it, and the other runs go on (a parent counts its children
-      # as Facts holds them, so a deleted child is no longer among them).
+      # A deleted subject ends its run (`ended`), stored before its held task is
+      # cancelled: nothing moves it or is written for it any more, and the other runs go
+      # on (a parent counts its children as Facts holds them, so a deleted child is no
+      # longer among them).
       %{"fact" => nil} ->
-        finish(config, d, run, flow, now, remaining)
+        stored(config, d, Map.put(run, "status", "ended"), :all, flow, now, remaining, fn
+          _d, ended ->
+            with %{"key" => task} <- ended["pending"]["task"] do
+              Dispatch.cancel(task, "subject_deleted")
+              Results.unpin(task, now)
+            end
+
+            {:ok, ended}
+        end)
 
       other ->
         {:error, {:subject_unavailable, other}}
@@ -780,6 +793,32 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   defp activity?(run, flow), do: run["status"] == "active" and flow.mechanism(run["state"]) != nil
+
+  # A run whose subject was deleted stays ended. A fact made later under the same key
+  # (Facts frees a deleted key after a while) is another subject: once its selection
+  # admits it, it gets the next generation, a new run, and never this one.
+  defp reused(config, d, run, flow, now, remaining) do
+    selection = config["selection"][run["flow"]]
+
+    case Talk.transition_read(run["subject_kind"], %{"key" => run["subject_key"]}) do
+      %{"fact" => %{} = subject} = answer ->
+        subject = Map.put(subject, "position", answer["position"] || subject["position"] || 0)
+
+        if Run.holds?(selection["admission"], subject["values"] || %{}) do
+          generation = run["generation"] + 1
+          new = Run.new(run["flow"], flow, subject, selection["imports"], now, generation)
+          step(config, d, run, new, flow, now, remaining)
+        else
+          finish(config, d, run, flow, now, remaining)
+        end
+
+      %{"fact" => nil} ->
+        finish(config, d, run, flow, now, remaining)
+
+      other ->
+        {:error, {:subject_unavailable, other}}
+    end
+  end
 
   # One transition taken: the next one from it, or the end of the reaction when it
   # changed nothing. A new generation is another run: the one it ends is stored first.

@@ -52,7 +52,7 @@ Add the generic `flow_run` kind to the foundation description:
 | --- | --- |
 | `flow`, `subject_kind`, `subject_key`, `generation` | Stable identity. Use its digest as the fact key. |
 | `definition_sha256` | Lowercase SHA-256 of the subflow's canonical JSON data from the published `products/software_factory/model/targets/<env>/atlas/flows.json` pair (production uses `products/software_factory/model/targets/atlas/flows.json`). Recursively sort object keys, omit insignificant whitespace, preserve array order and exact scalar values. Hash only the selected subflow, excluding the pair's header, YAML hash and unrelated flows. No Erlang term serialization or runtime struct metadata. |
-| `state`, `entry`, `entered_at`, `status` | Cursor, increasing entry number, UTC entry time, active/completed/blocked. Self-transition increments entry. |
+| `state`, `entry`, `entered_at`, `status` | Cursor, increasing entry number, UTC entry time, active/completed/blocked/ended. Self-transition increments entry. A deleted subject ends its run (`ended`) and cancels the task it holds; a fact made later under the same key gets the next generation, never the ended run. |
 | `deadlines` | JSON text: timer name, resolved UTC due time, source entry. |
 | `pending` | JSON text: remaining entry writes or activity intents, stable ids and frozen payloads. |
 | `input_cursor`, `last_input` | Last consumed Facts position and accepted input or timer identity. |
@@ -66,7 +66,7 @@ The assembler rejects unknown root keys and runtime keys (`platform/atlas_facts/
 
 Use one writer per run in this release. Claim entry changes with run version and `was`. On conflict, reread. Do not assume a transaction spanning run, subject and service. Persist the next cursor with pending entry writes first. Replay those writes with stable request ids. Clear pending after acknowledgement; the cleared list is stored with the run's next write, and a crash before it replays the writes under their ids. Store one reaction to one input once: transitions taken one after the other in memory are one versioned write, written sooner only before entry writes, an activity request, a consume, or an inputs read once the cursor moved. Consume no further input until entry writes finish. Bootstrap historical terminal subjects before any initial resets. Never turn an accepted subject back into proposed.
 
-Read flow inputs only for an active run whose cursor is durable. Completed, blocked and idle runs take no input; a stale prepared input left on one must not refuse reconciliation. A start or unblock is stored before reading its inputs; entry writes and consumes keep their existing recovery boundaries.
+Read flow inputs only for an active run whose cursor is durable. Completed, blocked, ended and idle runs take no input; a stale prepared input left on one must not refuse reconciliation. A start or unblock is stored before reading its inputs; entry writes and consumes keep their existing recovery boundaries.
 
 At boot, load incomplete runs and pending writes. Scan selected subjects for missed starts. Restore wakeups from durable UTC deadlines. Process overdue timers immediately. Never restart their intervals. Inject a clock for now, scheduling and cancellation, including new engine rounds and debounce. Production persists UTC and uses monotonic waits. Tests advance a manual clock and drain a synchronous reconcile call. Old polling tests need not be rewritten in slice 1.
 
