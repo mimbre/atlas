@@ -2,10 +2,13 @@ defmodule Model.Job do
   @moduledoc """
   A job is one piece of agent work. A person picks it up in the Console and becomes its
   human supervisor; handed to a machinery, it runs one agent task on that supervisor's
-  Runtime. When the task ends, Code opens a pull request from its result (the effect
+  Runtime. When the task ends, a second agent reviews its result there (`reviewing`): a
+  Git checkout of it, judged against the job, ending with a verdict and findings. Then
+  Code opens a pull request from the result, the review in its body (the effect
   `publish`, `AtlasCode.Effects`), and the job waits for its supervisor to merge it on
-  GitHub: the GitHub connector copies the pull's state, and merged is done. No package,
-  check or review. It sits beside the issue flow and changes nothing of it.
+  GitHub: the GitHub connector copies the pull's state, and merged is done. Whatever the
+  verdict, its supervisor decides; no fix follows. No package or check. It sits beside
+  the issue flow and changes nothing of it.
   """
   use RelaDSL
 
@@ -70,7 +73,7 @@ defmodule Model.Job do
     start :create
     initial :working
     # Its pull request is its supervisor's to merge: the span holds until it is merged.
-    supervise :run, label: "Run", states: [:working, :publishing, :merging], with: []
+    supervise :run, label: "Run", states: [:working, :reviewing, :publishing, :merging], with: []
 
     state :working, label: "Working" do
       present(
@@ -87,6 +90,36 @@ defmodule Model.Job do
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
           "Do the job below in the repository you are given, a Git checkout of its base. End your answer with what you did and what is left open.",
+        fields: [:title, :description],
+        records: [kind: "task", relation: "task_of"],
+        machinery: "machinery",
+        on: [
+          completed: :reviewing,
+          check_failed: :reviewing,
+          stuck: :stuck,
+          abandoned: :stuck
+        ]
+      )
+    end
+
+    # A second agent judges the author's result: a Git checkout of it (the result commit on
+    # its base, and on top the base's dependencies), which Code serves like a branch. What it
+    # changes is never read. Its verdict and findings go with the result to its pull request.
+    state :reviewing, label: "Reviewing" do
+      present(
+        expected: "Review it on the machinery",
+        why: "its agent's work is done",
+        instructions:
+          "Its machinery runs a second agent on its result, which judges whether it does what the job asks. Nothing is done while it is not assigned to a machinery."
+      )
+
+      task(:review,
+        role: :developer,
+        profile: :independent_review,
+        cost_class: :standard,
+        input: [repository: "github.com/mimbre/atlas", result: :latest],
+        instructions:
+          "Review the result of the job below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the change to review is the commit under it (git show HEAD~1). Judge whether it does what the job asks, and nothing else; you may run bin/check. Change nothing: what you change is thrown away.",
         fields: [:title, :description],
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
@@ -132,7 +165,7 @@ defmodule Model.Job do
         expected: "Review and merge its pull request",
         why: "its agent's work is done",
         instructions:
-          "Open its pull request and merge it on GitHub; the job is done once GitHub says it is merged."
+          "Open its pull request, read its review's verdict and findings in its body, and merge it on GitHub; the job is done once GitHub says it is merged."
       )
 
       branch to: :done, when: "entity.pr_state == 'merged'"
@@ -179,6 +212,23 @@ defmodule Model.Job do
     preserve_entry: true,
     states: :same,
     reason: "Opening its pull request is presented; the same states and entries"
+  )
+
+  # Slice 4: a second agent reviews the result before Code opens its pull request
+  # (`reviewing`). Every state is kept with its entry: a task in flight goes on, and leads
+  # to `reviewing` when it completes; a job past it stays where it is.
+  migrate(:job,
+    from: "4e09f905e40c89b644787131690d3ecb917e9321eb6536abf66a3b7f1bad025e",
+    to: "9e29e2247dca7e189f81f621ce1af3f05fedfbe63d667b19c3dd9c00a9d0dd77",
+    preserve_entry: true,
+    states: [
+      working: :working,
+      publishing: :publishing,
+      merging: :merging,
+      done: :done,
+      stuck: :stuck
+    ],
+    reason: "A second agent reviews its result before its pull request; the same entries"
   )
 
   select(:job,

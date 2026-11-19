@@ -51,7 +51,7 @@ defmodule AtlasFlow.WorkSource.Translate do
     input =
       %{
         "base" => %{"base_id" => base.base_id, "manifest" => base.manifest},
-        "permissions" => permissions(spec["kind"])
+        "permissions" => permissions(spec)
       }
       |> put_change_set(change_set)
 
@@ -125,6 +125,8 @@ defmodule AtlasFlow.WorkSource.Translate do
   `refs/atlas/results/<key>` the Runtime pushes its result commit to in the base's Code
   repository, instead of a change set. Only for a task outside any ladder and without an
   after-check (a job's task): nothing publishes or reworks its result from a change set.
+  The Runtime makes such a task's folder a Git checkout of its base; a job's review gets one
+  too, and the result it pushes is never read.
   """
   def result_ref(intent, key, true) do
     if get_in(intent, ["work", "after_check"]) == nil and
@@ -138,7 +140,26 @@ defmodule AtlasFlow.WorkSource.Translate do
   @doc "The ref the result commit of task `key` is pushed to: `refs/atlas/results/<key>`."
   def result_ref(key), do: "refs/atlas/results/" <> key
 
-  @doc "The permissions a task kind's work runs with: read-only for a review or a diagnose."
+  @doc """
+  The key of a job run's latest result: its latest task (`pending.tasks`) that is no
+  review, whose folder is only read. Nil while it has none.
+  """
+  def latest_result(tasks) do
+    tasks
+    |> Enum.reverse()
+    |> Enum.find_value(fn t -> t["task_kind"] != "review" and t["key"] end)
+  end
+
+  @doc """
+  The permissions a task's work runs with: read-only for a review or a diagnose of the
+  loop's latest result. A job's review (`input` a repository and the latest result) works
+  in a Git checkout of that result it may build in (bin/check): writable, as nothing it
+  changes is read back.
+  """
+  def permissions(%{"input" => %{"repository" => _, "result" => "latest"}}),
+    do: "workspace-write"
+
+  def permissions(%{} = spec), do: permissions(spec["kind"])
   def permissions(kind) when kind in @read_only, do: "read-only"
   def permissions(_kind), do: "workspace-write"
 

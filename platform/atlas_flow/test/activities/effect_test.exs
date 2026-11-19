@@ -228,6 +228,27 @@ defmodule AtlasFlow.Activities.EffectTest do
              }
 
       refute Map.has_key?(i["request"], "target")
+
+      # A job's review ran on that result: the result is still the author's, and the review
+      # goes with it.
+      review = %{
+        "key" => "TK-B-1-3",
+        "task_kind" => "review",
+        "outcome" => "completed",
+        "verdict" => "approved",
+        "findings" => ["Fine."]
+      }
+
+      run = Map.put(run(), "pending", %{"tasks" => tasks ++ [review]})
+      {:ok, i} = Effect.freeze(run, spec, subject(), receivers)
+
+      assert i["request"]["input"]["result"] == "refs/atlas/results/TK-B-1-2"
+
+      assert i["request"]["input"]["review"] == %{
+               "task" => "TK-B-1-3",
+               "verdict" => "approved",
+               "findings" => ["Fine."]
+             }
     end
   end
 

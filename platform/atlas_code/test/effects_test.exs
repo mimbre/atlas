@@ -106,7 +106,16 @@ defmodule AtlasCode.EffectsTest do
         "operation" => "publish",
         "fingerprint_definition" => %{"fields" => ["title"], "relations" => []},
         "payload" => %{"title" => "Fix the README", "description" => "One typo."},
-        "input" => %{"repository" => "github.com/o/r", "base" => "main", "result" => ref}
+        "input" => %{
+          "repository" => "github.com/o/r",
+          "base" => "main",
+          "result" => ref,
+          "review" => %{
+            "task" => "TK-JB-1-2",
+            "verdict" => "changes_required",
+            "findings" => ["README has a second typo."]
+          }
+        }
       })
       |> Map.drop(["target", "approved"])
 
@@ -119,6 +128,8 @@ defmodule AtlasCode.EffectsTest do
              pull = FakeGitHub.get_pull(c.gh, 8)
 
     assert pull["body"] =~ "One typo."
+    assert pull["body"] =~ "TK-JB-1-2"
+    assert pull["body"] =~ "README has a second typo."
     assert pull["body"] =~ "Written by an AI agent"
 
     # Repeated, or its record lost: the same pull, never a second one.

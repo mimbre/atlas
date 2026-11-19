@@ -503,6 +503,14 @@ flows:
         label: Working
         on:
           change:
+            - { to: reviewing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
+            - { to: reviewing, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+      reviewing:
+        label: Reviewing
+        on:
+          change:
             - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
             - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
             - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
