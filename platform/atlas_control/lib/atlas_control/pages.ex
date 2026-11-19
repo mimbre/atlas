@@ -1226,24 +1226,38 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # The client may supervise: a fact of a supervisor's kind, at the TUI.
+  # The client may supervise: a fact of a supervisor's kind, at the TUI. An agent that
+  # assists someone (`assists`, its key) may pick up on their behalf (IS-Atlas-47); it
+  # never supervises itself, so it never hands over.
   defp may_supervise?(m, form),
-    do: form[:client] == @supervising_client and form[:by_kind] in supervisor_kinds(m)
+    do:
+      (form[:client] == @supervising_client and form[:by_kind] in supervisor_kinds(m)) or
+        is_binary(form[:assists])
 
   @doc """
   Why the client cannot pick up `run` on the fact now, from fresh reads of the page; nil
-  when it can: someone at the TUI who may supervise, the run still the one that presents the fact,
-  active, in a span, and without a supervisor.
+  when it can: someone at the TUI who may supervise, or an agent that assists someone
+  (who becomes the supervisor), the run still the one that presents the fact, active, in
+  a span, and without a supervisor.
   """
   def pick_up_problem(m, {:pick_up, kind, _key, run}, [%{"fact" => %{} = fact} | rest], form) do
     p = work_presentation(m, kind, fact, item_parts(m, kind, rest))
 
     cond do
-      not may_supervise?(m, form) -> "Only someone at the TUI who may supervise picks a flow up."
-      p["run"] != run -> "The flow moved on since this page was made; open it again."
-      p["status"] != "active" or span_of(m, kind, p) == nil -> "The flow is not open for you."
-      supervisor(p) != [] -> "The flow is supervised already."
-      true -> nil
+      not may_supervise?(m, form) ->
+        "Only someone at the TUI who may supervise, or an agent that assists them, picks a flow up."
+
+      p["run"] != run ->
+        "The flow moved on since this page was made; open it again."
+
+      p["status"] != "active" or span_of(m, kind, p) == nil ->
+        "The flow is not open for you."
+
+      supervisor(p) != [] ->
+        "The flow is supervised already."
+
+      true ->
+        nil
     end
   end
 
@@ -1338,12 +1352,23 @@ defmodule AtlasControl.Pages do
     Blocks.action(label: label, key: key, to: path(route))
   end
 
-  # The run's supervisor on a span subject's page, keys only, by the relation's label.
+  # The run's supervisor on a span subject's page, keys only, by the relation's label,
+  # with the fact that set it when Facts knows it (who picked it up, on whose behalf).
   defp supervisor_pair(m, kind, p) do
     with keys when keys != [] <- supervisor(p),
          true <- kind in span_kinds(m),
          %{} = r <- rel(m, supervision(m).relation) do
-      [Blocks.pair(label: String.capitalize(r.label), value: Enum.join(keys, ", "))]
+      origin = p["supervisor_origin"]
+
+      [
+        Blocks.pair(
+          label: String.capitalize(r.label),
+          value: Enum.join(keys, ", "),
+          origin:
+            origin &&
+              Blocks.origin(since: origin["since"], by: origin["by"], cause: origin["cause"])
+        )
+      ]
     else
       _ -> []
     end
@@ -2111,7 +2136,9 @@ defmodule AtlasControl.Pages do
             page(title, back, [
               Blocks.confirm(
                 title: "#{title}?",
-                text: "#{key}: #{label(k, fact)}",
+                text:
+                  "#{key}: #{label(k, fact)}" <>
+                    if(form[:assists], do: ", on behalf of #{form[:assists]}", else: ""),
                 confirm_label: label,
                 confirm_to: call_to(route),
                 cancel_to: back

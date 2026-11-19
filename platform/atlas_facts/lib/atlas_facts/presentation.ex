@@ -37,7 +37,8 @@ defmodule AtlasFacts.Presentation do
   The presentation of `target` by `presenter`, for `subject` (`%{"key", "values"}`, the
   fact the work is on; `target` itself when the presenter writes on the subject) with
   `runs` (decoded, of its subject: `flow`, `generation`, `status`, `state`, `key`, and
-  `supervisor`, the keys its supervision relation links).
+  `supervisor`, the keys its supervision relation links, with `supervisor_origin`, the
+  fact that set that link).
   `completed?` says whether the subject is completed (asked only for reopened work).
   """
   def view(presenter, target, subject, runs, completed?) do
@@ -53,6 +54,7 @@ defmodule AtlasFacts.Presentation do
       "status" => nil,
       "state" => nil,
       "supervisor" => [],
+      "supervisor_origin" => nil,
       "reopened" => false,
       "owner" => owners(target, presenter),
       "manual" => manual?(target, presenter["owner_relation"]),
@@ -106,7 +108,8 @@ defmodule AtlasFacts.Presentation do
       "run" => run["key"],
       "generation" => run["generation"],
       "status" => run["status"],
-      "supervisor" => run["supervisor"] || []
+      "supervisor" => run["supervisor"] || [],
+      "supervisor_origin" => run["supervisor_origin"]
     }
 
   # The latest generation of each of its subflows' runs, in the presenter's order.

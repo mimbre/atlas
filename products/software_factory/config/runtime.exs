@@ -168,6 +168,11 @@ if config_env() != :test do
   # (AtlasBus.Actors); an actor whose fact does not exist yet only makes its owner wait.
   config :atlas, actors: settings["actors"]
 
+  # Whom each agent assists (`"assists": {"<agent key>": "<person key>"}`): an agent picks
+  # a flow up on that person's behalf, who becomes its supervisor (IS-Atlas-47). None by
+  # default: an agent then picks nothing up.
+  config :atlas, assists: settings["assists"] || %{}
+
   # A private instance may run another composition of the model (a profile, e2e).
   if model = settings["model"], do: config(:atlas, model: Module.concat([model]))
 

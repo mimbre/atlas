@@ -129,6 +129,18 @@ defmodule AtlasFlow.Runs.SupervisionInputsTest do
     assert r["state"] == "packing"
   end
 
+  test "an agent's pickup makes whom it assists the supervisor, and the link write says so", c do
+    Application.put_env(:atlas, :assists, %{"rob" => "ada"})
+    on_exit(fn -> Application.delete_env(:atlas, :assists) end)
+    started(c)
+    slip(c, 10, "pickup", "rob")
+
+    assert {:ok, _} = reconcile(c)
+    assert run(c)["supervised_by"] == "ada" and link() == ["ada"]
+    assert [write] = link_writes()
+    assert write["cause"] == "Picked up by rob on behalf of ada"
+  end
+
   test "a pickup again by the supervisor changes nothing and is still consumed", c do
     started(c)
     slip(c, 10, "pickup", "ada")
