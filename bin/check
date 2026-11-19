@@ -23,6 +23,8 @@
 
 require 'yaml'
 require 'open3'
+require 'tmpdir'
+require 'fileutils'
 
 root = File.expand_path('..', __dir__)
 workflow = YAML.load_file(File.join(root, '.github/workflows/ci.yml'))
@@ -52,6 +54,19 @@ end
 selected = ARGV.empty? ? own.keys + linux.keys : ARGV
 unknown = selected - linux.keys - own.keys
 abort "bin/check: unknown job(s): #{unknown.join(', ')} (see bin/check --list)" unless unknown.empty?
+
+# Workers run without network: Hex must resolve from its local registry cache, never the registry.
+# Hex rewrites that cache after resolving, and a worker's sandbox reads the user's Hex home but
+# cannot write it, so Hex works in a temporary home holding a copy of the cache.
+hex_home = nil
+at_exit { FileUtils.rm_rf(hex_home) if hex_home }
+offline_hex = lambda do
+  hex_home ||= Dir.mktmpdir('hex').tap do |dir|
+    cache = File.join(ENV['HEX_HOME'] || File.join(Dir.home, '.hex'), 'cache.ets')
+    FileUtils.cp(cache, dir) if File.exist?(cache)
+  end
+  { 'HEX_OFFLINE' => '1', 'HEX_HOME' => hex_home }
+end
 
 failed = []
 selected.each do |id|
@@ -100,8 +115,7 @@ selected.each do |id|
     end
     dir = File.join(root, step['working-directory'] || default_dir)
     print "   run   #{label[0, 90]} … "
-    # Workers run without network: Hex must use its local cache, never the registry.
-    step_env = step_env.merge('HEX_OFFLINE' => '1') if run.include?('deps.get')
+    step_env = step_env.merge(offline_hex.()) if run.include?('deps.get')
     out, status = Open3.capture2e(step_env, 'bash', '-eo', 'pipefail', '-c', run, chdir: dir)
     if status.success?
       puts 'ok'
