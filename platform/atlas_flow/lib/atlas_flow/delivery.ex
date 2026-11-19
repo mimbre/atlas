@@ -375,7 +375,7 @@ defmodule AtlasFlow.Delivery do
            end}
       end
     else
-      # A job's result went to Code over Git (`input.result_ref`): the task names its ref.
+      # A subject's result went to Code over Git (`input.result_ref`): the task names its ref.
       values =
         Map.merge(result, %{
           "lease_state" => "done",

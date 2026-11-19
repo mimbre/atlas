@@ -104,5 +104,8 @@ defmodule RelaDSL.RunIdentityTest do
              )
 
     assert msg =~ "states maps states the base did not record"
+
+    # A subflow removed whole takes its history with it.
+    assert RunIdentity.base_problems(base.(@b, [entry.(@b)]), %{"subflows" => %{}}, []) == []
   end
 end

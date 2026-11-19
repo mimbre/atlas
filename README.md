@@ -82,6 +82,5 @@ atlas-ops status --env test    # what runs, and which build
 - [docs/guides/](docs/guides/): the environments and how to try each use case.
 - [docs/contracts/](docs/contracts/): the interfaces between components.
 - [docs/adr/](docs/adr/): decisions, one short record each.
-A job's result becomes a pull request its supervisor merges.
-Its supervisor merges a job's pull request.
-A second agent reviews a job's result before its pull request.
+
+An issue is built by an agent on its supervisor's Runtime, reviewed by a second agent, fixed once when the review asks for changes, and opened as a pull request its supervisor merges.

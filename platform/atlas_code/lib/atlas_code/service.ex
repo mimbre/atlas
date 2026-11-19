@@ -72,7 +72,7 @@ defmodule AtlasCode.Service do
 
   @doc """
   `POST /v1/references/resolve`: the revision handle of a branch's current commit, or of a
-  job's result (`refs/atlas/results/<task>`, the commit a Runtime pushed to Code's copy of
+  subject's result (`refs/atlas/results/<task>`, the commit a Runtime pushed to Code's copy of
   the repository), which a review then gets as its base.
   """
   @spec resolve_reference(settings(), term()) :: response()
@@ -269,7 +269,7 @@ defmodule AtlasCode.Service do
   The result commit a Runtime pushed to `ref` (`refs/atlas/results/<task>`, through Code's Git
   endpoint) in the cache repository of `repository`, where its base was served from:
   `{:ok, %{"dir" => git_dir, "commit" => commit}}`, or `:error` when there is no such commit.
-  For Code's publication of a job's result (`AtlasCode.Effects`); clients never see either.
+  For Code's publication of a subject's result (`AtlasCode.Effects`); clients never see either.
   """
   @spec result(settings(), String.t(), String.t()) ::
           {:ok, %{String.t() => String.t()}} | :error

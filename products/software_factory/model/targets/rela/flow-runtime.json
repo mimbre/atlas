@@ -136,7 +136,8 @@
         "choices": [],
         "choice_states": [],
         "migrations": [
-          {"from":"99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e","to":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","states":{"author":"author","closed":"author","delivery_gate":"author","done":"done","in_pr":"author","needs_person":"author","publish":"author","review":"author","review_gate":"author","rework":"author"},"reason":"Slice 9: selected without its passes, gates and publish effect; built by hand"}
+          {"from":"99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e","to":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","states":{"author":"author","closed":"author","delivery_gate":"author","done":"done","in_pr":"author","needs_person":"author","publish":"author","review":"author","review_gate":"author","rework":"author"},"reason":"Slice 9: selected without its passes, gates and publish effect; built by hand"},
+          {"from":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","to":"f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda","states":{"author":"working","done":"done"},"reason":"Slice 6: built by an agent, reviewed, fixed once and merged by its supervisor"}
         ],
         "subject": "issue",
         "projection": {
@@ -318,28 +319,6 @@
             "state": "working"
           }
         ]
-      },
-      "job": {
-        "choices": [],
-        "choice_states": [],
-        "migrations": [
-          {"from":"9d3344521082b52910d3a4e637a7e2278746a9e76dae06a2ffcbfc5c376e202b","to":"3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59","states":{"done":"done","stuck":"stuck","working":"working"},"reason":"Only the agent's instruction changed"},
-          {"from":"3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59","to":"46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55","states":{"done":"done","stuck":"stuck","working":"working"},"reason":"Only the agent's instruction changed"},
-          {"from":"46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55","to":"afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939","preserve_entry":true,"states":{"done":"done","stuck":"stuck","working":"working"},"reason":"Its result becomes a pull request its supervisor merges; the same entries"},
-          {"from":"afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939","to":"4e09f905e40c89b644787131690d3ecb917e9321eb6536abf66a3b7f1bad025e","preserve_entry":true,"states":{"done":"done","merging":"merging","publishing":"publishing","stuck":"stuck","working":"working"},"reason":"Opening its pull request is presented; the same states and entries"},
-          {"from":"4e09f905e40c89b644787131690d3ecb917e9321eb6536abf66a3b7f1bad025e","to":"9e29e2247dca7e189f81f621ce1af3f05fedfbe63d667b19c3dd9c00a9d0dd77","preserve_entry":true,"states":{"done":"done","merging":"merging","publishing":"publishing","stuck":"stuck","working":"working"},"reason":"A second agent reviews its result before its pull request; the same entries"},
-          {"from":"9e29e2247dca7e189f81f621ce1af3f05fedfbe63d667b19c3dd9c00a9d0dd77","to":"deeea13ff1228584d3b6ccda2533bddd1b533d68606da6abc88fd166e755c47f","preserve_entry":true,"states":{"done":"done","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","working":"working"},"reason":"A review that asks for changes leads to one fix; the same states and entries"}
-        ],
-        "subject": "job",
-        "projection": {
-          "on": "assignment",
-          "state_field": "flow_state",
-          "handover_field": "handover",
-          "owner_relation": "assigned_to",
-          "field": "expected"
-        },
-        "admission": [],
-        "imports": []
       },
       "follow_through": {
         "choices": [],
@@ -606,26 +585,16 @@
             "name": "build",
             "label": "Build",
             "states": [
-              "author"
-            ],
-            "with": [
-              "package",
-              "pull_request"
-            ]
-          }
-        ],
-        "job": [
-          {
-            "name": "run",
-            "label": "Run",
-            "states": [
               "working",
               "reviewing",
               "fixing",
               "publishing",
               "merging"
             ],
-            "with": []
+            "with": [
+              "package",
+              "pull_request"
+            ]
           }
         ]
       },

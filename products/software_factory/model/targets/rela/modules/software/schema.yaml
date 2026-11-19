@@ -65,6 +65,18 @@ entities:
       pr_outcome:
         type: string
         description: 'Flow: where its pull request is (none, open, changes_requested, integrated, closed)'
+      task_result:
+        type: string
+        description: 'Flow: how its agent task ended (completed, check_failed, stuck, abandoned); the run''s own, never written'
+      publication:
+        type: string
+        description: 'Flow: how opening its pull request ended (done, refused)'
+      pr_url:
+        type: github_pull_url
+        description: 'Flow: the pull request Code opened from its result, which its supervisor merges'
+      pr_state:
+        type: pull_request_state
+        description: 'GitHub: its pull request''s state'
   package:
     label: Package
     plural: packages
@@ -199,34 +211,6 @@ entities:
       revision:
         type: string
         description: The exact revision of the pull request this test is for (its head commit)
-  job:
-    label: Job
-    plural: jobs
-    id_type: manual
-    id_prefix: JB-
-    description: |
-      One piece of agent work: one agent does it on its supervisor's Runtime.
-      The id is its Atlas code, e.g. JB-Atlas-01.
-    properties:
-      title:
-        type: string
-        required: true
-        description: What to do
-      description:
-        type: string
-        description: The details
-      task_result:
-        type: string
-        description: 'Flow: how its agent task ended (completed, check_failed, stuck, abandoned); the run''s own, never written'
-      publication:
-        type: string
-        description: 'Flow: how opening its pull request ended (done, refused)'
-      pr_url:
-        type: github_pull_url
-        description: 'Flow: the pull request Code opened from its result, which its supervisor merges'
-      pr_state:
-        type: pull_request_state
-        description: 'GitHub: its pull request''s state'
 relations:
   package_of:
     label: package of
