@@ -678,6 +678,63 @@
           "timers": [],
           "waiting_for": []
         },
+        "fixing": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "publishing",
+              "when": "entity.task_result == 'completed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "publishing",
+              "when": "entity.task_result == 'check_failed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'stuck'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'abandoned'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Fixing",
+          "present": {
+            "expected": "Fix it on the machinery",
+            "todo": {
+              "instructions": "Its machinery runs an agent on its result with the review's findings; its fix is what Code then opens a pull request from. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "its review asks for changes"
+          },
+          "set": [],
+          "spec": {
+            "cost_class": "standard",
+            "field": "task_result",
+            "fields": ["title", "description"],
+            "input": {
+              "repository": "github.com/mimbre/atlas",
+              "result": "latest"
+            },
+            "instructions": "Fix the result of the job below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the job's change so far is the commit under it (git show HEAD~1). Do what the review's findings below ask, within the job, and run bin/check. End your answer with what you fixed and what is left open.",
+            "kind": "fix",
+            "machinery": "machinery",
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "developer"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
         "merging": {
           "awaits": [],
           "branches": [
@@ -701,7 +758,7 @@
           "present": {
             "expected": "Review and merge its pull request",
             "todo": {
-              "instructions": "Open its pull request, read its review's verdict and findings in its body, and merge it on GitHub; the job is done once GitHub says it is merged."
+              "instructions": "Open its pull request, read its review's verdict and findings and its fix's answer in its body, and merge it on GitHub; the job is done once GitHub says it is merged."
             },
             "why": "its agent's work is done"
           },
@@ -775,6 +832,11 @@
               "roles": ["atlas-flow"],
               "to": "publishing",
               "when": "entity.task_result == 'check_failed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "fixing",
+              "when": "entity.task_result == 'changes_required'"
             },
             {
               "roles": ["atlas-flow"],
@@ -2743,6 +2805,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "d78a04fd7360b02e512b429bb4ef12e9a4a3527259d8547ecb294b56d29e88b3",
+  "rela_flows_sha256": "6506f37fd4cd8d2078bb48be974140c33e32cf2f3593f3dbf6ffcf529e28d5d3",
   "writer": "system:atlas-flow"
 }

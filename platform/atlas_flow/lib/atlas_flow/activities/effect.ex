@@ -21,8 +21,9 @@ defmodule AtlasFlow.Activities.Effect do
   the frozen request's `input` adds `result`, the ref its result commit was pushed to
   (`AtlasFlow.WorkSource.Translate.result_ref/1`), of its latest task that is no review
   (`Translate.latest_result/1`). Flow names the result by that ref only, never by a commit.
-  When a review ran on it, `review` adds that review's task, verdict and findings, as the
-  run keeps them. It has no target, and is not ready while the run has no task.
+  When a review ran, `review` adds the latest review's task, verdict and findings, as the
+  run keeps them; when the result is a fix's, `fix` adds its task and answer. It has no
+  target, and is not ready while the run has no task.
 
   An integration is approved by the run's own composition. `approved` names the subject
   field its approvals are about: an identity, such as a revision, that the fingerprint
@@ -170,22 +171,21 @@ defmodule AtlasFlow.Activities.Effect do
   defp publication(spec, run) do
     tasks = get_in(run, ["pending", "tasks"]) || []
     key = latest_task(run)
+    latest = Enum.find(tasks, &(&1["key"] == key)) || %{}
+
+    review =
+      with %{} = t <- AtlasFlow.WorkSource.Translate.latest_review(tasks),
+           do: Map.take(t, ["verdict", "findings"]) |> Map.put("task", t["key"])
+
+    fix =
+      if latest["task_kind"] == "fix",
+        do: Map.take(latest, ["answer"]) |> Map.put("task", key)
 
     spec["input"]
     |> Map.take(["repository", "base"])
     |> Map.put("result", AtlasFlow.WorkSource.Translate.result_ref(key))
-    |> then(&if(review = review(tasks, key), do: Map.put(&1, "review", review), else: &1))
-  end
-
-  # The review that ran after the result `key`, last: its task, verdict and findings.
-  defp review(tasks, key) do
-    tasks
-    |> Enum.drop_while(&(&1["key"] != key))
-    |> Enum.reverse()
-    |> Enum.find_value(fn t ->
-      if t["task_kind"] == "review" and t["outcome"] in ["completed", "check_failed"],
-        do: Map.take(t, ["verdict", "findings"]) |> Map.put("task", t["key"])
-    end)
+    |> then(&if(review, do: Map.put(&1, "review", review), else: &1))
+    |> then(&if(fix, do: Map.put(&1, "fix", fix), else: &1))
   end
 
   def id(run, spec),
