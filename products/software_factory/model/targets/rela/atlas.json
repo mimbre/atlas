@@ -580,6 +580,19 @@
       }
     },
     "job": {
+      "connector": {
+        "address": "pr_url",
+        "fields": {
+          "pr_state": "state"
+        },
+        "system": "github",
+        "until": {
+          "pr_state": [
+            "merged",
+            "closed"
+          ]
+        }
+      },
       "create": {
         "ask": [
           "title",
@@ -593,6 +606,22 @@
       "properties": {
         "description": {
           "multiline": true
+        },
+        "pr_state": {
+          "label": "Pull request state",
+          "set_by": "connector"
+        },
+        "pr_url": {
+          "label": "Pull request",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "publication": {
+          "label": "Publication",
+          "set_by": [
+            "flow"
+          ]
         },
         "task_result": {
           "label": "Task result",

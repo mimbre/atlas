@@ -52,6 +52,20 @@ defmodule AtlasCode.Effects.GitHub do
   @callback merge(config, String.t(), pos_integer(), head :: String.t(), method :: String.t()) ::
               {:ok, String.t()} | {:error, :head_moved | {:not_mergeable, String.t()}} | error
 
+  @doc "The web address of the pull from `branch` (in the same repository), whatever its state, or nil."
+  @callback find_pull(config, String.t(), branch :: String.t()) ::
+              {:ok, String.t() | nil} | error
+
+  @doc """
+  Push `commit`, from the Git repository `dir`, to the new branch `branch`. One already at
+  `commit` is pushed; `:branch_taken`: the branch is at another commit.
+  """
+  @callback push(config, String.t(), dir :: Path.t(), commit :: String.t(), branch :: String.t()) ::
+              :ok | {:error, :branch_taken} | error
+
+  @doc "Open a pull (`%{\"head\", \"base\", \"title\", \"body\"}`, `head` a branch); its web address."
+  @callback create_pull(config, String.t(), pull :: map()) :: {:ok, String.t()} | error
+
   @behaviour __MODULE__
 
   @failed ~w(failure cancelled timed_out action_required stale startup_failure)
@@ -241,7 +255,7 @@ defmodule AtlasCode.Effects.GitHub do
     cond do
       status in 200..299 ->
         case JSON.decode(raw) do
-          {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
+          {:ok, decoded} when is_map(decoded) or is_list(decoded) -> {:ok, decoded}
           _ when raw == "" -> {:ok, %{}}
           _ -> {:error, :unavailable}
         end
@@ -274,6 +288,95 @@ defmodule AtlasCode.Effects.GitHub do
     case JSON.decode(raw) do
       {:ok, %{"message" => m}} when is_binary(m) -> String.slice(m, 0, 200)
       _ -> ""
+    end
+  end
+
+  @impl true
+  def find_pull(config, slug, branch) do
+    [owner | _] = String.split(slug, "/")
+
+    with {:ok, pulls} when is_list(pulls) <-
+           get(config, "/repos/#{slug}/pulls?state=all&head=#{ref(owner <> ":" <> branch)}") do
+      {:ok, Enum.find_value(pulls, & &1["html_url"])}
+    else
+      {:ok, _} -> {:error, :unavailable}
+      error -> error
+    end
+  end
+
+  @impl true
+  def create_pull(config, slug, pull) do
+    case call(config, :post, "/repos/#{slug}/pulls", Map.take(pull, ~w(head base title body))) do
+      {:ok, %{"html_url" => url}} when is_binary(url) ->
+        {:ok, url}
+
+      # Opened meanwhile: the next attempt finds it.
+      {:error, {:status, 422, body}} ->
+        if body =~ ~r/already exists/i,
+          do: {:error, :unavailable},
+          else: {:error, {:refused, "pull_refused"}}
+
+      {:ok, _} ->
+        {:error, :unavailable}
+
+      {:error, {:status, _, _}} ->
+        {:error, :unavailable}
+
+      other ->
+        other
+    end
+  end
+
+  # Git over HTTPS with the token as a header in Git's environment: never on its command
+  # line, in a URL or in a file. Git's output is never returned or logged.
+  @impl true
+  def push(config, slug, dir, commit, branch) do
+    case token(config) do
+      {:ok, token} when is_binary(token) ->
+        auth = Base.encode64("x-access-token:" <> token)
+
+        env = [
+          {"GIT_TERMINAL_PROMPT", "0"},
+          {"GIT_CONFIG_COUNT", "3"},
+          {"GIT_CONFIG_KEY_0", "credential.helper"},
+          {"GIT_CONFIG_VALUE_0", ""},
+          {"GIT_CONFIG_KEY_1", "core.hooksPath"},
+          {"GIT_CONFIG_VALUE_1", "/dev/null"},
+          {"GIT_CONFIG_KEY_2", "http.https://github.com/.extraheader"},
+          {"GIT_CONFIG_VALUE_2", "AUTHORIZATION: basic " <> auth}
+        ]
+
+        args = [
+          "--git-dir",
+          dir,
+          "push",
+          "--porcelain",
+          "https://github.com/#{slug}.git",
+          "#{commit}:refs/heads/#{branch}"
+        ]
+
+        case System.cmd("git", args, env: env, stderr_to_stdout: true) do
+          {_, 0} -> :ok
+          {output, _} -> push_answer(output)
+        end
+
+      {:ok, nil} ->
+        {:error, {:refused, "no_token"}}
+
+      error ->
+        error
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  end
+
+  @doc false
+  # Pure, for tests: what a failed push's output says.
+  def push_answer(output) do
+    cond do
+      output =~ "\t[rejected]" -> {:error, :branch_taken}
+      output =~ ~r/returned error: 40[13]/ -> {:error, {:refused, "forbidden"}}
+      true -> {:error, :unavailable}
     end
   end
 

@@ -1,9 +1,11 @@
 defmodule Model.Job do
   @moduledoc """
-  Slice 1 (make it work): a job is one piece of agent work. A person picks it up in the
-  Console and becomes its human supervisor; handed to a machinery, it runs one agent
-  task on that supervisor's Runtime, and is done when the task ends. No package, check,
-  review or pull request. It sits beside the issue flow and changes nothing of it.
+  A job is one piece of agent work. A person picks it up in the Console and becomes its
+  human supervisor; handed to a machinery, it runs one agent task on that supervisor's
+  Runtime. When the task ends, Code opens a pull request from its result (the effect
+  `publish`, `AtlasCode.Effects`), and the job waits for its supervisor to merge it on
+  GitHub: the GitHub connector copies the pull's state, and merged is done. No package,
+  check or review. It sits beside the issue flow and changes nothing of it.
   """
   use RelaDSL
 
@@ -27,6 +29,32 @@ defmodule Model.Job do
       label: "Task result"
     )
 
+    field(:publication, :string,
+      description: "Flow: how opening its pull request ended (done, refused)",
+      set_by: [:flow],
+      label: "Publication"
+    )
+
+    field(:pr_url, :github_pull_url,
+      description:
+        "Flow: the pull request Code opened from its result, which its supervisor merges",
+      set_by: [:flow],
+      label: "Pull request"
+    )
+
+    field(:pr_state, :pull_request_state,
+      description: "GitHub: its pull request's state",
+      set_by: :connector,
+      label: "Pull request state"
+    )
+
+    connector(
+      system: :github,
+      address: :pr_url,
+      fields: [pr_state: :state],
+      until: [pr_state: [:merged, :closed]]
+    )
+
     create(ask: [:title, :description])
   end
 
@@ -41,7 +69,8 @@ defmodule Model.Job do
     channel :work
     start :create
     initial :working
-    supervise :run, label: "Run", states: [:working], with: []
+    # Its pull request is its supervisor's to merge: the span holds until it is merged.
+    supervise :run, label: "Run", states: [:working, :publishing, :merging], with: []
 
     state :working, label: "Working" do
       present(
@@ -61,8 +90,43 @@ defmodule Model.Job do
         fields: [:title, :description],
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
-        on: [completed: :done, check_failed: :done, stuck: :stuck, abandoned: :stuck]
+        on: [
+          completed: :publishing,
+          check_failed: :publishing,
+          stuck: :stuck,
+          abandoned: :stuck
+        ]
       )
+    end
+
+    # Code pushes the task's result to a branch and opens a pull request from it onto the
+    # base; Flow names the result by its ref only. Nothing is expected of anyone meanwhile.
+    state :publishing, label: "Opening its pull request" do
+      effect(:publish,
+        contract: 1,
+        name: "publish",
+        service: "code",
+        operation: "publish",
+        field: :publication,
+        fingerprint: [fields: ["title"], relations: []],
+        payload: ["title", "description"],
+        input: [repository: "github.com/mimbre/atlas", base: "develop"],
+        outputs: [url: "pr_url"],
+        on: [done: :merging, refused: :stuck]
+      )
+    end
+
+    state :merging, label: "Merge it" do
+      owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
+
+      present(
+        expected: "Review and merge its pull request",
+        why: "its agent's work is done",
+        instructions:
+          "Open its pull request and merge it on GitHub; the job is done once GitHub says it is merged."
+      )
+
+      branch to: :done, when: "entity.pr_state == 'merged'"
     end
 
     final :done, label: "Done"
@@ -84,6 +148,18 @@ defmodule Model.Job do
     to: "46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55",
     states: :same,
     reason: "Only the agent's instruction changed"
+  )
+
+  # Slice 3: a completed task leads to Code opening its pull request (`publishing`), then
+  # to its supervisor merging it (`merging`). Every state is kept with its entry: a task in
+  # flight goes on, and leads to `publishing` when it completes; a finished job stays as
+  # it ended.
+  migrate(:job,
+    from: "46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55",
+    to: "afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939",
+    preserve_entry: true,
+    states: [working: :working, done: :done, stuck: :stuck],
+    reason: "Its result becomes a pull request its supervisor merges; the same entries"
   )
 
   select(:job,

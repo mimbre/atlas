@@ -261,6 +261,32 @@ defmodule AtlasCode.Service do
     {:ok, dir}
   end
 
+  @doc """
+  The result commit a Runtime pushed to `ref` (`refs/atlas/results/<task>`, through Code's Git
+  endpoint) in the cache repository of `repository`, where its base was served from:
+  `{:ok, %{"dir" => git_dir, "commit" => commit}}`, or `:error` when there is no such commit.
+  For Code's publication of a job's result (`AtlasCode.Effects`); clients never see either.
+  """
+  @spec result(settings(), String.t(), String.t()) ::
+          {:ok, %{String.t() => String.t()}} | :error
+  def result(settings, repository, "refs/atlas/results/" <> _ = ref) do
+    with %{^repository => url} <- settings.repositories,
+         dir = cache(settings.home, repository, url),
+         true <- File.dir?(dir),
+         {out, 0} <-
+           System.cmd(
+             "git",
+             ["--git-dir", dir, "rev-parse", "--verify", "--quiet", ref <> "^{commit}"],
+             stderr_to_stdout: true
+           ) do
+      {:ok, %{"dir" => dir, "commit" => String.trim(out)}}
+    else
+      _ -> :error
+    end
+  end
+
+  def result(_settings, _repository, _ref), do: :error
+
   @doc "`POST /v1/changes`."
   @spec create_change(settings(), term()) :: response()
   def create_change(settings, request),

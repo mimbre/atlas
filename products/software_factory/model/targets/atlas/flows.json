@@ -678,6 +678,84 @@
           "timers": [],
           "waiting_for": []
         },
+        "merging": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "done",
+              "when": "entity.pr_state == 'merged'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Merge it",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Review and merge its pull request",
+            "todo": {
+              "instructions": "Open its pull request and merge it on GitHub; the job is done once GitHub says it is merged."
+            },
+            "why": "its agent's work is done"
+          },
+          "set": [],
+          "timers": [],
+          "waiting_for": []
+        },
+        "publishing": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "merging",
+              "when": "entity.publication == 'done'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.publication == 'refused'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "effect",
+          "label": "Opening its pull request",
+          "set": [
+            {
+              "field": "publication",
+              "value": "none"
+            }
+          ],
+          "spec": {
+            "action": "publish",
+            "contract": 1,
+            "field": "publication",
+            "fingerprint": {
+              "fields": ["title"],
+              "relations": []
+            },
+            "input": {
+              "base": "develop",
+              "repository": "github.com/mimbre/atlas"
+            },
+            "name": "publish",
+            "operation": "publish",
+            "outputs": {
+              "url": "pr_url"
+            },
+            "payload": ["title", "description"],
+            "service": "code"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
         "stuck": {
           "awaits": [],
           "branches": [],
@@ -693,12 +771,12 @@
           "branches": [
             {
               "roles": ["atlas-flow"],
-              "to": "done",
+              "to": "publishing",
               "when": "entity.task_result == 'completed'"
             },
             {
               "roles": ["atlas-flow"],
-              "to": "done",
+              "to": "publishing",
               "when": "entity.task_result == 'check_failed'"
             },
             {
@@ -2601,6 +2679,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "47f0c57fdc6b2a32e2037b3d07c95b45795e4ec11007c6b549fe1910cf80e49b",
+  "rela_flows_sha256": "991d8f3beaf8fa8f2331c614dc89427864397f154dc5538c69c5521e97312ba2",
   "writer": "system:atlas-flow"
 }

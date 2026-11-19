@@ -10,5 +10,9 @@ Application.put_env(:atlas, :model, Model.AtlasEyra)
 
 # Flow told of Code's receiver of integrate effects, as the core's runtime.exs tells it.
 Application.put_env(:atlas_flow, :effect_receivers, %{
-  "code" => %{"contract" => 1, "address" => "code/effects", "operations" => ["integrate"]}
+  "code" => %{
+    "contract" => 1,
+    "address" => "code/effects",
+    "operations" => ["integrate", "publish"]
+  }
 })

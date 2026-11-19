@@ -129,11 +129,14 @@ defmodule AtlasFlow.WorkSource.Translate do
   def result_ref(intent, key, true) do
     if get_in(intent, ["work", "after_check"]) == nil and
          get_in(intent, ["work", "input", "permissions"]) == "workspace-write",
-       do: put_in(intent, ["work", "input", "result_ref"], "refs/atlas/results/" <> key),
+       do: put_in(intent, ["work", "input", "result_ref"], result_ref(key)),
        else: intent
   end
 
   def result_ref(intent, _key, false), do: intent
+
+  @doc "The ref the result commit of task `key` is pushed to: `refs/atlas/results/<key>`."
+  def result_ref(key), do: "refs/atlas/results/" <> key
 
   @doc "The permissions a task kind's work runs with: read-only for a review or a diagnose."
   def permissions(kind) when kind in @read_only, do: "read-only"

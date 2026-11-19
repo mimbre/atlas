@@ -68,7 +68,7 @@ defmodule AtlasCode.FakeGitHub do
 
   def ci(pid, commit, result), do: Agent.update(pid, &put_in(&1, [:checks, sha(commit)], result))
 
-  @doc "Every write asked of it, oldest first: `{:update_branch | :merge, number, head}`."
+  @doc "Every write asked of it, oldest first: `{:update_branch | :merge, number, head}`, `{:push, branch, commit}`, `{:create_pull, number}`."
   def writes(pid), do: Agent.get(pid, &Enum.reverse(&1.writes))
 
   def merge_attempts(pid), do: Agent.get(pid, &Enum.reverse(&1.merge_attempts))
@@ -212,6 +212,57 @@ defmodule AtlasCode.FakeGitHub do
       error ->
         error
     end
+  end
+
+  @impl true
+  def find_pull(%{"fake" => pid}, slug, branch) do
+    fault(pid, :find_pull) ||
+      Agent.get(pid, fn s ->
+        {:ok,
+         Enum.find_value(s.pulls, fn {n, p} ->
+           if p["head_ref"] == branch, do: "https://github.com/#{slug}/pull/#{n}"
+         end)}
+      end)
+  end
+
+  @impl true
+  def push(%{"fake" => pid}, _slug, _dir, commit, branch) do
+    fault(pid, :push) ||
+      Agent.get_and_update(pid, fn s ->
+        case s.branches[branch] do
+          at when at in [nil, commit] ->
+            {:ok,
+             %{
+               s
+               | branches: Map.put(s.branches, branch, commit),
+                 writes: [{:push, branch, commit} | s.writes]
+             }}
+
+          _ ->
+            {{:error, :branch_taken}, s}
+        end
+      end)
+  end
+
+  @impl true
+  def create_pull(%{"fake" => pid}, slug, pull) do
+    fault(pid, :create_pull) ||
+      Agent.get_and_update(pid, fn s ->
+        n = Enum.max(Map.keys(s.pulls), fn -> 0 end) + 1
+
+        p = %{
+          "state" => "open",
+          "merged" => false,
+          "head_ref" => pull["head"],
+          "head" => s.branches[pull["head"]],
+          "base" => pull["base"],
+          "title" => pull["title"],
+          "body" => pull["body"]
+        }
+
+        {{:ok, "https://github.com/#{slug}/pull/#{n}"},
+         %{s | pulls: Map.put(s.pulls, n, p), writes: [{:create_pull, n} | s.writes]}}
+      end)
   end
 
   # The call's fault, taken once: `{:error, fault}` for one of `only` (by its tag, for a

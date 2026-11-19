@@ -319,7 +319,7 @@
     },
     "job": {
       "prod": {
-        "digest": "46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55",
+        "digest": "afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939",
         "history": [
           {
             "digest": "3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59",
@@ -344,16 +344,28 @@
               "stuck",
               "working"
             ]
+          },
+          {
+            "digest": "afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939",
+            "states": [
+              "done",
+              "merging",
+              "publishing",
+              "stuck",
+              "working"
+            ]
           }
         ],
         "states": [
           "done",
+          "merging",
+          "publishing",
           "stuck",
           "working"
         ]
       },
       "test": {
-        "digest": "46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55",
+        "digest": "afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939",
         "history": [
           {
             "digest": "3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59",
@@ -378,10 +390,22 @@
               "stuck",
               "working"
             ]
+          },
+          {
+            "digest": "afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939",
+            "states": [
+              "done",
+              "merging",
+              "publishing",
+              "stuck",
+              "working"
+            ]
           }
         ],
         "states": [
           "done",
+          "merging",
+          "publishing",
           "stuck",
           "working"
         ]
