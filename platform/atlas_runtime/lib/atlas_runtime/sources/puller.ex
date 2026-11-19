@@ -1003,7 +1003,7 @@ defmodule AtlasRuntime.Sources.Puller do
         send_started(state, id)
 
       holding.state in Queue.terminal() and holding.quiescent ->
-        upload(state, id, if(lease.phase == :started, do: 3, else: 2))
+        upload(state, id, if(lease.phase == :started, do: 3, else: 2), holding.ran)
 
       true ->
         state
@@ -1074,10 +1074,13 @@ defmodule AtlasRuntime.Sources.Puller do
     end
   end
 
-  defp upload(state, id, revision) do
+  # An attempt that never ran (its input not prepared, or returned before it started) has no
+  # result: it is reported ended without one, never pushed over Git from a folder it lacks.
+  defp upload(state, id, revision, ran) do
     {module, ref} = state.target
     work_id = state.leases[id].work_id
-    {client, options} = {state.client, git_result(state, id, work_id) ++ state.upload}
+    git = if ran, do: git_result(state, id, work_id), else: []
+    {client, options} = {state.client, git ++ state.upload}
 
     start_job(state, id, :upload, state.upload_timeout_ms, fn ->
       Upload.run(client, module.uploader(ref, revision), id, work_id, options)
