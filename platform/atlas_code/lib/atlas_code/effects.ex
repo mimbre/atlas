@@ -4,7 +4,8 @@ defmodule AtlasCode.Effects do
   GitHub pull at exactly the revision the run was asked about, the way it is done by
   hand. Update the branch from its base when it is behind; wait for CI on that result;
   merge it when CI is green, fenced by the head GitHub must still have; refuse on a
-  conflict, red CI, a closed pull or a head that moved.
+  conflict, red CI, a closed pull or a head that moved. And `publish`: a job's result as
+  a pull request (see "Publish" below).
 
   `handle/2` takes one body, `%{"operation" => "submit" | "lookup", "request" => r,
   "digest" => d}`, and answers it:
@@ -60,6 +61,16 @@ defmodule AtlasCode.Effects do
   journal's `line` starts at the resolved commit; the request keeps the handle.
 
   GitHub is reached through `github: {module, config}` (`AtlasCode.Effects.GitHub`).
+
+  **Publish.** The request's `input` names the `repository` (`github.com/<owner>/<repo>`,
+  listed in `repositories`), the `base` branch, and the `result`: the ref
+  (`refs/atlas/results/<task>`) a Runtime pushed the task's result commit to in Code's
+  copy of that repository (`AtlasCode.Service.result/3`), resolved once when it is
+  accepted. Code pushes that commit to the branch `atlas/<task>` on GitHub and opens a
+  pull request from it onto `base`, titled with the payload's `title`, its body the
+  `description`. Done, with `reference` and `outputs` `%{"url"}`, is that pull's web
+  address. A repeat first looks the branch's pull up, so it is never opened twice; a
+  branch already at another commit is refused `branch_taken`.
   """
 
   alias AtlasBus.{Digest, SubjectFingerprint}
@@ -69,14 +80,20 @@ defmodule AtlasCode.Effects do
   @handle ~r/\Arev_[0-9a-f]{64}\z/
   @id ~r/\A[0-9a-f]{64}\z/
   @methods ~w(merge squash rebase)
+  @result ~r{\Arefs/atlas/results/([A-Za-z0-9][A-Za-z0-9._-]*)\z}
+  @branch ~r{\A[A-Za-z0-9][A-Za-z0-9._/-]*\z}
+  @repository ~r{\Agithub\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\z}
 
   @doc """
   The receiver's settings: `dir` (its journal's folder), `github` (`{module, config}`),
   `repositories` (`["owner/repo"]`, the only ones it integrates), `merge_method`
-  (`merge`, `squash` or `rebase`; `merge` by default) and `home` (the Code home whose
+  (`merge`, `squash` or `rebase`; `merge` by default), `home` (the Code home whose
   `revisions/` resolves `rev_` handles; `dir` by default, so a journal kept in Code's home
-  needs no more). Code's `update_review` reads this journal (`AtlasCode.start/2`'s
-  `effects:`, the home by default).
+  needs no more) and `results` (how a publication's result ref is resolved: a function of
+  the repository and the ref answering `{:ok, %{"dir", "commit"}}` or `:error`; by
+  default `AtlasCode.Service.result/3` of the Code registered in this BEAM). Code's
+  `update_review` reads this journal (`AtlasCode.start/2`'s `effects:`, the home by
+  default).
   """
   def new(opts) do
     opts = Map.new(opts, fn {k, v} -> {to_string(k), v} end)
@@ -98,9 +115,13 @@ defmodule AtlasCode.Effects do
       home: Map.get(opts, "home", dir),
       github: {module, config},
       repositories: repositories,
-      merge_method: method
+      merge_method: method,
+      results: Map.get(opts, "results", &registered_result/2)
     }
   end
+
+  defp registered_result(repository, ref),
+    do: AtlasCode.Service.result(AtlasCode.settings(), repository, ref)
 
   @doc "The answer to one body (see the module's documentation)."
   def handle(s, %{"request" => %{"id" => id} = r, "digest" => digest} = body)
@@ -140,12 +161,37 @@ defmodule AtlasCode.Effects do
     record = %{"request" => r, "digest" => digest}
 
     case check(s, r) do
-      {:ok, commit} ->
-        save(file, Map.merge(record, %{"phase" => "accepted", "line" => [commit]}))
+      {:ok, changes} ->
+        save(file, Map.merge(record, Map.put(changes, "phase", "accepted")))
         |> then(&carry_on(s, file, &1))
 
       {:refused, reason, details} ->
         save(file, Map.put(record, "outcome", refused(reason, details)))["outcome"]
+    end
+  end
+
+  defp check(s, %{"operation" => "publish"} = r) do
+    input = r["input"]
+    payload = r["payload"]
+
+    cond do
+      not (is_map(input) and is_binary(input["result"]) and Regex.match?(@result, input["result"])) ->
+        {:refused, "invalid_result", %{}}
+
+      not (is_binary(input["base"]) and Regex.match?(@branch, input["base"])) ->
+        {:refused, "invalid_base", %{}}
+
+      not (is_map(payload) and is_binary(payload["title"]) and String.trim(payload["title"]) != "") ->
+        {:refused, "invalid_title", %{}}
+
+      slug(r) not in s.repositories ->
+        {:refused, "repository_not_allowed", %{"repository" => input["repository"]}}
+
+      true ->
+        case s.results.(input["repository"], input["result"]) do
+          {:ok, %{"dir" => dir, "commit" => commit}} -> {:ok, %{"dir" => dir, "commit" => commit}}
+          _ -> {:refused, "unknown_result", %{"result" => input["result"]}}
+        end
     end
   end
 
@@ -178,7 +224,8 @@ defmodule AtlasCode.Effects do
         {:refused, "repository_not_allowed", %{"repository" => slug(r)}}
 
       true ->
-        resolve(s, slug(r), payload["revision"])
+        with {:ok, commit} <- resolve(s, slug(r), payload["revision"]),
+             do: {:ok, %{"line" => [commit]}}
     end
   end
 
@@ -235,6 +282,33 @@ defmodule AtlasCode.Effects do
 
   defp uncertain_merge?(record),
     do: Map.get(record, "merge_attempted", record["phase"] == "merging") == true
+
+  # A publication: the branch's pull when there is one (an earlier attempt opened it),
+  # else the result pushed to the branch and its pull opened.
+  defp step(s, _file, %{"request" => %{"operation" => "publish"} = r} = record) do
+    {module, config} = s.github
+    slug = slug(r)
+    [_, task] = Regex.run(@result, r["input"]["result"])
+    branch = "atlas/" <> task
+
+    pull = %{
+      "head" => branch,
+      "base" => r["input"]["base"],
+      "title" => r["payload"]["title"],
+      "body" => body(r, task)
+    }
+
+    with {:ok, nil} <- module.find_pull(config, slug, branch),
+         :ok <- module.push(config, slug, record["dir"], record["commit"], branch),
+         {:ok, url} <- module.create_pull(config, slug, pull) do
+      {:outcome, published(url)}
+    else
+      {:ok, url} when is_binary(url) -> {:outcome, published(url)}
+      {:error, :branch_taken} -> {:outcome, refused("branch_taken", %{"branch" => branch})}
+      other -> other
+    end
+    |> unavailable(record["phase"])
+  end
 
   defp step(s, file, %{"request" => r, "line" => line} = record) do
     {module, config} = s.github
@@ -391,6 +465,33 @@ defmodule AtlasCode.Effects do
 
   defp refused(reason, details),
     do: %{"status" => "refused", "reason" => reason, "details" => details}
+
+  defp published(url), do: %{"status" => "done", "reference" => url, "outputs" => %{"url" => url}}
+
+  # The pull's body: the job's description, what merging it does, and who wrote it.
+  defp body(r, task) do
+    description = r["payload"]["description"]
+
+    Enum.join(
+      [
+        if(is_binary(description) and String.trim(description) != "", do: description),
+        "Atlas job #{r["subject"]}, task #{task}: merging this pull request finishes the job.",
+        "<sub>Written by an AI agent (Atlas job #{r["subject"]}).</sub>"
+      ]
+      |> Enum.reject(&is_nil/1),
+      "\n\n"
+    )
+  end
+
+  defp slug(%{"operation" => "publish", "input" => %{"repository" => repository}})
+       when is_binary(repository) do
+    case Regex.run(@repository, repository) do
+      [_, slug] -> slug
+      nil -> nil
+    end
+  end
+
+  defp slug(%{"operation" => "publish"}), do: nil
 
   defp slug(%{"target" => target}) do
     [_, owner, repo, _] = Regex.run(@address, target)

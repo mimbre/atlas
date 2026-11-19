@@ -8,13 +8,19 @@ defmodule AtlasFlow.Activities.Effect do
   again. A missing answer is never taken as proof that nothing happened. Replies are
   fenced by id, digest and fingerprint; a reply for another entry or payload is ignored.
 
-  A receiver is enabled per operation (`create`, `update`, `integrate`) by
+  A receiver is enabled per operation (`create`, `update`, `integrate`, `publish`) by
   `config :atlas_flow, :effect_receivers, %{service => %{"contract" => 1, "address" =>
   bus_endpoint, "operations" => [...]}}`. List an operation only after that receiver
   passes the receiver contract (`AtlasFlow.EffectReceiverContract` in Flow's tests): it
   returns the original result for a repeated id, rejects a changed payload under that
   id, and recovers a lost answer by lookup. A definition naming any other service or
   operation is refused before any write. Nothing is enabled by default.
+
+  A publication (`publish`) hands the run's latest task result to the service: its spec's
+  `input` names the repository and base (`%{"repository", "base"}`, as a task's does), and
+  the frozen request's `input` adds `result`, the ref its result commit was pushed to
+  (`AtlasFlow.WorkSource.Translate.result_ref/1`). Flow names the result by that ref only,
+  never by a commit. It has no target, and is not ready while the run has no task.
 
   An integration is approved by the run's own composition. `approved` names the subject
   field its approvals are about: an identity, such as a revision, that the fingerprint
@@ -35,7 +41,7 @@ defmodule AtlasFlow.Activities.Effect do
   """
   alias AtlasBus.{Digest, SubjectFingerprint}
 
-  @operations ~w(create update integrate)
+  @operations ~w(create update integrate publish)
   @endpoint "flow/effects"
 
   def receivers, do: Application.get_env(:atlas_flow, :effect_receivers, %{})
@@ -46,7 +52,10 @@ defmodule AtlasFlow.Activities.Effect do
       is_map(spec["fingerprint"]) and is_list(spec["fingerprint"]["fields"]) and
       is_list(spec["fingerprint"]["relations"]) and texts?(spec["payload"]) and
       mapping?(spec["outputs"] || %{}) and valid_records?(spec["records"]) and
-      (spec["operation"] == "create" or text?(spec["target"])) and
+      (spec["operation"] in ["create", "publish"] or text?(spec["target"])) and
+      (spec["operation"] != "publish" or
+         (is_map(spec["input"]) and text?(spec["input"]["repository"]) and
+            text?(spec["input"]["base"]))) and
       (spec["operation"] != "integrate" or
          (text?(spec["approved"]) and spec["approved"] in spec["fingerprint"]["fields"] and
             approving?(spec["approving"])))
@@ -91,11 +100,14 @@ defmodule AtlasFlow.Activities.Effect do
       not valid?(spec, receivers) ->
         {:error, :invalid_effect_binding}
 
-      spec["operation"] != "create" and not text?(target) ->
+      spec["operation"] not in ["create", "publish"] and not text?(target) ->
         {:error, :not_ready}
 
       spec["operation"] == "integrate" and
           not approved?(run, spec["approving"], values[spec["approved"]], links) ->
+        {:error, :not_ready}
+
+      spec["operation"] == "publish" and latest_task(run) == nil ->
         {:error, :not_ready}
 
       true ->
@@ -115,6 +127,12 @@ defmodule AtlasFlow.Activities.Effect do
           }
           |> then(&if(target, do: Map.put(&1, "target", target), else: &1))
           |> then(&if(spec["approved"], do: Map.put(&1, "approved", fingerprint), else: &1))
+          |> then(
+            &if(spec["operation"] == "publish",
+              do: Map.put(&1, "input", publication(spec, run)),
+              else: &1
+            )
+          )
 
         {:ok,
          %{
@@ -142,6 +160,20 @@ defmodule AtlasFlow.Activities.Effect do
         end
       end)
   end
+
+  # The run's latest task, whose result a publication hands over.
+  defp latest_task(run) do
+    case List.last(get_in(run, ["pending", "tasks"]) || []) do
+      %{"key" => key} when is_binary(key) -> key
+      _ -> nil
+    end
+  end
+
+  defp publication(spec, run),
+    do:
+      spec["input"]
+      |> Map.take(["repository", "base"])
+      |> Map.put("result", AtlasFlow.WorkSource.Translate.result_ref(latest_task(run)))
 
   def id(run, spec),
     do:

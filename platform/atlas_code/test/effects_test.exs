@@ -81,6 +81,62 @@ defmodule AtlasCode.EffectsTest do
     assert length(FakeGitHub.writes(c.gh)) == 1
   end
 
+  test "a job's result is published as one pull request, the same answer for every repeat", c do
+    result = FakeGitHub.sha("result")
+    ref = "refs/atlas/results/TK-JB-1-1"
+
+    results = fn
+      "github.com/o/r", ^ref -> {:ok, %{"dir" => "/cache.git", "commit" => result}}
+      _, _ -> :error
+    end
+
+    s =
+      Effects.new(
+        dir: c.dir,
+        github: {FakeGitHub, FakeGitHub.config(c.gh)},
+        repositories: ["o/r"],
+        results: results
+      )
+
+    r =
+      request(nil, %{
+        "id" => String.duplicate("b", 64),
+        "name" => "publish",
+        "subject" => "JB-1",
+        "operation" => "publish",
+        "fingerprint_definition" => %{"fields" => ["title"], "relations" => []},
+        "payload" => %{"title" => "Fix the README", "description" => "One typo."},
+        "input" => %{"repository" => "github.com/o/r", "base" => "main", "result" => ref}
+      })
+      |> Map.drop(["target", "approved"])
+
+    assert %{"status" => "done", "reference" => url, "outputs" => %{"url" => url}} =
+             first = call(s, "submit", r)
+
+    assert url == "https://github.com/o/r/pull/8"
+
+    assert %{"head" => ^result, "base" => "main", "title" => "Fix the README"} =
+             pull = FakeGitHub.get_pull(c.gh, 8)
+
+    assert pull["body"] =~ "One typo."
+    assert pull["body"] =~ "Written by an AI agent"
+
+    # Repeated, or its record lost: the same pull, never a second one.
+    assert call(s, "lookup", r) == first
+    File.rm!(Path.join([c.dir, "effects", r["id"] <> ".json"]))
+    assert call(s, "submit", r) == first
+    assert [{:push, "atlas/TK-JB-1-1", ^result}, {:create_pull, 8}] = FakeGitHub.writes(c.gh)
+
+    # A result Code does not hold publishes nothing.
+    unknown =
+      Map.merge(r, %{
+        "id" => String.duplicate("c", 64),
+        "input" => %{r["input"] | "result" => "refs/atlas/results/TK-X"}
+      })
+
+    assert %{"status" => "refused", "reason" => "unknown_result"} = call(s, "submit", unknown)
+  end
+
   test "red CI: blocked with the failing checks, nothing merged", c do
     FakeGitHub.ci(c.gh, c.revision, {:failure, ["unit"]})
     r = request(c.revision)
@@ -593,7 +649,8 @@ defmodule AtlasCode.EffectsTest do
     for {status, headers, raw, read} <- [
           {200, [], ~s({"a":1}), {:ok, %{"a" => 1}}},
           {204, [], "", {:ok, %{}}},
-          {200, [], "[1]", {:error, :unavailable}},
+          {200, [], "[1]", {:ok, [1]}},
+          {200, [], "1", {:error, :unavailable}},
           {401, [], "", {:error, {:refused, "unauthorized"}}},
           {403, [], "", {:error, {:refused, "forbidden"}}},
           # A rate limit is no refusal: nothing to conclude, ask again later.

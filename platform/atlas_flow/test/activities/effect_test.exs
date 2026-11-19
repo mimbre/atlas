@@ -200,6 +200,35 @@ defmodule AtlasFlow.Activities.EffectTest do
                  subject(%{"artifact" => "artifact-1", "title" => "b"})
                )
     end
+
+    test "a publication names its run's latest task result by its ref, and waits for a task" do
+      receivers = put_in(@receivers, ["ledger", "operations"], ["publish"])
+
+      spec =
+        spec("publish")
+        |> Map.drop(["records"])
+        |> Map.put("input", %{"repository" => "github.com/o/r", "base" => "main"})
+
+      assert Effect.valid?(spec, receivers)
+      refute Effect.valid?(Map.delete(spec, "input"), receivers)
+      assert {:error, :not_ready} = Effect.freeze(run(), spec, subject(), receivers)
+
+      tasks = [
+        %{"key" => "TK-B-1-1", "outcome" => "stuck"},
+        %{"key" => "TK-B-1-2", "outcome" => "completed"}
+      ]
+
+      {:ok, i} =
+        Effect.freeze(Map.put(run(), "pending", %{"tasks" => tasks}), spec, subject(), receivers)
+
+      assert i["request"]["input"] == %{
+               "repository" => "github.com/o/r",
+               "base" => "main",
+               "result" => "refs/atlas/results/TK-B-1-2"
+             }
+
+      refute Map.has_key?(i["request"], "target")
+    end
   end
 
   describe "replies" do

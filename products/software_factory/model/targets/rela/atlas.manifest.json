@@ -5,11 +5,11 @@
     "modules/eyra/schema.yaml": "18ac07ad8c8552ecde256ae794c8b5c73aad51ecd978a8e2c2058fd7cafbccad",
     "modules/foundation/audit/schema.yaml": "7b487d3720938d3089cd5841e39cd57bc7560abc83ba5a679d2cedca948de022",
     "modules/foundation/schema.yaml": "a1dce8da767ffffc91a4d4c350a71a8fe68592767150581b9891893409d02634",
-    "modules/software/schema.yaml": "b6d6bd68e30bf0a24cff9aac299370ab3c81aa3bd3ebd2cb243556369d6266b8",
+    "modules/software/schema.yaml": "4a36cf9aa427e8390bb351440cd1b80bfee45b120d2d0dae9487f22d8fee713b",
     "schema.yaml": "bb229050951035f99de0877acd2fd4676fed384cd32964b16c4c236d30b08f5a"
   },
   "flows": {
     "source": "flows.yaml",
-    "sha256": "47f0c57fdc6b2a32e2037b3d07c95b45795e4ec11007c6b549fe1910cf80e49b"
+    "sha256": "991d8f3beaf8fa8f2331c614dc89427864397f154dc5538c69c5521e97312ba2"
   }
 }

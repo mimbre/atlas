@@ -503,10 +503,23 @@ flows:
         label: Working
         on:
           change:
-            - { to: done, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
-            - { to: done, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
+            - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
+            - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
             - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
             - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+      publishing:
+        label: Opening its pull request
+        outputs:
+          - set: { properties: { publication: none } }
+        on:
+          change:
+            - { to: merging, roles: [atlas-flow], when: "entity.publication == 'done'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.publication == 'refused'" }
+      merging:
+        label: Merge it
+        on:
+          change:
+            - { to: done, when: "entity.pr_state == 'merged'" }
       done:
         label: Done
         final: true
