@@ -27,7 +27,7 @@ defmodule AtlasAgent.CLI do
   A value of `-` is read from stdin; `--<field>-file <path>` (put, do) and `<field>=@<path>`
   (set) read it from a file, for text of several lines. Which kinds exist, which actions a
   page offers and which fields a form asks for come from Control; a wrong one is answered
-  with what it asks. `actions` and `do` act as the person at the TUI (Control's
+  with what it asks. `actions` and `do` act as the TUI's user (Control's
   `tui_user`), unless ATLAS_AS names the agent that runs them.
 
   Exit status: 0 done, 1 refused (the reasons also on stderr), 2 a usage or connection
@@ -62,13 +62,13 @@ defmodule AtlasAgent.CLI do
     show(result, json)
   end
 
-  # The page commands act as the TUI does: as the person at it, unless ATLAS_AS names the
+  # The page commands act as the TUI does: as its user, unless ATLAS_AS names the
   # agent that runs them. The other commands are an agent's.
-  defp client_for({:actions, _at}), do: person()
-  defp client_for({:do, _at, _name, _values, _submit?}), do: person()
+  defp client_for({:actions, _at}), do: page_client()
+  defp client_for({:do, _at, _name, _values, _submit?}), do: page_client()
   defp client_for(_command), do: "agent"
 
-  defp person, do: if(System.get_env("ATLAS_AS") in [nil, ""], do: "tui", else: "agent")
+  defp page_client, do: if(System.get_env("ATLAS_AS") in [nil, ""], do: "tui", else: "agent")
 
   # Commands
 
