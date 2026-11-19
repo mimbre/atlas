@@ -26,9 +26,21 @@ An agent that plans gets the same actions as tools: `atlas tools` lists them, ma
 
 `atlas put <kind> ... --link <association>=<key>[,<key>]` (repeatable) links the new fact right after it is made, each through its association's own form. When a link is refused, the fact stays made and the refusal names its key (`GV-0007 is made, but not linked`), so `atlas set GV-0007 about=PR-12` finishes it.
 
+## A page's actions
+
+Whatever a page in the TUI offers works from the command line too, without a command of its own. `atlas actions <code>` lists the actions Control offers on its page (label, key and where it goes). `atlas do <code> "<label or key>"` does one as the TUI does: it opens the action's page and submits its confirm, or its form with the values the form holds and those given as `--<input> <text>` (`--<input>-file <path>` and `-` read as for `put`). It prints the page Control shows after it, its blocks as the contract lays them out, or with `--json` the page as Control sent it. `--help` prints the action's page, with the inputs its form asks, and submits nothing; a name the form does not ask is answered with the inputs it does.
+
+```sh
+atlas actions JB-Atlas-07
+atlas do JB-Atlas-07 "Pick up"
+atlas do JB-Atlas-07 "Hand to…" --to mac-mini
+```
+
+`actions` and `do` act as the person at the TUI (the environment's `tui_user`): an action only a person may take, as Pick up, is offered to them. With `ATLAS_AS=<agent key>` they act as that agent, and Control offers and allows what it offers and allows an agent. The other commands stay an agent's.
+
 ## Restarting a completed scene or use case
 
-Reopening a scene or use case after its flow run has completed does not start the run again. Use its item page in the TUI: as the current Assignment owner, when one is linked, or the environment's configured decider, choose **Restart** (`g`), then confirm **Restart**. Opening the confirmation or cancelling it sends no restart request. This is the item's Control action; it has no dedicated `atlas` CLI command.
+Reopening a scene or use case after its flow run has completed does not start the run again. Use its item page in the TUI: as the current Assignment owner, when one is linked, or the environment's configured decider, choose **Restart** (`g`), then confirm **Restart**. Opening the confirmation or cancelling it sends no restart request. From the command line it is `atlas do <code> Restart`.
 
 Control reads the item again at confirmation, and Facts independently checks who may restart it. The request must name the latest completed generation and the item must still match that flow's selection. An active run cannot be restarted; an unauthorized actor or a stale request naming an older generation is refused. Refresh the item page after a refusal to see its current run and owner.
 

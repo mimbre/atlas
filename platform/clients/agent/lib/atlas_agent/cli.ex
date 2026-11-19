@@ -14,14 +14,21 @@ defmodule AtlasAgent.CLI do
       atlas turn                                          its running turn, original item and instructions
       atlas turn end <outcome>                            store its outcome; Runtime ends the turn
       atlas tools                                          the agent's tools: Control's actions
+      atlas actions <key|path>                             the actions Control offers on its page
+      atlas do <key|path> <action> [--<input> <text> ...]  do one, as the TUI: its confirm or
+                                                           form, submitted; prints the page
+                                                           after (--help: its page, unsubmitted)
       atlas plan --on <key or path> <request ...>          what the agent proposes; writes nothing
 
   Every command takes --json: it then prints one JSON value on stdout, the item, the
-  list, or `{"refused": [reasons]}` / `{"error": text}`. Without it, short text.
-  A failed list also retains `code` when Control supplies a typed Facts failure.
-  A value of `-` is read from stdin; `--<field>-file <path>` (put) and `<field>=@<path>`
-  (set) read it from a file, for text of several lines. Which kinds exist and which
-  fields a form asks for come from Control; a wrong one is answered with what it asks.
+  list, or `{"refused": [reasons]}` / `{"error": text}`; `actions` the actions and `do` the
+  page, as Control sent them. Without it, short text; a page's blocks as the contract lays
+  them out. A failed list also retains `code` when Control supplies a typed Facts failure.
+  A value of `-` is read from stdin; `--<field>-file <path>` (put, do) and `<field>=@<path>`
+  (set) read it from a file, for text of several lines. Which kinds exist, which actions a
+  page offers and which fields a form asks for come from Control; a wrong one is answered
+  with what it asks. `actions` and `do` act as the person at the TUI (Control's
+  `tui_user`), unless ATLAS_AS names the agent that runs them.
 
   Exit status: 0 done, 1 refused (the reasons also on stderr), 2 a usage or connection
   error. prod is the default environment, as for `atlas`.
@@ -44,7 +51,7 @@ defmodule AtlasAgent.CLI do
 
     result =
       with {:ok, command} <- parse(args),
-           {:ok, client} <- AtlasAgent.connect(env) do
+           {:ok, client} <- AtlasAgent.connect(env, client_for(command)) do
         try do
           run(command, client)
         after
@@ -54,6 +61,14 @@ defmodule AtlasAgent.CLI do
 
     show(result, json)
   end
+
+  # The page commands act as the TUI does: as the person at it, unless ATLAS_AS names the
+  # agent that runs them. The other commands are an agent's.
+  defp client_for({:actions, _at}), do: person()
+  defp client_for({:do, _at, _name, _values, _submit?}), do: person()
+  defp client_for(_command), do: "agent"
+
+  defp person, do: if(System.get_env("ATLAS_AS") in [nil, ""], do: "tui", else: "agent")
 
   # Commands
 
@@ -91,6 +106,13 @@ defmodule AtlasAgent.CLI do
   end
 
   defp parse(["delete", key]), do: {:ok, {:delete, key}}
+
+  defp parse(["actions", at]), do: {:ok, {:actions, at}}
+
+  defp parse(["do", at, name | rest]) do
+    {help?, rest} = take_switch(rest, "--help")
+    with {:ok, values} <- options(rest, %{}), do: {:ok, {:do, at, name, values, not help?}}
+  end
 
   defp parse([command | rest]) when command in ~w(put set get list) do
     if "--help" in rest or "-h" in rest,
@@ -205,6 +227,13 @@ defmodule AtlasAgent.CLI do
 
   defp run(:tools, client), do: client |> AtlasAgent.Tools.list() |> as(:tools)
 
+  defp run({:actions, at}, client) do
+    with {:ok, page} <- AtlasAgent.page(client, at), do: {:actions, AtlasAgent.actions(page)}
+  end
+
+  defp run({:do, at, name, values, submit?}, client),
+    do: AtlasAgent.act(client, at, name, values, submit?)
+
   defp run({:plan, on, request}, client) do
     with {:ok, settings} <- AtlasAgent.settings(client.env),
          do: client |> AtlasAgent.Plan.make(settings, on, request) |> as(:plan)
@@ -269,6 +298,21 @@ defmodule AtlasAgent.CLI do
     0
   end
 
+  defp show({:actions, actions}, true), do: json(actions, 0)
+
+  defp show({:actions, actions}, false),
+    do: IO.puts(Enum.map_join(actions, "\n", &Enum.join(entry(:action, &1, ""), "\n"))) && 0
+
+  defp show({:page, page}, true), do: json(Map.take(page, ~w(path title blocks markup)), 0)
+
+  defp show({:page, page}, false) do
+    blocks =
+      for %{"type" => type, "props" => props} <- page["blocks"] || [],
+          do: [type <> ":" | lines(AtlasAgent.fields(type), props, "  ")]
+
+    IO.puts(Enum.join([page["title"] | List.flatten(blocks)], "\n")) && 0
+  end
+
   defp show({:refused, reasons}, json?) do
     IO.puts(:stderr, "refused: " <> Enum.join(reasons, "; "))
     if json?, do: json(%{"refused" => reasons}, 1), else: 1
@@ -290,6 +334,52 @@ defmodule AtlasAgent.CLI do
     IO.puts(JSON.encode!(value))
     status
   end
+
+  # Props as the contract lays them out: each field in its order, a text after its name, a
+  # model or a list indented under it. Fields the contract does not know follow, by name.
+  defp lines(fields, props, indent) do
+    known = for %{name: name, type: type} <- fields || [], do: {Atom.to_string(name), type}
+    names = Enum.map(known, &elem(&1, 0))
+    extra = for name <- Enum.sort(Map.keys(props) -- names), do: {name, nil}
+
+    for {name, type} <- known ++ extra,
+        value = props[name],
+        value not in [nil, "", [], %{}],
+        line <- value(name, type, value, indent),
+        do: line
+  end
+
+  defp value(name, {:list, type}, values, indent) when is_list(values),
+    do: [indent <> name <> ":" | Enum.flat_map(values, &entry(type, &1, indent <> "  "))]
+
+  defp value(name, nil, values, indent) when is_list(values),
+    do: value(name, {:list, nil}, values, indent)
+
+  defp value(name, type, value, indent) when is_map(value),
+    do: [indent <> name <> ":" | lines(model_fields(type), value, indent <> "  ")]
+
+  defp value(name, _type, value, indent) do
+    case String.split(to_string(value), "\n") do
+      [line] ->
+        [indent <> name <> ": " <> line]
+
+      lines ->
+        [indent <> name <> ":" | Enum.map(lines, &String.trim_trailing(indent <> "  " <> &1))]
+    end
+  end
+
+  # One entry of a list: a model's fields under a dash, or a text after one.
+  defp entry(type, value, indent) when is_map(value) do
+    case lines(model_fields(type), value, indent <> "  ") do
+      [first | rest] -> [indent <> "- " <> String.trim_leading(first) | rest]
+      [] -> []
+    end
+  end
+
+  defp entry(_type, value, indent), do: [indent <> "- " <> to_string(value)]
+
+  defp model_fields(type) when is_atom(type) and not is_nil(type), do: AtlasAgent.fields(type)
+  defp model_fields(_type), do: nil
 
   defp text(item) do
     fields =
