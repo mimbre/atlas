@@ -495,7 +495,11 @@ defmodule AtlasCode.Effects do
       end
 
     findings = for f <- List.wrap(review["findings"]), is_binary(f), do: "- " <> f
-    Enum.join(["**Review.** An independent agent review (task #{task}) #{said}." | findings], "\n")
+
+    Enum.join(
+      ["**Review.** An independent agent review (task #{task}) #{said}." | findings],
+      "\n"
+    )
   end
 
   defp review(_none), do: nil
