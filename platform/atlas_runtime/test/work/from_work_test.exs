@@ -28,7 +28,7 @@ defmodule AtlasRuntime.Work.FromWorkTest do
 
   @retention 3600
   @files %{"README.md" => "base\n", "run.sh" => "echo run\n", "old.md" => "old\n"}
-  @source_goal "write atlas/one.txt one; chmod atlas/run.sh 755; symlink atlas/link one.txt; delete atlas/old.md"
+  @source_goal "write one.txt one; chmod run.sh 755; symlink link one.txt; delete old.md"
 
   setup context do
     bench = start!(%{}, Keyword.put(Map.get(context, :work_options, []), :retention, @retention))
@@ -183,19 +183,19 @@ defmodule AtlasRuntime.Work.FromWorkTest do
   test "read-only: any write the agent attempts fails, and nothing is written",
        %{bench: bench, code: code} do
     {source, _frozen} = source!(code)
-    follow = submit_from!(source.work_id, "write atlas/new.txt agent", "read-only")
+    follow = submit_from!(source.work_id, "write new.txt agent", "read-only")
 
     work = await_work(follow.work_id, &(&1.state in [:failed, :crashed, :completed]))
     assert work.state in [:failed, :crashed]
     folder = expected_folder(bench.dir, follow.work_id)
     refute File.exists?(Path.join(folder, "atlas/new.txt"))
-    assert launch_of(bench, "write atlas/new.txt agent")["cwd"] == folder
+    assert launch_of(bench, "write new.txt agent")["cwd"] == folder
   end
 
   test "workspace-write: a further change is frozen relative to the original base, holding both (cumulative), with based_on",
        %{bench: bench, code: code} do
     {source, source_frozen} = source!(code)
-    follow = submit_from!(source.work_id, "write atlas/two.txt two", "workspace-write")
+    follow = submit_from!(source.work_id, "write two.txt two", "workspace-write")
     {done, frozen} = done!(follow.work_id)
     folder = expected_folder(bench.dir, follow.work_id)
 
@@ -232,10 +232,10 @@ defmodule AtlasRuntime.Work.FromWorkTest do
     reader = {"c1", [:submit, :cancel, :read, :read_all]}
     refute :choose_path in elem(reader, 1)
 
-    {first, first_frozen} = source!(code, "write atlas/a.txt a")
-    second = submit_from!(first.work_id, "write atlas/b.txt b", "workspace-write", %{}, reader)
+    {first, first_frozen} = source!(code, "write a.txt a")
+    second = submit_from!(first.work_id, "write b.txt b", "workspace-write", %{}, reader)
     {_second, second_frozen} = done!(second.work_id)
-    third = submit_from!(second.work_id, "write atlas/c.txt c", "workspace-write", %{}, reader)
+    third = submit_from!(second.work_id, "write c.txt c", "workspace-write", %{}, reader)
     {third_done, third_frozen} = done!(third.work_id)
 
     assert Map.keys(entries(first_frozen)) == ["a.txt"]
@@ -375,8 +375,8 @@ defmodule AtlasRuntime.Work.FromWorkTest do
 
   test "(c) a pruned source gives pruned; one another work still names is retained and accepted",
        %{bench: bench, code: code} do
-    {gone, _} = source!(code, "write atlas/gone.txt gone")
-    {kept, _} = source!(code, "write atlas/kept.txt kept")
+    {gone, _} = source!(code, "write gone.txt gone")
+    {kept, _} = source!(code, "write kept.txt kept")
     referrer = submit_from!(kept.work_id, "complete referrer", "read-only")
     done!(referrer.work_id)
 

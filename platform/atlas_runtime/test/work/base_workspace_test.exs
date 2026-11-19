@@ -102,7 +102,8 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     assert turn["cwd"] == folder
     assert turn["permissions"]["profile"] == "materialized-folder"
     assert turn["permissions"]["root"] == folder
-    assert [%{"cwd" => ^folder}] = launches(bench)
+    assert [%{"cwd" => cwd}] = launches(bench)
+    assert cwd == Path.join(folder, "atlas")
     assert %{preparing: false, folder: ^folder} = private_attempt(bench.dir, work.work_id, 1)
     assert writable_bits(Path.join([folder, "atlas", "README.md"])) != 0
 
@@ -338,7 +339,7 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     assert [%{quiescent: true}, %{state: :completed}] = done.attempts
     assert CodeStandIn.archives(code) == ["atlas", "atlas"]
     assert [%{"cwd" => cwd}] = launches(bench)
-    assert cwd == expected_folder(bench.dir, work.work_id)
+    assert cwd == Path.join(expected_folder(bench.dir, work.work_id), "atlas")
   end
 
   # The window the test above now avoids, held open on purpose: the core dies after it
@@ -450,7 +451,8 @@ defmodule AtlasRuntime.Work.BaseWorkspaceTest do
     done = await_work(work.work_id, &match?([_, %{state: :completed}], &1.attempts))
     assert [first, %{provenance: %{continues: ^turn_id}} = second] = done.attempts
     assert second.resume_point.conversation_id == first.resume_point.conversation_id
-    assert [_, %{"resumed" => true, "cwd" => ^folder}] = launches(bench)
+    assert [_, %{"resumed" => true, "cwd" => cwd}] = launches(bench)
+    assert cwd == Path.join(folder, "atlas")
     assert File.read!(Path.join(folder, "atlas/a.txt")) == "agent\n"
     assert CodeStandIn.archives(code) == ["atlas"]
     assert %{folder: ^folder, preparing: false} = private_attempt(bench.dir, work.work_id, 2)

@@ -122,7 +122,7 @@ defmodule AtlasRuntime.Sources.PullerTest do
 
   test "a lease is accepted, recorded, then run; started and ended (with its blobs) reach the source",
        ctx do
-    add(ctx, "task-1", "write atlas/a.txt alpha")
+    add(ctx, "task-1", "write a.txt alpha")
     puller = puller!(ctx)
 
     assert :polled = Puller.poll_now(puller)
@@ -275,8 +275,8 @@ defmodule AtlasRuntime.Sources.PullerTest do
   @tag max_slots: 1
   test "a full Runtime's open poll is sent again with the new offer as soon as a slot frees",
        ctx do
-    add(ctx, "task-1", "write atlas/a.txt one")
-    add(ctx, "task-2", "write atlas/b.txt two")
+    add(ctx, "task-1", "write a.txt one")
+    add(ctx, "task-2", "write b.txt two")
 
     # A source that holds a poll with an empty offer open, as a long poll does (≤ poll_max).
     FakeSourceTarget.hook(ctx.target, :poll, fn call, input ->
