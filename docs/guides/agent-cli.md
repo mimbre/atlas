@@ -38,6 +38,19 @@ atlas do IS-Atlas-07 "Hand to…" --to mac-mini
 
 `actions` and `do` act as the person at the TUI (the environment's `tui_user`): an action only a person may take, as Pick up, is offered to them. With `ATLAS_AS=<agent key>` they act as that agent, and Control offers and allows what it offers and allows an agent. The other commands stay an agent's.
 
+## Breaking a use case down into issues
+
+A use case whose design is accepted waits in "Break it down into issues" (`break_down`) for a person. Picking it up makes you its supervisor. Handing it to a machinery runs its agent on your Runtime: it reads the use case, its scene and a checkout of the repository, and proposes the issues. Flow, not the agent, makes them under the use case. The use case then waits in "Accept it" (`accepting`) for you: read the issues, change, delete or add any, and accept them. The issues can then be picked up and built.
+
+```sh
+atlas do UC-Atlas-29 "Pick up"
+atlas do UC-Atlas-29 "Hand to…" --to mac-mini
+atlas list issue --in UC-Atlas-29          # once it waits in "Accept it"
+atlas do UC-Atlas-29 Accept
+```
+
+When the agent proposes nothing, or the use case is taken from the machinery, it waits in "Accept it" all the same, and you break it down by hand there.
+
 ## Restarting a completed scene or use case
 
 Reopening a scene or use case after its flow run has completed does not start the run again. Use its item page in the TUI: as the current Assignment owner, when one is linked, or the environment's configured decider, choose **Restart** (`g`), then confirm **Restart**. Opening the confirmation or cancelling it sends no restart request. From the command line it is `atlas do <code> Restart`.
