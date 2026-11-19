@@ -37,7 +37,7 @@ defmodule AtlasAgent.ActionsTest do
     }
   }
 
-  test "do follows an offered action to its confirm and submits it, as the person", %{
+  test "do follows an offered action to its confirm and submits it, as the TUI's user", %{
     listener: listener
   } do
     call = %{"endpoint" => "pick_up", "params" => %{"kind" => "widget", "key" => "W-1"}}
