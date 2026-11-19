@@ -134,6 +134,19 @@ defmodule AtlasFlow.BasesTest do
       assert count(context.fake, :create_snapshot) == 2
     end
 
+    test "a moved reference gives its new revision once the cached base is no longer fresh",
+         context do
+      start_bases(context)
+      before = ready(context)
+
+      FakeCode.put(context.fake, @repository, "develop", "rev_2", Map.put(files(), "NEW", "x"))
+      assert Bases.cached(@repository, "develop", context.name) == {:ok, before}
+
+      ManualClock.advance(context.clock, 10_000)
+      assert Bases.cached(@repository, "develop", context.name) == :missing
+      assert ready(context).base_id != before.base_id
+    end
+
     test "an unknown reference is unavailable, and the caller is not notified", context do
       start_bases(context)
       :ok = Bases.request(@repository, "nowhere", {self(), :ready}, context.name)
