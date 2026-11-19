@@ -11,5 +11,9 @@ config :atlas_gates, start: false
 # or script starts one (AtlasCode.Effects.Endpoint); the endpoint then answers.
 config :atlas_flow,
   effect_receivers: %{
-    "code" => %{"contract" => 1, "address" => "code/effects", "operations" => ["integrate"]}
+    "code" => %{
+      "contract" => 1,
+      "address" => "code/effects",
+      "operations" => ["integrate", "publish"]
+    }
   }

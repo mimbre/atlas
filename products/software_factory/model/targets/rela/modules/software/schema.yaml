@@ -218,6 +218,15 @@ entities:
       task_result:
         type: string
         description: 'Flow: how its agent task ended (completed, check_failed, stuck, abandoned); the run''s own, never written'
+      publication:
+        type: string
+        description: 'Flow: how opening its pull request ended (done, refused)'
+      pr_url:
+        type: github_pull_url
+        description: 'Flow: the pull request Code opened from its result, which its supervisor merges'
+      pr_state:
+        type: pull_request_state
+        description: 'GitHub: its pull request''s state'
 relations:
   package_of:
     label: package of
