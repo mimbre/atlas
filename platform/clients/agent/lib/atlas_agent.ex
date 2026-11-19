@@ -343,6 +343,108 @@ defmodule AtlasAgent do
 
   def page(client, key), do: page(client, "/k/_/#{enc(key)}")
 
+  # The contract's blocks and models, as fields: what a page's props hold and how they nest.
+  # Actions, submits and inputs are found by their contract type, never by a block's name.
+  @contract AtlasBFFContract.Contract.__schema__()
+  @blocks Map.new(@contract.blocks, &{Atom.to_string(&1.name), &1.fields})
+  @models Map.new(@contract.models, &{&1.name, &1.fields})
+
+  @doc "The contract's fields of a block (its `type`, a string) or of a model (an atom); nil when unknown."
+  def fields(block) when is_binary(block), do: @blocks[block]
+  def fields(model), do: @models[model]
+
+  @doc "The actions Control offers on `page`: every `action` its blocks hold, in order."
+  def actions(page), do: found(page, :action)
+
+  @doc """
+  Do the action labelled (or keyed) `name` on the page at `at` (a key or a path), as the
+  TUI does: an action with a `submit_to` is submitted; otherwise its page is opened, and
+  the one call that page offers (a form's `submit_to`, a confirm's `confirm_to`) is
+  submitted with its inputs' values, `values` (input name to text) replacing them. A page
+  that offers no call is answered as it is; so is any page when `submit?` is false.
+  `{:page, page}`, `{:refused, reasons}` or `{:error, text}`.
+  """
+  def act(client, at, name, values, submit? \\ true) do
+    with {:ok, page} <- page(client, at),
+         {:ok, action} <- action(page, name) do
+      if action["submit_to"] && submit? do
+        submitted(Client.submit(client, action["submit_to"], values))
+      else
+        with {:ok, target} <- page(client, action["to"]) do
+          case calls(target) do
+            [{to, inputs}] when submit? ->
+              with :ok <- asks(target, inputs, values) do
+                given = Map.new(inputs, &{&1["name"], &1["value"] || ""})
+                submitted(Client.submit(client, to, Map.merge(given, values)))
+              end
+
+            _ ->
+              {:page, target}
+          end
+        end
+      end
+    end
+  end
+
+  defp action(page, name) do
+    case Enum.filter(actions(page), &(name in [&1["label"], &1["key"]])) do
+      [action] ->
+        {:ok, action}
+
+      _ ->
+        offered = Enum.map_join(actions(page), ", ", &inspect(&1["label"]))
+        {:error, "#{page["path"]} offers no single action #{inspect(name)}; it offers #{offered}"}
+    end
+  end
+
+  # What a block offers to submit: each call among its own fields, with the inputs it holds.
+  defp calls(page) do
+    for %{"type" => type, "props" => props} <- page["blocks"] || [],
+        fields = @blocks[type] || [],
+        %{name: name, type: :call} <- fields,
+        to = props[Atom.to_string(name)],
+        is_map(to),
+        do: {to, within(fields, props, :input)}
+  end
+
+  defp asks(page, inputs, values) do
+    case Map.keys(values) -- Enum.map(inputs, & &1["name"]) do
+      [] ->
+        :ok
+
+      unknown ->
+        asked = Enum.map_join(inputs, ", ", &"--#{&1["name"]} (#{&1["kind"]})")
+        asked = if asked == "", do: "nothing", else: asked
+
+        {:error,
+         "#{page["title"]} does not ask for #{Enum.join(unknown, ", ")}; it asks #{asked}"}
+    end
+  end
+
+  defp submitted({:stored, page}), do: {:page, page}
+  defp submitted(other), do: other
+
+  # Every value of model `type` the page's blocks hold, however deep.
+  defp found(page, type) do
+    for %{"type" => block, "props" => props} <- page["blocks"] || [],
+        value <- within(@blocks[block] || [], props, type),
+        do: value
+  end
+
+  defp within(fields, props, type) do
+    for %{name: name, type: t} <- fields,
+        value <- of(t, props[Atom.to_string(name)], type),
+        do: value
+  end
+
+  defp of(type, value, type) when is_map(value), do: [value]
+
+  defp of({:list, t}, values, type) when is_list(values),
+    do: Enum.flat_map(values, &of(t, &1, type))
+
+  defp of(t, value, type) when is_map(value), do: within(@models[t] || [], value, type)
+  defp of(_t, _value, _type), do: []
+
   @doc """
   Whether `values` fit `form`: only what it asks, and on a create (`mode` `:create`)
   everything it requires. `:ok`, `{:refused, reasons}` or `{:error, text}`.
