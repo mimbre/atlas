@@ -787,6 +787,7 @@
             "cost_class": "standard",
             "field": "task_result",
             "fields": ["title", "description"],
+            "follow_ups": "issue",
             "input": {
               "repository": "github.com/mimbre/atlas",
               "result": "latest"

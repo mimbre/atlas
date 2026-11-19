@@ -179,4 +179,15 @@ defmodule Model.Issue do
     states: [author: :working, done: :done],
     reason: "Slice 6: built by an agent, reviewed, fixed once and merged by its supervisor"
   )
+
+  # Follow-ups: the review's spec names the kind its follow-ups become (`follow_ups:`).
+  # Nothing else changes, so a live run keeps its state, entry, task and timers; a review
+  # in flight is asked for no follow-ups, and gives none.
+  migrate(:issue,
+    from: "f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda",
+    to: "6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c",
+    preserve_entry: true,
+    states: :same,
+    reason: "The review's follow-ups become new issues under its use case; same states"
+  )
 end
