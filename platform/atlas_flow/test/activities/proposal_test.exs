@@ -125,10 +125,10 @@ end
 defmodule AtlasFlow.Activities.ProposalTest do
   @moduledoc """
   Slice 7: a task that proposes facts (`creates`). Its agent writes them to a file at the
-  top of the repository in its result; once it completed, Flow makes one fact per entry
-  under the subject, numbered after those there are, by Flow; with no such file the task
-  ends stuck. The real Dispatch, Delivery, result store and Bases (on `FakeCode`), with
-  `FakeFacts` and a manual clock.
+  top of the repository in its result commit (`refs/atlas/results/<key>`, read through
+  Bases and Code); once it completed, Flow makes one fact per entry under the subject,
+  numbered after those there are, by Flow; with no such file the task ends stuck. The real
+  Dispatch, Delivery and Bases (on `FakeCode`), with `FakeFacts` and a manual clock.
   """
   use ExUnit.Case, async: false
   @moduletag :capture_log
@@ -185,7 +185,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
       )
     )
 
-    %{runner: runner, clock: clock}
+    %{runner: runner, clock: clock, code: code}
   end
 
   defp reconcile(c, key) do
@@ -221,33 +221,26 @@ defmodule AtlasFlow.Activities.ProposalTest do
     run
   end
 
-  # The lease worked to its end with `files` in its result; every missing blob put.
-  defp finish(key, files) do
+  # The lease worked to its end, its result commit (the base plus `files`) pushed to Code;
+  # the run reconciled once Bases resolved that commit.
+  defp finish(c, key, files) do
     {id, _} = @mini
 
-    assert {:polled, %{leases: [%{lease_id: lease, work: offered}]}} =
+    assert {:polled, %{leases: [%{lease_id: lease}]}} =
              WorkSource.poll(@mini, L.poll_input(id, [], %{"deep_coding" => 1}))
 
-    change_set = if files != [], do: L.change_set(files, offered.input.base.base_id)
+    tree = Map.new([{"README.md", "# Proposal\n"} | files])
+    FakeCode.put(c.code, @repository, "refs/atlas/results/TK-#{key}-1", "rev_#{key}", tree)
     report = &WorkSource.report(@mini, %{lease_id: lease, revision: &1, report: &2})
     assert {:recorded, _} = report.(1, %{state: :accepted})
     assert {:recorded, _} = report.(2, %{state: :started})
-    assert {:recorded, answer} = report.(3, L.ended(change_set))
-
-    for sha <- Map.get(answer, :missing, []) do
-      {_path, bytes} = Enum.find(files, fn {_, b} -> L.sha256(b) == sha end)
-
-      assert :stored =
-               WorkSource.put_blob(@mini, %{
-                 lease_id: lease,
-                 sha256: sha,
-                 size: byte_size(bytes),
-                 content: [bytes]
-               })
-    end
-
+    assert {:recorded, _} = report.(3, L.ended(nil))
     assert_receive {:"$gen_cast", {:reconcile, "crate", ^key}}
-    offered
+
+    # Its result is asked of Bases first; nothing moves until Bases has it.
+    assert reconcile(c, key)["state"] == "sorting"
+    assert_receive {:reconcile, "crate", ^key}, 2_000
+    reconcile(c, key)
   end
 
   test "Flow makes the proposed items under the crate, numbered after those there are", c do
@@ -256,9 +249,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
     assert run["pending"]["task"]["work"]["instructions"] =~ "items.json"
 
     proposal = [%{"title" => "One", "description" => "The first."}, %{"title" => "Two"}]
-    finish("C-1", [{"items.json", JSON.encode!(proposal)}])
-
-    sorted = reconcile(c, "C-1")
+    sorted = finish(c, "C-1", [{"items.json", JSON.encode!(proposal)}])
     assert {sorted["state"], sorted["status"]} == {"sorted", "completed"}
 
     one = FakeFacts.get("item", "IT-08")
@@ -270,9 +261,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
 
   test "a task that proposes nothing ends stuck, and nothing is made", c do
     intended(c, "C-2")
-    finish("C-2", [{"notes.txt", "nothing to propose\n"}])
-
-    stuck = reconcile(c, "C-2")
+    stuck = finish(c, "C-2", [{"notes.txt", "nothing to propose\n"}])
     assert stuck["state"] == "stuck"
     assert [%{"outcome" => "completed", "reason" => "no proposal"}] = stuck["pending"]["tasks"]
     assert FakeFacts.get("item", "IT-01") == nil
