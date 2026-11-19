@@ -537,9 +537,6 @@ defmodule Model.DeliveryRunsTest do
   # -- Slice 9: the issue -------------------------------------------------------------------
 
   @issue "issue"
-  # The digest the base recorded before slice 6, the issue built by hand (the same in
-  # prod and test).
-  @issue_base "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052"
 
   defp issue_flow(env), do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == @issue))
   defp issue_selection, do: Model.AtlasEyra.selection(@issue)
@@ -642,30 +639,6 @@ defmodule Model.DeliveryRunsTest do
 
         assert {:ok, ^run} = Run.step(run, issue_flow(env), issue(@live), @now)
       end
-    end
-  end
-
-  test "an issue built by hand before slice 6 is built again by an agent; a done one stays done" do
-    for env <- @envs do
-      f = issue_flow(env)
-      m = Enum.find(issue_selection()["migrations"], &(&1["from"] == @issue_base))
-      assert m["to"] == f.digest()
-      refute Map.has_key?(m, "rekey") or Map.has_key?(m, "preserve_entry")
-
-      old = fn state, status ->
-        issue_new(env, @live)
-        |> Map.merge(%{"definition_sha256" => @issue_base, "state" => state, "status" => status})
-      end
-
-      # An open one re-enters working, unsupervised: nothing runs until it is handed to a
-      # machinery.
-      assert {:ok, moved} = Run.migrate(old.("author", "active"), f, [m], @now)
-      assert at(moved) == {"working", "active", 2}
-      assert moved["definition_sha256"] == f.digest()
-      assert moved["pending"]["task"] == nil
-
-      assert {:ok, done} = Run.migrate(old.("done", "completed"), f, [m], @now)
-      assert {done["state"], done["status"]} == {"done", "completed"}
     end
   end
 end

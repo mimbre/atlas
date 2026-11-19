@@ -91,7 +91,9 @@ defmodule RelaDSL.Schema do
   proposes facts names them, `creates: [kind: kind, file: name]`: its agent writes a JSON
   list of `{title, description}` to the file at the top of the repository, and Flow, the
   only writer, makes one fact of `kind` for each under the subject (through the kind's
-  parent relation to it) once the task completed.
+  parent relation to it) once the task completed. A review whose findings outside the
+  subject's scope become new facts names their kind, `follow_ups: kind`: Flow makes one for
+  each follow-up its answer gives, under the subject's nearest parent.
 
   With `ladder: true` a task is a step of the review → fix loop (F2, `AtlasFlow.Ladder`):
   its end leads where the ladder's next step says, so it maps `author`, `review`, `fix`,
@@ -287,6 +289,7 @@ defmodule RelaDSL.Schema do
     :fields,
     :parents,
     :creates,
+    :follow_ups,
     :records,
     :machinery,
     :field,
@@ -458,7 +461,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `creates:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `creates:`, `follow_ups:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1340,6 +1343,8 @@ defmodule RelaDSL.Schema do
                 Enum.sort(Keyword.keys(spec[:creates])) == [:file, :kind] and
                 is_atom(spec[:creates][:kind]) and text?.(spec[:creates][:file]))) &&
         pre <> "creates: must be [kind: kind, file: text]",
+      not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
+        pre <> "follow_ups: must be a kind",
       not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
     ]
     |> Enum.filter(& &1)

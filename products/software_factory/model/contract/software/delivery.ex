@@ -6,7 +6,11 @@ defmodule Model.Delivery do
   A person picks an issue up in the Console and becomes its human supervisor; handed to
   a machinery, it runs one agent task on that supervisor's Runtime (`working`). When the
   task ends, a second agent reviews its result there (`reviewing`): a Git checkout of it,
-  judged against the issue, ending with a verdict and findings. When the review asks for
+  judged against the issue, ending with a verdict, its blocking findings and its
+  follow-ups. Follow-ups are what it finds outside the issue's scope (a nice-to-have,
+  hardening, an edge case, a neighbouring improvement): Flow makes each a new issue under
+  the issue's use case for its supervisor (`follow_ups:`), whatever the verdict, and they
+  are not fixed now. When the review asks for
   changes, one fix task works on that result with its findings (`fixing`); its result,
   on the author's, is what Code publishes. Then Code opens a pull request from the
   latest result, the review and the fix in its body (the effect `publish`,
@@ -99,6 +103,7 @@ defmodule Model.Delivery do
           "Review the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the change to review is the commit under it (git show HEAD~1). Judge whether it does what the issue asks, and nothing else; its use case and scene, after it, say why. You may run bin/check. Change nothing: what you change is thrown away.",
         fields: [:title, :description],
         parents: [:title, :description],
+        follow_ups: :issue,
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
