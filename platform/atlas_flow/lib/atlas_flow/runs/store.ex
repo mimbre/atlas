@@ -1552,8 +1552,8 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # Who the task is for (IS-Atlas-25; decision 2026-11-17 §5.6): once a person picked up
-  # its flow, its human supervisor, whose Runtimes Dispatch offers it to, whatever the
+  # Who the task is for (IS-Atlas-25; decision 2026-11-17 §5.6): once its flow is picked
+  # up, its human supervisor, whose Runtimes Dispatch offers it to, whatever the
   # subject is assigned to: pickup alone starts the work. Otherwise the machinery the
   # subject is assigned to (E1), whose task waits for a supervisor. A run with spans of
   # its own answers itself; any other asks `AtlasFlow.Supervision`, as Dispatch does.
