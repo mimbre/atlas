@@ -84,7 +84,9 @@ defmodule RelaDSL.Schema do
   the Runtime, which gets the resolved base only. It never names a path on the
   machinery's machine, which the Runtime chooses (its D44).
   `check` is the command (argv) run after the work, `instructions` the standard text,
-  and `fields` the subject's fields added to it. `records` names the kind and relation
+  and `fields` the subject's fields added to it; `parents` the fields added of each of its
+  parents (through the relations the model marks `parent`, nearest first), so the agent
+  knows why it is to be done. `records` names the kind and relation
   of its task records, `machinery` the kind of the assignee it runs for.
 
   With `ladder: true` a task is a step of the review → fix loop (F2, `AtlasFlow.Ladder`):
@@ -98,7 +100,7 @@ defmodule RelaDSL.Schema do
   fix: `:write`); no other kind does (`input_problem/2`). The subject's `answer` field
   is the supervisor's answer while the ladder waits.
 
-  A review or fix outside any ladder (a job's) starts from the run's latest result as a
+  A review or fix outside any ladder (a subject's) starts from the run's latest result as a
   base of a Code repository, `input: [repository: name, result: :latest]`: a Git checkout
   of the result its author's Runtime pushed, which Code serves like a branch. Such a
   review also gives `changes_required`, when its verdict asks for changes.
@@ -238,9 +240,9 @@ defmodule RelaDSL.Schema do
   @writer "atlas-flow"
   @effect_results [:done, :refused]
   @task_results [:completed, :check_failed, :stuck, :abandoned]
-  # A job's review (outside any ladder, on the run's latest result) also ends asking for
+  # A review (outside any ladder, on the run's latest result) also ends asking for
   # changes, its verdict.
-  @job_review_results @task_results ++ [:changes_required]
+  @verdict_review_results @task_results ++ [:changes_required]
   # What a ladder task's end leads to (`AtlasFlow.Ladder`'s steps, F2): the next task's
   # step, or ready, held, escalate; or abandon, the supervisor's answer while the task ran
   # on the default (F2-P, Main's D1 ruling).
@@ -279,6 +281,7 @@ defmodule RelaDSL.Schema do
     :check,
     :instructions,
     :fields,
+    :parents,
     :records,
     :machinery,
     :field,
@@ -450,7 +453,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1153,7 +1156,7 @@ defmodule RelaDSL.Schema do
     values =
       cond do
         opts[:ladder] == true -> @ladder_results
-        kind == :review and base_result_input?(opts[:input]) -> @job_review_results
+        kind == :review and base_result_input?(opts[:input]) -> @verdict_review_results
         true -> @task_results
       end
 
@@ -1321,6 +1324,8 @@ defmodule RelaDSL.Schema do
       not text?.(spec[:instructions]) && pre <> "instructions: must be a text",
       not (is_list(spec[:fields] || []) and Enum.all?(spec[:fields] || [], &is_atom/1)) &&
         pre <> "fields: must be a list of the subject's fields",
+      not (is_list(spec[:parents] || []) and Enum.all?(spec[:parents] || [], &is_atom/1)) &&
+        pre <> "parents: must be a list of the parents' fields",
       not (Keyword.keyword?(spec[:records] || :none) and
              Enum.sort(Keyword.keys(spec[:records])) == [:kind, :relation] and
              text?.(spec[:records][:kind]) and text?.(spec[:records][:relation])) &&

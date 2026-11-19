@@ -205,6 +205,7 @@ defmodule AtlasFlow.Runs.Store do
           |> Map.put("composition", composition)
           |> Map.put("supervision", supervision)
           |> Map.put("hand_over", hand_over(model, supervision))
+          |> Map.put("parents", parents(model.relations()))
 
         {config,
          validate_selection(config, flows) || two_writers(selection) || refused || unsupported}
@@ -212,6 +213,18 @@ defmodule AtlasFlow.Runs.Store do
       _ ->
         {nil, nil}
     end
+  end
+
+  # The relations the model marks `parent`, by the kind they lead from: `%{kind =>
+  # [[relation, parent kind]]}`, sorted, for a task's `parents` (`AtlasFlow.Activities.Task`).
+  defp parents(relations) do
+    pairs =
+      for {relation, %{"parent" => true, "from" => from, "to" => [to]}} <-
+            Enum.sort(relations || %{}),
+          kind <- from,
+          do: {kind, [relation, to]}
+
+    Enum.group_by(pairs, &elem(&1, 0), &elem(&1, 1))
   end
 
   # Who supervises a run, as the model declares it (`supervision/0`, work acquisition
@@ -1515,7 +1528,8 @@ defmodule AtlasFlow.Runs.Store do
     ctx = %{
       assignee: Task.assignee(spec, flow.owner(run["state"]), projection, subject),
       number: fn -> Task.number(spec, run) end,
-      now: now
+      now: now,
+      parents: config["parents"] || %{}
     }
 
     case Task.step(run, spec, subject, ctx) do

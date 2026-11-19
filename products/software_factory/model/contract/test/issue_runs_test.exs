@@ -1,6 +1,7 @@
-defmodule Model.JobRunsTest do
+defmodule Model.IssueRunsTest do
   @moduledoc """
-  The job subflow on Flow's durable runs (slices 4 and 5): its author's result is reviewed
+  The issue subflow on Flow's durable runs (slice 6): its author, who reads the issue and
+  why it is to be done (its use case and scene), has its result reviewed
   by a second task before Code opens its pull request. The review's base is the author's
   result, which Code serves like a branch (`refs/atlas/results/<task>`); it works in a Git
   checkout of it. A review that asks for changes leads to one fix on that result, with its
@@ -16,17 +17,17 @@ defmodule Model.JobRunsTest do
   alias AtlasFlow.Runs.{Run, Store}
 
   @now ~U[2026-11-19 09:00:00Z]
-  @key "JB-Atlas-01"
-  @author "TK-JB-Atlas-01-1"
-  @review "TK-JB-Atlas-01-2"
-  @fix "TK-JB-Atlas-01-3"
+  @key "IS-Atlas-01"
+  @author "TK-IS-Atlas-01-1"
+  @review "TK-IS-Atlas-01-2"
+  @fix "TK-IS-Atlas-01-3"
   @repository "github.com/mimbre/atlas"
   @actors %{"decider" => "someone"}
   @mini {"mac-mini", "ada"}
   @offer %{"deep_coding" => 1, "independent_review" => 1}
 
   setup do
-    Application.put_env(:atlas_bus, :store, "job-#{System.unique_integer([:positive])}")
+    Application.put_env(:atlas_bus, :store, "issue-#{System.unique_integer([:positive])}")
     environment = Application.get_env(:atlas_bus, :environment)
     Application.put_env(:atlas_bus, :environment, "test")
 
@@ -37,7 +38,7 @@ defmodule Model.JobRunsTest do
     end)
 
     {:ok, _} = Application.ensure_all_started(:atlas_bus)
-    dir = Path.join(System.tmp_dir!(), "job-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "issue-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
 
     start_supervised!(FakeFacts)
@@ -78,13 +79,18 @@ defmodule Model.JobRunsTest do
 
   test "a review that asks for changes leads to one fix on the result, which is published",
        c do
-    job()
+    issue()
     assert reconcile(c)["pending"]["task"] == nil
-    assert_receive {:reconcile, "job", @key}, 2_000
+    assert_receive {:reconcile, "issue", @key}, 2_000
     supervise(c, "ada")
     assert %{"key" => @author} = reconcile(c)["pending"]["task"]
 
-    finish(answer: "Done.")
+    # The author reads the issue, then its use case and scene: why it is to be done.
+    {_, work} = leased = lease!()
+    assert work.instructions =~ "## description\n\nOne typo."
+    assert work.instructions =~ "## use_case UC-Atlas-01: description\n\nPeople read the README."
+    assert work.instructions =~ "## scene SC-Atlas-01: title\n\nNewcomers"
+    finish(lease: leased, answer: "Done.")
 
     # The author's Runtime pushed its result to Code: the review's base is that result.
     FakeCode.put(c.code, @repository, "refs/atlas/results/" <> @author, "rev_2", %{
@@ -92,7 +98,7 @@ defmodule Model.JobRunsTest do
     })
 
     assert settle(c)["state"] == "reviewing"
-    assert_receive {:reconcile, "job", @key}, 2_000
+    assert_receive {:reconcile, "issue", @key}, 2_000
     reviewing = settle(c)
     assert %{"key" => @review} = intent = reviewing["pending"]["task"]
     {:ok, base} = Bases.cached(@repository, "refs/atlas/results/" <> @author)
@@ -141,11 +147,19 @@ defmodule Model.JobRunsTest do
     assert input["fix"] == %{"task" => @fix, "answer" => "Fixed the second typo."}
   end
 
-  defp job do
-    FakeFacts.put("job", %{
+  defp issue do
+    FakeFacts.put("scene", %{"key" => "SC-Atlas-01", "values" => %{"title" => "Newcomers"}})
+
+    FakeFacts.put("use_case", %{
+      "key" => "UC-Atlas-01",
+      "values" => %{"title" => "Read the README", "description" => "People read the README."},
+      "links" => %{"in_scene" => ["SC-Atlas-01"]}
+    })
+
+    FakeFacts.put("issue", %{
       "key" => @key,
       "values" => %{"title" => "Fix the README", "description" => "One typo."},
-      "links" => %{"assignment" => ["AS-" <> @key]}
+      "links" => %{"assignment" => ["AS-" <> @key], "in_use_case" => ["UC-Atlas-01"]}
     })
 
     FakeFacts.put("assignment", %{
@@ -156,16 +170,16 @@ defmodule Model.JobRunsTest do
     })
   end
 
-  # The job's run supervised by `supervisor`, as a pickup writes it.
+  # The issue's run supervised by `supervisor`, as a pickup writes it.
   defp supervise(c, supervisor) do
     kind = c.runner.config["kind"]
-    fact = FakeFacts.get(kind, Run.key("job", "job", @key, 1))
+    fact = FakeFacts.get(kind, Run.key("issue", "issue", @key, 1))
     relation = c.runner.config["supervision"]["relation"]
     links = Map.put(fact["links"] || %{}, relation, [supervisor])
     FakeFacts.put(kind, Map.merge(fact, %{"links" => links, "version" => fact["version"] + 1}))
   end
 
-  # The mac-mini's one lease of the job.
+  # The mac-mini's one lease of the issue.
   defp lease! do
     assert {:polled, %{leases: [%{lease_id: lease, work: work}]}} =
              WorkSource.poll(@mini, L.poll_input("mac-mini", [], @offer))
@@ -173,14 +187,14 @@ defmodule Model.JobRunsTest do
     {lease, work}
   end
 
-  # The job's lease worked to its end with `answer`, no change set (its result went over Git).
+  # The issue's lease worked to its end with `answer`, no change set (its result went over Git).
   defp finish(opts) do
     {lease, _work} = Keyword.get_lazy(opts, :lease, &lease!/0)
     report = &WorkSource.report(@mini, %{lease_id: lease, revision: &1, report: &2})
     assert {:recorded, _} = report.(1, %{state: :accepted})
     assert {:recorded, _} = report.(2, %{state: :started})
     assert {:recorded, _} = report.(3, L.ended(nil, Keyword.take(opts, [:answer])))
-    assert_receive {:"$gen_cast", {:reconcile, "job", @key}}, 2_000
+    assert_receive {:"$gen_cast", {:reconcile, "issue", @key}}, 2_000
   end
 
   defp verdict(verdict, findings),
@@ -204,8 +218,8 @@ defmodule Model.JobRunsTest do
     flows = c.runner.flows
     {:ok, %{runs: known}} = Store.plan(config, flows)
     now = AtlasFlow.Runs.Clock.now(c.clock)
-    {:ok, runs} = Store.reconcile_subjects(config, flows, now, known, [{"job", @key}])
-    assert [run] = Enum.filter(runs, &(&1["subject_key"] == @key and &1["flow"] == "job"))
+    {:ok, runs} = Store.reconcile_subjects(config, flows, now, known, [{"issue", @key}])
+    assert [run] = Enum.filter(runs, &(&1["subject_key"] == @key and &1["flow"] == "issue"))
     run
   end
 end

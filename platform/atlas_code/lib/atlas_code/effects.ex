@@ -4,7 +4,7 @@ defmodule AtlasCode.Effects do
   GitHub pull at exactly the revision the run was asked about, the way it is done by
   hand. Update the branch from its base when it is behind; wait for CI on that result;
   merge it when CI is green, fenced by the head GitHub must still have; refuse on a
-  conflict, red CI, a closed pull or a head that moved. And `publish`: a job's result as
+  conflict, red CI, a closed pull or a head that moved. And `publish`: a subject's result as
   a GitHub pull (see "Publish" below).
 
   `handle/2` takes one body, `%{"operation" => "submit" | "lookup", "request" => r,
@@ -471,7 +471,7 @@ defmodule AtlasCode.Effects do
 
   defp published(url), do: %{"status" => "done", "reference" => url, "outputs" => %{"url" => url}}
 
-  # The pull's body: the job's description, its review and fix, what merging it does, and
+  # The pull's body: the subject's description, its review and fix, what merging it does, and
   # who wrote it.
   defp body(r, task) do
     description = r["payload"]["description"]
@@ -481,8 +481,8 @@ defmodule AtlasCode.Effects do
         if(is_binary(description) and String.trim(description) != "", do: description),
         review(r["input"]["review"]),
         fix(r["input"]["fix"]),
-        "Atlas job #{r["subject"]}, task #{task}: merging this finishes the job.",
-        "<sub>Written by an AI agent (Atlas job #{r["subject"]}).</sub>"
+        "Atlas #{r["subject"]}, task #{task}: merging this finishes it.",
+        "<sub>Written by an AI agent (Atlas #{r["subject"]}).</sub>"
       ]
       |> Enum.reject(&is_nil/1),
       "\n\n"

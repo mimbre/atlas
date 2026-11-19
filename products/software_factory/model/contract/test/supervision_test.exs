@@ -128,10 +128,12 @@ defmodule Model.SupervisionTest do
     assert supervision["relation"] == "supervised_by"
   end
 
-  test "the issue build is the one span: its author state, with its packages' runs" do
+  test "the issue build is the one span: its states until merged, with its packages' runs" do
+    states = ~w(working reviewing fixing publishing merging)
+
     assert %{
              "issue" => [
-               %{"name" => "build", "states" => ["author"], "with" => ["package", "pull_request"]}
+               %{"name" => "build", "states" => ^states, "with" => ["package", "pull_request"]}
              ]
            } =
              AtlasEyra.supervision()["spans"]
@@ -198,7 +200,7 @@ defmodule Model.SupervisionTest do
 
     assert %{spans: spans} = open = start.open_for_you
 
-    assert %{subject: "issue", span: "build", states: ["author"]} =
+    assert %{subject: "issue", span: "build", states: ["working" | _]} =
              Enum.find(spans, &(&1.subflow == "issue"))
 
     assert %{relation: "supervised_by"} = mine = start.supervised_by_you

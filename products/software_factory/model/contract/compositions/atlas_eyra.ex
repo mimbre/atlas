@@ -9,8 +9,6 @@ defmodule Model.AtlasEyra do
     * a pull request's review and test report their outcome to it (`review_outcome`,
       `test_outcome`); a result from a review or test that a newer one replaced is
       dropped;
-    * a pull request reports to its issue (`pr_outcome`), which waits for it while it
-      is built (`author`);
     * a use case counts its issues, and a scene its use cases (`children`, and
       `open_children`: those whose subflow has not ended), to know when all are built;
     * a decision tallies the work based on it (`work`), so its follow-through ends once
@@ -33,7 +31,6 @@ defmodule Model.AtlasEyra do
     Decision,
     Delivery,
     FollowThrough,
-    Job,
     Package,
     PrReview,
     PrTest,
@@ -64,7 +61,7 @@ defmodule Model.AtlasEyra do
   relation(:assignment,
     label: "assignment",
     description: "What belongs to being assigned, for one fact; made and deleted with it.",
-    from: [:scene, :use_case, :issue, :job, :package, :pull_request, :decision, :to_do],
+    from: [:scene, :use_case, :issue, :package, :pull_request, :decision, :to_do],
     to: [:assignment],
     max_outgoing: 1,
     inverse: {:assignment_of, "assignment of"}
@@ -84,7 +81,7 @@ defmodule Model.AtlasEyra do
     label: "task of",
     description: "A task belongs to one package or issue; they have their tasks.",
     from: [:task],
-    to: [:package, :issue, :job],
+    to: [:package, :issue],
     max_outgoing: 1,
     inverse: {:tasks, "tasks"},
     parent: true,
@@ -175,11 +172,10 @@ defmodule Model.AtlasEyra do
 
   extend_entity(:use_case, create: [id: [prefix: "UC-Atlas-", digits: 2]])
 
-  extend_entity(:job, create: [id: [prefix: "JB-Atlas-", digits: 2]])
-
   extend_entity(:issue,
     create: [id: [prefix: "IS-Atlas-", digits: 2], defaults: [stage: :specification]],
     completion: [
+      [field: :pr_state, value: :merged],
       [over: :in_issue, field: :state, value: :merged],
       [through: :done_in, field: :state, value: :merged]
     ],
@@ -246,7 +242,6 @@ defmodule Model.AtlasEyra do
       :flow_input,
       :flow_run,
       :issue,
-      :job,
       :package,
       :pull_request,
       :pr_review,
@@ -261,7 +256,7 @@ defmodule Model.AtlasEyra do
     comment: "The principal flows run their outputs as: resets, created reviews and tests.",
     read: ["*"],
     create: [:pr_review, :pr_test],
-    update: [:issue, :job, :pull_request, :pr_review, :pr_test, :use_case, :scene, :decision]
+    update: [:issue, :pull_request, :pr_review, :pr_test, :use_case, :scene, :decision]
   )
 
   role("maintainer",
@@ -291,8 +286,7 @@ defmodule Model.AtlasEyra do
       Decision,
       FollowThrough,
       ToDo,
-      Package,
-      Job
+      Package
     ])
 
     link(:pr_review,
@@ -309,12 +303,6 @@ defmodule Model.AtlasEyra do
       states: [passed: :passed, failed: :failed],
       stale: :drop,
       current: {:revision, :revision}
-    )
-
-    link(:pull_request,
-      to: {:issue, :in_issue},
-      field: :pr_outcome,
-      states: [changes_requested: :changes_requested, integrated: :integrated, closed: :closed]
     )
 
     count(:issue, to: {:use_case, :in_use_case}, all: :children, open: :open_children)

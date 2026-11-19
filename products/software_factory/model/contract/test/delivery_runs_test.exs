@@ -537,8 +537,9 @@ defmodule Model.DeliveryRunsTest do
   # -- Slice 9: the issue -------------------------------------------------------------------
 
   @issue "issue"
-  # The digest the base recorded before slice 9 (the same in prod and test).
-  @issue_base "99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e"
+  # The digest the base recorded before slice 6, the issue built by hand (the same in
+  # prod and test).
+  @issue_base "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052"
 
   defp issue_flow(env), do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == @issue))
   defp issue_selection, do: Model.AtlasEyra.selection(@issue)
@@ -552,43 +553,19 @@ defmodule Model.DeliveryRunsTest do
   # As the issues on test and prod are today: in Specification, nothing a flow wrote.
   @live %{"title" => "An issue", "description" => "What it is", "stage" => "specification"}
 
-  test "the issue is selected in both environments, runnable, and the one writer of an issue" do
+  test "the issue is selected in both environments and runnable; its use case counts it" do
     for env <- @envs do
       runner = AtlasFlow.Model.load(Model.AtlasEyra, env, %{"decider" => "someone"})
       assert runner.refusal == nil
       assert Map.has_key?(runner.config["selection"], @issue)
+      assert Run.validate(issue_flow(env)) == :ok
 
-      f = issue_flow(env)
-      assert Run.validate(f) == :ok
-      # No pass, gate or effect, no create and no timer: nothing is dispatched or made for
-      # an issue, and nothing is due.
-      assert Enum.all?(f.states(), &(f.mechanism(&1) == nil))
-      assert for(s <- f.states(), {:create, _} <- f.enter(s, %{}), do: s) == []
-      assert Enum.all?(f.states(), &(f.timers(&1) == []))
-
-      # Every issue, whatever its stage, is the run's.
-      for stage <- [nil, "specification", "design", "development"],
-          do:
-            assert(
-              {@issue, _} =
-                Store.selected(runner.config, @issue, %{"values" => %{"stage" => stage}})
-            )
-
-      # The use case counts its issues (slice 10 selects its design, a subflow on a use
-      # case): an issue's run moving drains the run on its use case. The scene counts its
-      # use cases (slice 12 selects a subflow on the scene).
       assert Enum.map(runner.config["composition"]["counts"], & &1["child"]) ==
                [@issue, "test_and_accept_use_case"]
     end
-
-    s = issue_selection()
-    assert {s["subject"], s["admission"]} == {@issue, []}
-    # No choice of people: Facts captures no write on an issue as one.
-    assert {s["choices"], s["choice_states"]} == {[], []}
-    assert s["projection"]["on"] == "assignment"
   end
 
-  test "every import row of the issue; any other issue starts building, writing nothing" do
+  test "every import row of the issue; any other issue starts working, writing nothing" do
     assert issue_selection()["imports"] == [
              %{"when" => %{"pr_outcome" => ["integrated"]}, "state" => "done"}
            ]
@@ -613,7 +590,7 @@ defmodule Model.DeliveryRunsTest do
       end
 
       # Every other issue (each one on test and prod today) matches no row: it starts in
-      # author as a new one does, at once, whatever its stage; with nothing to write and
+      # working as a new one does, at once, whatever its stage; with nothing to write and
       # nothing due, what it showed and its owner stay.
       for values <- [
             %{},
@@ -632,7 +609,7 @@ defmodule Model.DeliveryRunsTest do
             })
           ] do
         run = issue_new(env, values)
-        assert at(run) == {"author", "active", 1}
+        assert at(run) == {"working", "active", 1}
         refute Map.has_key?(run["last_input"], "import")
         assert run["pending"] == %{"version" => 1, "writes" => []}
         assert run["deadlines"]["timers"] == []
@@ -640,113 +617,15 @@ defmodule Model.DeliveryRunsTest do
     end
   end
 
-  test "building presents its move to the coordinator" do
+  test "working presents its move to the coordinator" do
     for env <- @envs do
       f = issue_flow(env)
-      present = f.present("author", @live)
+      present = f.present("working", @live)
       assert present["expected"] != "" and present["why"] != ""
       assert present["todo"]["instructions"] != ""
-      assert f.owner("author")["default"] == %{"kind" => "agent", "key" => "coordinator"}
-      # Done presents nothing: the projection clears what is expected, as for v1's done.
+      assert f.owner("working")["default"] == %{"kind" => "agent", "key" => "coordinator"}
       assert f.present("done", @live) == nil and f.final?("done")
     end
-  end
-
-  test "its pull request's outcome, through the link: merged ends it; anything else builds on" do
-    for env <- @envs do
-      f = issue_flow(env)
-      building = issue_new(env, @live)
-
-      assert {:ok, done} =
-               Run.synthetic(
-                 offered(building, %{"pr_outcome" => "integrated"}),
-                 f,
-                 issue(Map.put(@live, "pr_outcome", "integrated")),
-                 @now
-               )
-
-      assert at(done) == {"done", "completed", 2}
-      assert done["pending"]["writes"] == [] and done["deadlines"]["timers"] == []
-      assert done["last_input"]["synthetic"] == "S-1-integrated"
-
-      # Changes requested, or closed: built again (a new entry), nothing written, the same
-      # presentation, so the projection moves nothing.
-      for outcome <- ["changes_requested", "closed"] do
-        values = Map.put(@live, "pr_outcome", outcome)
-
-        assert {:ok, again} =
-                 Run.synthetic(
-                   offered(building, %{"pr_outcome" => outcome}),
-                   f,
-                   issue(values),
-                   @now
-                 )
-
-        assert at(again) == {"author", "active", 2}
-        assert again["pending"]["writes"] == [] and again["deadlines"]["timers"] == []
-        assert f.present("author", values) == f.present("author", @live)
-
-        # And merged later, through the same link: done.
-        assert {:ok, later} =
-                 Run.synthetic(
-                   offered(again, %{"pr_outcome" => "integrated"}),
-                   f,
-                   issue(Map.put(@live, "pr_outcome", "integrated")),
-                   @now
-                 )
-
-        assert at(later) == {"done", "completed", 3}
-      end
-
-      # An outcome written by hand is no result of a pull request's run: nothing moves.
-      assert {:ok, ^building} =
-               Run.step(building, f, issue(Map.put(@live, "pr_outcome", "integrated")), @now)
-    end
-  end
-
-  test "the pull request's link to its issue: what it writes, and when it writes nothing" do
-    link = Enum.find(Model.AtlasEyra.composition()["links"], &(&1["child"] == "pull_request"))
-
-    assert {link["parent_subject"], link["relation"], link["field"], link["current"]} ==
-             {@issue, "in_issue", "pr_outcome", nil}
-
-    parent = %{"key" => "IS-Atlas-01", "values" => @live}
-    pr = %{"key" => "PR-eyra-atlas-4", "values" => %{}}
-
-    run = fn state, entry ->
-      %{"key" => "run-pr-4", "flow" => "pull_request", "entry" => entry, "state" => state}
-    end
-
-    # A pull request in its checks, or being merged, reports nothing yet: its issue builds on.
-    for state <- ["checking", "integrating"],
-        do:
-          assert(
-            Links.select(link, parent, [pr], %{pr["key"] => run.(state, 1)}, nil) == :waiting
-          )
-
-    # Each outcome its run reaches is written once.
-    for {state, value} <- [
-          {"changes_requested", "changes_requested"},
-          {"integrated", "integrated"},
-          {"closed", "closed"}
-        ] do
-      runs = %{pr["key"] => run.(state, 2)}
-      assert {:write, ^value, source} = Links.select(link, parent, [pr], runs, nil)
-      assert {source["child"], source["state"]} == {pr["key"], state}
-      assert {:applied, ^source} = Links.select(link, parent, [pr], runs, source)
-    end
-
-    # An issue without a pull request: nothing.
-    assert Links.select(link, parent, [], %{}, nil) == :none
-
-    # Two pull requests on one issue (a closed one and the next): every one is current
-    # without an identity, so the link refuses to choose and writes nothing (a risk named
-    # in the slice's report, not a behaviour to keep).
-    other = %{"key" => "PR-eyra-atlas-5", "values" => %{}}
-    runs = %{pr["key"] => run.("closed", 2), other["key"] => run.("integrated", 3)}
-
-    assert Links.select(link, parent, [pr, other], runs, nil) ==
-             {:refused, :ambiguous, ["PR-eyra-atlas-4", "PR-eyra-atlas-5"]}
   end
 
   test "restarted, a building issue stays as it was, and so does a done one" do
@@ -766,51 +645,27 @@ defmodule Model.DeliveryRunsTest do
     end
   end
 
-  test "the issue's change from the base's digest is a declared state migration, never a re-key" do
+  test "an issue built by hand before slice 6 is built again by an agent; a done one stays done" do
     for env <- @envs do
       f = issue_flow(env)
-      [m] = issue_selection()["migrations"]
-      assert {m["from"], m["to"]} == {@issue_base, f.digest()}
+      m = Enum.find(issue_selection()["migrations"], &(&1["from"] == @issue_base))
+      assert m["to"] == f.digest()
       refute Map.has_key?(m, "rekey") or Map.has_key?(m, "preserve_entry")
 
-      old_states =
-        ~w(author closed delivery_gate done in_pr needs_person publish review review_gate rework)
-
-      assert Enum.sort(Map.keys(m["states"])) == old_states
-      assert Enum.all?(Map.values(m["states"]), &(&1 in f.states()))
-
-      old = fn state, status, pending ->
+      old = fn state, status ->
         issue_new(env, @live)
         |> Map.merge(%{"definition_sha256" => @issue_base, "state" => state, "status" => status})
-        |> update_in(["pending"], &Map.merge(&1, pending))
       end
 
-      # A quiescent open run of the old digest builds on, in a new entry.
-      for state <- ~w(author in_pr needs_person) do
-        assert {:ok, moved} = Run.migrate(old.(state, "active", %{}), f, [m], @now)
-        assert at(moved) == {"author", "active", 2}
-        assert moved["definition_sha256"] == f.digest()
-        assert [%{"from" => @issue_base, "state" => ^state}] = moved["pending"]["migrations"]
-      end
+      # An open one re-enters working, unsupervised: nothing runs until it is handed to a
+      # machinery.
+      assert {:ok, moved} = Run.migrate(old.("author", "active"), f, [m], @now)
+      assert at(moved) == {"working", "active", 2}
+      assert moved["definition_sha256"] == f.digest()
+      assert moved["pending"]["task"] == nil
 
-      # One with a frozen activity is not quiescent: it blocks, nothing is redone.
-      for {state, pending} <- [
-            {"delivery_gate", %{"gate" => %{"id" => "g"}}},
-            {"review", %{"pass" => %{"request" => %{}}}},
-            {"publish", %{"effect" => %{"request" => %{}}}}
-          ],
-          do:
-            assert(
-              {:error, :definition_changed} =
-                Run.migrate(old.(state, "active", pending), f, [m], @now)
-            )
-
-      # A done run stays done; a closed (cancelled) one is never taken for done: it blocks.
-      assert {:ok, done} = Run.migrate(old.("done", "completed", %{}), f, [m], @now)
+      assert {:ok, done} = Run.migrate(old.("done", "completed"), f, [m], @now)
       assert {done["state"], done["status"]} == {"done", "completed"}
-
-      assert {:error, :definition_changed} =
-               Run.migrate(old.("closed", "completed", %{}), f, [m], @now)
     end
   end
 end

@@ -179,8 +179,11 @@ defmodule RelaDSL.RunIdentity do
     base_flows = base["subflows"] || %{}
     now = document["subflows"]
 
+    # A subflow that is kept keeps its history; one removed whole (its kind gone, its runs
+    # ended with their subjects) takes its history with it.
     removed =
       for {name, envs} <- base_flows,
+          Map.has_key?(now, name),
           {env, entry} <- envs,
           h <- entry["history"] || [],
           h not in (get_in(now, [name, env, "history"]) || []),
