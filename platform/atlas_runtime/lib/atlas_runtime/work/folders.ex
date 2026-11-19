@@ -138,8 +138,9 @@ defmodule AtlasRuntime.Work.Folders do
 
   # A job's base whose result goes back over Git (`git_base`): its repository folder becomes a
   # Git checkout of the prepared base, the base's commit plus its dependencies, from the
-  # source's Git cache. The objects are copied in, so the agent's Git needs nothing outside the
-  # folder. Its own commits never travel: the Runtime takes the folder's end state.
+  # source's Git cache, three commits deep (a review sees the change its base commit made).
+  # The objects are copied in, so the agent's Git needs nothing outside the folder. Its own
+  # commits never travel: the Runtime takes the folder's end state.
   defp checkout(%{git_base: ref, store: store, base_id: "sha256:" <> hex}, home, folder)
        when is_binary(ref) do
     manifest = Path.join([home, "snapshots", hex, "manifest.json"])
@@ -152,7 +153,7 @@ defmodule AtlasRuntime.Work.Folders do
     end
 
     git.(["init", "-q", "-b", "work"])
-    git.(["fetch", "-q", "--no-tags", "--update-head-ok", "--depth", "2", cache, ref <> ":work"])
+    git.(["fetch", "-q", "--no-tags", "--update-head-ok", "--depth", "3", cache, ref <> ":work"])
     git.(["reset", "-q", "--hard"])
     git.(["config", "user.name", "Atlas agent"])
     git.(["config", "user.email", "agent@atlas"])

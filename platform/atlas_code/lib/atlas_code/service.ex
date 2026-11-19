@@ -70,7 +70,11 @@ defmodule AtlasCode.Service do
       {200,
        %{"service" => "atlas-code", "version" => to_string(Application.spec(:atlas_code, :vsn))}}
 
-  @doc "`POST /v1/references/resolve`: the revision handle of a branch's current commit."
+  @doc """
+  `POST /v1/references/resolve`: the revision handle of a branch's current commit, or of a
+  job's result (`refs/atlas/results/<task>`, the commit a Runtime pushed to Code's copy of
+  the repository), which a review then gets as its base.
+  """
   @spec resolve_reference(settings(), term()) :: response()
   def resolve_reference(settings, request) do
     case request do
@@ -403,6 +407,24 @@ defmodule AtlasCode.Service do
 
       {_, status} ->
         {:failed, status}
+    end
+  end
+
+  defp resolve(settings, repository, "refs/atlas/results/" <> _ = reference) do
+    case result(settings, repository, reference) do
+      {:ok, %{"commit" => commit}} ->
+        {200,
+         %{
+           "repository" => repository,
+           "reference" => reference,
+           "revision" => put_revision(settings.home, repository, commit)
+         }}
+
+      :error ->
+        error(404, "unknown_reference", "Reference not found", %{
+          "repository" => repository,
+          "reference" => reference
+        })
     end
   end
 
