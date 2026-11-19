@@ -74,6 +74,7 @@ defmodule AtlasCode.Dependencies do
         {_, 0} =
           System.cmd(command, args,
             cd: Path.join(work, Path.dirname(path)),
+            env: outside_release(),
             stderr_to_stdout: true
           )
       end
@@ -92,6 +93,14 @@ defmodule AtlasCode.Dependencies do
     after
       File.rm_rf!(work)
     end
+  end
+
+  # mix and npm run as tools of their own, not inside this release: the release's own
+  # variables (its boot script, root and bin dirs) would make `mix` boot the release.
+  defp outside_release do
+    for {name, _} <- System.get_env(),
+        String.starts_with?(name, "RELEASE_") or name in ~w(ROOTDIR BINDIR EMU PROGNAME),
+        do: {name, nil}
   end
 
   # Git in `dir` (with `work` its work tree, or none) and an index of its own; each call
