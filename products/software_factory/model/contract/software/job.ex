@@ -100,8 +100,17 @@ defmodule Model.Job do
     end
 
     # Code pushes the task's result to a branch and opens a pull request from it onto the
-    # base; Flow names the result by its ref only. Nothing is expected of anyone meanwhile.
+    # base; Flow names the result by its ref only. It presents what happens meanwhile, so
+    # the step to `merging` is a move (`AtlasFlow.Runs.Projection`): its owner, the
+    # supervisor, takes the job from the machinery someone handed it to.
     state :publishing, label: "Opening its pull request" do
+      present(
+        expected: "Let Code open its pull request",
+        why: "its agent's work is done",
+        instructions:
+          "Code pushes its result to a branch on GitHub and opens a pull request from it onto develop; nothing is asked of anyone meanwhile."
+      )
+
       effect(:publish,
         contract: 1,
         name: "publish",
@@ -160,6 +169,16 @@ defmodule Model.Job do
     preserve_entry: true,
     states: [working: :working, done: :done, stuck: :stuck],
     reason: "Its result becomes a pull request its supervisor merges; the same entries"
+  )
+
+  # IS-Atlas-15: `publishing` presents what happens, so entering `merging` hands the job to
+  # its supervisor. Every state and entry is kept; a job already in `merging` keeps its owner.
+  migrate(:job,
+    from: "afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939",
+    to: "4e09f905e40c89b644787131690d3ecb917e9321eb6536abf66a3b7f1bad025e",
+    preserve_entry: true,
+    states: :same,
+    reason: "Opening its pull request is presented; the same states and entries"
   )
 
   select(:job,

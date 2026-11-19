@@ -319,7 +319,7 @@
     },
     "job": {
       "prod": {
-        "digest": "afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939",
+        "digest": "4e09f905e40c89b644787131690d3ecb917e9321eb6536abf66a3b7f1bad025e",
         "history": [
           {
             "digest": "3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59",
@@ -333,6 +333,16 @@
             "digest": "46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55",
             "states": [
               "done",
+              "stuck",
+              "working"
+            ]
+          },
+          {
+            "digest": "4e09f905e40c89b644787131690d3ecb917e9321eb6536abf66a3b7f1bad025e",
+            "states": [
+              "done",
+              "merging",
+              "publishing",
               "stuck",
               "working"
             ]
@@ -365,7 +375,7 @@
         ]
       },
       "test": {
-        "digest": "afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939",
+        "digest": "4e09f905e40c89b644787131690d3ecb917e9321eb6536abf66a3b7f1bad025e",
         "history": [
           {
             "digest": "3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59",
@@ -379,6 +389,16 @@
             "digest": "46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55",
             "states": [
               "done",
+              "stuck",
+              "working"
+            ]
+          },
+          {
+            "digest": "4e09f905e40c89b644787131690d3ecb917e9321eb6536abf66a3b7f1bad025e",
+            "states": [
+              "done",
+              "merging",
+              "publishing",
               "stuck",
               "working"
             ]
