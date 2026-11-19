@@ -8,7 +8,7 @@ defmodule AtlasFlow.Activities.Task do
   A state with a `task` (`RelaDSL.Schema`) runs it, as `AtlasFlow.Runs.Store` drains the
   run:
 
-  1. **For a supervisor, or for machinery (E1).** Once a person picked up its flow (it has
+  1. **For a supervisor, or for machinery (E1).** Once its flow is picked up (it has
      a human supervisor; IS-Atlas-25, `AtlasFlow.Runs.Store` asks), the task is made at
      once, naming no machinery: Dispatch offers it to that supervisor's Runtimes. Without
      one, while the subject's owner (through the state's owner relation, on the
