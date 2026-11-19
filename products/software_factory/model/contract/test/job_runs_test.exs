@@ -1,9 +1,10 @@
 defmodule Model.JobRunsTest do
   @moduledoc """
-  The job subflow on Flow's durable runs (slice 4): its author's result is reviewed by a
-  second task before Code opens its pull request. The review's base is the author's result,
-  which Code serves like a branch (`refs/atlas/results/<task>`); it works in a Git checkout
-  of it, and its verdict and findings go with the result to the publication. Run by
+  The job subflow on Flow's durable runs (slices 4 and 5): its author's result is reviewed
+  by a second task before Code opens its pull request. The review's base is the author's
+  result, which Code serves like a branch (`refs/atlas/results/<task>`); it works in a Git
+  checkout of it. A review that asks for changes leads to one fix on that result, with its
+  findings; the fix's result is published, with the review and the fix's answer. Run by
   `AtlasFlow.Runs.Store` with `AtlasFlow.FakeFacts`, the work source's processes on
   `AtlasFlow.FakeCode` and a manual clock. Structure, not wording.
   """
@@ -18,6 +19,7 @@ defmodule Model.JobRunsTest do
   @key "JB-Atlas-01"
   @author "TK-JB-Atlas-01-1"
   @review "TK-JB-Atlas-01-2"
+  @fix "TK-JB-Atlas-01-3"
   @repository "github.com/mimbre/atlas"
   @actors %{"decider" => "someone"}
   @mini {"mac-mini", "ada"}
@@ -74,7 +76,7 @@ defmodule Model.JobRunsTest do
     %{runner: runner, clock: clock, code: code}
   end
 
-  test "the author's result is reviewed in a checkout of it, then published with the review",
+  test "a review that asks for changes leads to one fix on the result, which is published",
        c do
     job()
     assert reconcile(c)["pending"]["task"] == nil
@@ -107,20 +109,36 @@ defmodule Model.JobRunsTest do
     assert work.instructions =~ ~s("verdict")
 
     finish(lease: leased, answer: verdict("changes_required", ["A second typo."]))
+    assert settle(c)["state"] == "fixing"
+    assert FakeFacts.get("task", @review)["values"]["verdict"] == "changes_required"
+    assert FakeFacts.get("task", @review)["values"]["state"] == "completed"
+
+    # One fix on the author's result (the base the review had), with the review's findings.
+    fixing = settle(c)
+    assert %{"key" => @fix} = intent = fixing["pending"]["task"]
+    assert intent["work"]["input"]["base"]["base_id"] == base.base_id
+    assert reconcile(c)["state"] == "fixing"
+    {_, work} = leased = lease!()
+    assert work.profile == "deep_coding"
+    assert work.input.result_ref == "refs/atlas/results/" <> @fix
+    assert work.instructions =~ "A second typo."
+
+    finish(lease: leased, answer: "Fixed the second typo.")
     publishing = settle(c)
     assert publishing["state"] == "publishing"
-    assert Enum.map(publishing["pending"]["tasks"], & &1["task_kind"]) == ~w(author review)
-    assert FakeFacts.get("task", @review)["values"]["verdict"] == "changes_required"
+    assert Enum.map(publishing["pending"]["tasks"], & &1["task_kind"]) == ~w(author review fix)
 
-    # The publication names the author's result, and the review goes with it.
+    # The publication names the fix's result; the review and the fix go with it.
     input = publishing["pending"]["effect"]["request"]["input"]
-    assert input["result"] == "refs/atlas/results/" <> @author
+    assert input["result"] == "refs/atlas/results/" <> @fix
 
     assert input["review"] == %{
              "task" => @review,
              "verdict" => "changes_required",
              "findings" => ["A second typo."]
            }
+
+    assert input["fix"] == %{"task" => @fix, "answer" => "Fixed the second typo."}
   end
 
   defp job do

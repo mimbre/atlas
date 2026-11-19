@@ -126,7 +126,7 @@ defmodule AtlasFlow.WorkSource.Translate do
   repository, instead of a change set. Only for a task outside any ladder and without an
   after-check (a job's task): nothing publishes or reworks its result from a change set.
   The Runtime makes such a task's folder a Git checkout of its base; a job's review gets one
-  too, and the result it pushes is never read.
+  too, and the result it pushes is never read; a job's fix too, its result on the author's.
   """
   def result_ref(intent, key, true) do
     if get_in(intent, ["work", "after_check"]) == nil and
@@ -142,7 +142,8 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   @doc """
   The key of a job run's latest result: its latest task (`pending.tasks`) that is no
-  review, whose folder is only read. Nil while it has none.
+  review, whose folder is only read: its author's, or its fix's once one ran. Nil while it
+  has none.
   """
   def latest_result(tasks) do
     tasks
@@ -151,10 +152,22 @@ defmodule AtlasFlow.WorkSource.Translate do
   end
 
   @doc """
+  A job run's latest review that ended with an answer (completed or check_failed), as its
+  result keeps it (`verdict`, `findings`): what its fix works on, and what its publication
+  shows. Nil while it has none.
+  """
+  def latest_review(tasks) do
+    tasks
+    |> Enum.reverse()
+    |> Enum.find(
+      &(&1["task_kind"] == "review" and &1["outcome"] in ["completed", "check_failed"])
+    )
+  end
+
+  @doc """
   The permissions a task's work runs with: read-only for a review or a diagnose of the
-  loop's latest result. A job's review (`input` a repository and the latest result) works
-  in a Git checkout of that result it may build in (bin/check): writable, as nothing it
-  changes is read back.
+  loop's latest result. A job's review or fix (`input` a repository and the latest result)
+  works in a Git checkout of that result it may build in (bin/check): writable.
   """
   def permissions(%{"input" => %{"repository" => _, "result" => "latest"}}),
     do: "workspace-write"

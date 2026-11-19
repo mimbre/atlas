@@ -68,11 +68,12 @@ defmodule AtlasCode.Effects do
   copy of that repository (`AtlasCode.Service.result/3`), resolved once when it is
   accepted. Code pushes that commit to the branch `atlas/<task>` on GitHub and opens a
   pull from it onto `base`, titled with the payload's `title`, its body the
-  `description` and, when the input has one, its `review` (`%{"task", "verdict",
-  "findings"}`: what an independent review of the result found). Done, with `reference`
-  and `outputs` `%{"url"}`, is that pull's web address. A repeat first looks the branch's
-  pull up, so it is never opened twice; a branch already at another commit is refused
-  `branch_taken`.
+  `description` and, when the input has them, its `review` (`%{"task", "verdict",
+  "findings"}`: what an independent review of the result found) and its `fix` (`%{"task",
+  "answer"}`: the task that fixed those findings, whose result this is; its commit sits on
+  the author's, both on `base`). Done, with `reference` and `outputs` `%{"url"}`, is that
+  pull's web address. A repeat first looks the branch's pull up, so it is never opened
+  twice; a branch already at another commit is refused `branch_taken`.
   """
 
   alias AtlasBus.{Digest, SubjectFingerprint}
@@ -470,7 +471,8 @@ defmodule AtlasCode.Effects do
 
   defp published(url), do: %{"status" => "done", "reference" => url, "outputs" => %{"url" => url}}
 
-  # The pull's body: the job's description, its review, what merging it does, and who wrote it.
+  # The pull's body: the job's description, its review and fix, what merging it does, and
+  # who wrote it.
   defp body(r, task) do
     description = r["payload"]["description"]
 
@@ -478,6 +480,7 @@ defmodule AtlasCode.Effects do
       [
         if(is_binary(description) and String.trim(description) != "", do: description),
         review(r["input"]["review"]),
+        fix(r["input"]["fix"]),
         "Atlas job #{r["subject"]}, task #{task}: merging this finishes the job.",
         "<sub>Written by an AI agent (Atlas job #{r["subject"]}).</sub>"
       ]
@@ -503,6 +506,22 @@ defmodule AtlasCode.Effects do
   end
 
   defp review(_none), do: nil
+
+  defp fix(%{"task" => task} = fix) do
+    answer =
+      case fix["answer"] do
+        text when is_binary(text) ->
+          text |> String.split("\n") |> Enum.map_join("\n", &("> " <> &1))
+
+        _ ->
+          "> (no answer)"
+      end
+
+    "**Fix.** An agent fixed what the review found (task #{task}); this is its result. Its answer:\n\n" <>
+      answer
+  end
+
+  defp fix(_none), do: nil
 
   defp slug(%{"operation" => "publish", "input" => %{"repository" => repository}})
        when is_binary(repository) do
