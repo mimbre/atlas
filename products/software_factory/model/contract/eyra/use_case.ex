@@ -49,6 +49,14 @@ defmodule Model.UseCase do
     * The use case is broken down into issues (`children`), built until none is open
       (`open_children`), then tested by the configured decider. `children` and
       `open_children` are the composition's count of the issues in the use case.
+    * Slice 7: a person picks up its break-down (`break_down`, the span `break_down`) and
+      hands it to a machinery: one agent on the supervisor's Runtime reads the use case,
+      its scene and a checkout of the repository, and writes the issues it proposes to a
+      file in its result (`creates:`). Flow, the only writer, makes them under the use
+      case, and "Accept it" (`accepting`) goes to the supervisor, who looks at them and
+      accepts the break-down; the issues can then be picked up and built. When the agent
+      proposes nothing, or the use case is taken from the machinery, the supervisor
+      breaks it down by hand in "Accept it".
     * A rejection sends it to its rework; a new open issue sends it back to building.
 
   Slice 11 runs it on Flow's durable runs (`select`) for the building phase of the legacy
@@ -57,10 +65,10 @@ defmodule Model.UseCase do
   acceptance on, and for a use case with no design phase. The parity fixes keep it to
   what runs today:
 
-    * no passes (break it down, rework): their specs are no pass contract a runner
-      accepts (`AtlasFlow.Activities.Pass.valid?/1`), for the reasons the design's
-      passes wait (slice 10); a definition a runner refuses would refuse every selected
-      subflow. The coordinator breaks it down and reworks it by hand, as today;
+    * no passes (rework): its spec is no pass contract a runner accepts
+      (`AtlasFlow.Activities.Pass.valid?/1`), for the reasons the design's passes wait
+      (slice 10); a definition a runner refuses would refuse every selected subflow. The
+      coordinator reworks it by hand, as today;
     * `to_test` is the configured decider's (`{:person, config: :decider}`), as the
       legacy flow's `to_test` is, and moves on `verdict`, which its two answers write,
       no longer on an acceptor's typed choice: Facts takes a choice only from one a
@@ -129,7 +137,19 @@ defmodule Model.UseCase do
 
     field(:children, :integer, description: "Flow: how many issues are in it")
     field(:open_children, :integer, description: "Flow: how many of them are not finished")
-    field(:verdict, :string, description: "Flow: the acceptor's verdict (none, accept, reject)")
+
+    field(:verdict, :string,
+      description:
+        "Flow: the acceptor's verdict (none, accept, reject), or its supervisor's acceptance of its issues (accept)"
+    )
+
+    # What its break-down's task branch reads: the run's own result, never written.
+    field(:task_result, :string,
+      description:
+        "Flow: how its break-down's agent task ended (completed, check_failed, stuck, abandoned); the run's own, never written",
+      set_by: [:flow],
+      label: "Task result"
+    )
 
     field(:pass_result, :string,
       description: "Flow: how the last pass ended (none, delivered, failed)"
@@ -265,16 +285,53 @@ defmodule Model.UseCase do
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
     start(:predicate, when: "entity.design_status == 'accepted'")
     initial(:break_down)
+    supervise(:break_down, label: "Break down", states: [:break_down, :accepting])
 
     state :break_down, label: "Break it down into issues" do
       present(
         expected: "Break it down into issues",
         why: "nothing is under it yet",
         instructions:
-          "Add the issues under it; Flow hands it on to build once something is under it."
+          "Its machinery runs one agent on it that proposes its issues; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
       )
 
-      branch(to: :building, by: :atlas, when: "entity.children > 0")
+      task(:plan,
+        role: :architect,
+        profile: :deep_coding,
+        cost_class: :standard,
+        input: [repository: "github.com/mimbre/atlas", base: "develop"],
+        instructions:
+          "Break the use case below into the issues that build it. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is one small change a developer can build, review and merge on its own, in the order given.",
+        fields: [:title, :description],
+        parents: [:title, :description],
+        creates: [kind: :issue, file: "issues.json"],
+        records: [kind: "task", relation: "task_of"],
+        machinery: "machinery",
+        on: [
+          completed: :accepting,
+          check_failed: :accepting,
+          stuck: :accepting,
+          abandoned: :accepting
+        ]
+      )
+    end
+
+    # Its supervisor looks at the issues Flow made from the agent's proposal, changes,
+    # removes or adds any by hand, and accepts the break-down. Without issues under it,
+    # building sends it back to break it down again.
+    state :accepting, label: "Accept it" do
+      owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
+      set(verdict: :none)
+
+      present(
+        expected: "Accept its issues",
+        why: "its agent's break-down is done",
+        instructions:
+          "Read the issues under it, which its agent proposed; change, delete or add any, then accept them. They can then be picked up and built.",
+        answers: [[key: "a", label: "Accept", change: %{values: %{verdict: :accept}}]]
+      )
+
+      branch(to: :building, when: "entity.verdict == 'accept'")
     end
 
     state :building, label: "Build it" do
@@ -452,5 +509,22 @@ defmodule Model.UseCase do
     to: "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
     states: :same,
     reason: "Slice 11: selected without its passes; the decider's verdict ends to_test"
+  )
+
+  # Slice 7: its break-down is an agent's proposal, accepted by its supervisor. A run in
+  # `break_down` re-enters it and waits there, as before, for its owner: once a person
+  # picks it up and hands it to a machinery, its agent proposes its issues. Every other
+  # state stays as it is.
+  migrate(:test_and_accept_use_case,
+    from: "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
+    to: "ec6cdede1bc4a90a80e6f4dfae1d390ad1538f9c99ab67f40f7842a23c004cf9",
+    states: [
+      accepted: :accepted,
+      break_down: :break_down,
+      building: :building,
+      rework: :rework,
+      to_test: :to_test
+    ],
+    reason: "Slice 7: an agent proposes its issues; its supervisor accepts them"
   )
 end

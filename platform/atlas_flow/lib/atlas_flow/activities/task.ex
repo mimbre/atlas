@@ -54,6 +54,14 @@ defmodule AtlasFlow.Activities.Task do
   verdict of changes required ends it `changes_required` for the run. A fix's instructions
   end with that review's findings, and its answer joins its result, for the publication.
 
+  **A proposal (slice 7).** A spec's `creates` (`%{"kind", "file"}`) asks its agent, after
+  the instructions, to write what it proposes to that file at the top of the repository: a
+  JSON list of `{title, description}`. When the task completed, Flow reads the file from
+  its pinned result (`AtlasFlow.Results`) and makes one fact of that kind per entry,
+  linked to the subject through the kind's parent relation to it and numbered after the
+  facts of that kind there are (the model's `ids`), `by` Flow with the run's supervisor in
+  its cause; the agent never writes into Atlas. With no such file, the task ends `stuck`.
+
   An assignment moved away from the machinery ends the task `abandoned` and unpins its
   result (`AtlasFlow.Results.unpin/3`, a cast): a late report is recorded on the task and
   ignored by the run, because the run left the state and no longer holds its key.
@@ -115,6 +123,7 @@ defmodule AtlasFlow.Activities.Task do
 
   alias AtlasBus.Digest
   alias AtlasFlow.{Bases, Dispatch, Ladder, Results, Talk}
+  alias AtlasFlow.Runs.HandOver
   alias AtlasFlow.WorkSource.Translate
 
   @results ~w(completed check_failed stuck abandoned)
@@ -147,8 +156,15 @@ defmodule AtlasFlow.Activities.Task do
       spec["ladder"] in [nil, true] and input?(spec["kind"], spec["ladder"], spec["input"]) and
       check?(spec["check"]) and checked?(spec) and text?(spec["instructions"]) and
       texts?(spec["fields"] || []) and texts?(spec["parents"] || []) and
-      records?(spec["records"]) and text?(spec["machinery"])
+      creates?(spec["creates"]) and records?(spec["records"]) and text?(spec["machinery"])
   end
+
+  defp creates?(nil), do: true
+
+  defp creates?(%{"kind" => kind, "file" => file} = creates),
+    do: map_size(creates) == 2 and text?(kind) and text?(file)
+
+  defp creates?(_creates), do: false
 
   # A Code repository and the reference its base is resolved from, nothing else: never a
   # path (D44), never a URL (a scheme, or `user@host:path`). Or, for a ladder task that
@@ -344,7 +360,10 @@ defmodule AtlasFlow.Activities.Task do
       intent =
         spec
         |> Translate.intent(subject, key, work.base, work.change_set, name, ctx.now)
-        |> update_in(["work", "instructions"], &(&1 <> parents <> Enum.join(work.sections)))
+        |> update_in(
+          ["work", "instructions"],
+          &(&1 <> parents <> Enum.join(work.sections) <> proposal_format(spec))
+        )
         |> then(&if(work.loop, do: Map.put(&1, "loop", work.loop), else: &1))
         |> Translate.root_check(repository(spec) || (work.ladder || %{})["repository"])
         |> Translate.result_ref(key, work.ladder == nil)
@@ -748,14 +767,14 @@ defmodule AtlasFlow.Activities.Task do
 
     if spec["ladder"] == true,
       do: ended_step(run, intent, spec, outcome, result, fact, ctx),
-      else: ended_task(intent, spec, outcome, result, fact)
+      else: ended_task(run, intent, spec, outcome, result, fact, ctx)
   end
 
   # A task that is no ladder's ended: its kind joins its result, so a publication tells the
   # subject's result from its review (`Translate.latest_result/1`); a review's verdict and
   # findings too, and its verdict goes on its task fact; a fix's answer too. A subject's review
   # that asks for changes gives the run `changes_required`; its task fact keeps how it ended.
-  defp ended_task(intent, spec, outcome, result, fact) do
+  defp ended_task(run, intent, spec, outcome, result, fact, ctx) do
     answer = get_in(fact || %{}, ["values", "answer"])
 
     result =
@@ -770,8 +789,88 @@ defmodule AtlasFlow.Activities.Task do
 
     values = %{"state" => outcome, "verdict" => result["verdict"]}
     run_outcome = if asks?, do: "changes_required", else: outcome
-    {:result, run_outcome, result, [change(intent, spec, ["result"], values)], nil}
+
+    case proposed(spec, run_outcome, run, intent, ctx) do
+      :unavailable ->
+        :none
+
+      {next, made} ->
+        result =
+          if next == run_outcome, do: result, else: Map.put(result, "reason", "no proposal")
+
+        {:result, next, result, [change(intent, spec, ["result"], values) | made], nil}
+    end
   end
+
+  # What a task that proposes facts (`creates`) asks its agent: the file, at the top of
+  # the repository, and its form.
+  defp proposal_format(%{"creates" => %{"kind" => kind, "file" => file}}),
+    do:
+      "\n\n## Your proposal\n\nWrite the #{kind}s you propose to the file `#{file}` at the top of the repository: a JSON list with one object per #{kind}, in order, each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done). Atlas makes them from that file; write nothing into Atlas yourself."
+
+  defp proposal_format(_spec), do: ""
+
+  # A completed task that proposes facts: one create per entry of its file, under the
+  # subject (the kind's parent relation to it), numbered after the facts of that kind
+  # there are, by Flow for the run's supervisor. With no such file, or none Flow can read,
+  # it ends stuck; `:unavailable` while Facts does not answer.
+  defp proposed(%{"creates" => %{"kind" => kind, "file" => file}}, "completed", run, intent, ctx) do
+    with {:ok, entries} <- proposal(intent["key"], file),
+         [relation] <-
+           for([r, to] <- (ctx[:parents] || %{})[kind] || [], to == run["subject_kind"], do: r),
+         %{"prefix" => prefix, "digits" => digits} <- (ctx[:ids] || %{})[kind],
+         %{"facts" => facts} when is_list(facts) <-
+           Talk.transition_read(kind, %{"plain" => true}) do
+      first = HandOver.next_number(%{"prefix" => prefix}, Enum.map(facts, & &1["key"]))
+      supervisor = run["supervised_by"]
+      by = if is_binary(supervisor), do: "For #{supervisor}: ", else: ""
+      cause = "#{by}proposed by #{intent["key"]} in the break-down of #{run["subject_key"]}"
+
+      made =
+        for {entry, i} <- Enum.with_index(entries) do
+          key = prefix <> String.pad_leading(Integer.to_string(first + i), digits, "0")
+
+          write(intent["key"], ["creates", Integer.to_string(i)], kind, %{
+            "op" => "create",
+            "key" => key,
+            "values" => entry,
+            "links" => %{relation => [run["subject_key"]]},
+            "by" => "flow",
+            "cause" => cause
+          })
+        end
+
+      {"completed", made}
+    else
+      :no_proposal -> {"stuck", []}
+      _ -> :unavailable
+    end
+  end
+
+  defp proposed(_spec, outcome, _run, _intent, _ctx), do: {outcome, []}
+
+  # The entries of the file at the top of the repository in the task's result: each with a
+  # title, and its description when it has one.
+  defp proposal(task_key, file) do
+    with {:ok, %{"roots" => roots}} when is_list(roots) <- Results.manifest(task_key),
+         %{"sha256" => sha} <-
+           Enum.find_value(roots, fn root ->
+             Enum.find(root["entries"] || [], &(&1["op"] == "write" and &1["path"] == file))
+           end),
+         {:ok, _size, content} <- Results.blob(sha),
+         {:ok, [_ | _] = list} <- JSON.decode(IO.iodata_to_binary(Enum.to_list(content))),
+         entries = for(%{"title" => t} = e <- list, text?(t), do: entry(t, e["description"])),
+         [_ | _] <- entries do
+      {:ok, entries}
+    else
+      _ -> :no_proposal
+    end
+  end
+
+  defp entry(title, description) when is_binary(description),
+    do: %{"title" => String.trim(title), "description" => description}
+
+  defp entry(title, _description), do: %{"title" => String.trim(title)}
 
   # A ladder task ended: the ladder says what follows. Its result keeps what the ladder
   # reads of it later (its kind, profile, base, what it reviewed and the verdict or
