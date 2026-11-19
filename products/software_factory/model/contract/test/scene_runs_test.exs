@@ -20,8 +20,10 @@ defmodule Model.SceneRunsTest do
   @name "test_and_accept_scene"
   @kind "scene"
   @child "test_and_accept_use_case"
-  # The digest the base recorded before slice 12 (the same in prod and test, the only one).
+  # The digest the base recorded before slice 12 (the same in prod and test), and the one
+  # slice 12 gave it, which every run on prod and test has.
   @base "79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444"
+  @slice12 "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f"
 
   # The model as composed, with the selections the calling test puts in its process
   # (`%{name => fun}`) changed: what Flow's runner would be given.
@@ -71,6 +73,23 @@ defmodule Model.SceneRunsTest do
   # As the scenes on test and prod are today (status refine).
   @live %{"title" => "A scene", "description" => "What it is", "status" => "refine"}
 
+  # Its break-down as slice 8 runs it, from a new scene with nothing under it: its agent's
+  # task completed (Flow made the use cases it proposed), its supervisor accepted them;
+  # built from then on.
+  defp broken_down(env) do
+    run = sent(counted(new(env, @live), env, @live, 0, 0))
+    assert at(run) == {"break_down", "active", 2}
+    proposed = %{"key" => "TK-SC-Atlas-01-1", "outcome" => "completed"}
+
+    {:ok, accepting} =
+      Run.task_result(run, flow(env), scene(@live), @now, "completed", proposed, [])
+
+    assert at(accepting) == {"accepting", "active", 3}
+    {:ok, building} = step(env, sent(accepting), Map.put(@live, "verdict", "accept"))
+    assert at(building) == {"building", "active", 4}
+    sent(building)
+  end
+
   # What the run presents in its state: {expected, owner}, as Flow's projection reads it.
   defp run_presents(env, state, values) do
     f = flow(env)
@@ -89,19 +108,23 @@ defmodule Model.SceneRunsTest do
 
       f = flow(env)
       assert Run.validate(f) == :ok
-      assert f.states() == ~w(accepted break_down building rework to_test)
+      assert f.states() == ~w(accepted accepting break_down building rework to_test)
       assert f.initial() == "break_down"
       assert f.start?(:create, scene(%{}))
 
-      # No pass, gate or effect, no create and no timer: nothing is dispatched or made for
-      # a scene, and nothing is due. No typed choice: nothing waits for a role's input.
-      assert Enum.all?(f.states(), &(f.mechanism(&1) == nil))
+      # No pass, gate or effect but its break-down's task (slice 8), no create and no
+      # timer: nothing else is dispatched or made for a scene, and nothing is due. No typed
+      # choice: nothing waits for a role's input.
+      assert for(s <- f.states(), f.mechanism(s) != nil, do: s) == ["break_down"]
       assert for(s <- f.states(), {:create, _} <- f.enter(s, %{}), do: s) == []
       assert Enum.all?(f.states(), &(f.timers(&1) == []))
       assert Enum.all?(f.states(), &(f.waiting_for(&1) == []))
 
-      # Its test is the configured decider's; every other state the coordinator's.
-      assert AtlasFlow.Model.owner(f.owner("to_test")["default"], actors()) == tester()
+      # Its test and the acceptance of its use cases are the configured decider's (its
+      # supervisor's, once picked up); every other state the coordinator's.
+      for s <- ~w(to_test accepting),
+          do: assert(AtlasFlow.Model.owner(f.owner(s)["default"], actors()) == tester())
+
       for s <- ~w(break_down building rework), do: assert(f.owner(s)["default"] == @coordinator)
 
       # Every scene is admitted, whatever it holds.
@@ -141,7 +164,7 @@ defmodule Model.SceneRunsTest do
     {:prod, "SC-Atlas-07", "Build it", 2, 1},
     {:prod, "SC-Atlas-08", "Build it", 1, 1},
     {:test, "SC-Atlas-01", "Build it", 1, 1},
-    {:test, "SC-Atlas-02", "Break it down into use cases and issues", 0, 0},
+    {:test, "SC-Atlas-02", "Break it down into use cases", 0, 0},
     {:test, "SC-Atlas-04", "Build it", 1, 1},
     {:test, "SC-Atlas-09", "Build it", 1, 1}
   ]
@@ -226,12 +249,13 @@ defmodule Model.SceneRunsTest do
              %{"children" => 1, "open_children" => 1}
 
     for env <- @envs do
-      # A new scene: nothing under it, broken down; use cases come under it, are built,
-      # all are completed; a new one opens; all are completed again.
-      run = new(env, @live)
+      # A new scene: nothing under it; a count alone never ends its break-down, its agent's
+      # proposal does; once accepted, its use cases are built, all are completed; a new one
+      # opens; all are completed again.
+      empty = sent(counted(new(env, @live), env, @live, 0, 0))
+      assert counted(empty, env, @live, 1, 1)["state"] == "break_down"
 
       steps = [
-        {0, 0, "break_down"},
         {1, 1, "building"},
         {2, 2, "building"},
         {2, 1, "building"},
@@ -240,7 +264,7 @@ defmodule Model.SceneRunsTest do
         {3, 0, "to_test"}
       ]
 
-      Enum.reduce(steps, run, fn {children, open, state}, run ->
+      Enum.reduce(steps, broken_down(env), fn {children, open, state}, run ->
         moved = sent(counted(run, env, @live, children, open))
         assert moved["state"] == state, inspect({children, open})
         moved
@@ -349,7 +373,7 @@ defmodule Model.SceneRunsTest do
 
     # Each open state of the run shows its own presentation in Control.
     for {state, expected} <- [
-          {"break_down", "Break it down into use cases and issues"},
+          {"break_down", "Break it down into use cases"},
           {"building", "Build it"},
           {"to_test", "Test it"}
         ] do
@@ -420,40 +444,43 @@ defmodule Model.SceneRunsTest do
       assert counted(done, env, values, 2, 1) == done
 
       # The explicit restart is the only way to a new generation: a new run, its own key,
-      # started as a new scene is, and its count moves it on; never one that is not
-      # completed.
+      # started as a new scene is, broken down again; never one that is not completed.
       assert {:ok, second} = Run.restart(done, f, scene(@live), @now)
       assert {second["generation"], at(second)} == {2, {"break_down", "active", 1}}
       assert second["key"] == Run.key(@name, @kind, "SC-Atlas-01", 2)
       assert second["key"] != done["key"]
       refute Map.has_key?(second["last_input"], "import")
-      assert at(counted(second, env, @live, 2, 1)) == {"building", "active", 2}
+      assert at(counted(second, env, @live, 2, 1)) == {"break_down", "active", 1}
       assert {:error, :not_completed} = Run.restart(second, f, scene(@live), @now)
     end
   end
 
-  test "the change from the base's digest is a declared state migration, never a re-key" do
+  test "the changes from the base's digest are declared state migrations, never a re-key" do
     for env <- @envs do
       f = flow(env)
-      [m] = selection()["migrations"]
-      assert {m["from"], m["to"]} == {@base, f.digest()}
-      refute Map.has_key?(m, "rekey") or Map.has_key?(m, "preserve_entry")
-      assert m["states"] == Map.new(f.states(), &{&1, &1})
+      ms = selection()["migrations"]
+
+      assert Enum.sort(Enum.map(ms, &{&1["from"], &1["to"]})) ==
+               Enum.sort([{@base, @slice12}, {@slice12, f.digest()}])
+
+      refute Enum.any?(ms, &(Map.has_key?(&1, "rekey") or Map.has_key?(&1, "preserve_entry")))
+      old_states = f.states() -- ["accepting"]
+      assert Enum.all?(ms, &(&1["states"] == Map.new(old_states, fn s -> {s, s} end)))
 
       old = fn state, status, pending ->
         new(env, @live)
-        |> Map.merge(%{"definition_sha256" => @base, "state" => state, "status" => status})
+        |> Map.merge(%{"definition_sha256" => @slice12, "state" => state, "status" => status})
         |> update_in(["pending"], &Map.merge(&1, pending))
       end
 
       for state <- ~w(break_down building rework) do
-        assert {:ok, moved} = Run.migrate(old.(state, "active", %{}), f, [m], @now)
+        assert {:ok, moved} = Run.migrate(old.(state, "active", %{}), f, ms, @now)
         assert at(moved) == {state, "active", 2}
         assert moved["definition_sha256"] == f.digest()
       end
 
       # Its test re-entered resets the verdict, as a new entry does.
-      assert {:ok, moved} = Run.migrate(old.("to_test", "active", %{}), f, [m], @now)
+      assert {:ok, moved} = Run.migrate(old.("to_test", "active", %{}), f, ms, @now)
       assert [%{"content" => %{"values" => %{"verdict" => "none"}}}] = moved["pending"]["writes"]
 
       # A frozen pass is not quiescent: it blocks, nothing is redone.
@@ -461,11 +488,11 @@ defmodule Model.SceneRunsTest do
                Run.migrate(
                  old.("rework", "active", %{"pass" => %{"request" => %{}}}),
                  f,
-                 [m],
+                 ms,
                  @now
                )
 
-      assert {:ok, accepted} = Run.migrate(old.("accepted", "completed", %{}), f, [m], @now)
+      assert {:ok, accepted} = Run.migrate(old.("accepted", "completed", %{}), f, ms, @now)
       assert {accepted["state"], accepted["status"]} == {"accepted", "completed"}
     end
   end

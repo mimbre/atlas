@@ -4,19 +4,26 @@ defmodule Model.Scene do
   none is open (`open_children`), then tested by the configured decider and accepted.
   `children` and `open_children` are the composition's count of the use cases in the
   scene: how many relate to it (`in_scene`), and how many of them have no completed run
-  of `test_and_accept_use_case`. A rejection sends it to its rework; a new open use case
-  sends it back to building.
+  of `test_and_accept_use_case`. Slice 8: a person picks up its break-down
+  (`break_down`, the span `break_down`) and hands it to a machinery: one agent on the
+  supervisor's Runtime reads the scene and a checkout of the repository and writes the
+  use cases it proposes to a file in its result (`creates:`, as slice 7 breaks a use case
+  into issues). Flow, the only writer, makes them under the scene, and "Accept it"
+  (`accepting`) goes to the supervisor, who looks at them and accepts the break-down.
+  When the agent proposes nothing, or the scene is taken from the machinery, the
+  supervisor breaks it down by hand in "Accept it". A rejection sends it to its rework;
+  a new open use case sends it back to building.
 
   Slice 12 runs it on Flow's durable runs (`select`), for every scene, which the legacy
   flow `test_and_accept` then drives none of. The parity fixes keep it to what runs today:
 
-    * no passes (break it down, rework): their specs are no pass contract a runner
-      accepts (`AtlasFlow.Activities.Pass.valid?/1`: a routing field, a frozen request),
-      and a pass needs what does not exist yet: a machine field on the agent to route by,
-      a packet freeze and review-packet contract, Runtime's pass receiver configured in
-      an environment; a definition a runner refuses would refuse every selected subflow.
-      The coordinator breaks it down and reworks it by hand, as today; `pass_result`
-      stays on the kind, unwritten, for them;
+    * no passes (rework): its spec is no pass contract a runner accepts
+      (`AtlasFlow.Activities.Pass.valid?/1`: a routing field, a frozen request), and a
+      pass needs what does not exist yet: a machine field on the agent to route by, a
+      packet freeze and review-packet contract, Runtime's pass receiver configured in an
+      environment; a definition a runner refuses would refuse every selected subflow.
+      The coordinator reworks it by hand, as today; `pass_result` stays on the kind,
+      unwritten, for it;
     * `to_test` is the configured decider's (`{:person, config: :decider}`), as the
       legacy flow's `to_test` is, and moves on `verdict`, which its two answers write, no
       longer on an acceptor's typed choice (`wait_for [:acceptor]`): Facts takes a choice
@@ -63,7 +70,19 @@ defmodule Model.Scene do
     field(:status, :plan_status, description: "Flux group; empty = no group", label: "Flux group")
     field(:children, :integer, description: "Flow: how many use cases are in it")
     field(:open_children, :integer, description: "Flow: how many of them are not finished")
-    field(:verdict, :string, description: "Flow: the acceptor's verdict (none, accept, reject)")
+
+    field(:verdict, :string,
+      description:
+        "Flow: the acceptor's verdict (none, accept, reject), or its supervisor's acceptance of its use cases (accept)"
+    )
+
+    # What its break-down's task branch reads: the run's own result, never written.
+    field(:task_result, :string,
+      description:
+        "Flow: how its break-down's agent task ended (completed, check_failed, stuck, abandoned); the run's own, never written",
+      set_by: [:flow],
+      label: "Task result"
+    )
 
     field(:pass_result, :string,
       description: "Flow: how the last pass ended (none, delivered, failed)"
@@ -79,16 +98,52 @@ defmodule Model.Scene do
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
     start(:create)
     initial(:break_down)
+    supervise(:break_down, label: "Break down", states: [:break_down, :accepting])
 
     state :break_down, label: "Break it down into use cases" do
       present(
-        expected: "Break it down into use cases and issues",
+        expected: "Break it down into use cases",
         why: "nothing is under it yet",
         instructions:
-          "Add the use cases under it, and their issues; Flow hands it on to build once something is under it."
+          "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
       )
 
-      branch(to: :building, by: :atlas, when: "entity.children > 0")
+      task(:plan,
+        role: :architect,
+        profile: :deep_coding,
+        cost_class: :standard,
+        input: [repository: "github.com/mimbre/atlas", base: "develop"],
+        instructions:
+          "Break the scene below into the use cases that build it. The repository you are given, a Git checkout of develop, is what they build on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then.",
+        fields: [:title, :description],
+        creates: [kind: :use_case, file: "use_cases.json"],
+        records: [kind: "task", relation: "task_of"],
+        machinery: "machinery",
+        on: [
+          completed: :accepting,
+          check_failed: :accepting,
+          stuck: :accepting,
+          abandoned: :accepting
+        ]
+      )
+    end
+
+    # Its supervisor looks at the use cases Flow made from the agent's proposal, changes,
+    # removes or adds any by hand, and accepts the break-down. Without use cases under
+    # it, building sends it back to break it down again.
+    state :accepting, label: "Accept it" do
+      owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
+      set(verdict: :none)
+
+      present(
+        expected: "Accept its use cases",
+        why: "its agent's break-down is done",
+        instructions:
+          "Read the use cases under it, which its agent proposed; change, delete or add any, then accept them. They can then be designed, broken down and built.",
+        answers: [[key: "a", label: "Accept", change: %{values: %{verdict: :accept}}]]
+      )
+
+      branch(to: :building, when: "entity.verdict == 'accept'")
     end
 
     state :building, label: "Build it" do
@@ -183,9 +238,9 @@ defmodule Model.Scene do
     restart_by: [:owner, :decider]
   )
 
-  # The approved migration of its runs, from the digest the base branch recorded
-  # (RelaDSL.RunIdentity); the same in prod and test, and the only one it ever had. No run
-  # had that digest: the subflow was never selected before slice 12. A run that did would
+  # The approved migrations of its runs, from the digest the base branch recorded
+  # (RelaDSL.RunIdentity); the same in prod and test. Slice 12's first: no run had its
+  # `from`, the subflow was never selected before slice 12. A run that did would
   # move along it as a state migration (re-entering its state, then moving on the counts
   # and the verdict it finds), never as a re-key: its states are the same, but its passes
   # went, and the acceptor's choice became the decider's verdict. One with a frozen pass
@@ -195,5 +250,22 @@ defmodule Model.Scene do
     to: "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f",
     states: :same,
     reason: "Slice 12: selected without its passes; the decider's verdict ends to_test"
+  )
+
+  # Slice 8: its break-down is an agent's proposal, accepted by its supervisor. A run in
+  # `break_down` re-enters it and waits there, as before, for its owner: once a person
+  # picks it up and hands it to a machinery, its agent proposes its use cases. Every other
+  # state stays as it is.
+  migrate(:test_and_accept_scene,
+    from: "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f",
+    to: "95d5d0981bc11f7e9f6544c1f2c06c57d3063d6117d668877e48b84abe78c104",
+    states: [
+      accepted: :accepted,
+      break_down: :break_down,
+      building: :building,
+      rework: :rework,
+      to_test: :to_test
+    ],
+    reason: "Slice 8: an agent proposes its use cases; its supervisor accepts them"
   )
 end
