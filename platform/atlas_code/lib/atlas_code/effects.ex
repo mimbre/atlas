@@ -68,9 +68,11 @@ defmodule AtlasCode.Effects do
   copy of that repository (`AtlasCode.Service.result/3`), resolved once when it is
   accepted. Code pushes that commit to the branch `atlas/<task>` on GitHub and opens a
   pull from it onto `base`, titled with the payload's `title`, its body the
-  `description`. Done, with `reference` and `outputs` `%{"url"}`, is that pull's web
-  address. A repeat first looks the branch's pull up, so it is never opened twice; a
-  branch already at another commit is refused `branch_taken`.
+  `description` and, when the input has one, its `review` (`%{"task", "verdict",
+  "findings"}`: what an independent review of the result found). Done, with `reference`
+  and `outputs` `%{"url"}`, is that pull's web address. A repeat first looks the branch's
+  pull up, so it is never opened twice; a branch already at another commit is refused
+  `branch_taken`.
   """
 
   alias AtlasBus.{Digest, SubjectFingerprint}
@@ -468,13 +470,14 @@ defmodule AtlasCode.Effects do
 
   defp published(url), do: %{"status" => "done", "reference" => url, "outputs" => %{"url" => url}}
 
-  # The pull's body: the job's description, what merging it does, and who wrote it.
+  # The pull's body: the job's description, its review, what merging it does, and who wrote it.
   defp body(r, task) do
     description = r["payload"]["description"]
 
     Enum.join(
       [
         if(is_binary(description) and String.trim(description) != "", do: description),
+        review(r["input"]["review"]),
         "Atlas job #{r["subject"]}, task #{task}: merging this finishes the job.",
         "<sub>Written by an AI agent (Atlas job #{r["subject"]}).</sub>"
       ]
@@ -482,6 +485,24 @@ defmodule AtlasCode.Effects do
       "\n\n"
     )
   end
+
+  defp review(%{"task" => task} = review) do
+    said =
+      case review["verdict"] do
+        "approved" -> "approved it"
+        "changes_required" -> "asks for changes"
+        _ -> "gave no verdict; see its answer"
+      end
+
+    findings = for f <- List.wrap(review["findings"]), is_binary(f), do: "- " <> f
+
+    Enum.join(
+      ["**Review.** An independent agent review (task #{task}) #{said}." | findings],
+      "\n"
+    )
+  end
+
+  defp review(_none), do: nil
 
   defp slug(%{"operation" => "publish", "input" => %{"repository" => repository}})
        when is_binary(repository) do

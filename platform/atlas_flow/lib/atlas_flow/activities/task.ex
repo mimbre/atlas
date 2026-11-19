@@ -39,6 +39,14 @@ defmodule AtlasFlow.Activities.Task do
      writes the task fact's `state` and nothing else: it never writes `input` again after
      the create (Dispatch writes the lease's input, fenced).
 
+  **A job's review.** A review outside any ladder names `input: %{"repository",
+  "result" => "latest"}`: its base is the run's latest result (`Translate.latest_result/1`),
+  the commit its author's Runtime pushed to `refs/atlas/results/<key>`, which Bases resolves
+  through Code like a branch. It works writable (`Translate.permissions/1`) in a Git
+  checkout of that result, its instructions end with the review's answer format, and its
+  verdict and findings join its result in the run (its verdict also on its task fact),
+  where a publication reads them.
+
   An assignment moved away from the machinery ends the task `abandoned` and unpins its
   result (`AtlasFlow.Results.unpin/3`, a cast): a late report is recorded on the task and
   ignored by the run, because the run left the state and no longer holds its key.
@@ -131,6 +139,8 @@ defmodule AtlasFlow.Activities.Task do
   # A Code repository and the reference its base is resolved from, nothing else: never a
   # path (D44), never a URL (a scheme, or `user@host:path`). Or, for a ladder task that
   # reviews, fixes or diagnoses, the loop's latest result, read or written as its kind is.
+  # Or, for a review outside any ladder (a job's), a repository and the run's latest result,
+  # which Code serves as a base of that repository.
   defp input?(_kind, _ladder, %{"repository" => r, "base" => b} = input),
     do: map_size(input) == 2 and text?(r) and text?(b) and not url?(r) and not url?(b)
 
@@ -138,6 +148,9 @@ defmodule AtlasFlow.Activities.Task do
     do:
       map_size(input) == 2 and Map.has_key?(@result_access, kind) and
         @result_access[kind] == access
+
+  defp input?("review", nil, %{"repository" => r, "result" => "latest"} = input),
+    do: map_size(input) == 2 and text?(r) and not url?(r)
 
   defp input?(_kind, _ladder, _input), do: false
 
@@ -388,11 +401,24 @@ defmodule AtlasFlow.Activities.Task do
     end
   end
 
+  # A task that is no ladder's starts from its spec's base reference; a job's review from
+  # the run's latest result (`refs/atlas/results/<key>`), with the review's answer format.
   defp work(run, spec, _subject, _ctx) do
-    %{"repository" => repository, "base" => reference} = spec["input"]
+    input = spec["input"]
 
-    with {:ok, base} <- base(run, repository, reference),
-         do: {:ok, %{base: base, change_set: nil, sections: [], loop: nil, ladder: nil}}
+    {reference, sections} =
+      case input do
+        %{"base" => reference} ->
+          {reference, []}
+
+        %{"result" => "latest"} ->
+          key = Translate.latest_result(run["pending"]["tasks"] || [])
+          {key && Translate.result_ref(key), Ladder.sections(spec["kind"], %{}, [])}
+      end
+
+    with true <- is_binary(reference),
+         {:ok, base} <- base(run, input["repository"], reference),
+         do: {:ok, %{base: base, change_set: nil, sections: sections, loop: nil, ladder: nil}}
   end
 
   defp ci_fix(run, ladder, %{"kind" => "fix"} = spec, ctx) do
@@ -655,8 +681,22 @@ defmodule AtlasFlow.Activities.Task do
 
     if spec["ladder"] == true,
       do: ended_step(run, intent, spec, outcome, result, fact, ctx),
-      else:
-        {:result, outcome, result, [change(intent, spec, ["result"], %{"state" => outcome})], nil}
+      else: ended_task(intent, spec, outcome, result, fact)
+  end
+
+  # A task that is no ladder's ended: its kind joins its result, so a publication tells the
+  # job's result from its review (`Translate.latest_result/1`); a review's verdict and
+  # findings too, and its verdict goes on its task fact.
+  defp ended_task(intent, spec, outcome, result, fact) do
+    answer = get_in(fact || %{}, ["values", "answer"])
+
+    result =
+      result
+      |> Map.put("task_kind", spec["kind"])
+      |> Map.merge(answered_result(spec["kind"], answer))
+
+    values = %{"state" => outcome, "verdict" => result["verdict"]}
+    {:result, outcome, result, [change(intent, spec, ["result"], values)], nil}
   end
 
   # A ladder task ended: the ladder says what follows. Its result keeps what the ladder

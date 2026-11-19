@@ -98,6 +98,10 @@ defmodule RelaDSL.Schema do
   fix: `:write`); no other kind does (`input_problem/2`). The subject's `answer` field
   is the supervisor's answer while the ladder waits.
 
+  A review outside any ladder (a job's) starts from the run's latest result as a base of a
+  Code repository, `input: [repository: name, result: :latest]`: a Git checkout of the
+  result its author's Runtime pushed, which Code serves like a branch.
+
   A result may lead to `{state, label}` instead of a state: the branch then carries
   that label, as `refused: {:decide, "The service refused; a person decides"}`.
 
@@ -1297,6 +1301,8 @@ defmodule RelaDSL.Schema do
         pre <> "input: a review or diagnose reads the result (access: :read); a fix writes",
       (result_input?(input) and spec[:ladder] != true) &&
         pre <> "input: the latest result is the loop's; it needs ladder: true",
+      (base_result_input?(input) and spec[:ladder] == true) &&
+        pre <> "input: a ladder task reads the loop's latest result as [result:, access:]",
       not (spec[:check] == nil or
              (is_list(spec[:check]) and spec[:check] != [] and Enum.all?(spec[:check], text?))) &&
         pre <> "check: must be a command, a list of texts",
@@ -1344,14 +1350,17 @@ defmodule RelaDSL.Schema do
   What is wrong with a task of `kind`'s `input`, as a tag (`input_problem/1`'s, and two
   of F2's): the input may also be `[result: :latest, access: :read | :write]`, the
   latest result of the review → fix loop (`AtlasFlow.Ladder`), but only for a review or
-  diagnose, which read it, and a fix, which writes on it. `:input_result_kind` when
-  another kind starts from it (an author starts from a base); `:input_access` when the
-  access is not its kind's.
+  diagnose, which read it, and a fix, which writes on it; or `[repository: name, result:
+  :latest]`, the run's latest result as a base of that repository, only for a review.
+  `:input_result_kind` when another kind starts from it (an author starts from a base);
+  `:input_access` when the access is not its kind's.
   """
   @spec input_problem(atom(), term()) ::
           nil | :input_shape | :input_url | :input_result_kind | :input_access
   def input_problem(kind, input) do
     cond do
+      base_result_input?(input) and kind != :review -> :input_result_kind
+      base_result_input?(input) -> input_problem(repository: input[:repository], base: "latest")
       not result_input?(input) -> input_problem(input)
       not Keyword.has_key?(@result_access, kind) -> :input_result_kind
       input[:access] != @result_access[kind] -> :input_access
@@ -1363,6 +1372,11 @@ defmodule RelaDSL.Schema do
     do:
       is_list(input) and Keyword.keyword?(input) and
         Enum.sort(Keyword.keys(input)) == [:access, :result] and input[:result] == :latest
+
+  defp base_result_input?(input),
+    do:
+      is_list(input) and Keyword.keyword?(input) and
+        Enum.sort(Keyword.keys(input)) == [:repository, :result] and input[:result] == :latest
 
   defp url?(value),
     do:

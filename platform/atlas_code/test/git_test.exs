@@ -114,6 +114,15 @@ defmodule AtlasCode.GitTest do
     {:ok, code} = AtlasCode.Service.base_repository(AtlasCode.settings(), base_id)
     assert git(dir, ["--git-dir", code, "rev-parse", result]) == commit <> "\n"
     assert git(dir, ["--git-dir", code, "show", result <> ":README.md"]) == "changed\n"
+
+    # The result resolves like a branch, so a review gets it as its base: its commit, and on
+    # it the dependencies.
+    reviewed = "code-" <> snapshot(result)
+    ref = "refs/atlas/bases/" <> reviewed
+    fetch = ["--git-dir", cache, "fetch", "-q", "#{url}/bases/#{reviewed}", "+#{ref}:#{ref}"]
+    {_, 0} = System.cmd("git", fetch, env: header(@token), stderr_to_stdout: true)
+    assert git(dir, ["--git-dir", cache, "rev-parse", ref <> "^"]) == commit <> "\n"
+    assert git(dir, ["--git-dir", cache, "show", ref <> ":README.md"]) == "changed\n"
   end
 
   defp git_in(git_dir, args, input, env \\ []) do
@@ -136,12 +145,12 @@ defmodule AtlasCode.GitTest do
       {"GIT_CONFIG_VALUE_0", "Authorization: Bearer " <> token}
     ]
 
-  # The hex of a snapshot of the repository's develop at `app`.
-  defp snapshot do
+  # The hex of a snapshot of the repository's `reference` (develop, at `app`).
+  defp snapshot(reference \\ "develop") do
     %Outcome.Resolved{revision: revision} =
       Boundary.resolve_reference(@client, %{
         "repository" => "github.com/test/app",
-        "reference" => "develop"
+        "reference" => reference
       })
 
     repositories = [

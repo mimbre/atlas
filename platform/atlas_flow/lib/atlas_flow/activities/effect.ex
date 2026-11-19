@@ -19,8 +19,10 @@ defmodule AtlasFlow.Activities.Effect do
   A publication (`publish`) hands the run's latest task result to the service: its spec's
   `input` names the repository and base (`%{"repository", "base"}`, as a task's does), and
   the frozen request's `input` adds `result`, the ref its result commit was pushed to
-  (`AtlasFlow.WorkSource.Translate.result_ref/1`). Flow names the result by that ref only,
-  never by a commit. It has no target, and is not ready while the run has no task.
+  (`AtlasFlow.WorkSource.Translate.result_ref/1`), of its latest task that is no review
+  (`Translate.latest_result/1`). Flow names the result by that ref only, never by a commit.
+  When a review ran on it, `review` adds that review's task, verdict and findings, as the
+  run keeps them. It has no target, and is not ready while the run has no task.
 
   An integration is approved by the run's own composition. `approved` names the subject
   field its approvals are about: an identity, such as a revision, that the fingerprint
@@ -161,19 +163,30 @@ defmodule AtlasFlow.Activities.Effect do
       end)
   end
 
-  # The run's latest task, whose result a publication hands over.
-  defp latest_task(run) do
-    case List.last(get_in(run, ["pending", "tasks"]) || []) do
-      %{"key" => key} when is_binary(key) -> key
-      _ -> nil
-    end
+  # The run's latest result, which a publication hands over.
+  defp latest_task(run),
+    do: AtlasFlow.WorkSource.Translate.latest_result(get_in(run, ["pending", "tasks"]) || [])
+
+  defp publication(spec, run) do
+    tasks = get_in(run, ["pending", "tasks"]) || []
+    key = latest_task(run)
+
+    spec["input"]
+    |> Map.take(["repository", "base"])
+    |> Map.put("result", AtlasFlow.WorkSource.Translate.result_ref(key))
+    |> then(&if(review = review(tasks, key), do: Map.put(&1, "review", review), else: &1))
   end
 
-  defp publication(spec, run),
-    do:
-      spec["input"]
-      |> Map.take(["repository", "base"])
-      |> Map.put("result", AtlasFlow.WorkSource.Translate.result_ref(latest_task(run)))
+  # The review that ran after the result `key`, last: its task, verdict and findings.
+  defp review(tasks, key) do
+    tasks
+    |> Enum.drop_while(&(&1["key"] != key))
+    |> Enum.reverse()
+    |> Enum.find_value(fn t ->
+      if t["task_kind"] == "review" and t["outcome"] in ["completed", "check_failed"],
+        do: Map.take(t, ["verdict", "findings"]) |> Map.put("task", t["key"])
+    end)
+  end
 
   def id(run, spec),
     do:
