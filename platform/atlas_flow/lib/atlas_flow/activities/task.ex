@@ -496,8 +496,9 @@ defmodule AtlasFlow.Activities.Task do
     do:
       Map.get_lazy(ctx, :limits, fn -> Application.get_env(:atlas_flow, :ladder_limits, %{}) end)
 
-  # The base of the spec's reference, from Bases' table only. A missing one is asked for:
-  # Bases resolves it in its own task and reconciles the run's subject once it has it.
+  # The base of the spec's reference, from Bases' table only. A missing one, or one resolved
+  # more than a few seconds ago (the branch may have moved), is asked for: Bases resolves it
+  # in its own task and reconciles the run's subject once it has it.
   defp base(run, repository, reference) do
     case Bases.cached(repository, reference) do
       {:ok, base} ->
