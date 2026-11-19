@@ -83,3 +83,4 @@ atlas-ops status --env test    # what runs, and which build
 - [docs/contracts/](docs/contracts/): the interfaces between components.
 - [docs/adr/](docs/adr/): decisions, one short record each.
 A job's result becomes a pull request its supervisor merges.
+A second agent reviews a job's result before its pull request.
