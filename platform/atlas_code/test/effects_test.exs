@@ -82,8 +82,9 @@ defmodule AtlasCode.EffectsTest do
   end
 
   test "a job's result is published as one pull, the same answer for every repeat", c do
+    # The fix's result, on the author's, after a review that asked for changes.
     result = FakeGitHub.sha("result")
-    ref = "refs/atlas/results/TK-JB-1-1"
+    ref = "refs/atlas/results/TK-JB-1-3"
 
     results = fn
       "github.com/o/r", ^ref -> {:ok, %{"dir" => "/cache.git", "commit" => result}}
@@ -114,7 +115,8 @@ defmodule AtlasCode.EffectsTest do
             "task" => "TK-JB-1-2",
             "verdict" => "changes_required",
             "findings" => ["README has a second typo."]
-          }
+          },
+          "fix" => %{"task" => "TK-JB-1-3", "answer" => "Fixed the second typo."}
         }
       })
       |> Map.drop(["target", "approved"])
@@ -130,13 +132,14 @@ defmodule AtlasCode.EffectsTest do
     assert pull["body"] =~ "One typo."
     assert pull["body"] =~ "TK-JB-1-2"
     assert pull["body"] =~ "README has a second typo."
+    assert pull["body"] =~ "> Fixed the second typo."
     assert pull["body"] =~ "Written by an AI agent"
 
     # Repeated, or its record lost: the same pull, never a second one.
     assert call(s, "lookup", r) == first
     File.rm!(Path.join([c.dir, "effects", r["id"] <> ".json"]))
     assert call(s, "submit", r) == first
-    assert [{:push, "atlas/TK-JB-1-1", ^result}, {:create_pull, 8}] = FakeGitHub.writes(c.gh)
+    assert [{:push, "atlas/TK-JB-1-3", ^result}, {:create_pull, 8}] = FakeGitHub.writes(c.gh)
 
     # A result Code does not hold publishes nothing.
     unknown =

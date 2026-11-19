@@ -98,9 +98,10 @@ defmodule RelaDSL.Schema do
   fix: `:write`); no other kind does (`input_problem/2`). The subject's `answer` field
   is the supervisor's answer while the ladder waits.
 
-  A review outside any ladder (a job's) starts from the run's latest result as a base of a
-  Code repository, `input: [repository: name, result: :latest]`: a Git checkout of the
-  result its author's Runtime pushed, which Code serves like a branch.
+  A review or fix outside any ladder (a job's) starts from the run's latest result as a
+  base of a Code repository, `input: [repository: name, result: :latest]`: a Git checkout
+  of the result its author's Runtime pushed, which Code serves like a branch. Such a
+  review also gives `changes_required`, when its verdict asks for changes.
 
   A result may lead to `{state, label}` instead of a state: the branch then carries
   that label, as `refused: {:decide, "The service refused; a person decides"}`.
@@ -237,6 +238,9 @@ defmodule RelaDSL.Schema do
   @writer "atlas-flow"
   @effect_results [:done, :refused]
   @task_results [:completed, :check_failed, :stuck, :abandoned]
+  # A job's review (outside any ladder, on the run's latest result) also ends asking for
+  # changes, its verdict.
+  @job_review_results @task_results ++ [:changes_required]
   # What a ladder task's end leads to (`AtlasFlow.Ladder`'s steps, F2): the next task's
   # step, or ready, held, escalate; or abandon, the supervisor's answer while the task ran
   # on the default (F2-P, Main's D1 ruling).
@@ -1145,7 +1149,13 @@ defmodule RelaDSL.Schema do
       )
 
     {s, ps} = mechanism(s, {:task, spec})
-    values = if opts[:ladder] == true, do: @ladder_results, else: @task_results
+
+    values =
+      cond do
+        opts[:ladder] == true -> @ladder_results
+        kind == :review and base_result_input?(opts[:input]) -> @job_review_results
+        true -> @task_results
+      end
 
     also(
       results(s, field, values, Keyword.get(opts, :on, []), "task #{kind}", false),
@@ -1351,7 +1361,8 @@ defmodule RelaDSL.Schema do
   of F2's): the input may also be `[result: :latest, access: :read | :write]`, the
   latest result of the review → fix loop (`AtlasFlow.Ladder`), but only for a review or
   diagnose, which read it, and a fix, which writes on it; or `[repository: name, result:
-  :latest]`, the run's latest result as a base of that repository, only for a review.
+  :latest]`, the run's latest result as a base of that repository, only for a review or a
+  fix.
   `:input_result_kind` when another kind starts from it (an author starts from a base);
   `:input_access` when the access is not its kind's.
   """
@@ -1359,7 +1370,7 @@ defmodule RelaDSL.Schema do
           nil | :input_shape | :input_url | :input_result_kind | :input_access
   def input_problem(kind, input) do
     cond do
-      base_result_input?(input) and kind != :review -> :input_result_kind
+      base_result_input?(input) and kind not in [:review, :fix] -> :input_result_kind
       base_result_input?(input) -> input_problem(repository: input[:repository], base: "latest")
       not result_input?(input) -> input_problem(input)
       not Keyword.has_key?(@result_access, kind) -> :input_result_kind

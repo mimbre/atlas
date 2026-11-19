@@ -39,13 +39,15 @@ defmodule AtlasFlow.Activities.Task do
      writes the task fact's `state` and nothing else: it never writes `input` again after
      the create (Dispatch writes the lease's input, fenced).
 
-  **A job's review.** A review outside any ladder names `input: %{"repository",
-  "result" => "latest"}`: its base is the run's latest result (`Translate.latest_result/1`),
-  the commit its author's Runtime pushed to `refs/atlas/results/<key>`, which Bases resolves
-  through Code like a branch. It works writable (`Translate.permissions/1`) in a Git
-  checkout of that result, its instructions end with the review's answer format, and its
-  verdict and findings join its result in the run (its verdict also on its task fact),
-  where a publication reads them.
+  **A job's review and fix.** A review or fix outside any ladder names `input:
+  %{"repository", "result" => "latest"}`: its base is the run's latest result
+  (`Translate.latest_result/1`), the commit its author's Runtime pushed to
+  `refs/atlas/results/<key>`, which Bases resolves through Code like a branch. It works
+  writable (`Translate.permissions/1`) in a Git checkout of that result. A review's
+  instructions end with the review's answer format, and its verdict and findings join its
+  result in the run (its verdict also on its task fact), where a publication reads them; a
+  verdict of changes required ends it `changes_required` for the run. A fix's instructions
+  end with that review's findings, and its answer joins its result, for the publication.
 
   An assignment moved away from the machinery ends the task `abandoned` and unpins its
   result (`AtlasFlow.Results.unpin/3`, a cast): a late report is recorded on the task and
@@ -121,9 +123,16 @@ defmodule AtlasFlow.Activities.Task do
   # A ladder step's kind (`fresh` and `stronger` are authors).
   @step_kinds %{"fresh" => "author", "stronger" => "author"}
 
-  @doc "The results a task's end gives: the four, or for a ladder task the ladder's steps."
+  @doc """
+  The results a task's end gives: the four, for a job's review also `changes_required`,
+  or for a ladder task the ladder's steps.
+  """
   def results, do: @results
   def results(%{"ladder" => true}), do: @ladder_results
+
+  def results(%{"kind" => "review", "input" => %{"result" => "latest"}}),
+    do: @results ++ ["changes_required"]
+
   def results(_spec), do: @results
 
   @doc "Whether this runner can run the task `spec` (as the compiled subflow gives it)."
@@ -139,8 +148,8 @@ defmodule AtlasFlow.Activities.Task do
   # A Code repository and the reference its base is resolved from, nothing else: never a
   # path (D44), never a URL (a scheme, or `user@host:path`). Or, for a ladder task that
   # reviews, fixes or diagnoses, the loop's latest result, read or written as its kind is.
-  # Or, for a review outside any ladder (a job's), a repository and the run's latest result,
-  # which Code serves as a base of that repository.
+  # Or, for a review or fix outside any ladder (a job's), a repository and the run's latest
+  # result, which Code serves as a base of that repository.
   defp input?(_kind, _ladder, %{"repository" => r, "base" => b} = input),
     do: map_size(input) == 2 and text?(r) and text?(b) and not url?(r) and not url?(b)
 
@@ -149,8 +158,9 @@ defmodule AtlasFlow.Activities.Task do
       map_size(input) == 2 and Map.has_key?(@result_access, kind) and
         @result_access[kind] == access
 
-  defp input?("review", nil, %{"repository" => r, "result" => "latest"} = input),
-    do: map_size(input) == 2 and text?(r) and not url?(r)
+  defp input?(kind, nil, %{"repository" => r, "result" => "latest"} = input)
+       when kind in ["review", "fix"],
+       do: map_size(input) == 2 and text?(r) and not url?(r)
 
   defp input?(_kind, _ladder, _input), do: false
 
@@ -401,8 +411,9 @@ defmodule AtlasFlow.Activities.Task do
     end
   end
 
-  # A task that is no ladder's starts from its spec's base reference; a job's review from
-  # the run's latest result (`refs/atlas/results/<key>`), with the review's answer format.
+  # A task that is no ladder's starts from its spec's base reference; a job's review or fix
+  # from the run's latest result (`refs/atlas/results/<key>`), with the review's answer
+  # format or the findings of the review before it.
   defp work(run, spec, _subject, _ctx) do
     input = spec["input"]
 
@@ -412,14 +423,26 @@ defmodule AtlasFlow.Activities.Task do
           {reference, []}
 
         %{"result" => "latest"} ->
-          key = Translate.latest_result(run["pending"]["tasks"] || [])
-          {key && Translate.result_ref(key), Ladder.sections(spec["kind"], %{}, [])}
+          tasks = run["pending"]["tasks"] || []
+          key = Translate.latest_result(tasks)
+          {key && Translate.result_ref(key), job_sections(spec["kind"], tasks)}
       end
 
     with true <- is_binary(reference),
          {:ok, base} <- base(run, input["repository"], reference),
          do: {:ok, %{base: base, change_set: nil, sections: sections, loop: nil, ladder: nil}}
   end
+
+  defp job_sections("fix", tasks) do
+    findings = (Translate.latest_review(tasks) || %{})["findings"] || []
+
+    [
+      "\n\n## What to fix\n\nThe review found:\n\n" <>
+        Enum.map_join(findings, "\n", &("- " <> &1))
+    ]
+  end
+
+  defp job_sections(kind, _tasks), do: Ladder.sections(kind, %{}, [])
 
   defp ci_fix(run, ladder, %{"kind" => "fix"} = spec, ctx) do
     with {:ok, views} <- views(spec, run, nil, nil),
@@ -686,7 +709,8 @@ defmodule AtlasFlow.Activities.Task do
 
   # A task that is no ladder's ended: its kind joins its result, so a publication tells the
   # job's result from its review (`Translate.latest_result/1`); a review's verdict and
-  # findings too, and its verdict goes on its task fact.
+  # findings too, and its verdict goes on its task fact; a fix's answer too. A job's review
+  # that asks for changes gives the run `changes_required`; its task fact keeps how it ended.
   defp ended_task(intent, spec, outcome, result, fact) do
     answer = get_in(fact || %{}, ["values", "answer"])
 
@@ -694,9 +718,15 @@ defmodule AtlasFlow.Activities.Task do
       result
       |> Map.put("task_kind", spec["kind"])
       |> Map.merge(answered_result(spec["kind"], answer))
+      |> Map.merge(if spec["kind"] == "fix", do: compact(%{"answer" => answer}), else: %{})
+
+    asks? =
+      outcome in ["completed", "check_failed"] and result["verdict"] == "changes_required" and
+        "changes_required" in results(spec)
 
     values = %{"state" => outcome, "verdict" => result["verdict"]}
-    {:result, outcome, result, [change(intent, spec, ["result"], values)], nil}
+    run_outcome = if asks?, do: "changes_required", else: outcome
+    {:result, run_outcome, result, [change(intent, spec, ["result"], values)], nil}
   end
 
   # A ladder task ended: the ladder says what follows. Its result keeps what the ladder

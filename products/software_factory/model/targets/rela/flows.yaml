@@ -513,6 +513,15 @@ flows:
           change:
             - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
             - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
+            - { to: fixing, roles: [atlas-flow], when: "entity.task_result == 'changes_required'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+      fixing:
+        label: Fixing
+        on:
+          change:
+            - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
+            - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
             - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
             - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
       publishing:
