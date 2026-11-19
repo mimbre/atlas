@@ -570,7 +570,9 @@ func tokenizeTemporary(settings ClaudeSettings, temporary string) ClaudeSettings
 // home and inspector, and temp and caches in the scratch.
 func folderEnv(env SpecEnv, home, inspector, scratch string) SpecEnv {
 	env.PrefixPath = filepath.Dir(inspector)
-	env.Set = append(env.Set, []string{"ATLAS_RUNTIME_HOME", home}, []string{"ATLAS_RUNTIME_EXECUTABLE", inspector})
+	env.Set = append(env.Set, []string{"ATLAS_RUNTIME_HOME", home}, []string{"ATLAS_RUNTIME_EXECUTABLE", inspector},
+		[]string{"GIT_CONFIG_GLOBAL", "/dev/null"}, []string{"GIT_CONFIG_NOSYSTEM", "1"}, []string{"GIT_CONFIG_COUNT", "1"},
+		[]string{"GIT_CONFIG_KEY_0", "core.excludesFile"}, []string{"GIT_CONFIG_VALUE_0", "/dev/null"})
 	for _, cache := range [][2]string{{"TMPDIR", "tmp"}, {"GOCACHE", "go-build"}, {"GOTMPDIR", "go-tmp"},
 		{"XDG_CACHE_HOME", "cache"}, {"npm_config_cache", "npm"}} {
 		path := scratch + "/" + cache[1]

@@ -386,8 +386,9 @@ defmodule AtlasRuntime.Sandbox.Spec do
   defp repository_git(root, path) when is_binary(path), do: clean(Path.join([root, path, ".git"]))
   defp repository_git(_root, _path), do: refuse("Materialized folder scope is incomplete")
 
-  # A folder worker's environment (host.go:287-301): the inspector first on PATH, this home and
-  # inspector, and temp and caches in the scratch.
+  # A folder worker's environment (host.go:287-302): the inspector first on PATH, this home and
+  # inspector, Git without user or system configuration or user excludes file, and temp and
+  # caches in the scratch.
   defp folder_env(env, home, inspector, scratch) do
     caches = for {name, cache} <- @folder_caches, do: {name, scratch <> "/" <> cache}
 
@@ -396,7 +397,15 @@ defmodule AtlasRuntime.Sandbox.Spec do
       | "prefix_path" => dir(inspector),
         "set" =>
           env["set"] ++
-            [["ATLAS_RUNTIME_HOME", home], ["ATLAS_RUNTIME_EXECUTABLE", inspector]] ++
+            [
+              ["ATLAS_RUNTIME_HOME", home],
+              ["ATLAS_RUNTIME_EXECUTABLE", inspector],
+              ["GIT_CONFIG_GLOBAL", "/dev/null"],
+              ["GIT_CONFIG_NOSYSTEM", "1"],
+              ["GIT_CONFIG_COUNT", "1"],
+              ["GIT_CONFIG_KEY_0", "core.excludesFile"],
+              ["GIT_CONFIG_VALUE_0", "/dev/null"]
+            ] ++
             for({name, path} <- caches, do: [name, path]),
         "mkdirs" => env["mkdirs"] ++ for({_name, path} <- caches, do: path)
     }
