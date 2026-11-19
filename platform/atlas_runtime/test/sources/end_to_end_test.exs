@@ -97,7 +97,7 @@ defmodule AtlasRuntime.Sources.EndToEndTest do
     do: Enum.any?(leases(source, key), &match?([_ | _], for(%S.Ended{} <- &1.reports, do: 1)))
 
   test "a lease is polled, run to completed, and its result uploaded", ctx do
-    add(ctx, "task-1", "write atlas/a.txt alpha; write atlas/b.txt beta")
+    add(ctx, "task-1", "write a.txt alpha; write b.txt beta")
     puller!(ctx)
 
     await(fn -> ended?(ctx.source, "task-1") end)

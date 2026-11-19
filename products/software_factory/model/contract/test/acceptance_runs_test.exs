@@ -102,6 +102,22 @@ defmodule Model.AcceptanceRunsTest do
         reopen: selection(@build)["reopen"]
       )
 
+  # Its break-down as slice 7 runs it, from the build run's start: its agent's task
+  # completed (Flow made the issues it proposed), its supervisor accepted them; built from
+  # then on, with what the use case says (`values`, with its count once it has one).
+  defp broken_down(env, values) do
+    b = flow(env, @build)
+    proposed = %{"key" => "TK-UC-Atlas-01-1", "outcome" => "completed"}
+
+    {:ok, accepting} =
+      Run.task_result(build(env, values), b, use_case(values), @now, "completed", proposed, [])
+
+    assert at(accepting) == {"accepting", "active", 2}
+    {:ok, building} = step(env, sent(accepting), Map.put(values, "verdict", "accept"))
+    assert at(building) == {"building", "active", 3}
+    sent(building)
+  end
+
   # As the use cases on test and prod are today (status refine), with `issues` under it.
   defp live(design_status, issues \\ 0) do
     values = %{"title" => "A use case", "description" => "What it is", "status" => "refine"}
@@ -157,23 +173,27 @@ defmodule Model.AcceptanceRunsTest do
 
       b = flow(env, @build)
       assert Run.validate(b) == :ok
-      assert b.states() == ~w(accepted break_down building rework to_test)
+      assert b.states() == ~w(accepted accepting break_down building rework to_test)
       assert b.start?(:predicate, %{"design_status" => "accepted"})
       refute b.start?(:predicate, %{"design_status" => "approved"})
       refute b.start?(:create, %{})
 
       for f <- [f, b] do
         # No pass, gate or effect, no create and no timer: nothing is dispatched or made for
-        # a use case, and nothing is due.
-        assert Enum.all?(f.states(), &(f.mechanism(&1) == nil))
+        # a use case but its break-down's task (slice 7), and nothing is due.
+        assert for(s <- f.states(), f.mechanism(s) != nil, do: s) ==
+                 if(f == b, do: ["break_down"], else: [])
+
         assert for(s <- f.states(), {:create, _} <- f.enter(s, %{}), do: s) == []
         assert Enum.all?(f.states(), &(f.timers(&1) == []))
         # No typed choice: nothing waits for a role's input.
         assert Enum.all?(f.states(), &(f.waiting_for(&1) == []))
       end
 
-      # Its test is the configured decider's; every other state the coordinator's.
-      assert AtlasFlow.Model.owner(b.owner("to_test")["default"], actors()) == tester()
+      # Its test and the acceptance of its issues are the configured decider's (its
+      # supervisor's, once picked up); every other state the coordinator's.
+      for s <- ~w(to_test accepting),
+          do: assert(AtlasFlow.Model.owner(b.owner(s)["default"], actors()) == tester())
 
       for s <- ~w(break_down building rework),
           do: assert(b.owner(s)["default"] == @coordinator)
@@ -453,8 +473,6 @@ defmodule Model.AcceptanceRunsTest do
 
         assert run_presents(env, @build, "break_down", values) ==
                  {"Break it down into issues", @coordinator}
-
-        assert counted(build(env, values), env, values, 1, 1)["state"] == "building"
       end
     end
   end
@@ -515,13 +533,13 @@ defmodule Model.AcceptanceRunsTest do
                  Run.synthetic(offered, flow(env), use_case(%{"design_status" => status}), @now)
       end
 
-      # An accepted design: issues come under it, are built, all are completed; a new one
-      # opens; all are completed again.
+      # An accepted design: a count alone never ends its break-down, its agent's proposal
+      # does; once accepted, its issues are built, all are completed; a new one opens; all
+      # are completed again.
       values = %{"design_status" => "accepted"}
-      run = build(env, values)
+      assert counted(build(env, values), env, values, 1, 1)["state"] == "break_down"
 
       steps = [
-        {0, 0, "break_down"},
         {1, 1, "building"},
         {2, 2, "building"},
         {2, 1, "building"},
@@ -530,7 +548,7 @@ defmodule Model.AcceptanceRunsTest do
         {3, 0, "to_test"}
       ]
 
-      Enum.reduce(steps, run, fn {children, open, state}, run ->
+      Enum.reduce(steps, broken_down(env, values), fn {children, open, state}, run ->
         moved = sent(counted(run, env, values, children, open))
         assert moved["state"] == state, inspect({children, open})
         moved
@@ -538,7 +556,7 @@ defmodule Model.AcceptanceRunsTest do
 
       # Its issues removed while it is built: back to break down, when its design was
       # accepted; without a design phase it stays built, as before.
-      building = counted(build(env, values), env, values, 2, 1)
+      building = counted(broken_down(env, values), env, values, 2, 1)
       assert counted(building, env, values, 0, 0)["state"] == "break_down"
       phaseless = counted(build(env, %{}), env, %{}, 2, 1)
       assert counted(phaseless, env, %{}, 0, 0)["state"] == "building"
@@ -547,10 +565,10 @@ defmodule Model.AcceptanceRunsTest do
 
   test "the decider's verdict ends the test: accepted, or reworked until a new issue opens" do
     for env <- @envs do
-      # Each entry is offered the count once: break down, built, then tested.
+      # Each entry is offered the count once: broken down, built, then tested.
       values = %{"design_status" => "accepted", "children" => 2, "open_children" => 0}
-      tested = counted(counted(build(env, values), env, values, 2, 0), env, values, 2, 0)
-      assert at(tested) == {"to_test", "active", 3}
+      tested = counted(broken_down(env, values), env, values, 2, 0)
+      assert at(tested) == {"to_test", "active", 4}
 
       # Its entry resets the verdict, so an older one moves nothing: until Facts has it,
       # the run waits; then only a new verdict moves it.
@@ -561,24 +579,24 @@ defmodule Model.AcceptanceRunsTest do
 
       # Accept: completed, nothing written; the use case is completed by its accepted_by.
       assert {:ok, done} = step(env, tested, Map.put(values, "verdict", "accept"))
-      assert at(done) == {"accepted", "completed", 4}
+      assert at(done) == {"accepted", "completed", 5}
       assert done["pending"]["writes"] == []
 
       # Reject: reworked, by the coordinator; a new open issue sends it to building, and
       # its completion back to the decider, whose verdict is reset again.
       assert {:ok, rework} = step(env, tested, Map.put(values, "verdict", "reject"))
-      assert at(rework) == {"rework", "active", 4}
+      assert at(rework) == {"rework", "active", 5}
       assert run_presents(env, @build, "rework", %{}) == {"Rework", @coordinator}
       rejected = Map.put(values, "verdict", "reject")
       assert {:ok, ^rework} = step(env, rework, rejected)
       again = counted(rework, env, rejected, 3, 1)
-      assert at(again) == {"building", "active", 5}
+      assert at(again) == {"building", "active", 6}
       retest = counted(sent(again), env, rejected, 3, 0)
-      assert at(retest) == {"to_test", "active", 6}
+      assert at(retest) == {"to_test", "active", 7}
       assert [%{"content" => %{"values" => %{"verdict" => "none"}}}] = retest["pending"]["writes"]
 
       # A new open issue while it is tested sends it back to building.
-      assert at(counted(tested, env, values, 3, 1)) == {"building", "active", 4}
+      assert at(counted(tested, env, values, 3, 1)) == {"building", "active", 5}
     end
   end
 
@@ -670,9 +688,9 @@ defmodule Model.AcceptanceRunsTest do
     for env <- @envs do
       b = flow(env, @build)
       values = %{"design_status" => "accepted", "verdict" => "accept"}
-      done = sent(counted(counted(build(env, values), env, values, 1, 0), env, values, 1, 0))
+      done = sent(counted(broken_down(env, values), env, values, 1, 0))
       {:ok, done} = step(env, done, values)
-      assert at(done) == {"accepted", "completed", 4}
+      assert at(done) == {"accepted", "completed", 5}
 
       # Reopened: accepted_by removed (Facts no longer completes it), its issues reopened,
       # its design put back and accepted again (the predicate false, then true). The
@@ -765,37 +783,43 @@ defmodule Model.AcceptanceRunsTest do
       assert {:error, :definition_changed} =
                Run.migrate(old.("dropped", "completed", %{}), f, [m], @now)
 
-      # The build run's: its states kept, each re-entered; a frozen pass blocks.
+      # The build run's (slice 11, then slice 7's break-down; every run on prod and test
+      # is at slice 11's): its states kept, each re-entered; a frozen pass blocks.
       b = flow(env, @build)
-      [bm] = selection(@build)["migrations"]
-      assert {bm["from"], bm["to"]} == {@build_base, b.digest()}
-      refute Map.has_key?(bm, "rekey") or Map.has_key?(bm, "preserve_entry")
-      assert bm["states"] == Map.new(b.states(), &{&1, &1})
+      bm = selection(@build)["migrations"]
+      slice11 = "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04"
+
+      assert Enum.sort(Enum.map(bm, &{&1["from"], &1["to"]})) ==
+               Enum.sort([{@build_base, slice11}, {slice11, b.digest()}])
+
+      refute Enum.any?(bm, &(Map.has_key?(&1, "rekey") or Map.has_key?(&1, "preserve_entry")))
+      old_states = b.states() -- ["accepting"]
+      assert Enum.all?(bm, &(&1["states"] == Map.new(old_states, fn s -> {s, s} end)))
 
       built = fn state, status, pending ->
         build(env, %{"design_status" => "accepted"})
-        |> Map.merge(%{"definition_sha256" => @build_base, "state" => state, "status" => status})
+        |> Map.merge(%{"definition_sha256" => slice11, "state" => state, "status" => status})
         |> update_in(["pending"], &Map.merge(&1, pending))
       end
 
       for state <- ~w(break_down building rework) do
-        assert {:ok, moved} = Run.migrate(built.(state, "active", %{}), b, [bm], @now)
+        assert {:ok, moved} = Run.migrate(built.(state, "active", %{}), b, bm, @now)
         assert at(moved) == {state, "active", 2}
       end
 
       # Its test re-entered resets the verdict, as a new entry does.
-      assert {:ok, moved} = Run.migrate(built.("to_test", "active", %{}), b, [bm], @now)
+      assert {:ok, moved} = Run.migrate(built.("to_test", "active", %{}), b, bm, @now)
       assert [%{"content" => %{"values" => %{"verdict" => "none"}}}] = moved["pending"]["writes"]
 
       assert {:error, :definition_changed} =
                Run.migrate(
                  built.("rework", "active", %{"pass" => %{"request" => %{}}}),
                  b,
-                 [bm],
+                 bm,
                  @now
                )
 
-      assert {:ok, accepted} = Run.migrate(built.("accepted", "completed", %{}), b, [bm], @now)
+      assert {:ok, accepted} = Run.migrate(built.("accepted", "completed", %{}), b, bm, @now)
       assert {accepted["state"], accepted["status"]} == {"accepted", "completed"}
     end
   end

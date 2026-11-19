@@ -2251,26 +2251,112 @@
           "timers": [],
           "waiting_for": []
         },
+        "accepting": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "building",
+              "when": "entity.verdict == 'accept'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Accept it",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Accept its issues",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "verdict": "accept"
+                    }
+                  },
+                  "key": "a",
+                  "label": "Accept"
+                }
+              ],
+              "instructions": "Read the issues under it, which its agent proposed; change, delete or add any, then accept them. They can then be picked up and built."
+            },
+            "why": "its agent's break-down is done"
+          },
+          "set": [
+            {
+              "field": "verdict",
+              "value": "none"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
         "break_down": {
           "awaits": [],
           "branches": [
             {
               "roles": ["atlas-flow"],
-              "to": "building",
-              "when": "entity.children > 0"
+              "to": "accepting",
+              "when": "entity.task_result == 'completed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'check_failed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'stuck'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'abandoned'"
             }
           ],
           "creates": [],
           "final": false,
+          "kind": "task",
           "label": "Break it down into issues",
           "present": {
             "expected": "Break it down into issues",
             "todo": {
-              "instructions": "Add the issues under it; Flow hands it on to build once something is under it."
+              "instructions": "Its machinery runs one agent on it that proposes its issues; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
             },
             "why": "nothing is under it yet"
           },
           "set": [],
+          "spec": {
+            "cost_class": "standard",
+            "creates": {
+              "file": "issues.json",
+              "kind": "issue"
+            },
+            "field": "task_result",
+            "fields": ["title", "description"],
+            "input": {
+              "base": "develop",
+              "repository": "github.com/mimbre/atlas"
+            },
+            "instructions": "Break the use case below into the issues that build it. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is one small change a developer can build, review and merge on its own, in the order given.",
+            "kind": "plan",
+            "machinery": "machinery",
+            "parents": ["title", "description"],
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "architect"
+          },
           "timers": [],
           "waiting_for": []
         },
@@ -2729,6 +2815,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "bf3532f0ae20bbc0b4bd3f2f65ffaa084da2c9bdc6b096b8743e139c42d0714d",
+  "rela_flows_sha256": "f9dbf09b918a74fb200c14723e72e8e40e79a2d387e3f58ca139b6d61ae934ca",
   "writer": "system:atlas-flow"
 }

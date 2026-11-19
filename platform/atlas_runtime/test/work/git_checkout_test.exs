@@ -40,7 +40,7 @@ defmodule AtlasRuntime.Work.GitCheckoutTest do
       work: %S.OfferedWork{
         work_key: "TK-1",
         title: "job",
-        instructions: "write atlas/a.txt alpha",
+        instructions: "write a.txt alpha",
         profile: "light_work",
         cost_class: :standard,
         input: %S.WorkInput{

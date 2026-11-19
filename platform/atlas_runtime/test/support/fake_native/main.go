@@ -328,7 +328,9 @@ func admission(root string, argv []string) {
 		if resumed {
 			expected = session
 		}
-		if binding["cwd"] != real || binding["session_id"] != expected {
+		// A folder holding one repository starts the agent at its root, inside the bound cwd.
+		bound, _ := binding["cwd"].(string)
+		if (real != bound && !strings.HasPrefix(real, bound+"/")) || binding["session_id"] != expected {
 			fail("durable reservation does not bind this cwd and session")
 		}
 	}

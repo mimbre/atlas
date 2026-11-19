@@ -74,8 +74,8 @@ defmodule AtlasRuntime.Work.FrozenPruneTest do
 
   test "pruning a work no other names: both reads answer pruned, its own blobs go, a shared blob stays",
        %{bench: bench, code: code} do
-    {one, first} = done!(code, "write atlas/shared.txt same; write atlas/only-one.txt one")
-    {two, second} = done!(code, "write atlas/shared.txt same; write atlas/only-two.txt two")
+    {one, first} = done!(code, "write shared.txt same; write only-one.txt one")
+    {two, second} = done!(code, "write shared.txt same; write only-two.txt two")
     shared = entry(first, "shared.txt").sha256
     only_one = entry(first, "only-one.txt").sha256
     only_two = entry(second, "only-two.txt").sha256
@@ -121,8 +121,8 @@ defmodule AtlasRuntime.Work.FrozenPruneTest do
   for {name, reference} <- [source: :source, based_on: :based_on] do
     test "a frozen result another work's #{name} names outlives its work record, until that work goes too",
          %{bench: bench, code: code} do
-      {one, first} = done!(code, "write atlas/kept.txt kept")
-      {two, _second} = done!(code, "write atlas/other.txt other")
+      {one, first} = done!(code, "write kept.txt kept")
+      {two, _second} = done!(code, "write other.txt other")
       kept = entry(first, "kept.txt").sha256
       [%{fingerprint: fingerprint}] = first.roots
 
@@ -172,7 +172,7 @@ defmodule AtlasRuntime.Work.FrozenPruneTest do
 
   test "at boot, a work deleted before its frozen result was pruned (a crash) is pruned then",
        %{bench: bench, code: code} do
-    {one, first} = done!(code, "write atlas/crash.txt crash")
+    {one, first} = done!(code, "write crash.txt crash")
     sha256 = entry(first, "crash.txt").sha256
     record = Store.read_work(bench.dir, one.work_id)
     stop_work()
@@ -201,7 +201,7 @@ defmodule AtlasRuntime.Work.FrozenPruneTest do
 
   test "a frozen result whose work record is missing without a key tombstone is kept",
        %{bench: bench, code: code} do
-    {one, first} = done!(code, "write atlas/lost.txt lost")
+    {one, first} = done!(code, "write lost.txt lost")
     sha256 = entry(first, "lost.txt").sha256
     stop_work()
     Store.delete_work!(bench.dir, one.work_id)

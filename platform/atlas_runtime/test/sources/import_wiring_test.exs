@@ -162,7 +162,7 @@ defmodule AtlasRuntime.Sources.ImportWiringTest do
 
     Source.add_work(
       ctx.source,
-      offered(%{base: %{base_id: "b-1", manifest: manifest}}, "write atlas/a.txt alpha"),
+      offered(%{base: %{base_id: "b-1", manifest: manifest}}, "write a.txt alpha"),
       blobs
     )
 

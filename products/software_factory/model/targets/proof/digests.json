@@ -793,7 +793,7 @@
     },
     "test_and_accept_use_case": {
       "prod": {
-        "digest": "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
+        "digest": "ec6cdede1bc4a90a80e6f4dfae1d390ad1538f9c99ab67f40f7842a23c004cf9",
         "history": [
           {
             "digest": "439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1",
@@ -814,10 +814,22 @@
               "rework",
               "to_test"
             ]
+          },
+          {
+            "digest": "ec6cdede1bc4a90a80e6f4dfae1d390ad1538f9c99ab67f40f7842a23c004cf9",
+            "states": [
+              "accepted",
+              "accepting",
+              "break_down",
+              "building",
+              "rework",
+              "to_test"
+            ]
           }
         ],
         "states": [
           "accepted",
+          "accepting",
           "break_down",
           "building",
           "rework",
@@ -825,7 +837,7 @@
         ]
       },
       "test": {
-        "digest": "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
+        "digest": "ec6cdede1bc4a90a80e6f4dfae1d390ad1538f9c99ab67f40f7842a23c004cf9",
         "history": [
           {
             "digest": "439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1",
@@ -846,10 +858,22 @@
               "rework",
               "to_test"
             ]
+          },
+          {
+            "digest": "ec6cdede1bc4a90a80e6f4dfae1d390ad1538f9c99ab67f40f7842a23c004cf9",
+            "states": [
+              "accepted",
+              "accepting",
+              "break_down",
+              "building",
+              "rework",
+              "to_test"
+            ]
           }
         ],
         "states": [
           "accepted",
+          "accepting",
           "break_down",
           "building",
           "rework",

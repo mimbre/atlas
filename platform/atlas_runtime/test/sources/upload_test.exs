@@ -157,7 +157,7 @@ defmodule AtlasRuntime.Sources.UploadTest do
     for %{entries: es} <- report.result.manifest.roots, %{sha256: s} <- es, do: s
   end
 
-  @three "write atlas/a.txt alpha; write atlas/b.txt beta; write atlas/c.txt gamma; delete atlas/old.md"
+  @three "write a.txt alpha; write b.txt beta; write c.txt gamma; delete old.md"
 
   test "uploads exactly the missing blobs, each once, and never an unreferenced one", %{
     code: code
@@ -313,8 +313,8 @@ defmodule AtlasRuntime.Sources.UploadTest do
       ended!(
         code,
         @three <>
-          "; write atlas/.gitignore *.log; write atlas/build.log noise" <>
-          "; write atlas/#{dependency} dependency"
+          "; write .gitignore *.log; write build.log noise" <>
+          "; write #{dependency} dependency"
       )
 
     served = GitBase.serve("b-1", @files)
@@ -362,7 +362,7 @@ defmodule AtlasRuntime.Sources.UploadTest do
     work =
       ended!(
         code,
-        "write atlas/a.txt alpha; symlink atlas/self README.md; symlink atlas/home README.md"
+        "write a.txt alpha; symlink self README.md; symlink home README.md"
       )
 
     folder = expected_folder(bench.dir, work.work_id)
@@ -413,7 +413,7 @@ defmodule AtlasRuntime.Sources.UploadTest do
   # known, so the test writes the answer into the stored record, as restart_test does.
   test "the agent's answer is sent with the work folder as . and other home paths cut",
        %{bench: bench, code: code} do
-    work = ended!(code, "write atlas/a.txt alpha")
+    work = ended!(code, "write a.txt alpha")
     folder = expected_folder(bench.dir, work.work_id)
     home = Path.expand(bench.dir)
     real_home = Path.dirname(Path.dirname(folder))

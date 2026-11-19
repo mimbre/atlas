@@ -84,3 +84,4 @@ atlas-ops status --env test    # what runs, and which build
 - [docs/adr/](docs/adr/): decisions, one short record each.
 
 An issue is built by an agent on its supervisor's Runtime, reviewed by a second agent, fixed once when the review asks for changes, and opened as a pull request its supervisor merges.
+A use case is broken down into issues the same way: whoever picks it up and hands it to a machinery has one agent on their Runtime propose its issues in a file of its result; Flow makes them under the use case, and "Accept it" goes to that supervisor.

@@ -206,6 +206,7 @@ defmodule AtlasFlow.Runs.Store do
           |> Map.put("supervision", supervision)
           |> Map.put("hand_over", hand_over(model, supervision))
           |> Map.put("parents", parents(model.relations()))
+          |> Map.put("ids", if(function_exported?(model, :ids, 0), do: model.ids(), else: %{}))
 
         {config,
          validate_selection(config, flows) || two_writers(selection) || refused || unsupported}
@@ -1529,7 +1530,8 @@ defmodule AtlasFlow.Runs.Store do
       assignee: Task.assignee(spec, flow.owner(run["state"]), projection, subject),
       number: fn -> Task.number(spec, run) end,
       now: now,
-      parents: config["parents"] || %{}
+      parents: config["parents"] || %{},
+      ids: config["ids"] || %{}
     }
 
     case Task.step(run, spec, subject, ctx) do

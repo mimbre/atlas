@@ -1265,6 +1265,12 @@
         },
         "status": {
           "label": "Flux group"
+        },
+        "task_result": {
+          "label": "Task result",
+          "set_by": [
+            "flow"
+          ]
         }
       }
     },

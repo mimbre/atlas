@@ -55,7 +55,7 @@ defmodule AtlasRuntime.Work.FrozenReadTest do
   test "get_frozen answers the change set with each root's fingerprint, as work_product.frozen names it",
        %{code: code} do
     work =
-      submit_base!(code, "write atlas/a.txt one; symlink atlas/l README.md; delete atlas/old.md")
+      submit_base!(code, "write a.txt one; symlink l README.md; delete old.md")
 
     [attempt] = await_state(work.work_id, :completed).attempts
     %F.WorkProduct{frozen: ref} = attempt.result.work_product
@@ -150,8 +150,8 @@ defmodule AtlasRuntime.Work.FrozenReadTest do
     bench: bench,
     code: code
   } do
-    one = submit_base!(code, "write atlas/one.txt first file; symlink atlas/l README.md")
-    two = submit_base!(code, "write atlas/two.txt second file")
+    one = submit_base!(code, "write one.txt first file; symlink l README.md")
+    two = submit_base!(code, "write two.txt second file")
     await_state(one.work_id, :completed)
     await_state(two.work_id, :completed)
 
@@ -201,7 +201,7 @@ defmodule AtlasRuntime.Work.FrozenReadTest do
   test "without read_all, another client's frozen result is not_found; read_all widens it", %{
     code: code
   } do
-    work = submit_base!(code, "write atlas/mine.txt mine")
+    work = submit_base!(code, "write mine.txt mine")
     await_state(work.work_id, :completed)
     %F.Outcome.Frozen{} = frozen = F.get_frozen(client(), %{work_id: work.work_id})
     sha256 = entry(frozen, "mine.txt").sha256
@@ -252,7 +252,7 @@ defmodule AtlasRuntime.Work.FrozenReadTest do
   test "a client without choose_path sees no Runtime path in a symlink target; one with it sees the target",
        %{bench: bench, code: code} do
     names = ~w(self home alias plain elsewhere)
-    work = submit_base!(code, Enum.map_join(names, "; ", &"symlink atlas/#{&1} README.md"))
+    work = submit_base!(code, Enum.map_join(names, "; ", &"symlink #{&1} README.md"))
     await_state(work.work_id, :completed)
     folder = expected_folder(bench.dir, work.work_id)
     home = Path.expand(bench.dir)
@@ -313,7 +313,7 @@ defmodule AtlasRuntime.Work.FrozenReadTest do
   end
 
   test "the reads change nothing on disk", %{bench: bench, code: code} do
-    work = submit_base!(code, "write atlas/r.txt read me")
+    work = submit_base!(code, "write r.txt read me")
     await_work(work.work_id, &(&1.state == :completed and hd(&1.attempts).quiescent))
     # The core no longer moves: no heartbeat writes while the reads run.
     stop_work()
@@ -359,7 +359,7 @@ defmodule AtlasRuntime.Work.FrozenReadTest do
   end
 
   test "without the core, both reads answer not_found", %{code: code} do
-    work = submit_base!(code, "write atlas/s.txt stop")
+    work = submit_base!(code, "write s.txt stop")
     await_state(work.work_id, :completed)
     stop_work()
     assert %F.Outcome.NotFound{} = F.get_frozen(client(), %{work_id: work.work_id})
