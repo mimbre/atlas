@@ -87,7 +87,11 @@ defmodule RelaDSL.Schema do
   and `fields` the subject's fields added to it; `parents` the fields added of each of its
   parents (through the relations the model marks `parent`, nearest first), so the agent
   knows why it is to be done. `records` names the kind and relation
-  of its task records, `machinery` the kind of the assignee it runs for.
+  of its task records, `machinery` the kind of the assignee it runs for. A task that
+  proposes facts names them, `creates: [kind: kind, file: name]`: its agent writes a JSON
+  list of `{title, description}` to the file at the top of the repository, and Flow, the
+  only writer, makes one fact of `kind` for each under the subject (through the kind's
+  parent relation to it) once the task completed.
 
   With `ladder: true` a task is a step of the review → fix loop (F2, `AtlasFlow.Ladder`):
   its end leads where the ladder's next step says, so it maps `author`, `review`, `fix`,
@@ -282,6 +286,7 @@ defmodule RelaDSL.Schema do
     :instructions,
     :fields,
     :parents,
+    :creates,
     :records,
     :machinery,
     :field,
@@ -453,7 +458,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `creates:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1330,6 +1335,11 @@ defmodule RelaDSL.Schema do
              Enum.sort(Keyword.keys(spec[:records])) == [:kind, :relation] and
              text?.(spec[:records][:kind]) and text?.(spec[:records][:relation])) &&
         pre <> "records: must be [kind: text, relation: text]",
+      not (spec[:creates] == nil or
+             (Keyword.keyword?(spec[:creates]) and
+                Enum.sort(Keyword.keys(spec[:creates])) == [:file, :kind] and
+                is_atom(spec[:creates][:kind]) and text?.(spec[:creates][:file]))) &&
+        pre <> "creates: must be [kind: kind, file: text]",
       not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
     ]
     |> Enum.filter(& &1)

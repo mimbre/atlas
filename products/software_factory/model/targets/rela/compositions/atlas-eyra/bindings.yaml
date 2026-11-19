@@ -32,12 +32,13 @@ relations:
       label: work
   task_of:
     label: task of
-    description: A task belongs to one package or issue; they have their tasks.
+    description: A task belongs to one package, issue or use case; they have their tasks.
     from:
     - task
     to:
     - package
     - issue
+    - use_case
     max_outgoing: 1
     inverse:
       id: tasks

@@ -437,7 +437,8 @@
         "choices": [],
         "choice_states": [],
         "migrations": [
-          {"from":"439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1","to":"d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 11: selected without its passes; the decider's verdict ends to_test"}
+          {"from":"439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1","to":"d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 11: selected without its passes; the decider's verdict ends to_test"},
+          {"from":"d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04","to":"ec6cdede1bc4a90a80e6f4dfae1d390ad1538f9c99ab67f40f7842a23c004cf9","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 7: an agent proposes its issues; its supervisor accepts them"}
         ],
         "subject": "use_case",
         "projection": {
@@ -595,6 +596,17 @@
               "package",
               "pull_request"
             ]
+          }
+        ],
+        "test_and_accept_use_case": [
+          {
+            "name": "break_down",
+            "label": "Break down",
+            "states": [
+              "break_down",
+              "accepting"
+            ],
+            "with": []
           }
         ]
       },

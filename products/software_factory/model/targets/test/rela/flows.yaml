@@ -224,7 +224,17 @@ flows:
         label: Break it down into issues
         on:
           change:
-            - { to: building, roles: [atlas-flow], when: "entity.children > 0" }
+            - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
+            - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
+            - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
+            - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+      accepting:
+        label: Accept it
+        outputs:
+          - set: { properties: { verdict: none } }
+        on:
+          change:
+            - { to: building, when: "entity.verdict == 'accept'" }
       building:
         label: Build it
         on:

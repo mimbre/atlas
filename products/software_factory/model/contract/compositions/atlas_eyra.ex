@@ -76,12 +76,12 @@ defmodule Model.AtlasEyra do
   )
 
   # A task Flow defines belongs to a package or, for a plan task, to an issue (the Flow
-  # Engine plan, §3.2); Flow alone links it.
+  # Engine plan, §3.2), or to the use case it breaks down (slice 7); Flow alone links it.
   relation(:task_of,
     label: "task of",
-    description: "A task belongs to one package or issue; they have their tasks.",
+    description: "A task belongs to one package, issue or use case; they have their tasks.",
     from: [:task],
-    to: [:package, :issue],
+    to: [:package, :issue, :use_case],
     max_outgoing: 1,
     inverse: {:tasks, "tasks"},
     parent: true,
