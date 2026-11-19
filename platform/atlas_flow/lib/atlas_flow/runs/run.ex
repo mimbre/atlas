@@ -624,13 +624,15 @@ defmodule AtlasFlow.Runs.Run do
   `writes` (`AtlasFlow.Runs.HandOver`) join the run's pending writes, so they are sent
   only once the run that holds them is stored; a refusal changes nothing else. Each
   moves the cursor to the input and names it as the last input, with what it did, or
-  why it was refused, as `supervision`.
+  why it was refused, as `supervision`; a pickup an agent made on behalf of the holder
+  names that agent as `by` (IS-Atlas-47).
   """
   def supervise(run, input, checked, writes \\ []) do
     {run, last} =
       case checked do
         {:pick_up, holder} ->
-          {Map.put(run, "supervised_by", holder), %{"supervision" => "pick_up"}}
+          by = if input["actor"] != holder, do: %{"by" => input["actor"]}, else: %{}
+          {Map.put(run, "supervised_by", holder), Map.put(by, "supervision", "pick_up")}
 
         {:hand_over, _from, to} ->
           {run

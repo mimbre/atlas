@@ -944,7 +944,8 @@ defmodule AtlasFlow.Runs.Store do
 
   # The run's supervisor is a link of its fact (the model's supervision relation), not a
   # field: a write sets it only when it changes, in the same write as the cursor, with
-  # the keys it read in `was`.
+  # the keys it read in `was`. A pickup an agent made on behalf of the supervisor says so
+  # as the write's cause, which Facts keeps with the link (IS-Atlas-47).
   defp supervisor_link(content, config, run, fact) do
     case config["supervision"] do
       %{"relation" => relation} ->
@@ -962,12 +963,19 @@ defmodule AtlasFlow.Runs.Store do
             content
             |> Map.put("links", %{relation => wanted})
             |> Map.update!("was", &Map.put(&1, relation, held))
+            |> on_behalf(run, wanted)
         end
 
       _ ->
         content
     end
   end
+
+  defp on_behalf(content, %{"last_input" => %{"supervision" => "pick_up", "by" => by}}, [holder])
+       when is_binary(by),
+       do: Map.put(content, "cause", "Picked up by #{by} on behalf of #{holder}")
+
+  defp on_behalf(content, _run, _wanted), do: content
 
   # A transition that leaves the run's supervised span clears its supervisor in the run it
   # leads to (`AtlasFlow.Runs.Run.leave_span/3`), before that run is stored: the write that

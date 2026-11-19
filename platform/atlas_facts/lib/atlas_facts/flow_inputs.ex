@@ -294,7 +294,7 @@ defmodule AtlasFacts.FlowInputs do
           with :ok <- need(run["status"] == "active", :not_active),
                :ok <- current_generation(rela, d, run),
                :ok <- need(in_span?(s, run), :outside_span),
-               :ok <- need(supervising_kind?(rela, d, s, actor), :not_a_person),
+               :ok <- need(supervising_kind?(rela, d, s, holder(op, actor)), :not_a_person),
                {:ok, supervisor} <- supervisor(rela, d, s, run),
                :ok <- acquisition(rela, d, s, op, run, supervisor, actor, v),
                {:ok, subject} <- subject(rela, d, run) do
@@ -355,6 +355,11 @@ defmodule AtlasFacts.FlowInputs do
   end
 
   def write(_, _, _, _, _, _, _), do: {:error, :protected_operation_required}
+
+  # Who a supervision input makes the supervisor: an agent picks up on behalf of whom it
+  # assists (IS-Atlas-47; the input stays the agent's), anyone else for themselves.
+  defp holder("pickup", actor), do: AtlasBus.Actors.assisted(actor) || actor
+  defp holder(_op, actor), do: actor
 
   @doc "Fence a timeout's cursor claim against a concurrently prepared human choice."
   def fence(rela, d, kind, key, values) do
