@@ -2,6 +2,16 @@
   "env": "test",
   "tui_user": "melle",
   "actors": { "decider": "melle" },
+  "assists": {
+    "architect": "melle",
+    "coordinator": "melle",
+    "dev1": "melle",
+    "dev2": "melle",
+    "dev3": "melle",
+    "dev4": "melle",
+    "dev5": "melle",
+    "dev6": "melle"
+  },
   "control": {
     "host": "::",
     "port": 7691,

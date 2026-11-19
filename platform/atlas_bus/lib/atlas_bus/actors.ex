@@ -18,6 +18,19 @@ defmodule AtlasBus.Actors do
   def configured, do: Application.get_env(:atlas, :actors)
 
   @doc """
+  Whom the agent `key` assists, as this environment's settings say (`"assists": {"<agent
+  key>": "<key>"}`, wired as `config :atlas, assists: %{...}`): the key it acts on behalf
+  of, or nil. An agent works inside the input flow of the one it assists and is never a
+  supervisor itself: what it picks up, that one supervises (IS-Atlas-47).
+  """
+  def assisted(key, assists \\ Application.get_env(:atlas, :assists)) do
+    case is_map(assists) && assists[key] do
+      who when is_binary(who) and who != "" -> who
+      _ -> nil
+    end
+  end
+
+  @doc """
   The actor of every role in `needed` (`[{role, kind}]`), from `configured` (`%{role =>
   key}`): `{:ok, actors}`, or `{:error, why}` for the first role it does not fill.
   """

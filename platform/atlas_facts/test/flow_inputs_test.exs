@@ -921,6 +921,15 @@ defmodule AtlasFacts.FlowInputsTest do
     assert run.version == run_before.version and run.links == run_before.links
   end
 
+  test "an agent picks up on behalf of whom it assists; the input stays the agent's", c do
+    c = supervised(c)
+    assert {:error, :not_a_person} = pickup(c, "pick-1", "helper")
+    Application.put_env(:atlas, :assists, %{"helper" => "ada"})
+    on_exit(fn -> Application.delete_env(:atlas, :assists) end)
+
+    assert {:ok, %{"actor" => "helper", "operation" => "pickup"}} = pickup(c, "pick-1", "helper")
+  end
+
   test "a hand-over by the supervisor is kept with whom it is handed to", c do
     c = supervised(c, supervisor: ["ada"])
     assert {:ok, input} = hand_over(c, "bea")

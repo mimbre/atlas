@@ -84,7 +84,8 @@ defmodule AtlasControl.Session do
        by: "agent",
        by_kind: nil,
        # Which client this is, as its hello says (`tui`, `agent`, …): only someone at the
-       # TUI picks a flow up or hands it over (M3b plan §1; no sign-in yet).
+       # TUI picks a flow up or hands it over, or an agent picks it up on behalf of whom it
+       # assists (M3b plan §1, IS-Atlas-47; no sign-in yet).
        client: nil,
        # What is assigned to the client, for the header of every page (`start.assigned`):
        # its words and what they were read from (`set`; nil: to be read again with the
@@ -917,7 +918,8 @@ defmodule AtlasControl.Session do
 
   # Pick up (work acquisition decision 2026-11-17, §5.6): read again and checked as the page
   # checks it, then sent as an input of the flow (`pickup`), never a change of the fact.
-  # Flow checks it again and sets the supervisor. Anyone else, or a run that moved on, is
+  # Flow checks it again and sets the supervisor: the client, or whom the agent assists
+  # (IS-Atlas-47; the input stays the agent's). Anyone else, or a run that moved on, is
   # refused before anything is sent.
   defp submit({:pick_up, kind, key, run} = route, _raw, state) do
     state = %{state | route: route, cause: nil}
@@ -971,8 +973,16 @@ defmodule AtlasControl.Session do
 
   defp submit(_route, _raw, state), do: notice(state, "error", "Nothing to submit here.")
 
-  # Who views a page, as the pages take it: the client's key, its kind and which client.
-  defp viewer(state), do: %{by: state.by, by_kind: state.by_kind, client: state.client}
+  # Who views a page, as the pages take it: the client's key, its kind, which client, and
+  # whom it assists when it is an agent (`AtlasBus.Actors.assisted/1`; IS-Atlas-47).
+  defp viewer(state),
+    do: %{
+      by: state.by,
+      by_kind: state.by_kind,
+      client: state.client,
+      assists:
+        if(state.client not in ["tui", "migration"], do: AtlasBus.Actors.assisted(state.by))
+    }
 
   defp link(key, relation, keys),
     do: %{

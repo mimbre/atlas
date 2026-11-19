@@ -22,7 +22,8 @@
 #   atlas actions <key> [--json]             the actions Control offers on its page
 #   atlas do <key> <action> [--<input> <text> ...] [--json]   do one as the TUI does: its confirm
 #                      or form, submitted (--help: its page only); as the person at the TUI
-#                      (`tui_user`), unless ATLAS_AS names the agent
+#                      (`tui_user`), unless ATLAS_AS names the agent (agents always set it);
+#                      an agent picks up on behalf of whom it assists (IS-Atlas-47)
 #   atlas plan --on <key> <request>          what the agent proposes for a request on that page;
 #                      it reads through Control and writes nothing (UC-Atlas-16)
 #   atlas steer                              the agent behind the TUI's `:`, in JSON lines on

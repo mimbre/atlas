@@ -25,7 +25,8 @@ defmodule AtlasFlow.Runs.Inputs do
   2026-11-17 §5.6, S1; the model's `supervision`, M3a):
 
   - `{:pick_up, holder}`: the input's actor becomes the run's supervisor (the same
-    supervisor picking it up again changes nothing);
+    supervisor picking it up again changes nothing); an agent's pickup makes whom it
+    assists the supervisor instead (`AtlasBus.Actors.assisted/1`; IS-Atlas-47);
   - `{:hand_over, from, to}`: the supervisor `from` is cleared, and `to` is the holder
     given the run to pick up;
   - `{:refused, tag}`: the input is passed over, and only `tag` records why;
@@ -39,8 +40,9 @@ defmodule AtlasFlow.Runs.Inputs do
   of the supervisor's kind: `true`, `false` or `:unavailable`.
 
   The checks, in order, each with its own tag: the input is of the run's current entry
-  (`moved_on`); its actor is a holder (`actor`); the run's state lies in a span
-  (`outside_span`). A pickup needs the run unsupervised or supervised by the actor
+  (`moved_on`); its actor (for a pickup: whom it acts for) is a holder (`actor`); the
+  run's state lies in a span (`outside_span`). A pickup needs the run unsupervised or
+  supervised by that holder
   (`supervised`). A hand-over is the current supervisor's alone (`not_supervisor`, also
   when there is none), names exactly one target (`target`) that is a holder
   (`target_kind`), and never the supervisor itself (`self`).
@@ -71,13 +73,14 @@ defmodule AtlasFlow.Runs.Inputs do
   defp checked(operation, input, hand_to, run, supervision, holder?) do
     actor = input["actor"]
     current = run["supervised_by"]
+    holder = if operation == "pickup", do: AtlasBus.Actors.assisted(actor) || actor, else: actor
 
-    with :ok <- holder(holder?, actor, "actor"),
+    with :ok <- holder(holder?, holder, "actor"),
          :ok <- in_span(supervision["spans"] || [], run["state"]) do
       case operation do
         "pickup" ->
-          if current in [nil, actor],
-            do: {:pick_up, actor},
+          if current in [nil, holder],
+            do: {:pick_up, holder},
             else: {:refused, "supervised"}
 
         "hand_over" ->

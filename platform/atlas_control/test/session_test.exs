@@ -2094,6 +2094,17 @@ defmodule AtlasControl.SessionTest do
       assert sent["values"]["run"] == "R-1"
     end
 
+    test "an agent that assists someone picks up on their behalf: the input is the agent's" do
+      port = supervised_shop([])
+      Application.put_env(:atlas, :assists, %{"helper" => "ada"})
+      on_exit(fn -> Application.delete_env(:atlas, :assists) end)
+
+      agent = hello_as(port, "agent", "helper")
+      put(agent, %{"op" => "submit", "to" => "/k/widget/W-1/pick_up/R-1", "values" => %{}})
+      assert %{"reason" => "stored"} = next(agent, "page")
+      assert [%{"op" => "pickup", "by" => "helper"}] = supervision_inputs()
+    end
+
     test "Facts' refusal of a pickup comes back as its reasons, on the page" do
       port = supervised_shop([])
       FakeStore.refuse("R-1", "pickup_pending")

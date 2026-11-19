@@ -36,7 +36,17 @@ atlas do IS-Atlas-07 "Pick up"
 atlas do IS-Atlas-07 "Hand to…" --to mac-mini
 ```
 
-`actions` and `do` act as the person at the TUI (the environment's `tui_user`): an action only a person may take, as Pick up, is offered to them. With `ATLAS_AS=<agent key>` they act as that agent, and Control offers and allows what it offers and allows an agent. The other commands stay an agent's.
+`actions` and `do` without `ATLAS_AS` act as the person at the TUI (the environment's `tui_user`): the command line on Melle's own machine runs for him, so an action only a person may take, as Pick up, is his. An agent always sets `ATLAS_AS=<agent key>`; `actions` and `do` then act as that agent, and Control offers and allows what it offers and allows an agent. The other commands stay an agent's.
+
+An agent is always a person's assistant, never a supervisor itself. Whom each agent assists is the environment's `assists` setting (`"assists": {"coordinator": "melle", …}` in `products/software_factory/environments/<env>/core.json`). An agent that assists someone gets Pick up and picks a flow up on that person's behalf: the input is the agent's (`by` names it), and Flow makes the person the supervisor, so its questions and "Merge it" go to them. The item then shows who did it:
+
+```sh
+ATLAS_AS=coordinator atlas do IS-Atlas-07 "Pick up"
+atlas get IS-Atlas-07
+#   Supervised by: melle (since …, by flow: Picked up by coordinator on behalf of melle)
+```
+
+Hand over… stays the supervisor's own; an agent that assists nobody picks nothing up.
 
 ## Restarting a completed scene or use case
 

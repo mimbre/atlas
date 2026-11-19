@@ -28,7 +28,9 @@ defmodule AtlasAgent.CLI do
   (set) read it from a file, for text of several lines. Which kinds exist, which actions a
   page offers and which fields a form asks for come from Control; a wrong one is answered
   with what it asks. `actions` and `do` act as the TUI's user (Control's
-  `tui_user`), unless ATLAS_AS names the agent that runs them.
+  `tui_user`): the command line on that user's own machine runs for them. An agent
+  always sets ATLAS_AS; they then act as that agent, which picks up on behalf of whom it
+  assists (IS-Atlas-47).
 
   Exit status: 0 done, 1 refused (the reasons also on stderr), 2 a usage or connection
   error. prod is the default environment, as for `atlas`.
@@ -62,8 +64,9 @@ defmodule AtlasAgent.CLI do
     show(result, json)
   end
 
-  # The page commands act as the TUI does: as its user, unless ATLAS_AS names the
-  # agent that runs them. The other commands are an agent's.
+  # The page commands act as the TUI does: as its user, for whom this machine runs them,
+  # unless ATLAS_AS names the agent that runs them (agents always do). The other commands
+  # are an agent's.
   defp client_for({:actions, _at}), do: page_client()
   defp client_for({:do, _at, _name, _values, _submit?}), do: page_client()
   defp client_for(_command), do: "agent"
