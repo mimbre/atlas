@@ -517,7 +517,7 @@ defmodule AtlasCode.Effects do
           "> (no answer)"
       end
 
-    "**Fix.** An agent fixed what the review found (task #{task}); this pull request is its result. Its answer:\n\n" <>
+    "**Fix.** An agent fixed what the review found (task #{task}); this is its result. Its answer:\n\n" <>
       answer
   end
 
