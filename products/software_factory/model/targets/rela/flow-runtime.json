@@ -325,7 +325,8 @@
         "migrations": [
           {"from":"9d3344521082b52910d3a4e637a7e2278746a9e76dae06a2ffcbfc5c376e202b","to":"3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59","states":{"done":"done","stuck":"stuck","working":"working"},"reason":"Only the agent's instruction changed"},
           {"from":"3fcbc03eccf0397972a0eaf8fb5cb2322b739439436d705a88d7258efd26ec59","to":"46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55","states":{"done":"done","stuck":"stuck","working":"working"},"reason":"Only the agent's instruction changed"},
-          {"from":"46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55","to":"afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939","preserve_entry":true,"states":{"done":"done","stuck":"stuck","working":"working"},"reason":"Its result becomes a pull request its supervisor merges; the same entries"}
+          {"from":"46dcb856c580ab03df187129d68206411c478b47af9466b767f32c9d6ba90b55","to":"afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939","preserve_entry":true,"states":{"done":"done","stuck":"stuck","working":"working"},"reason":"Its result becomes a pull request its supervisor merges; the same entries"},
+          {"from":"afc6e600959b0f07a3f9ebadf9442c235b6c9e0a0cdabfc300ffa832a02f8939","to":"4e09f905e40c89b644787131690d3ecb917e9321eb6536abf66a3b7f1bad025e","preserve_entry":true,"states":{"done":"done","merging":"merging","publishing":"publishing","stuck":"stuck","working":"working"},"reason":"Opening its pull request is presented; the same states and entries"}
         ],
         "subject": "job",
         "projection": {
