@@ -13,7 +13,9 @@ defmodule Model.MixProject do
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: false,
-      # The Runtime (a path dependency) brings Hex packages: pin them with the umbrella's lock.
+      # The Runtime (a path dependency) brings Hex packages: pin them with the umbrella's lock,
+      # and use the umbrella's deps, as Code prepares them for a job's folder.
+      deps_path: "../../deps",
       lockfile: "../../mix.lock",
       deps: deps()
     ]
