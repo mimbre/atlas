@@ -335,18 +335,20 @@ defmodule AtlasCode.Effects.GitHub do
       {:ok, token} when is_binary(token) ->
         auth = Base.encode64("x-access-token:" <> token)
 
+        # Only the header goes through the environment: a port drops an empty value, so
+        # clearing the credential helpers is on the command line.
         env = [
           {"GIT_TERMINAL_PROMPT", "0"},
-          {"GIT_CONFIG_COUNT", "3"},
-          {"GIT_CONFIG_KEY_0", "credential.helper"},
-          {"GIT_CONFIG_VALUE_0", ""},
-          {"GIT_CONFIG_KEY_1", "core.hooksPath"},
-          {"GIT_CONFIG_VALUE_1", "/dev/null"},
-          {"GIT_CONFIG_KEY_2", "http.https://github.com/.extraheader"},
-          {"GIT_CONFIG_VALUE_2", "AUTHORIZATION: basic " <> auth}
+          {"GIT_CONFIG_COUNT", "1"},
+          {"GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader"},
+          {"GIT_CONFIG_VALUE_0", "AUTHORIZATION: basic " <> auth}
         ]
 
         args = [
+          "-c",
+          "credential.helper=",
+          "-c",
+          "core.hooksPath=/dev/null",
           "--git-dir",
           dir,
           "push",
