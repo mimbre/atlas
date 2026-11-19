@@ -389,8 +389,9 @@ defmodule AtlasFlow.Activities.TaskTest do
       supervise(c, "ada")
       run = reconcile(c)
 
-      # The run holds the version-2 intent with the base; the task fact was created after it.
-      assert %{"version" => 2, "key" => @task, "machinery" => "mini"} =
+      # The run holds the version-2 intent with the base, the supervisor's (no machinery);
+      # the task fact was created after it.
+      assert %{"version" => 2, "key" => @task, "machinery" => nil} =
                intent = run["pending"]["task"]
 
       assert Translate.intent?(intent)
@@ -426,10 +427,7 @@ defmodule AtlasFlow.Activities.TaskTest do
       assert {done["state"], done["status"]} == {"done", "completed"}
       assert done["pending"]["task"] == nil
 
-      assert [
-               %{"key" => @task, "machinery" => "mini", "attempt" => 1, "outcome" => "completed"} =
-                 r
-             ] =
+      assert [%{"key" => @task, "attempt" => 1, "outcome" => "completed"} = r] =
                done["pending"]["tasks"]
 
       assert r["kind"] == "completed" and r["check"]["exit_status"] == 0
@@ -527,6 +525,20 @@ defmodule AtlasFlow.Activities.TaskTest do
       assert %{work: %{work_key: @task}} = lease!(@mini)
     end
 
+    test "picked up, with no robot: the task is the supervisor's and offered to their Runtime",
+         c do
+      source(c)
+      bin("B-1", "ada")
+      assert reconcile(c)["pending"]["task"] == nil
+
+      supervise(c, "ada")
+      reconcile(c)
+      base_ready()
+      assert %{"machinery" => nil} = reconcile(c)["pending"]["task"]
+      assert {:polled, %{leases: []}} = poll(@laptop)
+      assert %{work: %{work_key: @task}} = lease!(@mini)
+    end
+
     test "a lease ended without a result is offered again; the run waits", c do
       source(c)
       intended(c)
@@ -553,6 +565,9 @@ defmodule AtlasFlow.Activities.TaskTest do
 
       assert {:ok, _} = Results.manifest(@task)
 
+      # Its flow no longer supervised, the task it made for the robot is abandoned once the
+      # bin leaves that robot.
+      supervise(c, nil)
       bin("B-1", "bea")
       abandoned = reconcile(c)
       assert {abandoned["state"], abandoned["status"]} == {"abandoned", "completed"}

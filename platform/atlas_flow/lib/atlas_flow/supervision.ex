@@ -62,7 +62,9 @@ defmodule AtlasFlow.Supervision do
     end)
   end
 
-  defp answer(run, spans) do
+  @doc "The supervision of `run`, a run of a subflow with `spans` (see the moduledoc)."
+  @spec answer(map(), list()) :: {:supervised, String.t(), String.t()} | :unsupervised
+  def answer(run, spans) do
     in_span? = Enum.any?(spans, &(run["state"] in (&1["states"] || [])))
     holder = run["supervised_by"]
 

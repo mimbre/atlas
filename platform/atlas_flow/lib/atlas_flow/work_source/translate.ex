@@ -5,7 +5,7 @@ defmodule AtlasFlow.WorkSource.Translate do
   **Intent (version 2).** What a run holds as `pending.task` for a task that goes through
   the work source (A4 makes it, Dispatch offers it):
 
-      %{"version" => 2, "key" => "TK-<subject>-<n>", "machinery" => <name>,
+      %{"version" => 2, "key" => "TK-<subject>-<n>", "machinery" => <name> | nil (a supervised flow's),
         "created_at" => <iso8601>, "base_snapshot" => <Code snapshot id>,
         "work" => %{"title", "instructions", "profile", "cost_class",
                     "after_check" => %{"command" => [...]} (only with a check),
