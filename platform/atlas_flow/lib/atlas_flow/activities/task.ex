@@ -8,9 +8,12 @@ defmodule AtlasFlow.Activities.Task do
   A state with a `task` (`RelaDSL.Schema`) runs it, as `AtlasFlow.Runs.Store` drains the
   run:
 
-  1. **Only for machinery (E1).** While the subject's owner (through the state's owner
-     relation, on the projection's component when it names one) is not a fact of the
-     spec's `machinery` kind, nothing is done: no task.
+  1. **For a supervisor, or for machinery (E1).** Once a person picked up its flow (it has
+     a human supervisor; IS-Atlas-25, `AtlasFlow.Runs.Store` asks), the task is made at
+     once, naming no machinery: Dispatch offers it to that supervisor's Runtimes. Without
+     one, while the subject's owner (through the state's owner relation, on the
+     projection's component when it names one) is not a fact of the spec's `machinery`
+     kind, nothing is done: no task.
   2. **Intent first (obligation 2).** The task's key, `TK-<subject>-<n>`, and its intent
      (version 2, `AtlasFlow.WorkSource.Translate.intent/7`) are stored in the run
      (`pending.task`) before anything is sent, and the task fact (`records`: its kind and
@@ -69,7 +72,8 @@ defmodule AtlasFlow.Activities.Task do
   whatever its verdict, Flow makes one fact of that kind per follow-up under the subject's
   nearest parent, as it makes a proposal's, with the review in its cause.
 
-  An assignment moved away from the machinery ends the task `abandoned` and unpins its
+  An assignment moved away from the machinery a task was made for, while its flow has no
+  supervisor, ends the task `abandoned` and unpins its
   result (`AtlasFlow.Results.unpin/3`, a cast): a late report is recorded on the task and
   ignored by the run, because the run left the state and no longer holds its key.
 
@@ -334,8 +338,9 @@ defmodule AtlasFlow.Activities.Task do
     task the ladder's step); `result` goes in the run, and `ladder` (nil for a task that
     is no ladder's) is kept as `pending.ladder`.
 
-  `ctx`: `assignee` (`assignee/4`), `number` (a function giving `number/2`) and `now`;
-  optionally `profiles` and `limits` for the ladder (else the application's).
+  `ctx`: `assignee` (`assignee/4`, or `:supervised` when its flow has a human supervisor),
+  `number` (a function giving `number/2`) and `now`; optionally `profiles` and `limits`
+  for the ladder (else the application's).
   """
   def step(run, spec, subject, ctx) do
     intent = run["pending"]["task"]
@@ -347,7 +352,7 @@ defmodule AtlasFlow.Activities.Task do
       intent == nil ->
         intend(run, spec, subject, ctx)
 
-      ctx.assignee != {:machinery, intent["machinery"]} ->
+      not held?(ctx.assignee, intent) ->
         abandon(run, intent, spec, ctx)
 
       not Translate.intent?(intent) ->
@@ -359,7 +364,19 @@ defmodule AtlasFlow.Activities.Task do
     end
   end
 
-  defp intend(run, spec, subject, %{assignee: {:machinery, name}} = ctx) do
+  # A task made for a supervised flow names no machinery: it is its supervisor's, whatever
+  # the subject is assigned to, and only Dispatch moves its lease (a hand-over cancels it;
+  # it waits for the next pickup). One made for a machinery (E1) is abandoned once the
+  # subject leaves that machinery, unless its flow is supervised.
+  defp held?(_assignee, %{"machinery" => nil}), do: true
+  defp held?(:supervised, _intent), do: true
+  defp held?(assignee, intent), do: assignee == {:machinery, intent["machinery"]}
+
+  defp intend(run, spec, subject, %{assignee: assignee} = ctx)
+       when assignee == :supervised or
+              (is_tuple(assignee) and elem(assignee, 0) == :machinery) do
+    name = if assignee == :supervised, do: nil, else: elem(assignee, 1)
+
     with {:ok, work} <- work(run, spec, subject, ctx) |> asked_again(run, ctx),
          {:ok, parents} <- parents(spec, run["subject_kind"], subject, ctx[:parents] || %{}),
          {:ok, n} <- ctx.number.() do

@@ -297,7 +297,8 @@ defmodule Model.PackageRunsTest do
       authoring = reconcile(c)
       assert {authoring["state"], authoring["status"]} == {"authoring", "active"}
 
-      assert %{"version" => 2, "key" => @task, "machinery" => "mac-mini"} =
+      # Its issue is picked up: the task is the supervisor's, and names no machinery.
+      assert %{"version" => 2, "key" => @task, "machinery" => nil} =
                intent = authoring["pending"]["task"]
 
       # The task record, intent first, belongs to the package.
@@ -593,25 +594,15 @@ defmodule Model.PackageRunsTest do
       assert decisions() == [] and flows(c) -- ["issue"] == [@name]
     end
 
-    test "acc. 7: answer fresh without a hand-back runs nothing; once handed back, the fresh author runs",
-         c do
+    test "acc. 7: the supervisor's answer fresh alone runs the fresh author", c do
       escalated(c)
       tasks = length(run(c)["pending"]["tasks"])
-      calls = FakeCode.calls(c.code)
 
       put_values(@key, %{"answer" => "fresh"})
       fresh = settle(c)
-      assert {fresh["state"], fresh["pending"]["task"]} == {"fresh", nil}
       next = "TK-#{@key}-#{tasks + 1}"
-      assert FakeFacts.get("task", next) == nil
-      assert FakeCode.calls(c.code) == calls
-      # The supervisor keeps it until they hand it back.
-      assert owner(@key) == ["ada"]
-
-      hand_back(@key, "mac-mini")
-      assert %{"key" => ^next} = settle(c)["pending"]["task"]
+      assert {fresh["state"], fresh["pending"]["task"]["key"]} == {"fresh", next}
       assert FakeFacts.get("task", next)["values"]["kind"] == "author"
-      assert owner(@key) == ["mac-mini"]
     end
 
     test "acc. 8: a worded option is a fresh author with the choice; abandon is stuck", c do
@@ -687,7 +678,6 @@ defmodule Model.PackageRunsTest do
       values = FakeFacts.get("package", @key)["values"]
       assert JSON.decode!(values["question"]) == q
       assert values["retry_step"] == "review"
-      assert owner(@key) == ["ada"]
 
       hand_back(@key, "mac-mini")
       put_values(@key, %{"answer" => "retry"})
@@ -1212,12 +1202,14 @@ defmodule Model.PackageRunsTest do
     {original, settle(c, key)}
   end
 
-  # A review abandoned (its assignment moved away), retried once, abandoned again: held
-  # (D3). The first review's intent, the second's key, and the held run.
+  # A review abandoned (its assignment moved away while its issue had no supervisor, so
+  # it was the machinery's, E1), retried once, abandoned again: held (D3); then picked up
+  # again. The first review's intent, the second's key, and the held run.
   defp abandoned_twice(c) do
     issue_run(c, "ada")
     started(c)
     finish(@key, files: @author, check: 0)
+    issue_run(c, nil)
     review = settle(c)
     assert review["state"] == "reviewing"
     first = review["pending"]["task"]
@@ -1235,7 +1227,8 @@ defmodule Model.PackageRunsTest do
     hand_back(@key, "coordinator")
     held = settle(c)
     assert {held["state"], held["pending"]["task"]} == {"held", nil}
-    {first, second, held}
+    issue_run(c, "ada")
+    {first, second, settle(c)}
   end
 
   # A run of the package on the current definition, in `state`, holding `ladder`.

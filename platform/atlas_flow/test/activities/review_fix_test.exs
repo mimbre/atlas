@@ -368,25 +368,6 @@ defmodule AtlasFlow.Activities.ReviewFixTest do
       assert %{work: %{work_key: key}} = lease!(@laptop)
       assert key == review["key"]
     end
-
-    test "an assignment moved away abandons the review; it is started once more when handed back",
-         c do
-      started(c)
-      finish(@mini, files: @author, check: 0)
-      first = intent(settle(c))
-      lease!(@mini)
-
-      bin("B-1", "bea")
-      run = settle(c)
-      assert {run["state"], run["pending"]["task"]} == {"reviewing", nil}
-      assert List.last(run["pending"]["tasks"])["outcome"] == "abandoned"
-      assert run["pending"]["ladder"]["retries"] == 1
-
-      bin("B-1", "mini")
-      again = intent(settle(c))
-      assert again["key"] == "TK-B-1-3"
-      assert again["work"]["input"] == first["work"]["input"]
-    end
   end
 
   describe "the spec" do

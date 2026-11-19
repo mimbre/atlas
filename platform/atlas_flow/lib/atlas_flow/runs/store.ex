@@ -17,7 +17,7 @@ defmodule AtlasFlow.Runs.Store do
   """
 
   require Logger
-  alias AtlasFlow.{Dispatch, Results}
+  alias AtlasFlow.{Dispatch, Results, Supervision}
   alias AtlasFlow.Runs.{HandOver, Run}
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
@@ -206,6 +206,7 @@ defmodule AtlasFlow.Runs.Store do
           |> Map.put("supervision", supervision)
           |> Map.put("hand_over", hand_over(model, supervision))
           |> Map.put("parents", parents(model.relations()))
+          |> Map.put("relations", model.relations())
           |> Map.put("ids", if(function_exported?(model, :ids, 0), do: model.ids(), else: %{}))
 
         {config,
@@ -1527,7 +1528,7 @@ defmodule AtlasFlow.Runs.Store do
     projection = config["selection"][run["flow"]]["projection"] || %{}
 
     ctx = %{
-      assignee: Task.assignee(spec, flow.owner(run["state"]), projection, subject),
+      assignee: assignee(config, run, spec, flow, projection, subject),
       number: fn -> Task.number(spec, run) end,
       now: now,
       parents: config["parents"] || %{},
@@ -1548,6 +1549,29 @@ defmodule AtlasFlow.Runs.Store do
       # A ladder task's outcome is the ladder's step; its ladder is kept (F2).
       {:result, outcome, result, writes, ladder} ->
         Run.task_result(run, flow, subject, now, outcome, result, writes, ladder)
+    end
+  end
+
+  # Who the task is for (IS-Atlas-25; decision 2026-11-17 §5.6): once a person picked up
+  # its flow, its human supervisor, whose Runtimes Dispatch offers it to, whatever the
+  # subject is assigned to: pickup alone starts the work. Otherwise the machinery the
+  # subject is assigned to (E1), whose task waits for a supervisor. A run with spans of
+  # its own answers itself; any other asks `AtlasFlow.Supervision`, as Dispatch does.
+  defp assignee(config, run, spec, flow, projection, subject) do
+    supervision =
+      case get_in(config, ["supervision", "spans", run["flow"]]) do
+        [_ | _] = spans ->
+          Supervision.answer(run, spans)
+
+        _ ->
+          runner = %{config: config, relations: config["relations"]}
+          Supervision.of(runner, run["subject_kind"], run["subject_key"])
+      end
+
+    case supervision do
+      {:supervised, _holder, _run} -> :supervised
+      :unsupervised -> Task.assignee(spec, flow.owner(run["state"]), projection, subject)
+      :unavailable -> :unavailable
     end
   end
 
