@@ -62,8 +62,8 @@ defmodule AtlasRuntime.Work.FrozenTest do
     work =
       submit_base!(
         code,
-        "write atlas/docs/é.txt hello world; chmod atlas/run.sh 755; " <>
-          "symlink atlas/link README.md; delete atlas/old.md"
+        "write docs/é.txt hello world; chmod run.sh 755; " <>
+          "symlink link README.md; delete old.md"
       )
 
     [attempt] = await_state(work.work_id, :completed).attempts
@@ -111,7 +111,7 @@ defmodule AtlasRuntime.Work.FrozenTest do
 
   test "each attempt has its own frozen result; a fresh retry's rebuild leaves attempt 1's unchanged",
        %{bench: bench, code: code} do
-    work = submit_base!(code, "write atlas/first.txt one")
+    work = submit_base!(code, "write first.txt one")
     await_state(work.work_id, :completed)
     first = File.read!(FrozenStore.path(bench.dir, work.work_id, 1))
 
@@ -152,7 +152,7 @@ defmodule AtlasRuntime.Work.FrozenTest do
 
     stop_work()
     start_work!(bench, after_write: hook)
-    work = submit_base!(code, "write atlas/ordered.txt first")
+    work = submit_base!(code, "write ordered.txt first")
     await_state(work.work_id, :completed)
     assert_received {:completed, 1, true}
     refute_received {:completed, 1, false}
@@ -171,7 +171,7 @@ defmodule AtlasRuntime.Work.FrozenTest do
       end
     )
 
-    work = submit_base!(code, "write atlas/crash.txt cut off")
+    work = submit_base!(code, "write crash.txt cut off")
     assert_receive {:frozen, frozen_id, core}, 10_000
     orphan = Path.join([bench.dir, "frozen", frozen_id <> ".json"])
     assert File.exists?(orphan)
@@ -189,10 +189,10 @@ defmodule AtlasRuntime.Work.FrozenTest do
 
   test "a change outside every root fails the attempt (workspace), with its answer and no frozen result",
        %{bench: bench, code: code} do
-    work = submit_base!(code, "write outside.txt not in a root")
+    work = submit_base!(code, "write ../outside.txt not in a root")
     [attempt] = await_state(work.work_id, :failed).attempts
     assert %{kind: :failed, reason: :workspace, retryable: false} = attempt.result
-    assert attempt.result.answer == "done: write outside.txt not in a root"
+    assert attempt.result.answer == "done: write ../outside.txt not in a root"
     assert attempt.result.log.ref == attempt.turn_id
     assert attempt.result.work_product == nil
     assert frozen_files(bench) == []
@@ -226,7 +226,7 @@ defmodule AtlasRuntime.Work.FrozenTest do
              )
 
     request =
-      base_request(code, "write atlas/socket.txt from a socket client")
+      base_request(code, "write socket.txt from a socket client")
       |> Map.put(:workspace, %{kind: "folder", path: dest, permissions: "materialized-folder"})
 
     assert %F.Outcome.Accepted{work: work} = F.submit(client(), request)
@@ -316,11 +316,11 @@ defmodule AtlasRuntime.Work.FrozenTest do
   end
 
   test "failed, crashed and cancelled attempts are not frozen", %{bench: bench, code: code} do
-    failed = submit_base!(code, "write atlas/failed.txt x; fail")
+    failed = submit_base!(code, "write failed.txt x; fail")
     [attempt] = await_state(failed.work_id, :failed).attempts
     assert attempt.result.work_product == nil
 
-    cancelled = submit_base!(code, "write atlas/cancelled.txt x; hang")
+    cancelled = submit_base!(code, "write cancelled.txt x; hang")
     await_launch(bench, cancelled)
 
     await(fn ->
@@ -336,7 +336,7 @@ defmodule AtlasRuntime.Work.FrozenTest do
     assert attempt.result.work_product == nil
 
     # The Service's native process dies under the turn: the attempt is crashed.
-    crashed = submit_base!(code, "write atlas/crashed.txt x; hang")
+    crashed = submit_base!(code, "write crashed.txt x; hang")
     await_launch(bench, crashed)
     folder = expected_folder(bench.dir, crashed.work_id)
     await(fn -> File.exists?(Path.join(folder, "atlas/crashed.txt")) end)

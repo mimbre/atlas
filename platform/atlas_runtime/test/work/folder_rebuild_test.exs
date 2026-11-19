@@ -68,7 +68,8 @@ defmodule AtlasRuntime.Work.FolderRebuildTest do
 
     assert record["destination"] == folder
     assert record["snapshot_id"] == code.id
-    assert Enum.map(launches(bench), & &1["cwd"]) == [folder, folder]
+    start = Path.join(folder, "atlas")
+    assert Enum.map(launches(bench), & &1["cwd"]) == [start, start]
     # Attempt 1's frozen result does not depend on the folder (P7b reads it once it lands).
   end
 

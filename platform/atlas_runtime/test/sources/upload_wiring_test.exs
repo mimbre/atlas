@@ -101,7 +101,7 @@ defmodule AtlasRuntime.Sources.UploadWiringTest do
 
   defp reports(source, lease_id), do: Agent.get(source, & &1.leases[lease_id].reports)
 
-  @two "write atlas/a.txt alpha; write atlas/b.txt beta; delete atlas/old.md"
+  @two "write a.txt alpha; write b.txt beta; delete old.md"
 
   test "a leased work's result reaches the source complete: change set, csf_ and every blob",
        %{bench: bench, code: code, source: source} do
@@ -140,7 +140,7 @@ defmodule AtlasRuntime.Sources.UploadWiringTest do
   end
 
   test "a lost lease stops the upload at once: nothing is stored", %{code: code, source: source} do
-    {lease_id, work} = leased_and_ended!(code, source, "write atlas/a.txt lost")
+    {lease_id, work} = leased_and_ended!(code, source, "write a.txt lost")
     # Not renewed for lease_ttl + grace: the source has lost the lease.
     Source.advance(source, 900 + 121)
     assert %S.Outcome.Polled{} = poll(%{})
@@ -153,7 +153,7 @@ defmodule AtlasRuntime.Sources.UploadWiringTest do
     code: code,
     source: source
   } do
-    {lease_id, work} = leased_and_ended!(code, source, "write atlas/a.txt rejected")
+    {lease_id, work} = leased_and_ended!(code, source, "write a.txt rejected")
 
     assert {:stopped, :lease_lost} = Upload.run(@client, target(7), lease_id, work.work_id)
     assert length(reports(source, lease_id)) == 2

@@ -204,7 +204,7 @@ defmodule AtlasRuntime.Sources.LocalTest do
     assert {:added, base_id} =
              Local.add(
                client(),
-               base_work(code, "write atlas/a.txt alpha; write atlas/b.txt beta")
+               base_work(code, "write a.txt alpha; write b.txt beta")
              )
 
     assert {:added, folder_id} = Local.add(client(), folder_work(bench, "complete folder"))

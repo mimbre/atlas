@@ -138,10 +138,10 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
 
   test "a passing and a failing command both leave the attempt completed, with exit_status 0 and 3 and no error" do
     {_bench, code} = bench!()
-    pass = submit_check!(code, "write atlas/a.txt pass", %{command: ["sh", "atlas/check.sh"]})
+    pass = submit_check!(code, "write a.txt pass", %{command: ["sh", "atlas/check.sh"]})
 
     fail =
-      submit_check!(code, "write atlas/b.txt fail", %{command: ["sh", "atlas/check.sh", "3"]})
+      submit_check!(code, "write b.txt fail", %{command: ["sh", "atlas/check.sh", "3"]})
 
     for {work, status} <- [{pass, 0}, {fail, 3}] do
       assert %F.CheckResult{
@@ -175,7 +175,7 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
   test "the check runs after the frozen result is persisted: its files are absent from it, and nothing says completed before the check is recorded (I2)",
        %{} do
     {bench, code} = bench!()
-    work = submit_check!(code, "write atlas/a.txt agent", %{command: ["sh", "atlas/check.sh"]})
+    work = submit_check!(code, "write a.txt agent", %{command: ["sh", "atlas/check.sh"]})
     check!(work.work_id)
     records = written(work.work_id)
     attempt = fn record -> hd(record.attempts) end
@@ -232,7 +232,7 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
 
   test "the helper runs in the work folder with the turn's sandbox, --scratch <home>/scratch/check-<work_id>.<n>, the timeout and a 16 KiB tail; the scratch is gone after" do
     {bench, code} = bench!()
-    write = submit_check!(code, "write atlas/w.txt w", %{command: ["true"], timeout: 7})
+    write = submit_check!(code, "write w.txt w", %{command: ["true"], timeout: 7})
     read = submit_check!(code, "complete read-only", %{command: ["true"]}, "read-only")
     check!(write.work_id)
     check!(read.work_id)
@@ -419,7 +419,7 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
   # F7 (B29, design §3.10 "a later resume continues the physical folder"): check files included.
   test "a retry resume: true continues in the folder with the check's files, and its frozen result holds them" do
     {bench, code} = bench!()
-    work = submit_check!(code, "write atlas/a.txt one", %{command: ["sh", "atlas/check.sh"]})
+    work = submit_check!(code, "write a.txt one", %{command: ["sh", "atlas/check.sh"]})
     check!(work.work_id)
     folder = expected_folder(bench.dir, work.work_id)
     assert File.exists?(Path.join(folder, "atlas/check-out.txt"))
@@ -427,7 +427,7 @@ defmodule AtlasRuntime.Work.AfterCheckTest do
     assert %F.Outcome.Accepted{} = F.retry(client(), %{work_id: work.work_id, resume: true})
     await_work(work.work_id, &(length(&1.attempts) == 2 and &1.state == :completed))
     assert [_, %{"resumed" => true, "cwd" => cwd}] = launches(bench)
-    assert Folders.real(cwd) == folder
+    assert Folders.real(cwd) == Path.join(folder, "atlas")
 
     paths =
       for %{entries: entries} <- FrozenStore.get(bench.dir, work.work_id, 2).roots,

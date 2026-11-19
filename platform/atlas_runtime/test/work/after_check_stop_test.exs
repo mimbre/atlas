@@ -336,7 +336,7 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
     File.write!(Path.join(bench.dir, "check-fault"), "group_kept")
 
     work =
-      submit_check!(code, "write atlas/a.txt kept", %{command: ["sleep", "30"], timeout: 60})
+      submit_check!(code, "write a.txt kept", %{command: ["sleep", "30"], timeout: 60})
 
     checking = await_checking(bench, work.work_id)
     scratch = Check.scratch(bench.dir, work.work_id, 1)
