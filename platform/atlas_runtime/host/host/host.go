@@ -135,6 +135,16 @@ func run(args []string) (err error) {
 	if folderProfile && backend == "codex" {
 		scratch = filepath.Join(runtimeHome, "scratch", filepath.Base(folder))
 	}
+	// A folder that holds one repository starts the agent at that repository's root (IS-Atlas-32); its
+	// permissions stay the whole folder.
+	start := workspacePath
+	if repositories, _ := folderScope["repositories"].([]any); folderProfile && len(repositories) == 1 {
+		if path, _ := repositories[0].(string); path != "" {
+			if info, statErr := os.Stat(filepath.Join(workspacePath, path)); statErr == nil && info.IsDir() {
+				start = filepath.Join(workspacePath, path)
+			}
+		}
+	}
 	if backend == "codex" {
 		var permissions []string
 		if scope != nil {
@@ -145,7 +155,7 @@ func run(args []string) (err error) {
 		if err != nil {
 			return err
 		}
-		command = codexCommand(executable, workspacePath, folder, goal, permissions, session, modelName)
+		command = codexCommand(executable, start, folder, goal, permissions, session, modelName)
 		protocol = &codexProtocol{session: session}
 	} else {
 		if enabled {
@@ -330,7 +340,7 @@ func run(args []string) (err error) {
 	// A nil environment (a plain Codex turn) inherits this host's, without ATLAS_RUNTIME_HOME.
 	child.Env = environment
 	if backend == "claude" {
-		child.Dir = workspacePath
+		child.Dir = start
 	}
 	// Question answers go to native stdin through an explicit pipe the loop writes without blocking.
 	var nativeInput, stdin *os.File

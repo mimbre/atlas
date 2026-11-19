@@ -544,8 +544,9 @@ printf '%s\n' '{"type":"result","result":"done"}'
 	if !slices.Contains(lines, "Bash,Read,Glob,Grep") || slices.Contains(lines, "Edit") {
 		t.Fatalf("tools in argv %q", argv)
 	}
-	if cwd, _ := os.ReadFile(native + ".cwd"); string(cwd) != dest+"\n" {
-		t.Fatalf("native must run in the folder: %q", cwd)
+	// The folder holds one repository: the agent starts at its root (IS-Atlas-32).
+	if cwd, _ := os.ReadFile(native + ".cwd"); string(cwd) != filepath.Join(dest, "repo")+"\n" {
+		t.Fatalf("native must run at the folder's repository root: %q", cwd)
 	}
 	var process struct {
 		Command         []string `json:"command"`
