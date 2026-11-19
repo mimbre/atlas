@@ -14,7 +14,7 @@ defmodule AtlasFlow.Activities.LadderEscalationTest do
 
   import AtlasFlow.Sorts.Loop.Bench
 
-  alias AtlasFlow.{FakeCode, FakeFacts}
+  alias AtlasFlow.FakeFacts
   alias AtlasFlow.Runs.{Projection, Store}
 
   @mini {"mini", "ada"}
@@ -129,23 +129,14 @@ defmodule AtlasFlow.Activities.LadderEscalationTest do
     assert owner("B-1") == ["mini"]
   end
 
-  test "an answer without the hand-back runs nothing; once handed back the fresh author runs",
-       c do
+  test "the supervisor's answer alone runs the fresh author", c do
     escalated(c)
-    assert {:ok, _} = Projection.project(c.runner, "bin", "B-1")
-    assert owner("B-1") == ["ada"]
     tasks = length(run(c)["pending"]["tasks"])
-    calls = FakeCode.calls(c.code)
 
     answer("B-1", "fresh")
     run = settle(c)
-    assert {run["state"], run["pending"]["task"]} == {"fresh", nil}
-    assert task_values("TK-B-1-#{tasks + 1}") == nil
-    assert FakeCode.calls(c.code) == calls
-
-    bin("B-1", "mini", "ada")
-    assert %{"key" => key} = settle(c)["pending"]["task"]
-    assert key == "TK-B-1-#{tasks + 1}"
+    key = "TK-B-1-#{tasks + 1}"
+    assert {run["state"], run["pending"]["task"]["key"]} == {"fresh", key}
     assert task_values(key)["kind"] == "author"
   end
 
