@@ -96,11 +96,23 @@ defmodule AtlasCode.Dependencies do
   end
 
   # mix and npm run as tools of their own, not inside this release: the release's own
-  # variables (its boot script, root and bin dirs) would make `mix` boot the release.
+  # variables (its boot script, root and bin dirs) and its erts on PATH would make `mix` boot
+  # the release.
   defp outside_release do
-    for {name, _} <- System.get_env(),
-        String.starts_with?(name, "RELEASE_") or name in ~w(ROOTDIR BINDIR EMU PROGNAME),
-        do: {name, nil}
+    release = System.get_env("ROOTDIR")
+
+    path =
+      (System.get_env("PATH") || "")
+      |> String.split(":")
+      |> Enum.reject(&(is_binary(release) and String.starts_with?(&1, release)))
+      |> Enum.join(":")
+
+    unset =
+      for {name, _} <- System.get_env(),
+          String.starts_with?(name, "RELEASE_") or name in ~w(ROOTDIR BINDIR EMU PROGNAME),
+          do: {name, nil}
+
+    [{"PATH", path} | unset]
   end
 
   # Git in `dir` (with `work` its work tree, or none) and an index of its own; each call
