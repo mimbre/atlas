@@ -137,6 +137,13 @@ defmodule AtlasRuntime.Agent.Native do
               [{~c"ATLAS_RUNTIME_HOME", String.to_charlist(Path.expand(home))}]
         end
 
+      # The agent acts in Atlas as itself (its slot's agent key), on behalf of whom it assists.
+      env =
+        case Keyword.get(opts, :agent_key) do
+          nil -> env
+          key -> List.keydelete(env, ~c"ATLAS_AS", 0) ++ [{~c"ATLAS_AS", String.to_charlist(key)}]
+        end
+
       port =
         Port.open({:spawn_executable, host}, [
           :binary,
