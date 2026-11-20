@@ -774,7 +774,7 @@ defmodule AtlasControl.Pages do
 
   # What is assigned to the client, calm (platform/atlas_control/backend/README.md): an
   # Overview of the counts and the list without technical noise; the technical details are
-  # an agent's or developer's (`atlas get`), never on a person's page.
+  # an agent's or developer's (`atlas get`), never on a page a human reads.
   defp assigned(m, _by, answers, marked) do
     rule = assigned_rule(m)
     items = assigned_facts(m, answers, marked)
@@ -1546,7 +1546,7 @@ defmodule AtlasControl.Pages do
   end
 
   # A span's name on the screens: its label; when another span has that label too, with
-  # the kind its work is on (`Break down scenes`), so each one is told apart.
+  # the plural of the kind its work is on, so each one is told apart.
   defp span_title(m, s) do
     label = s.label || s.span
 
