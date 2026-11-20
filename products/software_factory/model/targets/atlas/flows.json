@@ -698,6 +698,11 @@
             },
             {
               "roles": ["atlas-flow"],
+              "to": "unchanged",
+              "when": "entity.publication == 'no_changes'"
+            },
+            {
+              "roles": ["atlas-flow"],
               "to": "stuck",
               "when": "entity.publication == 'refused'"
             }
@@ -813,6 +818,53 @@
           "final": true,
           "label": "Stuck",
           "set": [],
+          "timers": [],
+          "waiting_for": []
+        },
+        "unchanged": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "done",
+              "when": "entity.gate_result == 'close'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Nothing to merge",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Decide what to do with it",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "gate_result": "close"
+                    }
+                  },
+                  "key": "c",
+                  "label": "Close it"
+                }
+              ],
+              "instructions": "Its result has no changes against develop, so Code opened no pull request. Close it when nothing was to change."
+            },
+            "why": "its agent changed nothing"
+          },
+          "set": [
+            {
+              "field": "gate_result",
+              "value": "none"
+            }
+          ],
           "timers": [],
           "waiting_for": []
         },
@@ -2901,6 +2953,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "73eee6d855758ab4625fbc146850cf6a7f126750a820cf4cd12486d96adae91a",
+  "rela_flows_sha256": "6be8b3adad6bc93a470acf3fada7e2c9bf03097564646b1cbc110f7fc0455104",
   "writer": "system:atlas-flow"
 }

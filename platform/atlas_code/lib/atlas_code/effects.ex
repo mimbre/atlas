@@ -73,7 +73,10 @@ defmodule AtlasCode.Effects do
   "answer"}`: the task that fixed those findings, whose result this is; its commit sits on
   the author's, both on `base`). Done, with `reference` and `outputs` `%{"url"}`, is that
   pull's web address. A repeat first looks the branch's pull up, so it is never opened
-  twice; a branch already at another commit is refused `branch_taken`.
+  twice; a branch already at another commit is refused `branch_taken`. A result with no
+  changes against `base` (its tree is that of the commit it shares with Code's copy of
+  `base`: what the pull would show) is refused `no_changes` when it is accepted, and
+  nothing is pushed or opened.
   """
 
   alias AtlasBus.{Digest, SubjectFingerprint}
@@ -192,8 +195,13 @@ defmodule AtlasCode.Effects do
 
       true ->
         case s.results.(input["repository"], input["result"]) do
-          {:ok, %{"dir" => dir, "commit" => commit}} -> {:ok, %{"dir" => dir, "commit" => commit}}
-          _ -> {:refused, "unknown_result", %{"result" => input["result"]}}
+          {:ok, %{"dir" => dir, "commit" => commit}} ->
+            if unchanged?(dir, commit, input["base"]),
+              do: {:refused, "no_changes", %{"base" => input["base"]}},
+              else: {:ok, %{"dir" => dir, "commit" => commit}}
+
+          _ ->
+            {:refused, "unknown_result", %{"result" => input["result"]}}
         end
     end
   end
@@ -229,6 +237,22 @@ defmodule AtlasCode.Effects do
       true ->
         with {:ok, commit} <- resolve(s, slug(r), payload["revision"]),
              do: {:ok, %{"line" => [commit]}}
+    end
+  end
+
+  # Whether `commit` changes nothing against `base` in the Git repository `dir`: its tree is
+  # that of the commit it shares with the base branch, so its pull would have no files. A
+  # base Code's copy does not hold says nothing.
+  defp unchanged?(dir, commit, base) do
+    git = &System.cmd("git", ["--git-dir", dir | &1], stderr_to_stdout: true)
+
+    with {out, 0} <- git.(["merge-base", commit, "refs/heads/" <> base]),
+         shared = String.trim(out),
+         {trees, 0} <- git.(["rev-parse", shared <> "^{tree}", commit <> "^{tree}"]),
+         [same, same] <- String.split(trees) do
+      true
+    else
+      _ -> false
     end
   end
 

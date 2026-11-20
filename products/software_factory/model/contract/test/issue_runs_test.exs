@@ -155,6 +155,34 @@ defmodule Model.IssueRunsTest do
            }
 
     assert input["fix"] == %{"task" => @fix, "answer" => "Fixed the second typo."}
+
+    # Had Code found no changes against develop, it would open no pull: the issue goes to
+    # its supervisor (`unchanged`, owned by the decider), its publication says why.
+    r = publishing["pending"]["effect"]["request"]
+
+    reply = %{
+      "version" => 1,
+      "id" => r["id"],
+      "digest" => publishing["pending"]["effect"]["digest"],
+      "fingerprint" => r["fingerprint"],
+      "status" => "refused",
+      "reason" => "no_changes",
+      "details" => %{"base" => "develop"}
+    }
+
+    flow = c.runner.flows["issue"]
+    now = AtlasFlow.Runs.Clock.now(c.clock)
+
+    assert {:ok, unchanged} =
+             Run.effect_result(publishing, flow, FakeFacts.get("issue", @key), now, reply)
+
+    assert unchanged["state"] == "unchanged"
+    assert flow.owner("unchanged")["default"] == %{"kind" => "person", "config" => "decider"}
+
+    assert Enum.any?(
+             unchanged["pending"]["writes"],
+             &(&1["content"]["values"]["publication"] == "no_changes")
+           )
   end
 
   defp issue do

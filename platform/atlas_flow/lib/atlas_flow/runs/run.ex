@@ -192,6 +192,8 @@ defmodule AtlasFlow.Runs.Run do
   @doc """
   Enter the branch for a fenced effect reply. The record and subject writes join the
   entry's pending writes with stable ids, so a partial replay completes them exactly once.
+  A refusal whose reason the state maps (`on: [no_changes: …]`) takes that branch, and its
+  reason is the result field's value; any other takes `refused`.
   """
   def effect_result(run, flow, subject, now, reply) do
     {:effect, spec} = flow.mechanism(run["state"])
@@ -199,8 +201,9 @@ defmodule AtlasFlow.Runs.Run do
 
     with {:ok, result} <- Effect.validate_reply(intent, reply),
          true <- result["status"] in ["done", "refused"],
-         {:to, to} <- flow.next(run["state"], %{spec["field"] => result["status"]}, :result) do
-      writes = Effect.writes(intent, spec, run, result)
+         outcome = effect_outcome(flow, run["state"], spec["field"], result),
+         {:to, to} <- flow.next(run["state"], %{spec["field"] => outcome}, :result) do
+      writes = Effect.writes(intent, spec, run, result, outcome)
       record = %{"request" => intent["request"], "result" => result}
 
       {:ok,
@@ -217,6 +220,15 @@ defmodule AtlasFlow.Runs.Run do
       _ -> {:error, :invalid_effect_result}
     end
   end
+
+  defp effect_outcome(flow, state, field, %{"status" => "refused", "reason" => reason}) do
+    case flow.next(state, %{field => reason}, :result) do
+      {:to, _} -> reason
+      _ -> "refused"
+    end
+  end
+
+  defp effect_outcome(_flow, _state, _field, result), do: result["status"]
 
   @doc """
   Enter the branch for a task's `outcome` (`AtlasFlow.Activities.Task.step/4`): its

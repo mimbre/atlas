@@ -53,7 +53,7 @@ defmodule RelaDSL.Schema do
   | mechanism | field | values |
   |---|---|---|
   | `gate` | `gate_result` | the gate's `verdicts` |
-  | `effect` | `effect_result`, or `field:` | `done`, `refused` |
+  | `effect` | `effect_result`, or `field:` | `done`, `refused`, and a refusal's reason it maps |
   | `task` | `task_result`, or `field:` | `completed`, `check_failed`, `stuck`, `abandoned` |
 
   A `task` is one unit of work Flow defines for the machinery the subject is assigned
@@ -113,6 +113,10 @@ defmodule RelaDSL.Schema do
 
   A result may lead to `{state, label}` instead of a state: the branch then carries
   that label, as `refused: {:decide, "The service refused; a person decides"}`.
+
+  An effect may also map a reason the service refuses with, as `no_changes: :unchanged`:
+  that refusal takes its branch, and the field holds the reason; every other refusal is
+  `refused` (`AtlasFlow.Runs.Run.effect_result/5`).
 
   `wait_for` is the same for people: the state waits in their inbox, the field is
   reset, and each value they may choose is a branch only they can take. With
@@ -455,7 +459,7 @@ defmodule RelaDSL.Schema do
   @doc "Mechanism: the gate `name`, mapping each of its verdicts to a state (`ready: :next, …`)."
   defmacro gate(name, verdicts), do: item(:gate, [name, verdicts])
 
-  @doc "Mechanism: the outside `action`, with its spec (`service:`, `field:`, `also:`, …) and `on: [done:, refused:]`."
+  @doc "Mechanism: the outside `action`, with its spec (`service:`, `field:`, `also:`, …) and `on: [done:, refused:]`, and any refusal reason it maps."
   defmacro effect(action, opts), do: item(:effect, [action, opts])
 
   @doc """
@@ -1144,9 +1148,11 @@ defmodule RelaDSL.Schema do
 
   defp put({:effect, action, opts}, s, _gates) do
     field = Keyword.get(opts, :field, :effect_result)
+    on = Keyword.get(opts, :on, [])
     spec = Map.new([action: action, field: field] ++ Keyword.drop(opts, [:on, :field]))
     {s, ps} = mechanism(s, {:effect, spec})
-    also(results(s, field, @effect_results, Keyword.get(opts, :on, [])), ps)
+    # Every other key it maps is a reason the service refuses with.
+    also(results(s, field, Enum.uniq(@effect_results ++ Keyword.keys(on)), on), ps)
   end
 
   # A task's result is the run's own: no reset on entry, only its branches read it.
