@@ -17,7 +17,7 @@ struct ShellView: View {
     var body: some View {
         let shell = ShellViewModel(session.state)
         NavigationSplitView {
-            Sidebar(shell: shell, select: session.selectTab)
+            Sidebar(shell: shell, select: session.selectTab, filter: session.filter)
         } content: {
             Column(page: shell.index, selectedPath: shell.selectedPath, open: session.open, submit: submit)
         } detail: {
@@ -41,16 +41,43 @@ struct ShellView: View {
 }
 
 /// The tabs, in boot's order, with the count (what waits for the user) as the section's
-/// header. It scrolls, so it holds boot's limit of 64.
+/// header; under the active tab, the groups of its page, each with its count (as a mail
+/// app's folders). It scrolls, so it holds boot's limit of 64.
 struct Sidebar: View {
     let shell: ShellViewModel
     let select: (String) -> Void
+    let filter: (String) -> Void
+
+    /// A tab, by its id, or a group of the active tab's page, by its `to`.
+    enum Choice: Hashable {
+        case tab(String)
+        case group(String)
+    }
+
+    private var choice: Binding<Choice?> {
+        Binding(
+            get: { shell.activeGroup.map(Choice.group) ?? shell.activeTab.map(Choice.tab) },
+            set: { choice in
+                switch choice {
+                case .tab(let id): select(id)
+                case .group(let to): filter(to)
+                case nil: break
+                }
+            })
+    }
 
     var body: some View {
-        List(selection: Binding(get: { shell.activeTab }, set: { if let id = $0 { select(id) } })) {
+        List(selection: choice) {
             Section {
                 ForEach(shell.tabs) { tab in
-                    Text(tab.label).tag(tab.id as String?)
+                    Text(tab.label).badge(tab.count ?? 0).tag(Choice.tab(tab.id))
+                    if tab.id == shell.activeTab {
+                        ForEach(shell.groups) { group in
+                            Text(group.label).badge(group.count)
+                                .padding(.leading, 12)
+                                .tag(Choice.group(group.to))
+                        }
+                    }
                 }
             } header: {
                 if let count = shell.count { Text(count) }
@@ -58,7 +85,7 @@ struct Sidebar: View {
         }
         .listStyle(.sidebar)
         .opacity(shell.stale ? 0.6 : 1)
-        .navigationSplitViewColumnWidth(min: 160, ideal: 200)
+        .navigationSplitViewColumnWidth(min: 160, ideal: 220)
     }
 }
 

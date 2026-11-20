@@ -216,6 +216,8 @@ public struct SessionState: Sendable, Equatable {
         case bootTimedOut(serial: Int)
         /// The user chose a tab in the sidebar.
         case selectTab(id: String)
+        /// The user chose a group of the middle column's page (`groups`): its page goes there.
+        case filter(to: String)
         /// The user opened a page Control named (a row's or an action's `to`).
         case open(to: String)
         /// The user typed into the page on screen.
@@ -264,6 +266,8 @@ public struct SessionState: Sendable, Equatable {
             return disconnect(closing: true)
         case .selectTab(let id):
             return selectTab(id)
+        case .filter(let to):
+            return filter(to)
         case .open(let to):
             guard connection == .connected, phase == .ready || phase == .content else { return [] }
             return navigate(to, column: .opened)
@@ -499,6 +503,15 @@ public struct SessionState: Sendable, Equatable {
         draft = [:]
         if index?.path != tab.to { index = nil }
         return navigate(tab.to, column: .index)
+    }
+
+    /// Show one group of the tab's page in the middle column, on the same tab.
+    private mutating func filter(_ to: String) -> [Effect] {
+        guard connection == .connected, phase == .ready || phase == .content else { return [] }
+        guard !isEditing else { return [] }
+        opened = nil
+        draft = [:]
+        return navigate(to, column: .index)
     }
 
     /// Ask for a page Control named; only one `open` is on the wire, a newer wish waits.

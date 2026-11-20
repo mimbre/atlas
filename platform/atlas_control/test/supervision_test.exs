@@ -167,6 +167,33 @@ defmodule AtlasControl.SupervisionTest do
     end
   end
 
+  test "Open for you declares its groups: all, then one per span, each its own page" do
+    m = @s
+    s = span(m)
+    items = [work(m, "W-1", presented()), work(m, "W-2", presented(state: "done"))]
+    all = {:open_for_you, "ada"}
+    page = Pages.render(all, m, screen_answers(all, m, items))
+
+    # All first (the page itself, active), then each span with its count and its page.
+    groups = block(page, "groups")["props"]["groups"]
+    assert [%{"to" => "/_open", "count" => 1, "active" => true}, group] = groups
+    group_route = {:open_for_you_group, s.subflow, s.span}
+    assert Pages.route(group["to"]) == group_route
+    assert %{"count" => 1, "active" => false} = group
+    assert Pages.resolve(group_route, m) == group_route
+    assert Pages.resolve({:open_for_you_group, s.subflow, "nowhere"}, m) == :unknown
+
+    # `[` and `]` open the previous and the next group.
+    assert Enum.map(page.console_actions, & &1.operation["to"]) == [group["to"], group["to"]]
+
+    # The group's page: the same groups, that one active, and only its span's list.
+    page = Pages.render(group_route, m, screen_answers(group_route, m, items))
+    assert Pages.reads(group_route, m) == Pages.reads(all, m)
+    assert [%{"active" => false}, %{"active" => true}] = block(page, "groups")["props"]["groups"]
+    assert keys_of(block(page, "list:#{s.subflow}:#{s.span}")["props"]["rows"]) == ["W-1"]
+    assert page.back == "/_open"
+  end
+
   test "Supervised by you: the client's, still in a span; its running work counted quietly" do
     for m <- @models do
       items = [

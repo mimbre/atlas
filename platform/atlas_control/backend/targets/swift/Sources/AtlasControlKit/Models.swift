@@ -1222,6 +1222,28 @@ public struct RowModel: Codable, Sendable, Equatable {
     }
 }
 
+/// The model `group`.
+public struct GroupModel: Codable, Sendable, Equatable {
+    public var label: String
+    public var count: Int
+    public var to: String
+    public var active: Bool?
+
+    public init(label: String, count: Int, to: String, active: Bool? = nil) {
+        self.label = label
+        self.count = count
+        self.to = to
+        self.active = active
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case label
+        case count
+        case to
+        case active
+    }
+}
+
 /// The model `origin`.
 public struct OriginModel: Codable, Sendable, Equatable {
     public var since: String?

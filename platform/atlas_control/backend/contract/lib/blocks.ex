@@ -16,6 +16,13 @@ defmodule AtlasBFFContract.Blocks do
         field :actions, {:list, :action}
       end
 
+      # The groups a page's items fall into, each a filter of the page: opening a group's
+      # `to` shows only that group's items, with the same groups, that one `active`. A
+      # client shows them as it likes (a filter row, a sidebar's sub-items), never per group.
+      defblock :groups do
+        field :groups, {:list, :group}, required: true
+      end
+
       defblock :item do
         field :title, :string, required: true
         field :fields, {:list, :pair}, required: true

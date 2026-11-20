@@ -10,8 +10,10 @@ defmodule AtlasBFFContract.Pages do
       # passes; Control resolves them from rela's description.
       defpage :home, "/"
       # Supervision (work acquisition decision 2026-11-17, §5.8): the flows one may
-      # pick up (Open for you) and those the client supervises (Supervised by you).
+      # pick up (Open for you) and those the client supervises (Supervised by you). Open
+      # for you per group: the flows in one supervised span of a subflow.
       defpage :open_for_you, "/_open"
+      defpage :open_for_you_group, "/_open/:subflow/:span"
       defpage :supervised_by_you, "/_supervised"
       defpage :workers, "/workers"
       defpage :worker, "/workers/:machine/:worker/:turn/:attempt"
