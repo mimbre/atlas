@@ -132,7 +132,8 @@ defmodule Model.UseCase do
     field(:status, :plan_status, description: "Flux group; empty = no group", label: "Flux group")
 
     field(:design, :string,
-      description: "The Design part: how it is built, written by its design agent, accepted by its supervisor",
+      description:
+        "The Design part: how it is built, written by its design agent, accepted by its supervisor",
       multiline: true,
       label: "Design"
     )
