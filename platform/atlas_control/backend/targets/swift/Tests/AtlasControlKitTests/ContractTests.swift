@@ -22,7 +22,7 @@ final class ContractTests: XCTestCase {
     }
 
     func test_version() {
-        XCTAssertEqual(Contract.version, "0.18.0")
+        XCTAssertEqual(Contract.version, "0.19.0")
     }
 
     func test_block_list_decodes_and_round_trips() throws {
@@ -42,6 +42,27 @@ final class ContractTests: XCTestCase {
         ] {
             let block = try decode(Block.self, text)
             XCTAssertEqual(block.content, .fallback(Fallback(type: "list", reason: reason, raw: try json(text))))
+            try assertRoundTrip(block, text)
+        }
+    }
+
+    func test_block_groups_decodes_and_round_trips() throws {
+        for text in [##"{"id":"b1","props":{"groups":[{"count":7,"label":"label 1","to":"to 1"}]},"type":"groups"}"##, ##"{"id":"b1","props":{"groups":[{"active":true,"count":7,"label":"label 1","to":"to 1"}]},"type":"groups"}"##] {
+            let block = try decode(Block.self, text)
+            guard case .groups = block.content else { return XCTFail("groups fell back: \(block.content)") }
+            XCTAssertEqual(block.type, "groups")
+            XCTAssertEqual(block.id, "b1")
+            try assertRoundTrip(block, text)
+        }
+    }
+
+    func test_block_groups_without_groups_or_with_a_wrong_one_falls_back() throws {
+        for (text, reason) in [
+            (##"{"id":"b1","props":{},"type":"groups"}"##, Fallback.Reason.missing(path: ["groups"])),
+            (##"{"id":"b1","props":{"groups":"zz"},"type":"groups"}"##, Fallback.Reason.wrongType(path: ["groups"])),
+        ] {
+            let block = try decode(Block.self, text)
+            XCTAssertEqual(block.content, .fallback(Fallback(type: "groups", reason: reason, raw: try json(text))))
             try assertRoundTrip(block, text)
         }
     }
@@ -185,9 +206,9 @@ final class ContractTests: XCTestCase {
     }
 
     func test_a_list_of_blocks_keeps_every_known_block_around_a_fallback() throws {
-        let text = ##"[{"id":"b1","props":{"rows":[{"label":"label 1","to":"to 1"}]},"type":"list"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"fields":[{"label":"label 1"}],"title":"title 1"},"type":"item"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"options":[{"answer":{"endpoint":"endpoint 1"},"consequences":"consequences 1","details":"details 1","effect":"effect 1","id":"id 1","rule":"rule 1","text":"text 1"}],"question":"question 1","rationale":"rationale 1","recommended":"recommended 1","revision":"revision 1"},"type":"single_choice"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"inputs":[{"kind":"kind 1","label":"label 1","name":"name 1"}],"submit_label":"submit_label 1","submit_to":{"endpoint":"endpoint 1"},"title":"title 1"},"type":"form"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"cancel_to":"cancel_to 1","text":"text 1","title":"title 1"},"type":"confirm"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"request":"request 1","state":"state 1","steps":[{"label":"label 1","n":7,"state":"state 1"}],"title":"title 1"},"type":"plan"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"available":true,"keys":["keys 1"],"label":"label 1","operation":{"name":"name 1"},"scope":{"context":"context 1","page":"page 1","revision":"revision 1"}},"type":"console_action"},{"id":"zz","props":{"a":1},"type":"zz_unknown"}]"##
+        let text = ##"[{"id":"b1","props":{"rows":[{"label":"label 1","to":"to 1"}]},"type":"list"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"groups":[{"count":7,"label":"label 1","to":"to 1"}]},"type":"groups"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"fields":[{"label":"label 1"}],"title":"title 1"},"type":"item"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"options":[{"answer":{"endpoint":"endpoint 1"},"consequences":"consequences 1","details":"details 1","effect":"effect 1","id":"id 1","rule":"rule 1","text":"text 1"}],"question":"question 1","rationale":"rationale 1","recommended":"recommended 1","revision":"revision 1"},"type":"single_choice"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"inputs":[{"kind":"kind 1","label":"label 1","name":"name 1"}],"submit_label":"submit_label 1","submit_to":{"endpoint":"endpoint 1"},"title":"title 1"},"type":"form"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"cancel_to":"cancel_to 1","text":"text 1","title":"title 1"},"type":"confirm"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"request":"request 1","state":"state 1","steps":[{"label":"label 1","n":7,"state":"state 1"}],"title":"title 1"},"type":"plan"},{"id":"zz","props":{"a":1},"type":"zz_unknown"},{"id":"b1","props":{"available":true,"keys":["keys 1"],"label":"label 1","operation":{"name":"name 1"},"scope":{"context":"context 1","page":"page 1","revision":"revision 1"}},"type":"console_action"},{"id":"zz","props":{"a":1},"type":"zz_unknown"}]"##
         let blocks = try decode([Block].self, text)
-        XCTAssertEqual(blocks.count, 14)
+        XCTAssertEqual(blocks.count, 16)
         for (i, block) in blocks.enumerated() {
             if case .fallback(let fallback) = block.content {
                 XCTAssertEqual(i % 2, 1)
@@ -259,6 +280,14 @@ final class ContractTests: XCTestCase {
         let path = try Page.openForYou.path(params)
         XCTAssertEqual(Page.match(path), PageMatch(page: .openForYou, params: params))
         XCTAssertEqual(Page.openForYou.template, "/_open")
+    }
+
+    func test_page_open_for_you_group_builds_and_matches_its_path() throws {
+        let params: [String: String] = ["span": "v span/1", "subflow": "v subflow/1"]
+        let path = try Page.openForYouGroup.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .openForYouGroup, params: params))
+        XCTAssertEqual(Page.openForYouGroup.template, "/_open/:subflow/:span")
+        XCTAssertThrowsError(try Page.openForYouGroup.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .openForYouGroup, param: "subflow")) }
     }
 
     func test_page_supervised_by_you_builds_and_matches_its_path() throws {

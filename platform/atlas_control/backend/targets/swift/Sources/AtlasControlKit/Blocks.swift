@@ -23,6 +23,19 @@ public struct ListBlock: Codable, Sendable, Equatable {
     }
 }
 
+/// The props of the block `groups`.
+public struct GroupsBlock: Codable, Sendable, Equatable {
+    public var groups: [GroupModel]
+
+    public init(groups: [GroupModel]) {
+        self.groups = groups
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case groups
+    }
+}
+
 /// The props of the block `item`.
 public struct ItemBlock: Codable, Sendable, Equatable {
     public var title: String
@@ -197,6 +210,7 @@ public struct Block: Codable, Sendable, Equatable {
 
     public enum Content: Sendable, Equatable {
         case list(ListBlock)
+        case groups(GroupsBlock)
         case item(ItemBlock)
         case singleChoice(SingleChoiceBlock)
         case form(FormBlock)
@@ -215,6 +229,7 @@ public struct Block: Codable, Sendable, Equatable {
     public var type: String? {
         switch content {
         case .list: "list"
+        case .groups: "groups"
         case .item: "item"
         case .singleChoice: "single_choice"
         case .form: "form"
@@ -236,6 +251,7 @@ public struct Block: Codable, Sendable, Equatable {
         do {
             switch type {
             case "list": content = .list(try props.decode(ListBlock.self))
+            case "groups": content = .groups(try props.decode(GroupsBlock.self))
             case "item": content = .item(try props.decode(ItemBlock.self))
             case "single_choice": content = .singleChoice(try props.decode(SingleChoiceBlock.self))
             case "form": content = .form(try props.decode(FormBlock.self))
@@ -256,6 +272,7 @@ public struct Block: Codable, Sendable, Equatable {
     public func encode(to encoder: any Encoder) throws {
         switch content {
         case .list(let props): try BlockWire(id: id, type: "list", props: props).encode(to: encoder)
+        case .groups(let props): try BlockWire(id: id, type: "groups", props: props).encode(to: encoder)
         case .item(let props): try BlockWire(id: id, type: "item", props: props).encode(to: encoder)
         case .singleChoice(let props): try BlockWire(id: id, type: "single_choice", props: props).encode(to: encoder)
         case .form(let props): try BlockWire(id: id, type: "form", props: props).encode(to: encoder)

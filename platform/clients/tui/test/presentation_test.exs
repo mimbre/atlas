@@ -194,6 +194,26 @@ defmodule AtlasTui.PresentationTest do
     end
   end
 
+  test "a page's groups show as one filter row with counts, the shown one selected" do
+    m = model()
+
+    groups = %AtlasTui.Blocks.Groups{
+      groups:
+        for {label, count, active} <- [
+              {"All", 3, false},
+              {"Build", 2, true},
+              {"Design", 1, false}
+            ] do
+          %AtlasTui.Blocks.Group{label: label, count: count, to: "/_open", active: active}
+        end
+    }
+
+    rows = View.render(%{m | blocks: [groups | m.blocks], ids: ["groups" | m.ids]}, 60, 40, 5)
+    assert View.plain(rows) =~ " All 3 · Build 2 · Design 1"
+    assert Enum.any?(rows, &Enum.member?(&1, {:selected, " Build 2 "}))
+    assert View.plain(rows) =~ "W-01"
+  end
+
   test "pending targets keep the shell but hide previous content and action affordances" do
     model = model()
 
