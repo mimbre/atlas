@@ -605,24 +605,6 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
-    test "an effect that maps a result it never gives" do
-      refused(
-        """
-        subflow :f, subject: :t do
-          run_as "system:x"
-          start :create
-          initial :a
-          state :a do
-            effect :call, on: [done: :b, refused: :b, late: :b]
-          end
-          final :b
-        end
-        """,
-        6,
-        "state a: effect_result never gives late"
-      )
-    end
-
     test "a task that does not map every result" do
       refused(
         task_source("", "on: [completed: :b, check_failed: :c, stuck: :c]"),

@@ -299,7 +299,7 @@ defmodule AtlasFlow.Activities.EffectTest do
 
     test "records and outputs become replayable writes with ids bound to the activity" do
       i = frozen()
-      [record, change] = Effect.writes(i, spec(), run(), reply(i))
+      [record, change] = Effect.writes(i, spec(), run(), reply(i), "done")
       assert record["kind"] == "crate"
       assert record["content"]["op"] == "create"
       assert record["content"]["key"] == record["id"]
@@ -311,11 +311,10 @@ defmodule AtlasFlow.Activities.EffectTest do
                "artifact" => "artifact-1"
              }
 
-      assert Effect.writes(i, spec(), run(), reply(i)) == [record, change]
+      assert Effect.writes(i, spec(), run(), reply(i), "done") == [record, change]
 
-      [refusal] =
-        Effect.writes(i, spec(), run(), reply(i, %{"status" => "refused", "reason" => "no"}))
-
+      refused = reply(i, %{"status" => "refused", "reason" => "no"})
+      [refusal] = Effect.writes(i, spec(), run(), refused, "refused")
       assert refusal["content"]["values"] == %{"effect_result" => "refused"}
       assert refusal["id"] == change["id"]
     end

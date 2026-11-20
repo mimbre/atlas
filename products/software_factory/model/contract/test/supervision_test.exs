@@ -129,7 +129,7 @@ defmodule Model.SupervisionTest do
   end
 
   test "the issue build is the one span: its states until merged, with its packages' runs" do
-    states = ~w(working reviewing fixing publishing merging)
+    states = ~w(working reviewing fixing publishing merging unchanged)
 
     assert %{
              "issue" => [
