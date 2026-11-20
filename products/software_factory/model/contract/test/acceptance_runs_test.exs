@@ -5,11 +5,11 @@ defmodule Model.AcceptanceRunsTest do
   `test_and_accept_use_case`, both taking the use case from the old flow
   `design_and_accept` (gone since slice 14). Their selections; the disjoint admission
   that gives each use case one writer at any moment, and never none; the import tables
-  mapped onto the use cases on test and prod; the design's acceptance and rejection, and
-  its restart before the accepted output is acknowledged; the build run's start from the
-  accepted design, once; its counts; the decider's verdict; reopening, which starts a new
-  generation only on an explicit restart; and the migrations from the base's digests, on
-  the compiled subflows of both environments.
+  mapped onto the use cases on test and prod; slice 9's agent design and its
+  supervisor's acceptance, and its restart before the accepted output is acknowledged;
+  the build run's start from the accepted design, once; its counts; the decider's
+  verdict; reopening, which starts a new generation only on an explicit restart; and
+  the migrations from the base's digests, on the compiled subflows of both environments.
   """
   use ExUnit.Case, async: true
 
@@ -23,6 +23,8 @@ defmodule Model.AcceptanceRunsTest do
   # The digests the base recorded before slices 10 and 11 (the same in prod and test, the
   # only one each had).
   @base "25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e"
+  # The design's digest from slice 10 until slice 9's agent design.
+  @slice10 "57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571"
   @build_base "439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1"
   @admitted ~w(writing in_review changes_requested)
 
@@ -169,7 +171,8 @@ defmodule Model.AcceptanceRunsTest do
 
       f = flow(env)
       assert Run.validate(f) == :ok
-      assert f.states() == ~w(accepted design_review designing redesign)
+      assert f.states() == ~w(accepted accepting designing)
+      assert AtlasFlow.Model.owner(f.owner("accepting")["default"], actors()) == tester()
 
       b = flow(env, @build)
       assert Run.validate(b) == :ok
@@ -180,9 +183,10 @@ defmodule Model.AcceptanceRunsTest do
 
       for f <- [f, b] do
         # No pass, gate or effect, no create and no timer: nothing is dispatched or made for
-        # a use case but its break-down's task (slice 7), and nothing is due.
+        # a use case but its design's and its break-down's task (slices 9 and 7), and
+        # nothing is due.
         assert for(s <- f.states(), f.mechanism(s) != nil, do: s) ==
-                 if(f == b, do: ["break_down"], else: [])
+                 if(f == b, do: ["break_down"], else: ["designing"])
 
         assert for(s <- f.states(), {:create, _} <- f.enter(s, %{}), do: s) == []
         assert Enum.all?(f.states(), &(f.timers(&1) == []))
@@ -267,8 +271,7 @@ defmodule Model.AcceptanceRunsTest do
 
   test "every import row of the design, mapped onto the use cases on test and prod" do
     assert selection()["imports"] == [
-             %{"when" => %{"design_status" => ["in_review"]}, "state" => "design_review"},
-             %{"when" => %{"design_status" => ["changes_requested"]}, "state" => "redesign"}
+             %{"when" => %{"design_status" => ["in_review"]}, "state" => "accepting"}
            ]
 
     # No row leads to the accepted end: no acceptance is made for a use case whose design
@@ -276,36 +279,30 @@ defmodule Model.AcceptanceRunsTest do
     refute Enum.any?(selection()["imports"], &(&1["state"] == "accepted"))
 
     for env <- @envs do
-      # prod 11 and test 1: writing, "Write its Design part" for the architect. No row: it
-      # starts in designing, as a new one does, writing nothing; what it shows and its
-      # owner stay.
-      {values, _} = live("writing")
-      run = new(env, values)
-      assert at(run) == {"designing", "active", 1}
-      refute Map.has_key?(run["last_input"], "import")
-      assert run["pending"] == %{"version" => 1, "writes" => []}
-      assert run["deadlines"]["timers"] == []
-      assert run_presents(env, "designing", values) == {"Write its Design part", @architect}
-      assert writer(env, values, %{@name => run}) == {:run, @name}
-
-      # In review, or sent back by its review (none on test or prod today): the row joins
-      # that wait, writing nothing, presenting it to the same owner as before.
-      for {status, state, owner} <- [
-            {"in_review", "design_review", @coordinator},
-            {"changes_requested", "redesign", @architect}
-          ] do
+      # Writing, or sent back by its review: no row. It starts in designing, as a new one
+      # does, writing nothing, for the architect until a person picks it up.
+      for status <- ["writing", "changes_requested"] do
         {values, _} = live(status)
         run = new(env, values)
-        assert at(run) == {state, "active", 1}
-        assert run["last_input"] == %{"version" => 1, "import" => true}
+        assert at(run) == {"designing", "active", 1}
+        refute Map.has_key?(run["last_input"], "import")
         assert run["pending"] == %{"version" => 1, "writes" => []}
         assert run["deadlines"]["timers"] == []
-        assert {expected, ^owner} = run_presents(env, state, values)
-        assert expected != ""
+        assert run_presents(env, "designing", values) == {"Write its Design part", @architect}
         assert writer(env, values, %{@name => run}) == {:run, @name}
-        # Imported where it is, it stays there: nothing moves it until its design does.
-        assert {:ok, ^run} = Run.step(run, flow(env), use_case(values), @now)
       end
+
+      # In review (its design written by hand): the row joins its acceptance, writing
+      # nothing, for the decider until a person picks it up.
+      {values, _} = live("in_review")
+      run = new(env, values)
+      assert at(run) == {"accepting", "active", 1}
+      assert run["last_input"] == %{"version" => 1, "import" => true}
+      assert run["pending"] == %{"version" => 1, "writes" => []}
+      assert run_presents(env, "accepting", values) == {"Accept its design", tester()}
+      assert writer(env, values, %{@name => run}) == {:run, @name}
+      # Imported where it is, it stays there: nothing moves it until it is accepted.
+      assert {:ok, ^run} = Run.step(run, flow(env), use_case(values), @now)
     end
   end
 
@@ -371,15 +368,23 @@ defmodule Model.AcceptanceRunsTest do
     end
   end
 
-  test "the design's acceptance: the review's approval ends its run, which writes accepted once" do
+  test "the design's acceptance: its supervisor's Accept ends its run, which writes accepted once" do
     for env <- @envs, status <- ["approved", "accepted"] do
       f = flow(env)
+      designed = %{"key" => "TK-UC-Atlas-01-1", "outcome" => "completed"}
 
-      for from <- [
-            sent(new(env, %{"design_status" => "in_review"})),
-            new(env, %{"design_status" => "writing"}),
-            new(env, %{"design_status" => "changes_requested"})
-          ] do
+      {:ok, accepting} =
+        Run.task_result(
+          new(env, %{"design_status" => "writing"}),
+          f,
+          use_case(%{}),
+          @now,
+          "completed",
+          designed,
+          []
+        )
+
+      for from <- [sent(new(env, %{"design_status" => "in_review"})), sent(accepting)] do
         assert {:ok, accepted} = Run.step(from, f, use_case(%{"design_status" => status}), @now)
         assert at(accepted) == {"accepted", "completed", from["entry"] + 1}
         assert accepted["deadlines"]["timers"] == []
@@ -410,35 +415,35 @@ defmodule Model.AcceptanceRunsTest do
     end
   end
 
-  test "the design's rejection: changes requested (or writing again) send it to the rework" do
+  test "the agent's design: however its task ends, Accept its design is next; nothing by hand moves it" do
     for env <- @envs do
       f = flow(env)
-      review = sent(new(env, %{"design_status" => "in_review"}))
+      writing = new(env, %{"design_status" => "writing"})
+      assert f.mechanism("designing") != nil
 
-      for status <- ["changes_requested", "writing"] do
-        assert {:ok, rework} = Run.step(review, f, use_case(%{"design_status" => status}), @now)
-        assert at(rework) == {"redesign", "active", 2}
-        assert rework["pending"]["writes"] == [] and rework["deadlines"]["timers"] == []
-        assert run_presents(env, "redesign", %{}) == {"Write its Design part", @architect}
+      for outcome <- ["completed", "check_failed", "stuck", "abandoned"] do
+        ended = %{"key" => "TK-UC-Atlas-01-1", "outcome" => outcome}
 
-        assert {:ok, again} =
-                 Run.step(rework, f, use_case(%{"design_status" => "in_review"}), @now)
+        assert {:ok, accepting} =
+                 Run.task_result(writing, f, use_case(%{}), @now, outcome, ended, [])
 
-        assert at(again) == {"design_review", "active", 3}
-
-        assert run_presents(env, "design_review", %{}) ==
-                 {"Have its design reviewed", @coordinator}
+        assert at(accepting) == {"accepting", "active", 2}
       end
 
-      writing = new(env, %{"design_status" => "writing"})
+      # A design status written by hand moves nothing while the agent designs it.
+      for status <- ["in_review", "changes_requested", "approved"],
+          do:
+            assert(
+              {:ok, ^writing} = Run.step(writing, f, use_case(%{"design_status" => status}), @now)
+            )
 
-      assert {:ok, ^writing} =
-               Run.step(writing, f, use_case(%{"design_status" => "changes_requested"}), @now)
+      # Its acceptance is the supervisor's (the decider's until one picked it up): Accept
+      # approves the design.
+      {expected, owner} = run_presents(env, "accepting", %{})
+      assert {expected, owner} == {"Accept its design", tester()}
 
-      assert {:ok, reviewed} =
-               Run.step(writing, f, use_case(%{"design_status" => "in_review"}), @now)
-
-      assert at(reviewed) == {"design_review", "active", 2}
+      assert [%{"label" => "Accept", "change" => %{"values" => %{"design_status" => "approved"}}}] =
+               get_in(f.present("accepting", %{}), ["todo", "answers"])
     end
   end
 
@@ -668,7 +673,7 @@ defmodule Model.AcceptanceRunsTest do
     # Each state of either run on the use case shows its own presentation in Control.
     for {flow, state, expected} <- [
           {"design_and_accept", "designing", "Write its Design part"},
-          {"design_and_accept", "design_review", "Have its design reviewed"},
+          {"design_and_accept", "accepting", "Accept its design"},
           {@build, "break_down", "Break it down into issues"},
           {@build, "building", "Build it"}
         ] do
@@ -735,53 +740,50 @@ defmodule Model.AcceptanceRunsTest do
   test "the changes from the base's digests are declared state migrations, never re-keys" do
     for env <- @envs do
       f = flow(env)
-      [m] = selection()["migrations"]
-      assert {m["from"], m["to"]} == {@base, f.digest()}
-      refute Map.has_key?(m, "rekey") or Map.has_key?(m, "preserve_entry")
+      ms = selection()["migrations"]
+
+      assert Enum.sort(Enum.map(ms, &{&1["from"], &1["to"]})) ==
+               Enum.sort([{@base, @slice10}, {@slice10, f.digest()}])
+
+      refute Enum.any?(ms, &(Map.has_key?(&1, "rekey") or Map.has_key?(&1, "preserve_entry")))
+      [m] = for m <- ms, m["from"] == @base, do: m
 
       assert Enum.sort(Map.keys(m["states"])) ==
                ~w(accepted design_gate design_review designing dropped needs_person redesign to_accept)
 
-      assert Enum.all?(Map.values(m["states"]), &(&1 in f.states()))
-
-      old = fn state, status, pending ->
+      old = fn digest, state, status, pending ->
         new(env, %{"design_status" => "writing"})
-        |> Map.merge(%{"definition_sha256" => @base, "state" => state, "status" => status})
+        |> Map.merge(%{"definition_sha256" => digest, "state" => state, "status" => status})
         |> update_in(["pending"], &Map.merge(&1, pending))
       end
 
-      # A quiescent open run of the old digest re-enters its new state, in a new entry.
+      # Every design run on prod and test is at slice 10's digest. A quiescent open one
+      # re-enters its new state, in a new entry: slice 9's agent designs one that was
+      # designed or reworked by hand; one whose design waited for review is its
+      # supervisor's to accept.
       for {state, to} <- [
             {"designing", "designing"},
-            {"redesign", "redesign"},
-            {"design_review", "design_review"},
-            {"design_gate", "design_review"},
-            {"to_accept", "design_review"},
-            {"needs_person", "design_review"}
+            {"redesign", "designing"},
+            {"design_review", "accepting"}
           ] do
-        assert {:ok, moved} = Run.migrate(old.(state, "active", %{}), f, [m], @now)
+        assert {:ok, moved} = Run.migrate(old.(@slice10, state, "active", %{}), f, ms, @now)
         assert at(moved) == {to, "active", 2}
         assert moved["definition_sha256"] == f.digest()
-        assert [%{"from" => @base, "state" => ^state}] = moved["pending"]["migrations"]
+        assert [%{"from" => @slice10, "state" => ^state}] = moved["pending"]["migrations"]
       end
 
-      # One with a frozen pass or gate is not quiescent: it blocks, nothing is redone.
-      for {state, pending} <- [
-            {"designing", %{"pass" => %{"request" => %{}}}},
-            {"design_gate", %{"gate" => %{"id" => "g"}}}
-          ],
-          do:
-            assert(
-              {:error, :definition_changed} =
-                Run.migrate(old.(state, "active", pending), f, [m], @now)
-            )
-
-      # An accepted run stays accepted; a dropped (cancelled) one is never taken for it.
-      assert {:ok, done} = Run.migrate(old.("accepted", "completed", %{}), f, [m], @now)
-      assert {done["state"], done["status"]} == {"accepted", "completed"}
-
+      # One with a frozen pass is not quiescent: it blocks, nothing is redone.
       assert {:error, :definition_changed} =
-               Run.migrate(old.("dropped", "completed", %{}), f, [m], @now)
+               Run.migrate(
+                 old.(@slice10, "designing", "active", %{"pass" => %{"request" => %{}}}),
+                 f,
+                 ms,
+                 @now
+               )
+
+      # An accepted run stays accepted.
+      assert {:ok, done} = Run.migrate(old.(@slice10, "accepted", "completed", %{}), f, ms, @now)
+      assert {done["state"], done["status"]} == {"accepted", "completed"}
 
       # The build run's (slice 11, then slice 7's break-down; every run on prod and test
       # is at slice 11's): its states kept, each re-entered; a frozen pass blocks.

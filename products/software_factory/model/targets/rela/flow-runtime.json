@@ -394,7 +394,8 @@
         "choices": [],
         "choice_states": [],
         "migrations": [
-          {"from":"25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e","to":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","states":{"accepted":"accepted","design_gate":"design_review","design_review":"design_review","designing":"designing","dropped":"designing","needs_person":"design_review","redesign":"redesign","to_accept":"design_review"},"reason":"Slice 10: selected without its passes, design gate and acceptor; designed by hand"}
+          {"from":"25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e","to":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","states":{"accepted":"accepted","design_gate":"design_review","design_review":"design_review","designing":"designing","dropped":"designing","needs_person":"design_review","redesign":"redesign","to_accept":"design_review"},"reason":"Slice 10: selected without its passes, design gate and acceptor; designed by hand"},
+          {"from":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","to":"9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4","states":{"accepted":"accepted","design_review":"accepting","designing":"designing","redesign":"designing"},"reason":"Slice 9: an agent writes its design; its supervisor accepts it"}
         ],
         "subject": "use_case",
         "projection": {
@@ -418,15 +419,7 @@
                 "in_review"
               ]
             },
-            "state": "design_review"
-          },
-          {
-            "when": {
-              "design_status": [
-                "changes_requested"
-              ]
-            },
-            "state": "redesign"
+            "state": "accepting"
           }
         ],
         "reopen": "explicit",
@@ -598,6 +591,17 @@
               "package",
               "pull_request"
             ]
+          }
+        ],
+        "design_and_accept": [
+          {
+            "name": "design",
+            "label": "Design",
+            "states": [
+              "designing",
+              "accepting"
+            ],
+            "with": []
           }
         ],
         "test_and_accept_use_case": [

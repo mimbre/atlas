@@ -91,7 +91,9 @@ defmodule RelaDSL.Schema do
   proposes facts names them, `creates: [kind: kind, file: name]`: its agent writes a JSON
   list of `{title, description}` to the file at the top of the repository, and Flow, the
   only writer, makes one fact of `kind` for each under the subject (through the kind's
-  parent relation to it) once the task completed. A review whose findings outside the
+  parent relation to it) once the task completed. One that writes a field of the subject
+  names it, `writes: [field: field, file: name]`: its agent writes the field's text to the
+  file, and Flow puts it in that field once the task completed. A review whose findings outside the
   subject's scope become new facts names their kind, `follow_ups: kind`: Flow makes one for
   each follow-up its answer gives, under the subject's nearest parent.
 
@@ -289,6 +291,7 @@ defmodule RelaDSL.Schema do
     :fields,
     :parents,
     :creates,
+    :writes,
     :follow_ups,
     :records,
     :machinery,
@@ -461,7 +464,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `creates:`, `follow_ups:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `creates:`, `writes:`, `follow_ups:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1343,6 +1346,13 @@ defmodule RelaDSL.Schema do
                 Enum.sort(Keyword.keys(spec[:creates])) == [:file, :kind] and
                 is_atom(spec[:creates][:kind]) and text?.(spec[:creates][:file]))) &&
         pre <> "creates: must be [kind: kind, file: text]",
+      not (spec[:writes] == nil or
+             (Keyword.keyword?(spec[:writes]) and
+                Enum.sort(Keyword.keys(spec[:writes])) == [:field, :file] and
+                is_atom(spec[:writes][:field]) and text?.(spec[:writes][:file]))) &&
+        pre <> "writes: must be [field: field, file: text]",
+      (spec[:creates] != nil and spec[:writes] != nil) &&
+        pre <> "creates: and writes: exclude each other",
       not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
         pre <> "follow_ups: must be a kind",
       not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
