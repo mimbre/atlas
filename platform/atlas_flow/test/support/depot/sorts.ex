@@ -730,7 +730,7 @@ defmodule AtlasFlow.Sorts.Loop do
       abandon: :stuck
     ]
 
-    type(:slip_operation, values: [:choice, :pickup, :hand_over])
+    type(:slip_operation, values: [:choice, :pickup, :hand_over, :retry])
 
     entity :clerk, label: "Clerk", plural: "clerks", id_type: :manual do
       field(:name, :string)

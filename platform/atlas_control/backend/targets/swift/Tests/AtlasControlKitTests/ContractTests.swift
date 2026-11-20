@@ -394,6 +394,22 @@ final class ContractTests: XCTestCase {
         XCTAssertThrowsError(try Page.handOver.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .handOver, param: "kind")) }
     }
 
+    func test_page_retry_builds_and_matches_its_path() throws {
+        let params: [String: String] = ["key": "v key/1", "kind": "v kind/1", "run": "v run/1"]
+        let path = try Page.retry.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .retry, params: params))
+        XCTAssertEqual(Page.retry.template, "/k/:kind/:key/retry/:run")
+        XCTAssertThrowsError(try Page.retry.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .retry, param: "kind")) }
+    }
+
+    func test_page_remove_item_builds_and_matches_its_path() throws {
+        let params: [String: String] = ["key": "v key/1", "kind": "v kind/1", "run": "v run/1"]
+        let path = try Page.removeItem.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .removeItem, params: params))
+        XCTAssertEqual(Page.removeItem.template, "/k/:kind/:key/remove_item/:run")
+        XCTAssertThrowsError(try Page.removeItem.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .removeItem, param: "kind")) }
+    }
+
     func test_page_faults_builds_and_matches_its_path() throws {
         let params: [String: String] = [:]
         let path = try Page.faults.path(params)

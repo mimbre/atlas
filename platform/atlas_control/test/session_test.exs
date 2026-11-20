@@ -2063,7 +2063,8 @@ defmodule AtlasControl.SessionTest do
     end
 
     defp supervision_inputs,
-      do: for(%{"op" => op} = c <- FakeStore.sent(), op in ["pickup", "hand_over"], do: c)
+      do:
+        for(%{"op" => op} = c <- FakeStore.sent(), op in ["pickup", "hand_over", "retry"], do: c)
 
     test "Pick up from the TUI sends exactly a pickup input; an agent, or a stale run, sends nothing" do
       port = supervised_shop([])
@@ -2103,6 +2104,22 @@ defmodule AtlasControl.SessionTest do
       put(agent, %{"op" => "submit", "to" => "/k/widget/W-1/pick_up/R-1", "values" => %{}})
       assert %{"reason" => "stored"} = next(agent, "page")
       assert [%{"op" => "pickup", "by" => "helper"}] = supervision_inputs()
+    end
+
+    test "its supervisor's Retry sends exactly a retry input; Remove deletes its work, then it" do
+      port = supervised_shop(["ada"])
+      FakeStore.put("J-1", %{"title" => "J-1"}, "job", %{"job_of" => ["W-1"]})
+      tui = hello_as(port, "tui")
+
+      put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/retry/R-1", "values" => %{}})
+      assert %{"reason" => "stored", "path" => "/k/widget/W-1"} = next(tui, "page")
+
+      assert [%{"op" => "retry", "by" => "ada", "values" => %{"run" => "R-1"}}] =
+               supervision_inputs()
+
+      put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/remove_item/R-1", "values" => %{}})
+      assert %{"reason" => "stored"} = next(tui, "page")
+      assert for(%{"op" => "delete", "key" => key} <- FakeStore.sent(), do: key) == ["J-1", "W-1"]
     end
 
     test "Facts' refusal of a pickup comes back as its reasons, on the page" do

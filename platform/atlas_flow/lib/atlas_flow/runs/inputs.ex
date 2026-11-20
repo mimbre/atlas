@@ -21,7 +21,7 @@ defmodule AtlasFlow.Runs.Inputs do
   end
 
   @doc """
-  What a pickup or hand-over input asks of `run`, checked (work acquisition decision
+  What a pickup, hand-over or retry input asks of `run`, checked (work acquisition decision
   2026-11-17 §5.6, S1; the model's `supervision`, M3a):
 
   - `{:pick_up, holder}`: the input's actor becomes the run's supervisor (the same
@@ -29,6 +29,8 @@ defmodule AtlasFlow.Runs.Inputs do
     assists the supervisor instead (`AtlasBus.Actors.assisted/1`; IS-Atlas-47);
   - `{:hand_over, from, to}`: the supervisor `from` is cleared, and `to` is the holder
     given the run to pick up;
+  - `{:retry, holder}`: its supervisor takes the run back to the first state of the span
+    it is in, with fresh agent work (IS-Atlas-09); an agent's retry is for whom it assists;
   - `{:refused, tag}`: the input is passed over, and only `tag` records why;
   - `nil`: not a supervision input this run takes (another operation, another run or
     generation, not applied, or at or before the cursor);
@@ -40,12 +42,13 @@ defmodule AtlasFlow.Runs.Inputs do
   of the supervisor's kind: `true`, `false` or `:unavailable`.
 
   The checks, in order, each with its own tag: the input is of the run's current entry
-  (`moved_on`); its actor (for a pickup: whom it acts for) is a holder (`actor`); the
-  run's state lies in a span (`outside_span`). A pickup needs the run unsupervised or
+  (`moved_on`); its actor (for a pickup or retry: whom it acts for) is a holder (`actor`);
+  the run's state lies in a span (`outside_span`). A pickup needs the run unsupervised or
   supervised by that holder
   (`supervised`). A hand-over is the current supervisor's alone (`not_supervisor`, also
   when there is none), names exactly one target (`target`) that is a holder
-  (`target_kind`), and never the supervisor itself (`self`).
+  (`target_kind`), and never the supervisor itself (`self`). A retry is the current
+  supervisor's alone (`not_supervisor`).
   """
   def supervision(_input, _run, nil, _holder?), do: nil
 
@@ -73,7 +76,11 @@ defmodule AtlasFlow.Runs.Inputs do
   defp checked(operation, input, hand_to, run, supervision, holder?) do
     actor = input["actor"]
     current = run["supervised_by"]
-    holder = if operation == "pickup", do: AtlasBus.Actors.assisted(actor) || actor, else: actor
+
+    holder =
+      if operation in ~w(pickup retry),
+        do: AtlasBus.Actors.assisted(actor) || actor,
+        else: actor
 
     with :ok <- holder(holder?, holder, "actor"),
          :ok <- in_span(supervision["spans"] || [], run["state"]) do
@@ -89,6 +96,11 @@ defmodule AtlasFlow.Runs.Inputs do
                :ok <- holder(holder?, to, "target_kind"),
                :ok <- need(to != current, "self"),
                do: {:hand_over, current, to}
+
+        "retry" ->
+          if current != nil and current == holder,
+            do: {:retry, holder},
+            else: {:refused, "not_supervisor"}
       end
     end
   end

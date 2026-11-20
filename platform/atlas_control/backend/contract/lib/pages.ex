@@ -31,6 +31,10 @@ defmodule AtlasBFFContract.Pages do
       # over to someone else (Hand over…); `run` pins the run the page was made for.
       defpage :pick_up, "/k/:kind/:key/pick_up/:run"
       defpage :hand_over, "/k/:kind/:key/hand_over/:run"
+      # Its supervisor takes the run back to the start of its span (Retry), or deletes the
+      # fact with the work made for it, which ends the run (Remove).
+      defpage :retry, "/k/:kind/:key/retry/:run"
+      defpage :remove_item, "/k/:kind/:key/remove_item/:run"
 
       # Test only: what can be made to fail (the node, or a fact), and the confirm for one.
       defpage :faults, "/faults"

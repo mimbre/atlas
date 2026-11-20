@@ -743,7 +743,7 @@ defmodule AtlasFlow.Activities.Task do
           "answer" => answer
         })
 
-      writes = [change(intent, spec, ["result"], %{"state" => "cancelled"})]
+      writes = [cancelled(intent, spec)]
       {:result, name, result, writes, ladder}
     else
       _ -> :none
@@ -1237,6 +1237,12 @@ defmodule AtlasFlow.Activities.Task do
     do: %{check | "ending" => "interrupted"}
 
   defp unfinished(check), do: check
+
+  @doc """
+  The write that says `intent`'s task is cancelled, sent once the run that no longer holds
+  it is stored: Dispatch's sweep then cancels its lease (`AtlasFlow.Dispatch.cancel/3`).
+  """
+  def cancelled(intent, spec), do: change(intent, spec, ["result"], %{"state" => "cancelled"})
 
   defp change(intent, spec, tag, values),
     do:

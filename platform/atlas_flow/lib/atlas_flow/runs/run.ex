@@ -622,10 +622,11 @@ defmodule AtlasFlow.Runs.Run do
   a pickup sets its supervisor (`supervised_by`); a hand-over clears it and keeps the
   holder it is handed to, with the input, as `pending.hand_over`, and its To-Do's
   `writes` (`AtlasFlow.Runs.HandOver`) join the run's pending writes, so they are sent
-  only once the run that holds them is stored; a refusal changes nothing else. Each
+  only once the run that holds them is stored; a retry is only named here (the store
+  takes the run back, `retry/5`); a refusal changes nothing else. Each
   moves the cursor to the input and names it as the last input, with what it did, or
-  why it was refused, as `supervision`; a pickup an agent made on behalf of the holder
-  names that agent as `by` (IS-Atlas-47).
+  why it was refused, as `supervision`; a pickup or retry an agent made on behalf of the
+  holder names that agent as `by` (IS-Atlas-47).
   """
   def supervise(run, input, checked, writes \\ []) do
     {run, last} =
@@ -641,6 +642,10 @@ defmodule AtlasFlow.Runs.Run do
            |> update_in(["pending", "writes"], &((&1 || []) ++ writes)),
            %{"supervision" => "hand_over"}}
 
+        {:retry, holder} ->
+          by = if input["actor"] != holder, do: %{"by" => input["actor"]}, else: %{}
+          {run, Map.put(by, "supervision", "retry")}
+
         {:refused, tag} ->
           {run, %{"supervision" => tag, "refused" => true}}
       end
@@ -648,6 +653,21 @@ defmodule AtlasFlow.Runs.Run do
     run
     |> Map.put("input_cursor", input["position"])
     |> Map.put("last_input", Map.merge(last, %{"version" => 1, "input" => input["key"]}))
+  end
+
+  @doc """
+  `run` taken back to `state` by its supervisor's retry (IS-Atlas-09): entered again, as
+  if for the first time, without what it held of its work since (its task and their
+  results, a ladder, a frozen request); its supervisor, cursor and last input stay. The
+  task it held is the caller's to cancel.
+  """
+  def retry(run, flow, state, subject, now) do
+    pending = Map.take(run["pending"], ~w(migrations composition))
+
+    run
+    |> Map.put("pending", Map.merge(pending, %{"version" => 1, "writes" => []}))
+    |> enter(flow, state, now, true, subject)
+    |> Map.put("last_input", run["last_input"])
   end
 
   @doc """
