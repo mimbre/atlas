@@ -199,20 +199,15 @@ flows:
         label: Design pass
         on:
           change:
-            - { to: accepted, when: "entity.design_status == 'approved' or entity.design_status == 'accepted'" }
-            - { to: design_review, when: "entity.design_status == 'in_review'" }
-      design_review:
-        label: Design review pass
+            - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
+            - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
+            - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
+            - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+      accepting:
+        label: Accept its design
         on:
           change:
             - { to: accepted, when: "entity.design_status == 'approved' or entity.design_status == 'accepted'" }
-            - { to: redesign, when: "entity.design_status == 'changes_requested' or entity.design_status == 'writing'" }
-      redesign:
-        label: Design rework pass
-        on:
-          change:
-            - { to: accepted, when: "entity.design_status == 'approved' or entity.design_status == 'accepted'" }
-            - { to: design_review, when: "entity.design_status == 'in_review'" }
       accepted:
         label: Design accepted
         final: true

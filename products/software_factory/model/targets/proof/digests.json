@@ -145,7 +145,7 @@
     },
     "design_and_accept": {
       "prod": {
-        "digest": "57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571",
+        "digest": "9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4",
         "history": [
           {
             "digest": "25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e",
@@ -168,17 +168,24 @@
               "designing",
               "redesign"
             ]
+          },
+          {
+            "digest": "9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4",
+            "states": [
+              "accepted",
+              "accepting",
+              "designing"
+            ]
           }
         ],
         "states": [
           "accepted",
-          "design_review",
-          "designing",
-          "redesign"
+          "accepting",
+          "designing"
         ]
       },
       "test": {
-        "digest": "57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571",
+        "digest": "9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4",
         "history": [
           {
             "digest": "25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e",
@@ -201,13 +208,20 @@
               "designing",
               "redesign"
             ]
+          },
+          {
+            "digest": "9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4",
+            "states": [
+              "accepted",
+              "accepting",
+              "designing"
+            ]
           }
         ],
         "states": [
           "accepted",
-          "design_review",
-          "designing",
-          "redesign"
+          "accepting",
+          "designing"
         ]
       }
     },

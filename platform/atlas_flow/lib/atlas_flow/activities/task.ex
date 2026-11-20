@@ -64,6 +64,8 @@ defmodule AtlasFlow.Activities.Task do
   linked to the subject through the kind's parent relation to it and numbered after the
   facts of that kind there are (the model's `ids`), `by` Flow with the run's supervisor in
   its cause; the agent never writes into Atlas. With no such file, the task ends `stuck`.
+  A spec's `writes` (`%{"field", "file"}`, slice 9) asks for one text instead: Flow puts the
+  file's text in that field of the subject; with no such file, or an empty one, `stuck`.
 
   **Follow-ups.** A review's spec may name a kind, `follow_ups`: its agent is asked to split
   what it finds into blocking findings (within the subject's scope; they go to the one fix
@@ -167,7 +169,9 @@ defmodule AtlasFlow.Activities.Task do
       spec["ladder"] in [nil, true] and input?(spec["kind"], spec["ladder"], spec["input"]) and
       check?(spec["check"]) and checked?(spec) and text?(spec["instructions"]) and
       texts?(spec["fields"] || []) and texts?(spec["parents"] || []) and
-      creates?(spec["creates"]) and (spec["follow_ups"] == nil or text?(spec["follow_ups"])) and
+      creates?(spec["creates"]) and writes?(spec["writes"]) and
+      not (spec["creates"] != nil and spec["writes"] != nil) and
+      (spec["follow_ups"] == nil or text?(spec["follow_ups"])) and
       records?(spec["records"]) and text?(spec["machinery"])
   end
 
@@ -177,6 +181,13 @@ defmodule AtlasFlow.Activities.Task do
     do: map_size(creates) == 2 and text?(kind) and text?(file)
 
   defp creates?(_creates), do: false
+
+  defp writes?(nil), do: true
+
+  defp writes?(%{"field" => field, "file" => file} = writes),
+    do: map_size(writes) == 2 and text?(field) and text?(file)
+
+  defp writes?(_writes), do: false
 
   # A Code repository and the reference its base is resolved from, nothing else: never a
   # path (D44), never a URL (a scheme, or `user@host:path`). Or, for a ladder task that
@@ -829,12 +840,18 @@ defmodule AtlasFlow.Activities.Task do
     end
   end
 
-  # What a task that proposes facts (`creates`) asks its agent: the file, at the top of
-  # the repository, and its form.
+  # What a task that proposes facts (`creates`) or writes a field of its subject
+  # (`writes`) asks its agent: the file, at the top of the repository, and its form.
   defp proposal_format(%{"creates" => %{"kind" => kind, "file" => file}}) do
     kind = String.replace(kind, "_", " ")
 
     "\n\n## Your proposal\n\nWrite the #{kind}s you propose to the file `#{file}` at the top of the repository: a JSON list with one object per #{kind}, in order, each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done). Atlas makes them from that file; write nothing into Atlas yourself."
+  end
+
+  defp proposal_format(%{"writes" => %{"field" => field, "file" => file}}) do
+    field = String.replace(field, "_", " ")
+
+    "\n\n## Your proposal\n\nWrite the #{field} you propose to the file `#{file}` at the top of the repository, in Markdown: the whole text, as it is to be read. Atlas puts it in its #{field}; write nothing into Atlas yourself."
   end
 
   defp proposal_format(_spec), do: ""
@@ -873,6 +890,37 @@ defmodule AtlasFlow.Activities.Task do
              ctx
            ) do
       {"completed", made}
+    else
+      :no_proposal -> {"stuck", []}
+      _ -> :unavailable
+    end
+  end
+
+  # A completed task that writes a field of its subject (`writes`): the text of its file,
+  # put in that field by Flow for the run's supervisor. With no such file, or an empty one,
+  # it ends stuck; `:unavailable` while its result or Code does not answer.
+  defp proposed(
+         %{"writes" => %{"field" => field, "file" => file}} = spec,
+         "completed",
+         run,
+         intent,
+         _ctx
+       ) do
+    with {:ok, text} <- result_file(run, repository(spec), intent["key"], file),
+         true <- text?(text) || :no_proposal do
+      supervisor = run["supervised_by"]
+      by = if is_binary(supervisor), do: "For #{supervisor}: ", else: ""
+
+      {"completed",
+       [
+         write(intent["key"], ["writes"], run["subject_kind"], %{
+           "op" => "change",
+           "key" => run["subject_key"],
+           "values" => %{field => String.trim(text)},
+           "by" => "flow",
+           "cause" => "#{by}written by #{intent["key"]}"
+         })
+       ]}
     else
       :no_proposal -> {"stuck", []}
       _ -> :unavailable
@@ -959,6 +1007,22 @@ defmodule AtlasFlow.Activities.Task do
   # when it has one. The file's blob is read from Code here, on the Engine's path: one
   # small read, once per break-down.
   defp proposal(run, repository, task_key, file) do
+    with {:ok, content} <- result_file(run, repository, task_key, file),
+         {:ok, list} <- JSON.decode(content) do
+      case for %{"title" => t} = e <- List.wrap(list), text?(t), do: entry(t, e["description"]) do
+        [] -> :no_proposal
+        entries -> {:ok, entries}
+      end
+    else
+      {:error, _invalid_json} -> :no_proposal
+      missing_or_unavailable -> missing_or_unavailable
+    end
+  end
+
+  # The content of the file at the top of the repository in the task's result commit:
+  # `:no_proposal` when it has no such file, `:unavailable` while its result or Code does
+  # not answer.
+  defp result_file(run, repository, task_key, file) do
     root = Bases.root_of(repository)
 
     with {:ok, base} <- base(run, repository, Translate.result_ref(task_key)),
@@ -967,11 +1031,8 @@ defmodule AtlasFlow.Activities.Task do
            Enum.find_value(roots, :no_proposal, fn r ->
              r["root"] == root && Enum.find(r["entries"] || [], &(&1["path"] == file))
            end),
-         {:ok, list} <- read_json(sha, base.snapshot_id) do
-      case for %{"title" => t} = e <- List.wrap(list), text?(t), do: entry(t, e["description"]) do
-        [] -> :no_proposal
-        entries -> {:ok, entries}
-      end
+         {:ok, _size, content} <- Bases.blob(sha, base.snapshot_id) do
+      {:ok, IO.iodata_to_binary(Enum.to_list(content))}
     else
       :no_proposal -> :no_proposal
       {:error, _invalid_json} -> :no_proposal

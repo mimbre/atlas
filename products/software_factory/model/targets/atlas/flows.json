@@ -379,29 +379,43 @@
           "timers": [],
           "waiting_for": []
         },
-        "design_review": {
+        "accepting": {
           "awaits": [],
           "branches": [
             {
               "roles": [],
               "to": "accepted",
               "when": "entity.design_status == 'approved' or entity.design_status == 'accepted'"
-            },
-            {
-              "roles": [],
-              "to": "redesign",
-              "when": "entity.design_status == 'changes_requested' or entity.design_status == 'writing'"
             }
           ],
           "creates": [],
           "final": false,
-          "label": "Design review pass",
-          "present": {
-            "expected": "Have its design reviewed",
-            "todo": {
-              "instructions": "Run a review pass on the Design part: set design_status to approved to go on to break it down and build it, or to changes_requested, with why in the note, to send it back."
+          "label": "Accept its design",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
             },
-            "why": "its Design part waits for review"
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Accept its design",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "design_status": "approved"
+                    }
+                  },
+                  "key": "a",
+                  "label": "Accept"
+                }
+              ],
+              "instructions": "Read its Design part, which its agent wrote; change it if need be, then accept it. It can then be broken down into issues."
+            },
+            "why": "its agent's design is written"
           },
           "set": [],
           "timers": [],
@@ -411,18 +425,29 @@
           "awaits": [],
           "branches": [
             {
-              "roles": [],
-              "to": "accepted",
-              "when": "entity.design_status == 'approved' or entity.design_status == 'accepted'"
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'completed'"
             },
             {
-              "roles": [],
-              "to": "design_review",
-              "when": "entity.design_status == 'in_review'"
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'check_failed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'stuck'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'abandoned'"
             }
           ],
           "creates": [],
           "final": false,
+          "kind": "task",
           "label": "Design pass",
           "owner": {
             "default": {
@@ -435,47 +460,34 @@
           "present": {
             "expected": "Write its Design part",
             "todo": {
-              "instructions": "Write the Design part (design), then set design_status to in_review; when the review requested changes, make them first."
+              "instructions": "Its machinery runs one agent on it that writes its Design part; Flow puts it on the use case. Nothing is done while it is not assigned to a machinery."
             },
-            "why": "its design is not reviewed yet"
+            "why": "its design is not written yet"
           },
           "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "redesign": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": [],
-              "to": "accepted",
-              "when": "entity.design_status == 'approved' or entity.design_status == 'accepted'"
+          "spec": {
+            "cost_class": "standard",
+            "field": "task_result",
+            "fields": ["title", "description"],
+            "input": {
+              "base": "develop",
+              "repository": "github.com/mimbre/atlas"
             },
-            {
-              "roles": [],
-              "to": "design_review",
-              "when": "entity.design_status == 'in_review'"
+            "instructions": "Write the design of the use case below: how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your design, as asked at the end. Say which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works, so that it can be broken down into small issues that build it.",
+            "kind": "plan",
+            "machinery": "machinery",
+            "parents": ["title", "description"],
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "architect",
+            "writes": {
+              "field": "design",
+              "file": "design.md"
             }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Design rework pass",
-          "owner": {
-            "default": {
-              "key": "architect",
-              "kind": "agent"
-            },
-            "relation": "assigned_to",
-            "via": "assignment"
           },
-          "present": {
-            "expected": "Write its Design part",
-            "todo": {
-              "instructions": "Write the Design part (design), then set design_status to in_review; when the review requested changes, make them first."
-            },
-            "why": "its design is not reviewed yet"
-          },
-          "set": [],
           "timers": [],
           "waiting_for": []
         }
@@ -2953,6 +2965,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "6be8b3adad6bc93a470acf3fada7e2c9bf03097564646b1cbc110f7fc0455104",
+  "rela_flows_sha256": "24a576267585fc2883b487198a1807917a1bc8515f00d610f6861249a65f1955",
   "writer": "system:atlas-flow"
 }
