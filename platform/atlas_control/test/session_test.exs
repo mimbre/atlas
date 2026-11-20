@@ -2122,6 +2122,17 @@ defmodule AtlasControl.SessionTest do
       assert for(%{"op" => "delete", "key" => key} <- FakeStore.sent(), do: key) == ["J-1", "W-1"]
     end
 
+    test "a Remove refused says why on the page, for a client without a screen" do
+      port = supervised_shop(["ada"])
+      FakeStore.link("P-1", "W-1")
+      tui = hello_as(port, "tui")
+
+      put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/remove_item/R-1", "values" => %{}})
+      assert %{"reason" => "refused", "refused" => [why]} = next(tui, "page")
+      assert why =~ "W-1 still has"
+      assert for(%{"op" => "delete"} = d <- FakeStore.sent(), do: d) == []
+    end
+
     test "Facts' refusal of a pickup comes back as its reasons, on the page" do
       port = supervised_shop([])
       FakeStore.refuse("R-1", "pickup_pending")

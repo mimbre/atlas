@@ -198,7 +198,7 @@ defmodule AtlasControl.Session do
         {:noreply, retry_create(state, pending)}
 
       "refused" ->
-        reasons = content["reasons"] || ["refused"]
+        reasons = refusal_reasons(content, "Facts refused it")
 
         if Pages.form?(state.route) do
           form = Map.put(state.form, :errors, reasons)
@@ -1013,23 +1013,43 @@ defmodule AtlasControl.Session do
 
   # Each of `facts` (`[{kind, key}]`) deleted, after what is under it (`Pages.under/3`):
   # `:ok`, or the reasons the first that was not deleted gives. One gone already is done.
+  # A delete makes Flow and Facts busy (a run ends, a task is cancelled), so each is waited
+  # for as long as a stored write is (`@first_resend`), and one whose answer did not come
+  # is read again: gone is done.
   defp delete_all(state, facts) do
     Enum.reduce_while(facts, :ok, fn {kind, key}, :ok ->
       with %{"fact" => %{}} = answer <- ask(kind, %{"key" => key}),
            :ok <- delete_all(state, Pages.under(state.model, kind, answer)),
            %{"fact" => %{"version" => version}} <- ask(kind, %{"key" => key}),
            content = %{"op" => "delete", "key" => key, "values" => %{}, "version" => version},
-           {:stored, _} <- fact_now(kind, Map.put(content, "by", state.by)) do
+           {:stored, _} <- fact_now(kind, Map.put(content, "by", state.by), @first_resend) do
         {:cont, :ok}
       else
-        %{"fact" => nil} -> {:cont, :ok}
-        {:refused, answer} -> {:halt, answer["reasons"] || ["Facts refused to delete #{key}."]}
-        {:error, :outcome_unknown} -> {:halt, ["Facts did not say whether #{key} is deleted."]}
-        reasons when is_list(reasons) -> {:halt, reasons}
-        _ -> {:halt, ["#{key} cannot be read now."]}
+        %{"fact" => nil} ->
+          {:cont, :ok}
+
+        {:refused, answer} ->
+          {:halt, refusal_reasons(answer, "Facts refused to delete #{key}")}
+
+        {:error, :outcome_unknown} ->
+          case ask(kind, %{"key" => key}) do
+            %{"fact" => nil} -> {:cont, :ok}
+            _ -> {:halt, ["Facts did not say whether #{key} is deleted; try again."]}
+          end
+
+        reasons when is_list(reasons) ->
+          {:halt, reasons}
+
+        _ ->
+          {:halt, ["#{key} cannot be read now; try again."]}
       end
     end)
   end
+
+  # A refusal's reasons; without any, what it says instead (its code), never nothing.
+  defp refusal_reasons(%{"reasons" => [_ | _] = reasons}, _what), do: reasons
+  defp refusal_reasons(%{"code" => code}, what) when is_binary(code), do: ["#{what} (#{code})."]
+  defp refusal_reasons(_answer, what), do: ["#{what}."]
 
   # Who views a page, as the pages take it: the client's key, its kind, which client, and
   # whom it assists when it is an agent (`AtlasBus.Actors.assisted/1`; IS-Atlas-47).
@@ -1136,14 +1156,27 @@ defmodule AtlasControl.Session do
           Pages.after_delete(state.model, kind, answer)
         )
 
+      # Remove deleted the work first: what still hangs under the fact is said, never an
+      # open page a client without a screen cannot take as an answer.
+      %{"fact" => %{}} when elem(route, 0) == :remove_item ->
+        under = Enum.map_join(held, " and ", &String.downcase(elem(&1, 0)))
+        not_sent(state, route, ["#{key} still has #{under} under it; remove that first."])
+
       _ ->
         show(state, route, "open", nil)
     end
   end
 
+  # Why nothing was sent: in the form's errors, or, on a page without a form (a confirm),
+  # as the page's `refused`, so a client without a screen gets the reasons too.
   defp not_sent(state, route, reasons) do
-    state = notice(state, "error", "Not sent: the form says why.")
-    show(put_in(state.form[:errors], reasons), route, "refused", nil)
+    if Pages.form?(route) do
+      state = notice(state, "error", "Not sent: the form says why.")
+      show(put_in(state.form[:errors], reasons), route, "refused", nil)
+    else
+      state = notice(state, "error", "Not sent: " <> Enum.join(reasons, "; "))
+      show(state, route, "refused", nil, reasons)
+    end
   end
 
   defp new_fact(state, kind, key, raw, links) do
@@ -1247,7 +1280,7 @@ defmodule AtlasControl.Session do
 
   # A fact sent and its answer waited for: `{:stored, answer}`, `{:refused, answer}` or
   # `{:error, :outcome_unknown}`.
-  defp fact_now(kind, content) do
+  defp fact_now(kind, content, timeout \\ read_timeout()) do
     envelope = Envelope.new("fact", kind)
     :ok = AtlasBus.send(envelope, content)
     id = envelope.id
@@ -1256,7 +1289,7 @@ defmodule AtlasControl.Session do
       {:atlas_bus, %Envelope{id: ^id, class: "stored"}, answer} -> {:stored, answer}
       {:atlas_bus, %Envelope{id: ^id, class: "refused"}, answer} -> {:refused, answer}
     after
-      read_timeout() -> {:error, :outcome_unknown}
+      timeout -> {:error, :outcome_unknown}
     end
   end
 
