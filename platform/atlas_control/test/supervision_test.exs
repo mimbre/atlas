@@ -116,10 +116,10 @@ defmodule AtlasControl.SupervisionTest do
 
   defp block(page, id), do: Enum.find(page.blocks, &(&1["id"] == id))
 
-  # The `to`s of the item's Pick up and Hand over… actions.
+  # The `to`s of the item's Pick up, Hand over…, Retry and Remove actions.
   defp supervision_tos(page) do
     for %{"to" => to} <- block(page, "item")["props"]["actions"] || [],
-        elem(Pages.route(to), 0) in [:pick_up, :hand_over],
+        elem(Pages.route(to), 0) in [:pick_up, :hand_over, :retry, :remove_item],
         do: to
   end
 
@@ -209,28 +209,34 @@ defmodule AtlasControl.SupervisionTest do
     end
   end
 
-  test "Pick up and Hand over…: offered exactly to whom the rules say" do
+  test "Pick up, Hand over…, Retry and Remove: offered exactly to whom the rules say" do
     for m <- @models do
       open = work(m, "W-1", presented())
       mine = work(m, "W-1", presented(supervisor: ["ada"]))
       ada_bob = [member("ada"), member("bob")]
       pick = Pages.path({:pick_up, "widget", "W-1", "R-1"})
       hand = Pages.path({:hand_over, "widget", "W-1", "R-1"})
+      retry = Pages.path({:retry, "widget", "W-1", "R-1"})
+      remove = Pages.path({:remove_item, "widget", "W-1", "R-1"})
 
       cases = [
         {open, ada_bob, @tui_ada, [pick]},
         {open, ada_bob, @tui_nobody, []},
         {open, ada_bob, @agent, []},
         {open, ada_bob, @agent_as_ada, []},
-        {mine, ada_bob, @tui_ada, [hand]},
-        {mine, [member("ada")], @tui_ada, []},
+        {mine, ada_bob, @tui_ada, [hand, retry, remove]},
+        {mine, [member("ada")], @tui_ada, [retry, remove]},
         {mine, ada_bob, @tui_bob, []},
         {mine, ada_bob, @agent_as_ada, []},
         {work(m, "W-1", presented(state: "done")), ada_bob, @tui_ada, []},
         {work(m, "W-1", presented(status: "blocked")), ada_bob, @tui_ada, []},
+        # A supervisor removes what it supervises in any state, and retries it in a span.
+        {work(m, "W-1", presented(status: "blocked", supervisor: ["ada"])), ada_bob, @tui_ada,
+         [remove]},
         # Another subflow presents the work, in a state of the span: not in the span.
         {work(m, "W-1", presented(flow: "elsewhere")), ada_bob, @tui_ada, []},
-        {work(m, "W-1", presented(flow: "elsewhere", supervisor: ["ada"])), ada_bob, @tui_ada, []}
+        {work(m, "W-1", presented(flow: "elsewhere", supervisor: ["ada"])), ada_bob, @tui_ada,
+         [remove]}
       ]
 
       for {{item, members, viewer, expected}, at} <- Enum.with_index(cases) do
@@ -256,7 +262,7 @@ defmodule AtlasControl.SupervisionTest do
       for item <- [work(m, "W-1", presented()), work(m, "W-1", presented(supervisor: ["ada"]))] do
         page = render.(item)
         actions = block(page, "item")["props"]["actions"]
-        assert [_] = supervision_tos(page)
+        assert supervision_tos(page) != []
         # Every other action is still there (an action on the same key would give way)...
         assert Enum.reject(actions, &(&1["to"] in supervision_tos(page))) == without
         # ...and no two share a key.

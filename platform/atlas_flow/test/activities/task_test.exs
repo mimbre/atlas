@@ -15,7 +15,7 @@ defmodule AtlasFlow.Activities.TaskTest.Bench do
     @moduledoc "The bins, their robots, who supervises their runs, and the slips."
     use RelaDSL
 
-    type(:slip_operation, values: [:choice, :pickup, :hand_over])
+    type(:slip_operation, values: [:choice, :pickup, :hand_over, :retry])
 
     entity :clerk, label: "Clerk", plural: "clerks", id_type: :manual do
       field(:name, :string)
@@ -550,6 +550,34 @@ defmodule AtlasFlow.Activities.TaskTest do
       assert {run["state"], run["pending"]["task"]["key"]} == {"loading", @task}
       assert %{lease_id: second, work: %{work_key: @task}} = lease!(@mini)
       assert second != first and task_values()["attempt"] == 2
+    end
+
+    test "its supervisor's retry: the held task is cancelled and a fresh one is offered", c do
+      source(c)
+      run = intended(c)
+      lease!(@mini)
+
+      FakeFacts.put_input(%{
+        "key" => "S-1",
+        "run" => run["key"],
+        "entry" => run["entry"],
+        "generation" => 1,
+        "status" => "applied",
+        "actor" => "ada",
+        "operation" => "retry",
+        "roles" => ["retry"],
+        "changed_fields" => %{},
+        "links" => %{},
+        "position" => 10,
+        "prepared_at" => "2026-11-17T11:59:00Z"
+      })
+
+      retried = reconcile(c)
+      assert {retried["state"], retried["entry"]} == {"loading", run["entry"] + 1}
+      assert retried["supervised_by"] == "ada"
+      assert %{"key" => "TK-B-1-2"} = retried["pending"]["task"]
+      assert task_values()["state"] == "cancelled"
+      assert %{work: %{work_key: "TK-B-1-2"}} = lease!(@mini)
     end
 
     test "an assignment moved away abandons the task and unpins its result; a late end is ignored",

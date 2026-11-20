@@ -497,7 +497,7 @@ defmodule AtlasControl.Shop.Supervising do
     quote do
       use RelaDSL
 
-      type(:op, values: [:choice, :pickup, :hand_over])
+      type(:op, values: [:choice, :pickup, :hand_over, :retry])
 
       entity :run, label: "Run", plural: "runs", id_type: :manual do
         field(:flow, :string)

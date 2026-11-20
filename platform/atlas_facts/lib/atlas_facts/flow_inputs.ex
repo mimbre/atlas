@@ -5,7 +5,7 @@ defmodule AtlasFacts.FlowInputs do
 
   @fields ~w(request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields links payload_digest status position prepared_at applied_at)
   @structured ~w(roles changed_fields links)
-  @supervision_ops ~w(pickup hand_over)
+  @supervision_ops ~w(pickup hand_over retry)
   def fields, do: @fields
   def kind?(d, kind), do: get_in(d, ["flow_runtime", "inputs", "kind"]) == kind
 
@@ -262,10 +262,11 @@ defmodule AtlasFacts.FlowInputs do
     end
   end
 
-  # A pickup or hand-over (work acquisition design 2026-11-17, §5.6): a request from
-  # someone at Control to become, or stop being, a run's human supervisor. Facts checks the
-  # record and its sender, and keeps it applied; it writes neither the supervisor link nor
-  # the subject. Flow alone consumes it and moves the link, after checking it again.
+  # A pickup, hand-over or retry (work acquisition design 2026-11-17, §5.6; IS-Atlas-09): a
+  # request from someone at Control to become, or stop being, a run's human supervisor, or
+  # to take the run they supervise back to the start of its span. Facts checks the record
+  # and its sender, and keeps it applied; it writes neither the supervisor link nor the
+  # subject. Flow alone consumes it and moves the link or the run, after checking it again.
   def write(rela, d, e, %{"op" => op, "by" => actor, "values" => v} = content, now, position, _)
       when op in @supervision_ops and is_map(v) do
     with :ok <- need(Enum.sort(Map.keys(content)) == ~w(by op values), :input_shape),
@@ -356,9 +357,11 @@ defmodule AtlasFacts.FlowInputs do
 
   def write(_, _, _, _, _, _, _), do: {:error, :protected_operation_required}
 
-  # Who a supervision input makes the supervisor: an agent picks up on behalf of whom it
+  # Who a supervision input is for: an agent picks up or retries on behalf of whom it
   # assists (IS-Atlas-47; the input stays the agent's), anyone else for themselves.
-  defp holder("pickup", actor), do: AtlasBus.Actors.assisted(actor) || actor
+  defp holder(op, actor) when op in ~w(pickup retry),
+    do: AtlasBus.Actors.assisted(actor) || actor
+
   defp holder(_op, actor), do: actor
 
   @doc "Fence a timeout's cursor claim against a concurrently prepared human choice."
@@ -540,6 +543,9 @@ defmodule AtlasFacts.FlowInputs do
   def reasons(:not_supervisor, _d),
     do: ["Only the one who supervises it may hand it over."]
 
+  def reasons(:not_supervising, _d),
+    do: ["Only the one who supervises it, or an agent that assists them, may retry it."]
+
   def reasons(:hand_to_self, _d),
     do: ["Hand it over to someone else."]
 
@@ -611,6 +617,7 @@ defmodule AtlasFacts.FlowInputs do
 
   defp supervision_values("pickup"), do: ~w(request_id run)
   defp supervision_values("hand_over"), do: ~w(hand_to request_id run)
+  defp supervision_values("retry"), do: ~w(request_id run)
 
   # The model's supervision, with the input slots its operation and hand-to fields are
   # kept in and the one kind its relation leads to (who may supervise).
@@ -678,6 +685,9 @@ defmodule AtlasFacts.FlowInputs do
          :ok <- need(v["hand_to"] != actor, :hand_to_self),
          do: need(supervising_kind?(rela, d, s, v["hand_to"]), :hand_to_not_a_person)
   end
+
+  defp acquisition(_rela, _d, _s, "retry", _run, supervisor, actor, _v),
+    do: need(holder("retry", actor) in supervisor, :not_supervising)
 
   defp current_generation(rela, d, run) do
     c = d["flow_runtime"]

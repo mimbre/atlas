@@ -30,13 +30,20 @@ defmodule AtlasControl.Pages do
   | `/k/<kind>/<key>/pick_up/<run>` | confirm becoming the supervisor of `run` (Pick up) |
   | `/k/<kind>/<key>/hand_over/<run>` | form to hand `run` over to someone else, with the |
   |                           | running work that will stop (Hand over…)          |
+  | `/k/<kind>/<key>/retry/<run>` | confirm taking `run` back to the start of its span (Retry) |
+  | `/k/<kind>/<key>/remove_item/<run>` | confirm deleting the fact with the work Flow made |
+  |                           | for it, which ends `run` (Remove)                 |
 
   Supervision (work acquisition decision 2026-11-17, §5.6–5.8, M3b): which flows are
   supervised, in which states (spans), by which relation, and what a supervisor's running
   work is, all come from the model's start page (`open_for_you`, `supervised_by_you`);
   who supervises a run, from Facts' presentation (`supervisor`). Pick up and Hand over…
   are sent as inputs of the flow (`pickup`, `hand_over`), only from a TUI session, as the
-  client it is; Flow checks them again and sets the supervisor.
+  client it is; Flow checks them again and sets the supervisor. Retry is sent the same way
+  (`retry`), and Flow takes the run back to the first state of its span (IS-Atlas-09).
+  Remove deletes what is under the fact through the work's relation (its tasks, and what
+  is under each, as their attempts), then the fact itself, which ends its run
+  (IS-Atlas-09, IS-Atlas-30).
 
 
   Relations are of two sorts, as the model marks them (`parent`):
@@ -67,7 +74,12 @@ defmodule AtlasControl.Pages do
   # Supervision's two generic verbs and their keys (M3b plan Q9): supervision is the
   # platform's, so they sit beside the operations. `h` is not free: a model's change
   # action may take it on the same page (an Assignment's Hand to…), so Hand over… is `v`.
-  @supervision %{pick_up: {"Pick up", "p"}, hand_over: {"Hand over…", "v"}}
+  @supervision %{
+    pick_up: {"Pick up", "p"},
+    hand_over: {"Hand over…", "v"},
+    retry: {"Retry", "y"},
+    remove_item: {"Remove", "m"}
+  }
 
   # The client one supervises from (M3b plan §1, S-6): only its session sends a pickup
   # or a hand-over, until there is sign-in.
@@ -90,7 +102,7 @@ defmodule AtlasControl.Pages do
       {:ok, screen, _} when screen in [:open_for_you, :supervised_by_you] ->
         {screen, nil}
 
-      {:ok, page, p} when page in [:pick_up, :hand_over] ->
+      {:ok, page, p} when page in [:pick_up, :hand_over, :retry, :remove_item] ->
         {page, p.kind, p.key, p.run}
 
       {:ok, page, params} when page in [:workers, :worker, :worker_guidance] ->
@@ -265,6 +277,8 @@ defmodule AtlasControl.Pages do
   def submit_route(:fact_fault, p), do: {:fault, p.fault, {p.kind, p.key}}
   def submit_route(:pick_up, p), do: {:pick_up, p.kind, p.key, p.run}
   def submit_route(:hand_over, p), do: {:hand_over, p.kind, p.key, p.run}
+  def submit_route(:retry, p), do: {:retry, p.kind, p.key, p.run}
+  def submit_route(:remove_item, p), do: {:remove_item, p.kind, p.key, p.run}
 
   @doc """
   The `call` (the contract's `call` model) that submits the form or confirm of `route`:
@@ -314,7 +328,7 @@ defmodule AtlasControl.Pages do
     do: Blocks.path(screen)
 
   # A hand-over the session reads for its client (`by`) is at the same path.
-  def path({page, kind, key, run}) when page in [:pick_up, :hand_over],
+  def path({page, kind, key, run}) when page in [:pick_up, :hand_over, :retry, :remove_item],
     do: Blocks.path(page, kind: kind, key: key, run: run)
 
   def path({:hand_over, kind, key, run, _by}), do: path({:hand_over, kind, key, run})
@@ -425,7 +439,9 @@ defmodule AtlasControl.Pages do
 
   # Pick up reads as the fact's page does; Hand over… too, and the facts of the span's
   # `with:` subjects that point at it, and the client's running work: what will stop.
-  def reads({:pick_up, kind, key, _run}, m), do: reads({:item, kind, key}, m)
+  def reads({page, kind, key, _run}, m) when page in [:pick_up, :retry, :remove_item],
+    do: reads({:item, kind, key}, m)
+
   def reads({:hand_over, kind, key, run}, m), do: reads({:hand_over, kind, key, run, nil}, m)
 
   def reads({:hand_over, kind, key, _run, by}, m),
@@ -1301,6 +1317,130 @@ defmodule AtlasControl.Pages do
 
   def hand_over_problem(_m, _route, _answers, _form), do: "It cannot be read now."
 
+  @doc """
+  Why the client cannot retry `run` on the fact now, from fresh reads of the page; nil
+  when it can: the run's supervisor, or an agent that assists them, while the run still
+  presents the fact and is active in a span (IS-Atlas-09).
+  """
+  def retry_problem(m, {:retry, kind, _key, run}, [%{"fact" => %{} = fact} | rest], form) do
+    p = work_presentation(m, kind, fact, item_parts(m, kind, rest))
+
+    cond do
+      p["run"] != run ->
+        "The flow moved on since this page was made; open it again."
+
+      not may_retry?(m, kind, p, form) ->
+        "Only the flow's supervisor, or an agent that assists them, retries it, while it is in a supervised part."
+
+      true ->
+        nil
+    end
+  end
+
+  def retry_problem(_m, _route, _answers, _form), do: "It cannot be read now."
+
+  @doc """
+  Why the client cannot remove the fact now, from fresh reads of the page; nil when it
+  can: the run's supervisor (while nobody supervises it, the one who decides), or an agent
+  that assists them, while the run still presents the fact and nothing but its work hangs
+  under it (IS-Atlas-09).
+  """
+  def remove_problem(
+        m,
+        {:remove_item, kind, key, run},
+        [%{"fact" => %{} = fact} = answer | rest],
+        form
+      ) do
+    p = work_presentation(m, kind, fact, item_parts(m, kind, rest))
+    {_work, held} = held(m, kind, answer)
+
+    cond do
+      p["run"] != run ->
+        "The flow moved on since this page was made; open it again."
+
+      not may_remove?(m, kind, p, form) ->
+        "Only the flow's supervisor removes it (while nobody supervises it, the one who decides), or an agent that assists them."
+
+      held != [] ->
+        "#{key} still has #{counted(held)}. " <> remove_first(held)
+
+      true ->
+        nil
+    end
+  end
+
+  def remove_problem(_m, _route, _answers, _form), do: "It cannot be read now."
+
+  @doc """
+  What hangs under the fact, from its read: `{work, other}`, each `[{label, keys}]` as
+  `children/3` gives them. `work` is what Flow made for it (the supervised work's kind,
+  through its `of`), which Remove deletes with it; `other` is the rest.
+  """
+  def held(m, kind, answer) do
+    of = work_relation(m)
+    incoming = answer["incoming"] || %{}
+
+    under = fn links ->
+      Enum.reject(children(m, kind, Map.put(answer, "incoming", links)), &(elem(&1, 1) == []))
+    end
+
+    {under.(Map.take(incoming, [of])), under.(Map.delete(incoming, of))}
+  end
+
+  @doc "The work Flow made for the fact, from its read, as `[{kind, key}]`: what Remove deletes first."
+  def work_of(m, answer) do
+    case supervised_rule(m)[:work] do
+      %{kind: kind, of: of} -> for key <- get_in(answer, ["incoming", of]) || [], do: {kind, key}
+      _ -> []
+    end
+  end
+
+  @doc """
+  The facts right under one of `kind`, from its read, as `[{kind, key}]`: those its parent
+  relations from one kind bring (a task's attempts).
+  """
+  def under(m, kind, answer) do
+    for r <- relations(m),
+        r.parent,
+        kind in r.to,
+        [from] <- [r.from],
+        key <- get_in(answer, ["incoming", r.name]) || [],
+        do: {from, key}
+  end
+
+  defp work_relation(m), do: (supervised_rule(m)[:work] || %{})[:of]
+
+  # Whom the client acts for as a supervisor: itself, at the TUI, as one who may supervise;
+  # an agent, whom it assists (IS-Atlas-47); nil for anyone else.
+  defp acts_for(m, form) do
+    cond do
+      is_binary(form[:assists]) -> form[:assists]
+      may_supervise?(m, form) -> form[:by]
+      true -> nil
+    end
+  end
+
+  defp in_span?(m, kind, p),
+    do: is_binary(p["run"]) and p["status"] == "active" and span_of(m, kind, p) != nil
+
+  # Retry: the run's supervisor, or an agent that assists them, while it is in a span.
+  defp may_retry?(m, kind, p, form) do
+    holder = acts_for(m, form)
+    in_span?(m, kind, p) and is_binary(holder) and holder in supervisor(p)
+  end
+
+  # Remove: the run's supervisor, whatever its state; while nobody supervises it, the one
+  # who decides (the configured decider). Or an agent that assists them.
+  defp may_remove?(m, kind, p, form) do
+    holder = acts_for(m, form)
+
+    kind in span_kinds(m) and is_binary(p["run"]) and is_binary(holder) and
+      case supervisor(p) do
+        [] -> holder == get_in(restart_actors(m), ["decider", "key"])
+        supervisors -> holder in supervisors
+      end
+  end
+
   # Whom to hand over to: one choice of the candidates other than the client.
   defp choice_input(m, others, form) do
     kinds = supervisor_kinds(m)
@@ -1320,31 +1460,37 @@ defmodule AtlasControl.Pages do
     )
   end
 
-  # Pick up and Hand over… on a fact's page, after its answers and restart: Pick up for
-  # one who may supervise, at the TUI, while the presenting run is active in a span with
-  # no supervisor; Hand over… for its supervisor at the TUI while someone else could take
-  # it.
+  # Pick up, Hand over…, Retry and Remove on a fact's page, after its answers and restart:
+  # Pick up for one who may supervise, at the TUI, while the presenting run is active in a
+  # span with no supervisor; Hand over… for its supervisor at the TUI while someone else
+  # could take it; Retry and Remove as `may_retry?/4` and `may_remove?/4` say.
 
   defp supervision_actions(m, kind, fact, p, candidates, form) do
     run = p["run"]
     supervisor = supervisor(p)
+    route = &{&1, kind, fact["key"], run}
 
-    if is_binary(run) and p["status"] == "active" and span_of(m, kind, p) != nil and
-         may_supervise?(m, form) do
-      pick =
-        if supervisor == [],
-          do: [supervision_action(:pick_up, {:pick_up, kind, fact["key"], run})],
-          else: []
+    supervising =
+      if in_span?(m, kind, p) and may_supervise?(m, form) do
+        pick =
+          if supervisor == [],
+            do: [supervision_action(:pick_up, route.(:pick_up))],
+            else: []
 
-      hand =
-        if form[:by] in supervisor and Enum.any?(candidates, &(&1["key"] != form[:by])),
-          do: [supervision_action(:hand_over, {:hand_over, kind, fact["key"], run})],
-          else: []
+        hand =
+          if form[:by] in supervisor and Enum.any?(candidates, &(&1["key"] != form[:by])),
+            do: [supervision_action(:hand_over, route.(:hand_over))],
+            else: []
 
-      pick ++ hand
-    else
-      []
-    end
+        pick ++ hand
+      else
+        []
+      end
+
+    supervising ++
+      for {verb, may?} <- [retry: &may_retry?/4, remove_item: &may_remove?/4],
+          may?.(m, kind, p, form),
+          do: supervision_action(verb, route.(verb))
   end
 
   defp supervision_action(verb, route) do
@@ -2099,15 +2245,10 @@ defmodule AtlasControl.Pages do
             page("#{verb(:delete)} #{key}", back, [confirm])
 
           held ->
-            what =
-              Enum.map_join(held, " and ", fn {label, keys} ->
-                count(keys) <> " " <> String.downcase(label)
-              end)
-
             confirm =
               Blocks.confirm(
                 title: "#{key} cannot be deleted",
-                text: "#{key} still has #{what}. " <> remove_first(held),
+                text: "#{key} still has #{counted(held)}. " <> remove_first(held),
                 cancel_to: back
               )
 
@@ -2119,26 +2260,27 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # Become the supervisor of the run that presents the fact (Pick up), after asking; why
-  # not, while it may not (`pick_up_problem/4`).
-  defp page({:pick_up, kind, key, _run} = route, kind, k, m, answers, form) do
+  # Pick up (become the supervisor of the run that presents the fact), Retry (take the run
+  # back to the start of its span) and Remove (delete the fact with the work Flow made for
+  # it, which ends the run): a confirm, after asking; why not, while it may not
+  # (`pick_up_problem/4`, `retry_problem/4`, `remove_problem/4`).
+  defp page({verb, kind, key, _run} = route, kind, k, m, answers, form)
+       when verb in [:pick_up, :retry, :remove_item] do
     back = path({:item, kind, key})
-    {label, _key} = @supervision.pick_up
+    {label, _key} = @supervision[verb]
     title = "#{label} #{key}"
 
     case hd(answers) do
       %{"fact" => nil} ->
         missing(title, "#{key} does not exist (any more).", path({:list, kind}))
 
-      %{"fact" => fact} ->
-        case pick_up_problem(m, route, answers, form) do
+      %{"fact" => fact} = answer ->
+        case confirm_problem(verb, m, route, answers, form) do
           nil ->
             page(title, back, [
               Blocks.confirm(
                 title: "#{title}?",
-                text:
-                  "#{key}: #{label(k, fact)}" <>
-                    if(form[:assists], do: ", on behalf of #{form[:assists]}", else: ""),
+                text: "#{key}: #{label(k, fact)}" <> confirming(verb, m, kind, answer, form),
                 confirm_label: label,
                 confirm_to: call_to(route),
                 cancel_to: back
@@ -2904,6 +3046,37 @@ defmodule AtlasControl.Pages do
 
   defp remove_first(_held),
     do: "Remove them first; Atlas never deletes them along with their parent."
+
+  # What hangs under a fact, counted: "3 tasks and 1 attempt" ("children/3"'s labels).
+  defp counted(held),
+    do:
+      Enum.map_join(held, " and ", fn {label, keys} ->
+        count(keys) <> " " <> String.downcase(label)
+      end)
+
+  defp confirm_problem(:pick_up, m, route, answers, form),
+    do: pick_up_problem(m, route, answers, form)
+
+  defp confirm_problem(:retry, m, route, answers, form),
+    do: retry_problem(m, route, answers, form)
+
+  defp confirm_problem(:remove_item, m, route, answers, form),
+    do: remove_problem(m, route, answers, form)
+
+  # What a supervision confirm says it does, after the fact's key and label.
+  defp confirming(:pick_up, _m, _kind, _answer, form),
+    do: if(form[:assists], do: ", on behalf of #{form[:assists]}", else: "")
+
+  defp confirming(:retry, _m, _kind, _answer, _form),
+    do:
+      ". Its flow goes back to the start of its supervised part, where its agent work is " <>
+        "offered again, fresh; the work it runs now is stopped."
+
+  defp confirming(:remove_item, m, kind, answer, _form) do
+    {work, _held} = held(m, kind, answer)
+    with_work = if work == [], do: "", else: ", with its #{counted(work)} and what is under them"
+    " will be deleted#{with_work}. Its flow ends. This cannot be undone."
+  end
 
   # Form inputs from the model
 

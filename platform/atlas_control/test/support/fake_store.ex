@@ -173,11 +173,11 @@ defmodule AtlasControl.FakeStore do
   def handle_info({:atlas_bus, %Envelope{class: "fact"}, _content}, %{silent: true} = s),
     do: {:noreply, s}
 
-  # A pickup or a hand-over (work acquisition decision 2026-11-17, §5.6): an input of a
-  # flow, kept as sent (Facts checks it, and keeps it applied for Flow). It changes no fact
-  # a page shows. Refused with `reason` while `refuse/2` names its run.
+  # A pickup, hand-over or retry (work acquisition decision 2026-11-17, §5.6): an input of
+  # a flow, kept as sent (Facts checks it, and keeps it applied for Flow). It changes no
+  # fact a page shows. Refused with `reason` while `refuse/2` names its run.
   def handle_info({:atlas_bus, %Envelope{class: "fact"} = e, %{"op" => op} = c}, s)
-      when op in ["pickup", "hand_over"] do
+      when op in ["pickup", "hand_over", "retry"] do
     s = %{s | last: c, sent: [c | s.sent]}
     about = Map.take(c, ["op", "by"])
 
