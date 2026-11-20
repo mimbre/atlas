@@ -39,7 +39,7 @@ defmodule AtlasTui.View do
   """
   def known,
     do: %{
-      blocks: ~w(list item single_choice form confirm plan console_action),
+      blocks: ~w(list groups item single_choice form confirm plan console_action),
       markup: ~w(part section highlight legend)
     }
 
@@ -506,6 +506,30 @@ defmodule AtlasTui.View do
           do: [{:dim, indent <> line}]
 
     heading ++ if(rows == [], do: empty, else: content)
+  end
+
+  # The page's groups as a filter row, each with its count, the one shown highlighted;
+  # Control binds the keys that move between them. Wraps where the row is too wide.
+  defp block(%AtlasTui.Blocks.Groups{groups: groups}, _at, _model, width, _room) do
+    groups
+    |> Enum.map(fn group ->
+      {if(group.active, do: :selected, else: :dim),
+       " #{single_line(group.label)} #{group.count} "}
+    end)
+    |> Enum.reduce([], fn {_, text} = segment, lines ->
+      case lines do
+        [line | done] ->
+          used = Enum.reduce(line, 0, fn {_, t}, used -> used + display_width(t) end)
+
+          if used + 1 + display_width(text) <= width,
+            do: [line ++ [{:dim, "·"}, segment] | done],
+            else: [[segment], line | done]
+
+        [] ->
+          [[segment]]
+      end
+    end)
+    |> Enum.reverse()
   end
 
   # Values keep their line breaks and blank lines; a heading line (`#`) is bold. A value

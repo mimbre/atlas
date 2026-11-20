@@ -93,6 +93,7 @@ enum PathRules {
 public enum Page: String, CaseIterable, Sendable {
     case home
     case openForYou = "open_for_you"
+    case openForYouGroup = "open_for_you_group"
     case supervisedByYou = "supervised_by_you"
     case workers
     case worker
@@ -122,6 +123,7 @@ public enum Page: String, CaseIterable, Sendable {
         switch self {
         case .home: "/"
         case .openForYou: "/_open"
+        case .openForYouGroup: "/_open/:subflow/:span"
         case .supervisedByYou: "/_supervised"
         case .workers: "/workers"
         case .worker: "/workers/:machine/:worker/:turn/:attempt"

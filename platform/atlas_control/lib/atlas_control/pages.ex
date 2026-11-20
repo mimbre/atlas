@@ -102,6 +102,9 @@ defmodule AtlasControl.Pages do
       {:ok, screen, _} when screen in [:open_for_you, :supervised_by_you] ->
         {screen, nil}
 
+      {:ok, :open_for_you_group, p} ->
+        {:open_for_you_group, p.subflow, p.span}
+
       {:ok, page, p} when page in [:pick_up, :hand_over, :retry, :remove_item] ->
         {page, p.kind, p.key, p.run}
 
@@ -189,6 +192,10 @@ defmodule AtlasControl.Pages do
 
   def resolve({screen, _by} = route, m) when screen in [:open_for_you, :supervised_by_you],
     do: if(screen_rule(m, screen), do: route, else: :unknown)
+
+  # A group of Open for you exists only when the model has its span.
+  def resolve({:open_for_you_group, subflow, span} = route, m),
+    do: if(group_span(m, subflow, span), do: route, else: :unknown)
 
   def resolve(route, _m), do: route
 
@@ -327,6 +334,9 @@ defmodule AtlasControl.Pages do
   def path({screen, _by}) when screen in [:open_for_you, :supervised_by_you],
     do: Blocks.path(screen)
 
+  def path({:open_for_you_group, subflow, span}),
+    do: Blocks.path(:open_for_you_group, subflow: subflow, span: span)
+
   # A hand-over the session reads for its client (`by`) is at the same path.
   def path({page, kind, key, run}) when page in [:pick_up, :hand_over, :retry, :remove_item],
     do: Blocks.path(page, kind: kind, key: key, run: run)
@@ -382,6 +392,7 @@ defmodule AtlasControl.Pages do
   def kind_of({:unavailable, _path, _failed}), do: nil
   def kind_of(:kinds), do: nil
   def kind_of({screen, _by}) when screen in [:open_for_you, :supervised_by_you], do: nil
+  def kind_of({:open_for_you_group, _subflow, _span}), do: nil
   def kind_of(route), do: elem(route, 1)
 
   def form?({:worker_page, :worker_guidance, _}), do: true
@@ -431,6 +442,9 @@ defmodule AtlasControl.Pages do
     {rows, lookups} = span_reads(m)
     rows ++ lookups
   end
+
+  # A group of Open for you reads as the whole screen: its counts are of every group.
+  def reads({:open_for_you_group, _subflow, _span}, m), do: reads({:open_for_you, nil}, m)
 
   def reads({:supervised_by_you, by}, m) do
     {rows, lookups} = span_reads(m)
@@ -535,6 +549,7 @@ defmodule AtlasControl.Pages do
         {:assigned, _} -> owner_reads(m)
         {:list, kind} when is_binary(kind) -> if open_work?(m, kind), do: owner_reads(m), else: 0
         {screen, _} when screen in [:open_for_you, :supervised_by_you] -> span_lookups(m)
+        {:open_for_you_group, _, _} -> span_lookups(m)
         _ -> 0
       end
 
@@ -757,9 +772,9 @@ defmodule AtlasControl.Pages do
     |> Enum.sort_by(fn {_, _, link} -> if link["late"] == true, do: 0, else: 1 end)
   end
 
-  # What is assigned to the client, calm by default and detail on demand (platform/atlas_control/backend/README.md):
-  # an Overview of the counts, the list without technical noise, and each row's technical
-  # details in a Details section a client folds until asked (`details_action/0`).
+  # What is assigned to the client, calm (platform/atlas_control/backend/README.md): an
+  # Overview of the counts and the list without technical noise; the technical details are
+  # an agent's or developer's (`atlas get`), never on a person's page.
   defp assigned(m, _by, answers, marked) do
     rule = assigned_rule(m)
     items = assigned_facts(m, answers, marked)
@@ -772,26 +787,14 @@ defmodule AtlasControl.Pages do
         actions: start_actions(m)
       )
 
-    calm_page(m, rule.title || "", nil, rule.relation, items, [
+    page(rule.title || "", nil, [
       {"summary", overview(items)},
       {"list", list}
     ])
   end
 
-  # A calm page of `items` (`content`: its Overview and list): when there are any, each
-  # one's technical details in a collapsible Details section (`technical_details/1`), and
-  # the console action that folds it (`details_actions/1`).
-  defp calm_page(m, title, back, relation, items, content) do
-    {details, markup} =
-      technical_details(for item <- items, do: technical_pair(m, relation, item))
-
-    page = page(title, back, content ++ details, markup)
-
-    if details == [], do: page, else: Map.put(page, :console_actions, details_actions(m))
-  end
-
   @doc """
-  A calm page's technical details (platform/atlas_control/backend/README.md): `{content, markup}` to add to the page,
+  A page's technical details (the worker pages'): `{content, markup}` to add to the page,
   one pair per row in list order in an `item` `details` titled "Technical details" inside a
   collapsible `section` titled "Details"; nothing when there are no pairs. A page with
   them offers `details_action/0`.
@@ -818,15 +821,6 @@ defmodule AtlasControl.Pages do
       reason: nil
     }
 
-  # A calm page's console actions: `details_action/0`, unless a start action already
-  # binds its key (a model may start a kind on d); then a console keeps the Details folded,
-  # and a native client discloses them on its own.
-  defp details_actions(m) do
-    action = details_action()
-
-    if Enum.any?(m.start.actions, &(&1.key in action.keys)), do: [], else: [action]
-  end
-
   # How much there is: how many (`main`), and how many of those are late or blocked, and
   # any `more` counts (only when some are).
   defp overview(items, main \\ "To do", more \\ []) do
@@ -851,9 +845,8 @@ defmodule AtlasControl.Pages do
   end
 
   # One calm row of what is assigned: the fact, who it is with (`owner?`, on Open work),
-  # why it is to be reviewed (the rule's label; the fact that makes it so is in the
-  # details), what is expected, whether it is blocked, and its deadline (late first); its
-  # key and the rest are in its technical details.
+  # why it is to be reviewed (the rule's label), what is expected, whether it is blocked,
+  # and its deadline (late first).
   defp calm_row(m, relation, {from, fact, link}, owner? \\ false) do
     link_k = kind(m, link_kind(m, relation))
 
@@ -875,46 +868,6 @@ defmodule AtlasControl.Pages do
     )
   end
 
-  # A row's technical details, by its key: its kind, the Assignment when that is another
-  # fact, how Facts presents the work on it, and since when and why it is the client's.
-  defp technical_pair(m, relation, {from, fact, link}) do
-    origin = get_in(link, ["origins", relation]) || %{}
-
-    part = fn name, words ->
-      case shown(fact, link, name) do
-        nil -> nil
-        value -> words <> keys_text(value)
-      end
-    end
-
-    handover =
-      case shown(fact, link, "handover") do
-        %{"from" => keys} when keys not in [nil, "", []] -> "handover from " <> keys_text(keys)
-        _ -> nil
-      end
-
-    value =
-      [
-        (kind(m, from) || unknown_kind(from)).label,
-        link["key"] != fact["key"] && link["key"],
-        part.("flow", "flow "),
-        part.("run", "run "),
-        part.("state", "state "),
-        part.("status", "status "),
-        get_in(fact, ["review", "key"]) && "review " <> to_text(fact["review"]["key"]),
-        part.("owner", "owner "),
-        shown(fact, link, "manual") == true && "manual",
-        handover,
-        part.("deadline", "deadline "),
-        origin["since"] && "since " <> to_text(origin["since"]),
-        origin["cause"] && "cause: " <> to_text(origin["cause"])
-      ]
-      |> Enum.reject(&(&1 in [nil, "", false]))
-      |> Enum.join(" · ")
-
-    Blocks.pair(label: fact["key"], value: value)
-  end
-
   # What Facts' presentation of the work says of `name`: on the component it is presented
   # on (`link`), or on the fact itself; nil when neither says anything.
   defp shown(fact, link, name) do
@@ -925,9 +878,6 @@ defmodule AtlasControl.Pages do
       end
     end)
   end
-
-  defp keys_text(keys) when is_list(keys), do: Enum.map_join(keys, ", ", &to_text/1)
-  defp keys_text(value), do: to_text(value)
 
   # Who an Open work row is with: the keys its link points at, or "unassigned".
   defp owner_text(link, relation) do
@@ -965,7 +915,7 @@ defmodule AtlasControl.Pages do
             actions: []
           )
 
-        calm_page(m, rule.title || "", "/", relation, items, [
+        page(rule.title || "", "/", [
           {"summary", overview(items, "Open", [{"Unassigned", unassigned}])},
           {"list", list}
         ])
@@ -1520,35 +1470,97 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # Open for you, calm by default: an Overview, one list per span, details on demand.
-  defp open_for_you(m, answers) do
+  # Open for you, calm: its groups (all, then one per span, each with its count), an
+  # Overview, and one list per span; on a group's page (`active`, `{subflow, span}`) only
+  # that span's list. `[` and `]` open the previous and the next group.
+  defp open_for_you(m, answers, active) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
         rule = open_for_you_rule(m)
         per_span = open_for_you_facts(m, answers)
-        items = for {_s, facts} <- per_span, item <- facts, do: item
+        all = for {_s, facts} <- per_span, item <- facts, do: item
+
+        groups =
+          [
+            {"All", length(all), path({:open_for_you, nil}), active == nil}
+            | for {s, facts} <- per_span do
+                {span_title(m, s), length(facts), path({:open_for_you_group, s.subflow, s.span}),
+                 active == {s.subflow, s.span}}
+              end
+          ]
+          |> Enum.map(fn {label, count, to, on?} ->
+            Blocks.group(label: label, count: count, to: to, active: on?)
+          end)
+
+        shown = for {s, _} = group <- per_span, active in [nil, {s.subflow, s.span}], do: group
+        items = for {_s, facts} <- shown, item <- facts, do: item
 
         lists =
-          for {s, facts} <- per_span do
+          for {s, facts} <- shown do
             {"list:#{s.subflow}:#{s.span}",
              Blocks.list(
-               title: s.label || s.span,
+               title: span_title(m, s),
                rows: for({kind, fact, work} <- facts, do: screen_row(m, kind, fact, work)),
                empty: rule.empty
              )}
           end
 
-        calm_page(m, rule.title || "", nil, nil, items, [
+        {title, back} =
+          case shown do
+            [{s, _}] when active != nil ->
+              {"#{rule.title} · #{span_title(m, s)}", path({:open_for_you, nil})}
+
+            _ ->
+              {rule.title || "", nil}
+          end
+
+        title
+        |> page(back, [
+          {"groups", Blocks.groups(groups: groups)},
           {"summary", screen_overview(rule, items, [])} | lists
         ])
+        |> Map.put(:console_actions, group_actions(groups))
 
       failed ->
         unavailable(failed, "/")
     end
   end
 
-  # Supervised by you, calm by default: an Overview with the quiet count of the client's
-  # running work, the flows it supervises (state, who it waits on), details on demand.
+  # The Console's way through a page's groups: `[` opens the previous, `]` the next.
+  defp group_actions(groups) do
+    at = Enum.find_index(groups, & &1["active"]) || 0
+
+    for {label, key, step} <- [{"Previous group", "[", -1}, {"Next group", "]", 1}] do
+      to = Enum.at(groups, Integer.mod(at + step, length(groups)))["to"]
+
+      %{
+        label: label,
+        keys: [key],
+        operation: %{"name" => "open", "to" => to},
+        on: nil,
+        row: nil,
+        available: true,
+        reason: nil
+      }
+    end
+  end
+
+  # A span's name on the screens: its label; when another span has that label too, with
+  # the kind its work is on (`Break down scenes`), so each one is told apart.
+  defp span_title(m, s) do
+    label = s.label || s.span
+
+    if Enum.count(spans(m), &((&1.label || &1.span) == label)) > 1,
+      do: "#{label} #{String.downcase((kind(m, s.subject) || unknown_kind(s.subject)).plural)}",
+      else: label
+  end
+
+  # The span a group of Open for you shows, or nil when the model has none such.
+  defp group_span(m, subflow, span),
+    do: Enum.find(spans(m), &(&1.subflow == subflow and &1.span == span))
+
+  # Supervised by you, calm: an Overview with the quiet count of the client's running
+  # work, and the flows it supervises (state, who it waits on).
   defp supervised_by_you(m, by, answers) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
@@ -1568,7 +1580,7 @@ defmodule AtlasControl.Pages do
             empty: rule.empty
           )
 
-        calm_page(m, rule.title || "", nil, nil, items, [
+        page(rule.title || "", nil, [
           {"summary", screen_overview(rule, items, work)},
           {"list", list}
         ])
@@ -1635,9 +1647,15 @@ defmodule AtlasControl.Pages do
   def render({screen, by}, m, answers, form) when screen in [:open_for_you, :supervised_by_you] do
     case {screen, screen_rule(m, screen)} do
       {_, nil} -> render(:unknown, m, answers, form)
-      {:open_for_you, _} -> open_for_you(m, answers)
+      {:open_for_you, _} -> open_for_you(m, answers, nil)
       {:supervised_by_you, _} -> supervised_by_you(m, by, answers)
     end
+  end
+
+  def render({:open_for_you_group, subflow, span}, m, answers, form) do
+    if open_for_you_rule(m) && group_span(m, subflow, span),
+      do: open_for_you(m, answers, {subflow, span}),
+      else: render(:unknown, m, answers, form)
   end
 
   def render({:hand_over, kind, key, run}, m, answers, form),

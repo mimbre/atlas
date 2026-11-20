@@ -33,7 +33,9 @@ defmodule AtlasBFFContract.Contract do
   # 0.17.0: a projected action may invoke its declared submit call directly.
   # 0.18.0: supervision (work acquisition decision 2026-11-17, §5.8): the pages Open for
   # you and Supervised by you, and Pick up and Hand over… on a fact, with their submits.
-  version "0.18.0"
+  # 0.19.0: a page may declare the groups its items fall into (`groups`), each a filter of
+  # the page; Open for you per group (`/_open/:subflow/:span`).
+  version "0.19.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

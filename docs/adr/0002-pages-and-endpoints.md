@@ -24,6 +24,7 @@ mica-bff's spec format (`~/projects/nova/mica-bff/docs/adr/0001-spec-format.md`)
    | `links`, `set`, `remove` | `/k/:kind/:key/links/:relation`, `…/set/:relation`, `…/remove/:relation` |
    | `answer` | `/k/:kind/:key/answer/:answer`: an owner's declared answer (a change it makes as itself), a confirm or, when the answer needs one, a note |
    | `open_for_you`, `supervised_by_you` | `/_open`, `/_supervised`: the supervision screens (contract 0.18.0, work acquisition decision 2026-11-17 §5.8) |
+   | `open_for_you_group` | `/_open/:subflow/:span`: Open for you, only the flows in one supervised span (contract 0.19.0, a group of the page's `groups` block) |
    | `pick_up`, `hand_over` | `/k/:kind/:key/pick_up/:run`, `…/hand_over/:run`: become the supervisor of the run that presents the fact (a confirm), or hand it over to another person (a form); each with its submit endpoint of the same name |
 
 

@@ -1,8 +1,10 @@
 import AtlasControlKit
 import SwiftUI
 
-/// A page: its title and its blocks. `open` is called with a row's `to`; `submit` with a
-/// call a block declares (a choice's answer) and its values.
+/// A page: its title and its blocks. Its lists' rows are the page's selection: selecting
+/// one (a click, or the arrow keys) calls `open` with its `to`, and the row whose `to` is
+/// `selectedPath` shows selected. `submit` is called with a call a block declares (a
+/// choice's answer) and its values.
 public struct PageView: View {
     let presentation: PagePresentation
     let selectedPath: String?
@@ -18,19 +20,49 @@ public struct PageView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
-                ForEach(presentation.groups) { group in
-                    switch group {
-                    case .entry(let entry): entryView(entry)
-                    case .section(let section): sectionView(section)
-                    }
+        List(selection: Binding(get: { selectedPath }, set: { to in
+            if let to, to != selectedPath { open(to) }
+        })) {
+            ForEach(presentation.groups) { group in
+                switch group {
+                case .entry(let entry): topLevel(entry)
+                case .section(let section): still(sectionView(section))
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
         }
+        .listStyle(.inset)
         .navigationTitle(presentation.title)
+    }
+
+    /// A block at the top of the page: a list's rows each a row of the page's selection;
+    /// any other block one row that cannot be selected.
+    @ViewBuilder private func topLevel(_ entry: PagePresentation.Entry) -> some View {
+        if case .list(let list) = entry.item {
+            if let title = list.title {
+                still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.s10))
+            }
+            if list.rows.isEmpty, let empty = list.empty {
+                still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary))
+            }
+            ForEach(Array(list.rows.enumerated()), id: \.offset) { _, row in
+                RowLabel(row: row)
+                    .tag(row.to as String?)
+                    .listRowSeparator(.hidden)
+            }
+            if let actions = list.actions, !actions.isEmpty {
+                still(UnsupportedActionsView(actions: actions))
+            }
+        } else {
+            still(entryView(entry))
+        }
+    }
+
+    /// A row of the page that is not one of its selection.
+    private func still(_ content: some View) -> some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .selectionDisabled()
+            .listRowSeparator(.hidden)
     }
 
     @ViewBuilder private func entryView(_ entry: PagePresentation.Entry) -> some View {
@@ -117,29 +149,10 @@ struct ListRowView: View {
         // The button owns its padded rectangle. Future nested controls must be
         // siblings of this button, with no overlay or parent tap gesture.
         Button { open(row.to) } label: {
-            // A calm row has no id: then there is no id column at all.
-            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
-                if let id = row.id {
-                    Text(id).monospaced().prism(Prism.Typography.tableRow).foregroundStyle(.secondary)
-                        .lineLimit(1).frame(maxWidth: 120, alignment: .leading)
-                }
-                Text(row.label).prism(Prism.Typography.tableRow).foregroundStyle(.primary).lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if let detail = row.detail {
-                    Text(detail).prism(Prism.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if row.pending == true {
-                    Text("⋯ being processed").prism(Prism.Typography.captionSmall)
-                        .foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            .truncationMode(.tail)
-            .multilineTextAlignment(.leading)
-            .padding(.horizontal, Prism.Spacing.s10)
-            .padding(.vertical, Prism.Spacing.s9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            RowLabel(row: row)
+                .padding(.horizontal, Prism.Spacing.s10)
+                .padding(.vertical, Prism.Spacing.s9)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .background(background, in: RoundedRectangle(cornerRadius: Prism.radius))
@@ -160,6 +173,34 @@ struct ListRowView: View {
         if selected { return dark ? Prism.Colors.primary.opacity(0.35) : Prism.Colors.primaryLight }
         if hovering { return dark ? Color.primary.opacity(0.06) : Prism.Colors.grey5 }
         return .clear
+    }
+}
+
+/// A row's content: its id (a calm row has none, and then there is no id column at all),
+/// its label, its detail, and whether a write to it is being processed.
+struct RowLabel: View {
+    let row: RowModel
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
+            if let id = row.id {
+                Text(id).monospaced().prism(Prism.Typography.tableRow).foregroundStyle(.secondary)
+                    .lineLimit(1).frame(maxWidth: 120, alignment: .leading)
+            }
+            Text(row.label).prism(Prism.Typography.tableRow).foregroundStyle(.primary).lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let detail = row.detail {
+                Text(detail).prism(Prism.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if row.pending == true {
+                Text("⋯ being processed").prism(Prism.Typography.captionSmall)
+                    .foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .truncationMode(.tail)
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

@@ -29,6 +29,16 @@
     {
       "fields": [
         {
+          "name": "groups",
+          "required": true,
+          "type": "list of group"
+        }
+      ],
+      "name": "groups"
+    },
+    {
+      "fields": [
+        {
           "name": "title",
           "required": true,
           "type": "string"
@@ -250,6 +260,20 @@
       "page": "open_for_you",
       "params": [],
       "path": "/_open",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
+      "name": "open_for_you_group",
+      "page": "open_for_you_group",
+      "params": [
+        "subflow",
+        "span"
+      ],
+      "path": "/_open/:subflow/:span",
       "replies": {
         "page": "view model"
       },
@@ -2553,6 +2577,31 @@
     {
       "fields": [
         {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "count",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "to",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "active",
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "name": "group"
+    },
+    {
+      "fields": [
+        {
           "name": "since",
           "required": false,
           "type": "string"
@@ -3022,6 +3071,15 @@
       "name": "open_for_you",
       "params": [],
       "path": "/_open",
+      "returns": "view model"
+    },
+    {
+      "name": "open_for_you_group",
+      "params": [
+        "subflow",
+        "span"
+      ],
+      "path": "/_open/:subflow/:span",
       "returns": "view model"
     },
     {
@@ -5476,7 +5534,7 @@
       }
     }
   ],
-  "version": "0.18.0",
+  "version": "0.19.0",
   "wire": {
     "block": "{\"id\": \"<id>\", \"type\": \"<block>\", \"props\": {...}}",
     "markup": "{\"kind\": \"<kind>\", \"start\": \"<block id>\", \"end\": \"<block id>\", \"group\": \"<id, on a piece of split markup>\", \"props\": {...}}",

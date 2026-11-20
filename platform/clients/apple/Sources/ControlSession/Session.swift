@@ -40,6 +40,9 @@ public final class Session {
 
     public func selectTab(_ id: String) { handle(.selectTab(id: id)) }
 
+    /// Show one group of the tab's page (a `groups` block's `to`) in the middle column.
+    public func filter(_ to: String) { handle(.filter(to: to)) }
+
     /// Open a page Control named: a row's or an action's `to`.
     public func open(_ to: String) { handle(.open(to: to)) }
 

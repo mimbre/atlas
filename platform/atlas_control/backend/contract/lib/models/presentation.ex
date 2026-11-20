@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.18.0"
+  version "0.19.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -51,6 +51,15 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :links, {:list, :link}
     field :key, :string
     field :pending, :boolean
+  end
+
+  # One group of a `groups` block: its name, how many items it has, the page that shows
+  # only them (`to`), and whether it is the one this page shows (`active`).
+  defmodel :group do
+    field :label, :string, required: true
+    field :count, :integer, required: true
+    field :to, :string, required: true
+    field :active, :boolean
   end
 
   # The fact that set a value: since when (ISO 8601, UTC), by whom (a key), and why.

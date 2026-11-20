@@ -134,6 +134,9 @@ defmodule AtlasControl.Shell do
   defp canonical_target({screen, _} = route, _m) when screen in @screens,
     do: {:ok, Pages.path(route)}
 
+  defp canonical_target({:open_for_you_group, _subflow, _span} = route, _m),
+    do: {:ok, Pages.path(route)}
+
   defp canonical_target(:kinds, _m), do: {:ok, "/_kinds"}
 
   defp canonical_target({page, kind} = route, m) when page in [:list, :new],
