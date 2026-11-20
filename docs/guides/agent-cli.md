@@ -36,7 +36,7 @@ atlas do IS-Atlas-07 "Pick up"
 atlas do IS-Atlas-07 "Hand to…" --to mac-mini
 ```
 
-`actions` and `do` without `ATLAS_AS` act as the person at the TUI (the environment's `tui_user`): the command line on Melle's own machine runs for him, so an action only a person may take, as Pick up, is his. An agent always sets `ATLAS_AS=<agent key>`; `actions` and `do` then act as that agent, and Control offers and allows what it offers and allows an agent. The other commands stay an agent's.
+`actions` and `do` without `ATLAS_AS` act as the person at the TUI (the environment's `tui_user`): the command line on Melle's own machine runs for him, so an action only a person may take, as Pick up, is his. An agent always sets `ATLAS_AS=<agent key>`; `actions` and `do` then act as that agent, and Control offers and allows what it offers and allows an agent. The other commands stay an agent's. A Runtime starts every agent with `ATLAS_AS` set to its slot, so the slots in a Runtime's `policy.json` are agent keys the environment knows and lists in `assists` (the mini's `dev1`…`dev6`).
 
 An agent is always a person's assistant, never a supervisor itself. Whom each agent assists is the environment's `assists` setting (`"assists": {"coordinator": "melle", …}` in `products/software_factory/environments/<env>/core.json`). An agent that assists someone gets Pick up and picks a flow up on that person's behalf: the input is the agent's (`by` names it), and Flow makes the person the supervisor, so its questions and "Merge it" go to them. The item then shows who did it:
 

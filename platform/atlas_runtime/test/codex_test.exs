@@ -34,6 +34,23 @@ defmodule AtlasRuntime.CodexTest do
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1_000
   end
 
+  test "the agent runs as its own agent identity", %{tmp_dir: dir} do
+    command = Path.join(dir, "fake-codex")
+
+    File.write!(command, ~S"""
+    #!/bin/sh
+    printf '{"type":"item.completed","item":{"type":"agent_message","text":"as %s"}}\n' "$ATLAS_AS"
+    printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1}}'
+    """)
+
+    File.chmod!(command, 0o700)
+    settings = %{"command" => command, "workspace" => dir, "goal" => "Who are you?"}
+    opts = [turns_dir: Path.join(dir, "turns"), agent: settings, agent_key: "dev1"]
+
+    {:ok, {pid, _ref}} = Native.start_monitor(@turn, opts)
+    assert_receive {:agent, ^pid, {:ended, "as dev1"}}, 5_000
+  end
+
   test "requested Codex model and Claude quota-shaped events cannot fabricate evidence", %{
     tmp_dir: dir
   } do
