@@ -110,7 +110,7 @@ defmodule Model.SupervisionTest do
     operation = properties["operation"]["type"]
 
     assert Enum.sort(schema()["types"][operation]["values"]) ==
-             Enum.sort(~w(choice pickup hand_over))
+             Enum.sort(~w(choice pickup hand_over retry))
 
     assert properties["hand_to"]["type"] == "string"
     refute properties["operation"]["required"] || properties["hand_to"]["required"]
@@ -120,7 +120,7 @@ defmodule Model.SupervisionTest do
     assert %{"operation" => "operation", "hand_to" => "hand_to"} =
              supervision["inputs"]
 
-    assert supervision["inputs"]["operations"] == ~w(pickup hand_over)
+    assert supervision["inputs"]["operations"] == ~w(pickup hand_over retry)
 
     # Mapped as every other field of an input, so Facts keeps them with it.
     fields = AtlasEyra.runs()["inputs"]["fields"]

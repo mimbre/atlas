@@ -8,19 +8,23 @@ defmodule Model.FlowRun do
   it: from a checked pickup input (`operation` `pickup`, from a person at the TUI, for
   themselves alone) and clears it from a hand-over (`hand_over`, naming in `hand_to`
   the person who is given a To-Do to pick it up), and in the same write as the run
-  leaves the span. A new run generation starts without one. A choice input
+  leaves the span. A new run generation starts without one. A retry (`retry`, from its
+  supervisor) takes the run back to the first step of its span, where its agent work is
+  offered again, fresh. A choice input
   (`operation` empty or `choice`) is the subject write it always was. The flow's agent
   work runs only on its supervisor's Runtimes, and its agents and smart gates ask them.
   """
   use RelaDSL
 
   type(:flow_input_operation,
-    values: [:choice, :pickup, :hand_over],
-    labels: [choice: "Choice", pickup: "Pick up", hand_over: "Hand over"],
+    values: [:choice, :pickup, :hand_over, :retry],
+    labels: [choice: "Choice", pickup: "Pick up", hand_over: "Hand over", retry: "Retry"],
     descriptions: [
       choice: "A choice its owner makes, written on the subject (the default when empty)",
       pickup: "Makes the person who sends it the run's human supervisor",
-      hand_over: "Clears the run's human supervisor and gives hand_to a To-Do to pick it up"
+      hand_over: "Clears the run's human supervisor and gives hand_to a To-Do to pick it up",
+      retry:
+        "Its supervisor takes the run back to the first step of its span, with fresh agent work"
     ]
   )
 

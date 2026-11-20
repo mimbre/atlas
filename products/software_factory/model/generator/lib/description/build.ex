@@ -45,7 +45,7 @@ defmodule RelaDSL.Description.Build do
   @flow_runtime_keys [:runs, :writer, :inputs, :supervision, :senders]
   @supervision_keys [:relation, :operation, :hand_to]
   @work_keys [:kind, :of, :for, :ended]
-  @operations ["pickup", "hand_over"]
+  @operations ["pickup", "hand_over", "retry"]
   @writer "atlas-flow"
 
   @doc "Every contribution, in order: `[{origin, kind, value}]` of each module's concepts, the module, then the composition."
@@ -675,7 +675,7 @@ defmodule RelaDSL.Description.Build do
             :supervision_operation,
             [inputs, Plain.of(s[:operation])],
             at <>
-              "#{inputs}.#{Plain.of(s[:operation])} must be a field whose type has the values #{Enum.join(@operations, " and ")}"
+              "#{inputs}.#{Plain.of(s[:operation])} must be a field whose type has the values #{Enum.join(@operations, ", ")}"
           ),
         get_in(schema, ["entities", inputs, "properties", Plain.of(s[:hand_to])]) == nil &&
           problem(

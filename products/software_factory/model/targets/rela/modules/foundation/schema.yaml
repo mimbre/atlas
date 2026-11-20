@@ -135,14 +135,17 @@ types:
     - choice
     - pickup
     - hand_over
+    - retry
     labels:
       choice: Choice
       pickup: Pick up
       hand_over: Hand over
+      retry: Retry
     descriptions:
       choice: A choice its owner makes, written on the subject (the default when empty)
       pickup: Makes the person who sends it the run's human supervisor
       hand_over: Clears the run's human supervisor and gives hand_to a To-Do to pick it up
+      retry: Its supervisor takes the run back to the first step of its span, with fresh agent work
 entities:
   person:
     label: Person

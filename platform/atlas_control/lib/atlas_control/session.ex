@@ -971,7 +971,65 @@ defmodule AtlasControl.Session do
     end
   end
 
+  # Retry (IS-Atlas-09): read again and checked as the page checks it, then sent as an input
+  # of the flow (`retry`), as Pick up is: only its supervisor, or an agent that assists
+  # them. Flow checks it again and takes the run back to the start of its span.
+  defp submit({:retry, kind, key, run} = route, _raw, state) do
+    state = %{state | route: route, cause: nil}
+    answers = page_answers(route, state.model)
+
+    case {Pages.retry_problem(state.model, route, answers, viewer(state)),
+          Pages.inputs_kind(state.model)} do
+      {nil, inputs} when is_binary(inputs) ->
+        values = %{"run" => run, "request_id" => Envelope.new("fact", inputs).id}
+        put_fact(state, inputs, %{"op" => "retry", "values" => values}, {:item, kind, key})
+
+      {nil, _} ->
+        not_sent(state, route, ["This model declares no supervision."])
+
+      {problem, _} ->
+        not_sent(state, route, [problem])
+    end
+  end
+
+  # Remove (IS-Atlas-09, IS-Atlas-30): read again and checked as the page checks it; then
+  # the work Flow made for the fact, each with what is under it first, is deleted, one
+  # Delete at a time, each waited for; last the fact itself, as Delete deletes it, which
+  # ends its run (IS-Atlas-16).
+  defp submit({:remove_item, kind, key, _run} = route, _raw, state) do
+    state = %{state | route: route, cause: nil}
+    answers = page_answers(route, state.model)
+
+    with nil <- Pages.remove_problem(state.model, route, answers, viewer(state)),
+         :ok <- delete_all(state, Pages.work_of(state.model, hd(answers))) do
+      delete(route, kind, key, state)
+    else
+      problem when is_binary(problem) -> not_sent(state, route, [problem])
+      reasons -> not_sent(state, route, reasons)
+    end
+  end
+
   defp submit(_route, _raw, state), do: notice(state, "error", "Nothing to submit here.")
+
+  # Each of `facts` (`[{kind, key}]`) deleted, after what is under it (`Pages.under/3`):
+  # `:ok`, or the reasons the first that was not deleted gives. One gone already is done.
+  defp delete_all(state, facts) do
+    Enum.reduce_while(facts, :ok, fn {kind, key}, :ok ->
+      with %{"fact" => %{}} = answer <- ask(kind, %{"key" => key}),
+           :ok <- delete_all(state, Pages.under(state.model, kind, answer)),
+           %{"fact" => %{"version" => version}} <- ask(kind, %{"key" => key}),
+           content = %{"op" => "delete", "key" => key, "values" => %{}, "version" => version},
+           {:stored, _} <- fact_now(kind, Map.put(content, "by", state.by)) do
+        {:cont, :ok}
+      else
+        %{"fact" => nil} -> {:cont, :ok}
+        {:refused, answer} -> {:halt, answer["reasons"] || ["Facts refused to delete #{key}."]}
+        {:error, :outcome_unknown} -> {:halt, ["Facts did not say whether #{key} is deleted."]}
+        reasons when is_list(reasons) -> {:halt, reasons}
+        _ -> {:halt, ["#{key} cannot be read now."]}
+      end
+    end)
+  end
 
   # Who views a page, as the pages take it: the client's key, its kind, which client, and
   # whom it assists when it is an agent (`AtlasBus.Actors.assisted/1`; IS-Atlas-47).
@@ -1184,10 +1242,12 @@ defmodule AtlasControl.Session do
 
   defp worker_call(state, operation, request) do
     actor = %{key: state.by, kind: actor_kind(state)}
-    AtlasControl.Workers.handle(operation, request, state.model, actor, &ask/2, &worker_fact/2)
+    AtlasControl.Workers.handle(operation, request, state.model, actor, &ask/2, &fact_now/2)
   end
 
-  defp worker_fact(kind, content) do
+  # A fact sent and its answer waited for: `{:stored, answer}`, `{:refused, answer}` or
+  # `{:error, :outcome_unknown}`.
+  defp fact_now(kind, content) do
     envelope = Envelope.new("fact", kind)
     :ok = AtlasBus.send(envelope, content)
     id = envelope.id

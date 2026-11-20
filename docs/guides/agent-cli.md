@@ -48,6 +48,18 @@ atlas get IS-Atlas-07
 
 Hand over… stays the supervisor's own; an agent that assists nobody picks nothing up.
 
+## Retrying or removing a stuck scene, use case or issue
+
+Its supervisor (or an agent that assists them) handles a stuck or failed item from its page, in the Console or with `atlas do` (IS-Atlas-09):
+
+```sh
+ATLAS_AS=coordinator atlas do IS-Atlas-07 Retry    # back to its working step, fresh agent work
+ATLAS_AS=coordinator atlas do IS-Atlas-07 Remove   # deleted, with its tasks and their attempts
+```
+
+- **Retry** (`y`), while its flow is in a supervised part: the run goes back to the first step of that part (an issue to Working, a scene or use case to its break-down), the task it held is cancelled, and a fresh task is offered to the supervisor's Runtimes. Facts and Flow check again that it comes from the supervisor.
+- **Remove** (`m`), in any state: its tasks and their attempts are deleted, then the item itself, which ends its run (IS-Atlas-16). While nobody supervises it, the environment's decider removes it. An item with anything else under it (the issues of a use case, the use cases of a scene) is refused: remove those first. Its pull request, if it has one, stays open on GitHub: close it there.
+
 ## Restarting a completed scene or use case
 
 Reopening a scene or use case after its flow run has completed does not start the run again. Use its item page in the TUI: as the current Assignment owner, when one is linked, or the environment's configured decider, choose **Restart** (`g`), then confirm **Restart**. Opening the confirmation or cancelling it sends no restart request. From the command line it is `atlas do <code> Restart`.

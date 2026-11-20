@@ -578,7 +578,8 @@
         "operation": "operation",
         "operations": [
           "pickup",
-          "hand_over"
+          "hand_over",
+          "retry"
         ],
         "hand_to": "hand_to"
       },

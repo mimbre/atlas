@@ -179,7 +179,7 @@ defmodule RelaDSL.SupervisionTest do
     """
     defmodule #{p}.Desk do
       use RelaDSL
-      type :op, values: [:choice, :pickup, :hand_over]
+      type :op, values: [:choice, :pickup, :hand_over, :retry]
       entity :clerk, label: "Clerk", plural: "clerks", id_type: :manual do
         field :name, :string
       end
@@ -247,7 +247,7 @@ defmodule RelaDSL.SupervisionTest do
              "inputs" => %{
                "operation" => "operation",
                "hand_to" => "hand_to",
-               "operations" => ["pickup", "hand_over"]
+               "operations" => ["pickup", "hand_over", "retry"]
              },
              "spans" => %{
                "case" => [
@@ -272,7 +272,7 @@ defmodule RelaDSL.SupervisionTest do
 
     model_refused(
       [operation_type: ":string"],
-      "input.operation must be a field whose type has the values pickup and hand_over"
+      "input.operation must be a field whose type has the values pickup, hand_over, retry"
     )
 
     model_refused(
