@@ -2,8 +2,8 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
   @moduledoc """
   A neutral model of a task that proposes facts (slice 7): a crate is sorted by a robot (a
   machinery kind) whose agent proposes the crate's items in a file of its result; Flow
-  makes them under the crate (`in_crate`, the item's parent relation). A clerk supervises
-  the run.
+  makes them under the crate (`in_crate`, the item's parent relation). Labelled, its agent
+  writes the crate's note instead (slice 9). A clerk supervises the run.
   """
   use RelaDSL.Composition,
     name: "proposal",
@@ -15,7 +15,7 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
     @moduledoc "The crates, their items and robots, who supervises their runs, and the slips."
     use RelaDSL
 
-    type(:slip_operation, values: [:choice, :pickup, :hand_over])
+    type(:slip_operation, values: [:choice, :pickup, :hand_over, :retry])
 
     entity :clerk, label: "Clerk", plural: "clerks", id_type: :manual do
       field(:name, :string)
@@ -29,6 +29,7 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
       field(:title, :string)
       field(:phase, :string)
       field(:task_result, :string)
+      field(:note, :string)
     end
 
     entity :item, label: "Item", plural: "items", id_type: :manual, id_prefix: "IT-" do
@@ -102,6 +103,33 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
     end
 
     select(:sort, admission: [phase: [:first]], imports: [])
+
+    subflow :label, label: "Label", subject: :crate do
+      run_as("system:proposal")
+      owner(relation: :owned_by, default: {:clerk, :desk})
+      start(:predicate, when: "entity.phase == 'second'")
+      initial(:labelling)
+      supervise(:write, label: "Write", states: [:labelling])
+
+      state :labelling do
+        task(:plan,
+          role: :architect,
+          profile: :deep_coding,
+          input: [repository: "example.org/acme/proposal", base: "develop"],
+          instructions: "Label the crate.",
+          fields: [:title],
+          writes: [field: :note, file: "note.md"],
+          records: [kind: "task", relation: "task_of"],
+          machinery: "robot",
+          on: [completed: :labelled, check_failed: :labelled, stuck: :stuck, abandoned: :stuck]
+        )
+      end
+
+      final(:labelled)
+      final(:stuck)
+    end
+
+    select(:label, admission: [phase: [:second]], imports: [])
   end
 
   defmodule Crates do
@@ -127,8 +155,9 @@ defmodule AtlasFlow.Activities.ProposalTest do
   Slice 7: a task that proposes facts (`creates`). Its agent writes them to a file at the
   top of the repository in its result commit (`refs/atlas/results/<key>`, read through
   Bases and Code); once it completed, Flow makes one fact per entry under the subject,
-  numbered after those there are, by Flow; with no such file the task ends stuck. The real
-  Dispatch, Delivery and Bases (on `FakeCode`), with `FakeFacts` and a manual clock.
+  numbered after those there are, by Flow; with no such file the task ends stuck. Slice
+  9: one that writes a field of its subject (`writes`) has Flow put the file's text there.
+  The real Dispatch, Delivery and Bases (on `FakeCode`), with `FakeFacts` and a manual clock.
   """
   use ExUnit.Case, async: false
   @moduletag :capture_log
@@ -199,11 +228,12 @@ defmodule AtlasFlow.Activities.ProposalTest do
     run
   end
 
-  # A crate on the mini, supervised by ada, whose run holds its task's intent.
-  defp intended(c, key) do
+  # A crate on the mini, supervised by ada, whose run holds its task's intent: sorted in
+  # its first phase, labelled in its second.
+  defp intended(c, key, phase \\ "first") do
     FakeFacts.put("crate", %{
       "key" => key,
-      "values" => %{"phase" => "first", "title" => "Crate #{key}"},
+      "values" => %{"phase" => phase, "title" => "Crate #{key}"},
       "links" => %{"owned_by" => ["mini"]},
       "origins" => %{"owned_by" => %{"by" => "someone", "position" => 1}}
     })
@@ -211,7 +241,8 @@ defmodule AtlasFlow.Activities.ProposalTest do
     if reconcile(c, key)["pending"]["task"] == nil,
       do: assert_receive({:reconcile, "crate", ^key}, 2_000)
 
-    run_key = AtlasFlow.Runs.Run.key("sort", "crate", key, 1)
+    flow = if phase == "first", do: "sort", else: "label"
+    run_key = AtlasFlow.Runs.Run.key(flow, "crate", key, 1)
     fact = FakeFacts.get(c.runner.config["kind"], run_key)
     links = Map.put(fact["links"] || %{}, "watched_by", ["ada"])
     FakeFacts.put(c.runner.config["kind"], Map.merge(fact, %{"links" => links}))
@@ -223,7 +254,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
 
   # The lease worked to its end, its result commit (the base plus `files`) pushed to Code;
   # the run reconciled once Bases resolved that commit.
-  defp finish(c, key, files) do
+  defp finish(c, key, files, phase \\ "first") do
     {id, _} = @mini
 
     assert {:polled, %{leases: [%{lease_id: lease}]}} =
@@ -238,7 +269,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
     assert_receive {:"$gen_cast", {:reconcile, "crate", ^key}}
 
     # Its result is asked of Bases first; nothing moves until Bases has it.
-    assert reconcile(c, key)["state"] == "sorting"
+    assert reconcile(c, key)["state"] == if(phase == "first", do: "sorting", else: "labelling")
     assert_receive {:reconcile, "crate", ^key}, 2_000
     reconcile(c, key)
   end
@@ -265,5 +296,14 @@ defmodule AtlasFlow.Activities.ProposalTest do
     assert stuck["state"] == "stuck"
     assert [%{"outcome" => "completed", "reason" => "no proposal"}] = stuck["pending"]["tasks"]
     assert FakeFacts.get("item", "IT-01") == nil
+  end
+
+  test "Flow puts the written text in the crate's field (writes)", c do
+    run = intended(c, "C-3", "second")
+    assert run["pending"]["task"]["work"]["instructions"] =~ "note.md"
+
+    labelled = finish(c, "C-3", [{"note.md", "# Fragile\n\nHandle with care.\n"}], "second")
+    assert {labelled["state"], labelled["status"]} == {"labelled", "completed"}
+    assert FakeFacts.get("crate", "C-3")["values"]["note"] == "# Fragile\n\nHandle with care."
   end
 end

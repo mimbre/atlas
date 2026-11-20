@@ -70,7 +70,7 @@ entities:
         description: 'Flow: how its agent task ended (completed, check_failed, stuck, abandoned); the run''s own, never written'
       publication:
         type: string
-        description: 'Flow: how opening its pull request ended (done, refused)'
+        description: 'Flow: how opening its pull request ended (done, no_changes, refused)'
       pr_url:
         type: github_pull_url
         description: 'Flow: the pull request Code opened from its result, which its supervisor merges'

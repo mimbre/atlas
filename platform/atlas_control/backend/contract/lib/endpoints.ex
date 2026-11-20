@@ -31,6 +31,8 @@ defmodule AtlasBFFContract.Endpoints do
       defendpoint :reopen, "/k/:kind/:key/remove/:relation", @submit
       defendpoint :pick_up, "/k/:kind/:key/pick_up/:run", @submit
       defendpoint :hand_over, "/k/:kind/:key/hand_over/:run", @submit
+      defendpoint :retry, "/k/:kind/:key/retry/:run", @submit
+      defendpoint :remove_item, "/k/:kind/:key/remove_item/:run", @submit
 
       defendpoint :fault, "/fault/:fault", @submit
       defendpoint :fact_fault, "/k/:kind/:key/fault/:fault", @submit

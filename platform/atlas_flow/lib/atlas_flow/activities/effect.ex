@@ -250,9 +250,10 @@ defmodule AtlasFlow.Activities.Effect do
   @doc """
   The replayable Facts writes for a fenced `done` or `refused` reply, in order: the
   declared record (created once under a key derived from the activity id), then the
-  result field and declared outputs on the subject.
+  result field (`outcome`: the reply's status, or a refusal's reason the state maps) and
+  declared outputs on the subject.
   """
-  def writes(intent, spec, run, reply) do
+  def writes(intent, spec, run, reply, outcome) do
     r = intent["request"]
     outputs = reply["outputs"] || %{}
 
@@ -289,7 +290,7 @@ defmodule AtlasFlow.Activities.Effect do
         "op" => "change",
         "key" => run["subject_key"],
         "by" => "flow",
-        "values" => Map.put(values, spec["field"], reply["status"])
+        "values" => Map.put(values, spec["field"], outcome)
       }
     }
 

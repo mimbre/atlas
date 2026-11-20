@@ -495,6 +495,36 @@
     },
     {
       "call": "open",
+      "name": "retry",
+      "page": "retry",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/retry/:run",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
+      "name": "remove_item",
+      "page": "remove_item",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/remove_item/:run",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
       "name": "faults",
       "page": "faults",
       "params": [],
@@ -712,6 +742,38 @@
         "run"
       ],
       "path": "/k/:kind/:key/hand_over/:run",
+      "replies": {
+        "refused": "view model",
+        "stored": "view model"
+      },
+      "takes": "values",
+      "wire": "submit"
+    },
+    {
+      "call": "submit",
+      "name": "retry",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/retry/:run",
+      "replies": {
+        "refused": "view model",
+        "stored": "view model"
+      },
+      "takes": "values",
+      "wire": "submit"
+    },
+    {
+      "call": "submit",
+      "name": "remove_item",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/remove_item/:run",
       "replies": {
         "refused": "view model",
         "stored": "view model"
@@ -3113,6 +3175,26 @@
         "run"
       ],
       "path": "/k/:kind/:key/hand_over/:run",
+      "returns": "view model"
+    },
+    {
+      "name": "retry",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/retry/:run",
+      "returns": "view model"
+    },
+    {
+      "name": "remove_item",
+      "params": [
+        "kind",
+        "key",
+        "run"
+      ],
+      "path": "/k/:kind/:key/remove_item/:run",
       "returns": "view model"
     },
     {

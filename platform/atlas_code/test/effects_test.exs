@@ -151,6 +151,73 @@ defmodule AtlasCode.EffectsTest do
     assert %{"status" => "refused", "reason" => "unknown_result"} = call(s, "submit", unknown)
   end
 
+  test "a result without changes against its base opens no pull", c do
+    repo = Path.join(c.dir, "repo")
+    git = fn args -> System.cmd("git", ["-C", repo | args]) |> elem(0) |> String.trim() end
+    File.mkdir_p!(repo)
+    git.(["init", "-q", "-b", "main"])
+    File.write!(Path.join(repo, "README.md"), "base\n")
+    git.(["add", "README.md"])
+    git.(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"])
+    # The author's result and the fix on it, as a Runtime commits them: the base's tree.
+    author =
+      git.([
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit-tree",
+        "HEAD^{tree}",
+        "-p",
+        "HEAD",
+        "-m",
+        "author"
+      ])
+
+    result =
+      git.([
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit-tree",
+        "HEAD^{tree}",
+        "-p",
+        author,
+        "-m",
+        "fix"
+      ])
+
+    ref = "refs/atlas/results/TK-JB-2-1"
+
+    s =
+      Effects.new(
+        dir: c.dir,
+        github: {FakeGitHub, FakeGitHub.config(c.gh)},
+        repositories: ["o/r"],
+        results: fn "github.com/o/r", ^ref ->
+          {:ok, %{"dir" => Path.join(repo, ".git"), "commit" => result}}
+        end
+      )
+
+    r =
+      request(nil, %{
+        "id" => String.duplicate("d", 64),
+        "name" => "publish",
+        "subject" => "JB-2",
+        "operation" => "publish",
+        "fingerprint_definition" => %{"fields" => ["title"], "relations" => []},
+        "payload" => %{"title" => "Change nothing"},
+        "input" => %{"repository" => "github.com/o/r", "base" => "main", "result" => ref}
+      })
+      |> Map.drop(["target", "approved"])
+
+    assert %{"status" => "refused", "reason" => "no_changes", "details" => %{"base" => "main"}} =
+             call(s, "submit", r)
+
+    assert FakeGitHub.writes(c.gh) == []
+  end
+
   test "red CI: blocked with the failing checks, nothing merged", c do
     FakeGitHub.ci(c.gh, c.revision, {:failure, ["unit"]})
     r = request(c.revision)

@@ -232,7 +232,7 @@ jobs:
       - run: mix format --check-formatted
       # Fails when a file in platform/atlas_control/backend/targets differs from what the contract generates, or is left over.
       - run: mix atlas.gen --check
-      - run: mix test
+      - run: mix test --warnings-as-errors
       - run: python3 -m unittest discover -s platform/ops/tests -v
         working-directory: .
 
@@ -362,7 +362,7 @@ jobs:
       # the model generates, is missing or left over, or when rela refuses the generated
       # description. The run identities against the base: job model-base.
       - run: mix model.gen --check
-      - run: mix test
+      - run: mix test --warnings-as-errors
 
   # A base job: its result depends on the tree and on the base's digests.json, so it is
   # recorded per base key and skipped only when this tree passed against the same file.
@@ -459,7 +459,7 @@ jobs:
       - run: mix format --check-formatted
       # Fails when a file in platform/atlas_runtime/backend/targets (S3: rest/<contract>/routes.json, rest/<contract>/openapi.json) differs from what the contracts (work_api, operations_api, history_api) generate, or is left over.
       - run: mix runtime_backend.gen --check
-      - run: mix test
+      - run: mix test --warnings-as-errors
 
   beam:
     name: Bus, Facts, Control
@@ -506,7 +506,7 @@ jobs:
       - run: python3 -m pip install -r ../../platform/atlas_facts/rela/scripts/requirements.txt
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      - run: mix test --include integration
+      - run: mix test --warnings-as-errors --include integration
       # A submit through Control waits until Flow settled past it (docs/design/page-freshness.md
       # §2.2), on Facts, Flow and a Control session over the Bus; ExUnit exits non-zero on a failure.
       - run: mix run integration/settle_submit.exs
@@ -529,7 +529,7 @@ jobs:
           elixir-version: "1.18"
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      - run: mix test
+      - run: mix test --warnings-as-errors
 
   agent:
     name: Agents' command line and migration
@@ -544,10 +544,10 @@ jobs:
         with:
           otp-version: "28"
           elixir-version: "1.18"
-      - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
+      - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test --warnings-as-errors
         working-directory: platform/clients/agent
       # The one-off migration (atlas migrate-done-owner) compiles the client too.
-      - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test
+      - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test --warnings-as-errors
         working-directory: platform/ops/plan
 
   swift:

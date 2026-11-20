@@ -1362,12 +1362,41 @@ defmodule AtlasFlow.Runs.Store do
     end)
   end
 
-  # A pickup or hand-over input is taken first, ahead of the mechanism branches: it moves
-  # no state, so a run that runs a task takes it too (`AtlasFlow.Runs.Run.supervision/4`).
+  # A pickup, hand-over or retry input is taken first, ahead of the mechanism branches: it
+  # moves no state, so a run that runs a task takes it too (`AtlasFlow.Runs.Run.supervision/4`).
+  # A retry then takes the run back (`retried/5`).
   defp next(config, run, flow, subject, now, inputs) do
     case Run.supervision(run, flow, inputs, supervision_check(config, run), to_do(config)) do
-      :none -> moved(config, run, flow, subject, now, inputs)
-      taken -> taken
+      :none ->
+        moved(config, run, flow, subject, now, inputs)
+
+      {:ok, %{"last_input" => %{"supervision" => "retry"}} = taken} ->
+        retried(config, taken, flow, subject, now)
+
+      taken ->
+        taken
+    end
+  end
+
+  # A retry (IS-Atlas-09): the run goes back to the first state of the span it is in,
+  # where its task is made again, fresh. The task it held is cancelled as an answer
+  # cancels one: Dispatch drops it now, and its fact says so once the run is stored.
+  defp retried(config, run, flow, subject, now) do
+    [first | _] =
+      Enum.find_value(get_in(config, ["supervision", "spans", run["flow"]]), fn span ->
+        if run["state"] in span["states"], do: span["states"]
+      end)
+
+    retried = Run.retry(run, flow, first, subject, now)
+
+    case {run["pending"]["task"], flow.mechanism(run["state"])} do
+      {%{"key" => key} = intent, {:task, spec}} ->
+        Dispatch.cancel(key, "retry")
+        Results.unpin(key, now)
+        {:ok, update_in(retried, ["pending", "writes"], &[Task.cancelled(intent, spec) | &1])}
+
+      _ ->
+        {:ok, retried}
     end
   end
 

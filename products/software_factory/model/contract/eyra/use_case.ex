@@ -5,13 +5,19 @@ defmodule Model.UseCase do
 
   `design_and_accept`:
 
-    * `designing` → `design_review` → `accepted`: the Architect writes the Design part
-      and sets `design_status` to `in_review`; its review sets it to `approved`, which
-      accepts the design, or to `changes_requested` (or back to `writing`), which sends
-      it to `redesign` and back through `design_review`.
-    * The accepted design sets `design_status: accepted`, which starts the second
-      subflow. (`design` itself is the Architect's text of the design; the subflow
-      never writes it.)
+    * Slice 9: a person picks up its design (`designing`, the span `design`): one agent
+      on the supervisor's Runtime reads the use case, its scene and a checkout of the
+      repository, and writes its design to a file in its result (`writes:`). Flow, the
+      only writer, puts that text in its Design part (`design`), and "Accept its design"
+      (`accepting`) goes to the supervisor, who reads it, changes it by hand if need be,
+      and accepts it: `design_status` becomes `approved`, the run ends `accepted`, which
+      sets `design_status: accepted` and starts the second subflow, whose break-down can
+      then be picked up. When the agent writes nothing, or its task ends otherwise, the
+      supervisor writes the design by hand in "Accept its design". Nobody sets
+      `design_status` by hand on the way.
+    * A use case whose design was in review before slice 9 (`in_review`, written by
+      hand) is the supervisor's to accept, in "Accept its design"; one sent back
+      (`changes_requested`) is designed again by the agent.
 
   Slice 10 runs it on Flow's durable runs (`select`), for the design phase of the
   legacy flow `design_and_accept`, which keeps the building phase. The parity fixes keep
@@ -24,9 +30,10 @@ defmodule Model.UseCase do
       to route by, Code materializing the target, a packet freeze and review-packet
       contract, another vendor for the review, Runtime's pass receiver configured in an
       environment; a definition a runner refuses would refuse every selected subflow.
-      Each state moves on the `design_status` written by hand instead, as the legacy
-      flow reads it, and `designing` and `redesign` keep the legacy owner, the
-      Architect (the pass was routed to it);
+      Each state moved on the `design_status` written by hand instead, as the legacy
+      flow reads it, and `designing` and `redesign` kept the legacy owner, the
+      Architect (the pass was routed to it); slice 9 replaced them with the agent's
+      design and its supervisor's acceptance;
     * no `design_gate` yet: `design` is a smart gate, and Gates has no evaluator for
       one, nor its evidence (packet, findings) or advice (the review pass); a gate Gates
       cannot answer would stop every reconcile. The gate stays defined, for when the
@@ -125,7 +132,8 @@ defmodule Model.UseCase do
     field(:status, :plan_status, description: "Flux group; empty = no group", label: "Flux group")
 
     field(:design, :string,
-      description: "The Design part: how it is built, written by the Architect",
+      description:
+        "The Design part: how it is built, written by its design agent, accepted by its supervisor",
       multiline: true,
       label: "Design"
     )
@@ -219,60 +227,57 @@ defmodule Model.UseCase do
     channel(:work)
     start(:create)
     initial(:designing)
+    supervise(:design, label: "Design", states: [:designing, :accepting])
 
     state :designing, label: "Design pass" do
       owner(via: :assignment, relation: :assigned_to, default: {:agent, :architect})
 
       present(
         expected: "Write its Design part",
-        why: "its design is not reviewed yet",
+        why: "its design is not written yet",
         instructions:
-          "Write the Design part (design), then set design_status to in_review; when the review requested changes, make them first."
+          "Its machinery runs one agent on it that writes its Design part; Flow puts it on the use case. Nothing is done while it is not assigned to a machinery."
       )
 
-      branch(
-        to: :accepted,
-        when: "entity.design_status == 'approved' or entity.design_status == 'accepted'"
-      )
-
-      branch(to: :design_review, when: "entity.design_status == 'in_review'")
-    end
-
-    state :design_review, label: "Design review pass" do
-      present(
-        expected: "Have its design reviewed",
-        why: "its Design part waits for review",
+      task(:plan,
+        role: :architect,
+        profile: :deep_coding,
+        cost_class: :standard,
+        input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Run a review pass on the Design part: set design_status to approved to go on to break it down and build it, or to changes_requested, with why in the note, to send it back."
-      )
-
-      branch(
-        to: :accepted,
-        when: "entity.design_status == 'approved' or entity.design_status == 'accepted'"
-      )
-
-      branch(
-        to: :redesign,
-        when: "entity.design_status == 'changes_requested' or entity.design_status == 'writing'"
+          "Write the design of the use case below: how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your design, as asked at the end. Say which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works, so that it can be broken down into small issues that build it.",
+        fields: [:title, :description],
+        parents: [:title, :description],
+        writes: [field: :design, file: "design.md"],
+        records: [kind: "task", relation: "task_of"],
+        machinery: "machinery",
+        on: [
+          completed: :accepting,
+          check_failed: :accepting,
+          stuck: :accepting,
+          abandoned: :accepting
+        ]
       )
     end
 
-    state :redesign, label: "Design rework pass" do
-      owner(via: :assignment, relation: :assigned_to, default: {:agent, :architect})
+    # Its supervisor reads the Design part Flow put on it from the agent's result, changes
+    # it by hand if need be, and accepts it: the design is approved, and its break-down
+    # can be picked up.
+    state :accepting, label: "Accept its design" do
+      owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
 
       present(
-        expected: "Write its Design part",
-        why: "its design is not reviewed yet",
+        expected: "Accept its design",
+        why: "its agent's design is written",
         instructions:
-          "Write the Design part (design), then set design_status to in_review; when the review requested changes, make them first."
+          "Read its Design part, which its agent wrote; change it if need be, then accept it. It can then be broken down into issues.",
+        answers: [[key: "a", label: "Accept", change: %{values: %{design_status: :approved}}]]
       )
 
       branch(
         to: :accepted,
         when: "entity.design_status == 'approved' or entity.design_status == 'accepted'"
       )
-
-      branch(to: :design_review, when: "entity.design_status == 'in_review'")
     end
 
     final :accepted, label: "Design accepted" do
@@ -398,11 +403,11 @@ defmodule Model.UseCase do
   # or `accepted`, which this run writes as it ends), and for a use case with no design
   # phase (no `design_status`). Such a use case never starts a design run.
   #
-  # The first row that holds gives the entry of an admitted use case: one in review joins
-  # the review, one whose review asked for changes the rework, each writing nothing. Any
-  # other (`writing`: every admitted use case on test and prod today) matches no row and
-  # starts in `designing`, as a new one does, writing nothing: what it showed and its owner
-  # stay. No pass, gate or acceptance ran on one, so there is nothing else to carry.
+  # The first row that holds gives the entry of an admitted use case: one in review (its
+  # design written by hand before slice 9) joins `accepting`, writing nothing. Any other
+  # (`writing`, or `changes_requested`: sent back before slice 9) matches no row and
+  # starts in `designing`, as a new one does, writing nothing. No pass, gate or
+  # acceptance ran on one, so there is nothing else to carry.
   #
   # A completed run whose use case is put back in its design phase (a design reopened by
   # hand) is not started again, and nothing presents it until it is restarted: reopened
@@ -418,10 +423,7 @@ defmodule Model.UseCase do
       field: :expected
     ],
     admission: [design_status: [:writing, :in_review, :changes_requested]],
-    imports: [
-      [when: [design_status: [:in_review]], state: :design_review],
-      [when: [design_status: [:changes_requested]], state: :redesign]
-    ],
+    imports: [[when: [design_status: [:in_review]], state: :accepting]],
     reopen: :explicit,
     restart_by: [:owner, :decider]
   )
@@ -449,6 +451,23 @@ defmodule Model.UseCase do
       to_accept: :design_review
     ],
     reason: "Slice 10: selected without its passes, design gate and acceptor; designed by hand"
+  )
+
+  # Slice 9: its design is written by an agent and accepted by its supervisor; the hand
+  # review and rework are gone. A run in `designing` or `redesign` (re-)enters
+  # `designing` and waits there for its owner: once a person picks it up, its agent writes
+  # its Design part. One in `design_review` has a design written by hand: it enters
+  # `accepting`, where its supervisor accepts it. An accepted one stays accepted.
+  migrate(:design_and_accept,
+    from: "57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571",
+    to: "9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4",
+    states: [
+      accepted: :accepted,
+      design_review: :accepting,
+      designing: :designing,
+      redesign: :designing
+    ],
+    reason: "Slice 9: an agent writes its design; its supervisor accepts it"
   )
 
   # How the runs of test_and_accept_use_case are selected, imported from the use case as

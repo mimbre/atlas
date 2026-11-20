@@ -1051,6 +1051,24 @@ defmodule AtlasFacts.FlowInputsTest do
     assert stored(c) == []
   end
 
+  test "a retry is kept for the supervisor, or an agent that assists them; anyone else is refused",
+       c do
+    c = supervised(c, supervisor: ["ada"])
+    retry = &acquire(c, "retry", %{"run" => "R-1", "request_id" => &1}, &2)
+
+    assert {:error, :not_supervising} = retry.("retry-1", "bea")
+    assert {:error, :not_a_person} = retry.("retry-1", "helper")
+    Application.put_env(:atlas, :assists, %{"helper" => "ada"})
+    on_exit(fn -> Application.delete_env(:atlas, :assists) end)
+
+    assert {:ok, input} = retry.("retry-1", "helper")
+    assert input["operation"] == "retry" and input["roles"] == ["retry"]
+    assert input["actor"] == "helper" and input["status"] == "applied"
+    put_run(c, "R-1", "shut", ["ada"])
+    assert {:error, :outside_span} = retry.("retry-2", "ada")
+    assert stored(c) == [input["key"]]
+  end
+
   test "the same request is kept once; the same id with other content is a conflict", c do
     c = supervised(c)
     assert {:ok, first} = pickup(c, "pick-1")
@@ -1071,9 +1089,9 @@ defmodule AtlasFacts.FlowInputsTest do
              acquire(c, "pick_up", %{"run" => "R-1", "request_id" => "r"})
   end
 
-  test "every refusal of a pickup or hand-over reads as sentences", c do
+  test "every refusal of a pickup, hand-over or retry reads as sentences", c do
     for reason <-
-          ~w(input_shape supervision_undeclared unknown_run not_active outside_span not_a_person already_supervised pickup_pending not_supervisor hand_to_self hand_to_not_a_person)a do
+          ~w(input_shape supervision_undeclared unknown_run not_active outside_span not_a_person already_supervised pickup_pending not_supervisor not_supervising hand_to_self hand_to_not_a_person)a do
       assert [sentence] = FlowInputs.reasons(reason, c.d)
       assert is_binary(sentence)
       refute sentence =~ Atom.to_string(reason)

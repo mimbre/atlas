@@ -110,6 +110,8 @@ public enum Page: String, CaseIterable, Sendable {
     case remove
     case pickUp = "pick_up"
     case handOver = "hand_over"
+    case retry
+    case removeItem = "remove_item"
     case faults
     case factFaults = "fact_faults"
     case fault
@@ -137,6 +139,8 @@ public enum Page: String, CaseIterable, Sendable {
         case .remove: "/k/:kind/:key/remove/:relation"
         case .pickUp: "/k/:kind/:key/pick_up/:run"
         case .handOver: "/k/:kind/:key/hand_over/:run"
+        case .retry: "/k/:kind/:key/retry/:run"
+        case .removeItem: "/k/:kind/:key/remove_item/:run"
         case .faults: "/faults"
         case .factFaults: "/k/:kind/:key/faults"
         case .fault: "/fault/:fault"

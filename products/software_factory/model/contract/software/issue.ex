@@ -71,7 +71,7 @@ defmodule Model.Issue do
     )
 
     field(:publication, :string,
-      description: "Flow: how opening its pull request ended (done, refused)",
+      description: "Flow: how opening its pull request ended (done, no_changes, refused)",
       set_by: [:flow],
       label: "Publication"
     )
@@ -189,5 +189,24 @@ defmodule Model.Issue do
     preserve_entry: true,
     states: :same,
     reason: "The review's follow-ups become new issues under its use case; same states"
+  )
+
+  # A result without changes goes to its supervisor (`unchanged`, IS-Atlas-53): one state
+  # more, none renamed or removed, so a live run keeps its state, entry, task and timers.
+  migrate(:issue,
+    from: "6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c",
+    to: "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
+    preserve_entry: true,
+    states: [
+      done: :done,
+      fixing: :fixing,
+      merging: :merging,
+      publishing: :publishing,
+      reviewing: :reviewing,
+      stuck: :stuck,
+      working: :working
+    ],
+    reason:
+      "A result without changes goes to its supervisor, not to a pull request; one state more"
   )
 end

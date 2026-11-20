@@ -138,7 +138,8 @@
         "migrations": [
           {"from":"99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e","to":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","states":{"author":"author","closed":"author","delivery_gate":"author","done":"done","in_pr":"author","needs_person":"author","publish":"author","review":"author","review_gate":"author","rework":"author"},"reason":"Slice 9: selected without its passes, gates and publish effect; built by hand"},
           {"from":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","to":"f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda","states":{"author":"working","done":"done"},"reason":"Slice 6: built by an agent, reviewed, fixed once and merged by its supervisor"},
-          {"from":"f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda","to":"6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","working":"working"},"reason":"The review's follow-ups become new issues under its use case; same states"}
+          {"from":"f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda","to":"6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","working":"working"},"reason":"The review's follow-ups become new issues under its use case; same states"},
+          {"from":"6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c","to":"21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","working":"working"},"reason":"A result without changes goes to its supervisor, not to a pull request; one state more"}
         ],
         "subject": "issue",
         "projection": {
@@ -394,7 +395,8 @@
         "choices": [],
         "choice_states": [],
         "migrations": [
-          {"from":"25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e","to":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","states":{"accepted":"accepted","design_gate":"design_review","design_review":"design_review","designing":"designing","dropped":"designing","needs_person":"design_review","redesign":"redesign","to_accept":"design_review"},"reason":"Slice 10: selected without its passes, design gate and acceptor; designed by hand"}
+          {"from":"25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e","to":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","states":{"accepted":"accepted","design_gate":"design_review","design_review":"design_review","designing":"designing","dropped":"designing","needs_person":"design_review","redesign":"redesign","to_accept":"design_review"},"reason":"Slice 10: selected without its passes, design gate and acceptor; designed by hand"},
+          {"from":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","to":"9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4","states":{"accepted":"accepted","design_review":"accepting","designing":"designing","redesign":"designing"},"reason":"Slice 9: an agent writes its design; its supervisor accepts it"}
         ],
         "subject": "use_case",
         "projection": {
@@ -418,15 +420,7 @@
                 "in_review"
               ]
             },
-            "state": "design_review"
-          },
-          {
-            "when": {
-              "design_status": [
-                "changes_requested"
-              ]
-            },
-            "state": "redesign"
+            "state": "accepting"
           }
         ],
         "reopen": "explicit",
@@ -578,7 +572,8 @@
         "operation": "operation",
         "operations": [
           "pickup",
-          "hand_over"
+          "hand_over",
+          "retry"
         ],
         "hand_to": "hand_to"
       },
@@ -592,12 +587,24 @@
               "reviewing",
               "fixing",
               "publishing",
-              "merging"
+              "merging",
+              "unchanged"
             ],
             "with": [
               "package",
               "pull_request"
             ]
+          }
+        ],
+        "design_and_accept": [
+          {
+            "name": "design",
+            "label": "Design",
+            "states": [
+              "designing",
+              "accepting"
+            ],
+            "with": []
           }
         ],
         "test_and_accept_use_case": [

@@ -97,7 +97,7 @@ entities:
         description: Flux group; empty = no group
       design:
         type: string
-        description: 'The Design part: how it is built, written by the Architect'
+        description: 'The Design part: how it is built, written by its design agent, accepted by its supervisor'
       design_status:
         type: design_status
         description: Where the Design part is; empty for a use case without a design phase

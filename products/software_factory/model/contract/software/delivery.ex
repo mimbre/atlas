@@ -15,8 +15,10 @@ defmodule Model.Delivery do
   on the author's, is what Code publishes. Then Code opens a pull request from the
   latest result, the review and the fix in its body (the effect `publish`,
   `AtlasCode.Effects`), and the issue waits for its supervisor to merge it on GitHub:
-  the GitHub connector copies the pull's state, and merged is done. No second review and
-  no second fix; its supervisor decides. No package or check.
+  the GitHub connector copies the pull's state, and merged is done. A result without
+  changes against develop opens no pull request: Code refuses it (`no_changes`) and the
+  issue goes to its supervisor (`unchanged`). No second review and no second fix; its
+  supervisor decides. No package or check.
 
   Every task reads the issue's title and description, and those of its use case and its
   scene (`parents:`): why it is to be done.
@@ -51,7 +53,7 @@ defmodule Model.Delivery do
     # Its pull request is its supervisor's to merge: the span holds until it is merged.
     supervise :build,
       label: "Build",
-      states: [:working, :reviewing, :fixing, :publishing, :merging],
+      states: [:working, :reviewing, :fixing, :publishing, :merging, :unchanged],
       with: [:package, :pull_request]
 
     state :working, label: "Working" do
@@ -169,7 +171,7 @@ defmodule Model.Delivery do
         payload: ["title", "description"],
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         outputs: [url: "pr_url"],
-        on: [done: :merging, refused: :stuck]
+        on: [done: :merging, no_changes: :unchanged, refused: :stuck]
       )
     end
 
@@ -184,6 +186,24 @@ defmodule Model.Delivery do
       )
 
       branch to: :done, when: "entity.pr_state == 'merged'"
+    end
+
+    # Its agent changed nothing (author's and fix's result alike): Code opened no pull
+    # request, and its supervisor is told. They close it (a maintainer's choice,
+    # `gate_result: close`) when nothing was to change.
+    state :unchanged, label: "Nothing to merge" do
+      owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
+      set gate_result: :none
+
+      present(
+        expected: "Decide what to do with it",
+        why: "its agent changed nothing",
+        instructions:
+          "Its result has no changes against develop, so Code opened no pull request. Close it when nothing was to change.",
+        answers: [[key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]]
+      )
+
+      branch to: :done, when: "entity.gate_result == 'close'"
     end
 
     final :done, label: "Done"
