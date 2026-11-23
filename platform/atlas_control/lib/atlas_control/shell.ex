@@ -31,21 +31,38 @@ defmodule AtlasControl.Shell do
           tab["assigned"] != true or Pages.assigned_start?(m, by_kind)
         end)
         |> Enum.map(fn tab ->
-          Blocks.shell_tab(id: tab["id"], label: tab["label"], to: tab["to"])
+          Blocks.shell_tab(
+            id: tab["id"],
+            label: tab["label"],
+            to: tab["to"],
+            icon: tab["icon"],
+            groups: groups(m, tab["to"])
+          )
         end)
 
       if tabs == [] do
         {:error, "Shell has no eligible configured tabs"}
       else
         with {:ok, initial} <- initial_target(target, m, tabs, default, resolve) do
-          active = Enum.find(tabs, &within?(initial, &1["to"]))
+          # The tab whose page or one of its groups the client opens on.
+          active =
+            Enum.find(tabs, fn tab ->
+              within?(initial, tab["to"]) or
+                Enum.any?(tab["groups"] || [], &(&1["to"] == initial))
+            end)
+
           env = AtlasBus.environment()
           spec = Blocks.version()
 
           # Navigation and request target do not change the revision. Configuration,
           # actor-visible tab set, environment and contract version do.
           revision =
-            [title, env, spec, Enum.map(tabs, &[&1["id"], &1["label"], &1["to"]])]
+            [
+              title,
+              env,
+              spec,
+              Enum.map(tabs, &[&1["id"], &1["label"], &1["to"], &1["icon"], &1["groups"]])
+            ]
             |> JSON.encode!()
             |> then(&:crypto.hash(:sha256, &1))
             |> Base.encode16(case: :lower)
@@ -86,7 +103,8 @@ defmodule AtlasControl.Shell do
 
   defp valid_tab?(%{"id" => id, "label" => label, "to" => to} = tab, m) do
     text?(id, 64) and text?(label, 128) and text?(to, 2_048) and
-      Map.keys(tab) -- ["id", "label", "to", "assigned"] == [] and
+      Map.keys(tab) -- ["id", "label", "to", "assigned", "icon"] == [] and
+      (is_nil(tab["icon"]) or text?(tab["icon"], 64)) and
       Map.get(tab, "assigned", false) in [true, false] and
       case Pages.route(if(is_binary(to), do: to, else: "")) do
         :home -> tab["assigned"] == true and Pages.assigned_rule(m) != nil
@@ -134,7 +152,7 @@ defmodule AtlasControl.Shell do
   defp canonical_target({screen, _} = route, _m) when screen in @screens,
     do: {:ok, Pages.path(route)}
 
-  defp canonical_target({:open_for_you_group, _subflow, _span} = route, _m),
+  defp canonical_target({:group, _screen, _key, _by} = route, _m),
     do: {:ok, Pages.path(route)}
 
   defp canonical_target(:kinds, _m), do: {:ok, "/_kinds"}
@@ -179,6 +197,26 @@ defmodule AtlasControl.Shell do
   end
 
   defp canonical_tab(to), do: to |> Pages.route() |> Pages.path()
+
+  # The groups of the page a tab opens (`Pages.groups/2`), each with the page that shows
+  # only its items; nil when it has none.
+  defp groups(m, to) do
+    screen =
+      case Pages.route(to) do
+        :home -> :assigned
+        {screen, _} when screen in @screens -> screen
+        _ -> nil
+      end
+
+    case Pages.groups(m, screen) do
+      [] ->
+        nil
+
+      groups ->
+        for {key, label} <- groups,
+            do: Blocks.shell_group(label: label, to: Pages.path({:group, screen, key, nil}))
+    end
+  end
 
   defp screen?({screen, _}) when screen in @screens, do: true
   defp screen?(_route), do: false

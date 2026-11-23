@@ -9,12 +9,15 @@ defmodule AtlasBFFContract.Pages do
       # `_` for a kind and `_parent` for a relation are values a client that knows only keys
       # passes; Control resolves them from rela's description.
       defpage :home, "/"
+      # What is assigned to the client (`/`), only the facts of one kind.
+      defpage :assigned_group, "/_assigned/:kind"
       # Supervision (work acquisition decision 2026-11-17, §5.8): the flows one may
-      # pick up (Open for you) and those the client supervises (Supervised by you). Open
-      # for you per group: the flows in one supervised span of a subflow.
+      # pick up (Open for you) and those the client supervises (Supervised by you). Each
+      # per group: the flows in one supervised span of a subflow.
       defpage :open_for_you, "/_open"
       defpage :open_for_you_group, "/_open/:subflow/:span"
       defpage :supervised_by_you, "/_supervised"
+      defpage :supervised_by_you_group, "/_supervised/:subflow/:span"
       defpage :workers, "/workers"
       defpage :worker, "/workers/:machine/:worker/:turn/:attempt"
       defpage :worker_guidance, "/workers/:machine/:worker/:turn/:attempt/guidance"

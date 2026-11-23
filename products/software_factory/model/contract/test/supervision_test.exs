@@ -317,6 +317,21 @@ defmodule Model.SupervisionTest do
       assert {:ok, %{"initial_to" => ^to, "active_tab" => ^id}} =
                AtlasControl.Shell.boot(m, person, to)
     end
+
+    # Every tab has its icon; the screens carry their groups, each a boot target that
+    # keeps its tab: Build is a group of Open for you.
+    tabs = Map.new(booted["tabs"], &{&1["id"], &1})
+    assert Enum.all?(booted["tabs"], &is_binary(&1["icon"]))
+
+    for id <- ~w(open_for_you supervised_by_you assigned) do
+      assert [_ | _] = groups = tabs[id]["groups"]
+      to = hd(groups)["to"]
+
+      assert {:ok, %{"initial_to" => ^to, "active_tab" => ^id}} =
+               AtlasControl.Shell.boot(m, person, to)
+    end
+
+    assert "Build" in Enum.map(tabs["open_for_you"]["groups"], & &1["label"])
   end
 
   defp start_page_assigned?, do: match?(%{relation: _}, AtlasEyra.start_page().assigned)

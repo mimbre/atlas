@@ -102,8 +102,15 @@ defmodule AtlasControl.Pages do
       {:ok, screen, _} when screen in [:open_for_you, :supervised_by_you] ->
         {screen, nil}
 
+      # One group of a screen (`groups/2`); who views it is the session's too.
+      {:ok, :assigned_group, p} ->
+        {:group, :assigned, p.kind, nil}
+
       {:ok, :open_for_you_group, p} ->
-        {:open_for_you_group, p.subflow, p.span}
+        {:group, :open_for_you, {p.subflow, p.span}, nil}
+
+      {:ok, :supervised_by_you_group, p} ->
+        {:group, :supervised_by_you, {p.subflow, p.span}, nil}
 
       {:ok, page, p} when page in [:pick_up, :hand_over, :retry, :remove_item] ->
         {page, p.kind, p.key, p.run}
@@ -193,9 +200,9 @@ defmodule AtlasControl.Pages do
   def resolve({screen, _by} = route, m) when screen in [:open_for_you, :supervised_by_you],
     do: if(screen_rule(m, screen), do: route, else: :unknown)
 
-  # A group of Open for you exists only when the model has its span.
-  def resolve({:open_for_you_group, subflow, span} = route, m),
-    do: if(group_span(m, subflow, span), do: route, else: :unknown)
+  # A group exists only when its page has it (`groups/2`).
+  def resolve({:group, screen, key, _by} = route, m),
+    do: if(List.keymember?(groups(m, screen), key, 0), do: route, else: :unknown)
 
   def resolve(route, _m), do: route
 
@@ -334,8 +341,14 @@ defmodule AtlasControl.Pages do
   def path({screen, _by}) when screen in [:open_for_you, :supervised_by_you],
     do: Blocks.path(screen)
 
-  def path({:open_for_you_group, subflow, span}),
+  def path({:assigned, _by}), do: Blocks.path(:home)
+  def path({:group, :assigned, kind, _by}), do: Blocks.path(:assigned_group, kind: kind)
+
+  def path({:group, :open_for_you, {subflow, span}, _by}),
     do: Blocks.path(:open_for_you_group, subflow: subflow, span: span)
+
+  def path({:group, :supervised_by_you, {subflow, span}, _by}),
+    do: Blocks.path(:supervised_by_you_group, subflow: subflow, span: span)
 
   # A hand-over the session reads for its client (`by`) is at the same path.
   def path({page, kind, key, run}) when page in [:pick_up, :hand_over, :retry, :remove_item],
@@ -392,7 +405,7 @@ defmodule AtlasControl.Pages do
   def kind_of({:unavailable, _path, _failed}), do: nil
   def kind_of(:kinds), do: nil
   def kind_of({screen, _by}) when screen in [:open_for_you, :supervised_by_you], do: nil
-  def kind_of({:open_for_you_group, _subflow, _span}), do: nil
+  def kind_of({:group, _screen, _key, _by}), do: nil
   def kind_of(route), do: elem(route, 1)
 
   def form?({:worker_page, :worker_guidance, _}), do: true
@@ -443,8 +456,8 @@ defmodule AtlasControl.Pages do
     rows ++ lookups
   end
 
-  # A group of Open for you reads as the whole screen: its counts are of every group.
-  def reads({:open_for_you_group, _subflow, _span}, m), do: reads({:open_for_you, nil}, m)
+  # A group of a screen reads as the whole screen: its counts are of every group.
+  def reads({:group, _screen, _key, _by} = route, m), do: reads(whole(route), m)
 
   def reads({:supervised_by_you, by}, m) do
     {rows, lookups} = span_reads(m)
@@ -543,13 +556,14 @@ defmodule AtlasControl.Pages do
     end
   end
 
+  def read_roles({:group, _screen, _key, _by} = route, m), do: read_roles(whole(route), m)
+
   def read_roles(route, m) do
     lookups =
       case route do
         {:assigned, _} -> owner_reads(m)
         {:list, kind} when is_binary(kind) -> if open_work?(m, kind), do: owner_reads(m), else: 0
         {screen, _} when screen in [:open_for_you, :supervised_by_you] -> span_lookups(m)
-        {:open_for_you_group, _, _} -> span_lookups(m)
         _ -> 0
       end
 
@@ -772,12 +786,14 @@ defmodule AtlasControl.Pages do
     |> Enum.sort_by(fn {_, _, link} -> if link["late"] == true, do: 0, else: 1 end)
   end
 
-  # What is assigned to the client, calm (platform/atlas_control/backend/README.md): an
-  # Overview of the counts and the list without technical noise; the technical details are
-  # an agent's or developer's (`atlas get`), never on a page a human reads.
-  defp assigned(m, _by, answers, marked) do
+  # What is assigned to the client, calm (platform/atlas_control/backend/README.md): its
+  # groups (per kind), an Overview of the counts and the list without technical noise; on
+  # a group's page (`active`, a kind) only that kind's. The technical details are an
+  # agent's or developer's (`atlas get`), never on a page a human reads.
+  defp assigned(m, by, answers, marked, active) do
     rule = assigned_rule(m)
-    items = assigned_facts(m, answers, marked)
+    all = assigned_facts(m, answers, marked)
+    items = Enum.filter(all, &(active in [nil, elem(&1, 0)]))
 
     list =
       Blocks.list(
@@ -787,10 +803,17 @@ defmodule AtlasControl.Pages do
         actions: start_actions(m)
       )
 
-    page(rule.title || "", nil, [
-      {"summary", overview(items)},
-      {"list", list}
-    ])
+    grouped_page(
+      m,
+      {:assigned, by},
+      Enum.frequencies_by(all, &elem(&1, 0)),
+      active,
+      rule.title || "",
+      [
+        {"summary", overview(items)},
+        {"list", list}
+      ]
+    )
   end
 
   @doc """
@@ -972,6 +995,43 @@ defmodule AtlasControl.Pages do
   # A supervision screen's start entry, or nil when the model has none.
   defp screen_rule(m, :open_for_you), do: open_for_you_rule(m)
   defp screen_rule(m, :supervised_by_you), do: supervised_rule(m)
+
+  @doc """
+  The groups of a screen, from the model alone, each a filter of it: `[{key, label}]`.
+  What is assigned (`:assigned`) per kind of the facts the assignments are components of
+  (else per kind they start at); Open for you and Supervised by you per supervised span,
+  keyed `{subflow, span}`. A group's page is `{:group, screen, key, by}`; the shell offers
+  the same groups under the page's tab (`AtlasControl.Shell`).
+  """
+  def groups(m, :assigned) do
+    case assigned_rule(m) do
+      nil ->
+        []
+
+      rule ->
+        froms = (rel(m, rule.relation) || %{from: []}).from
+
+        kinds =
+          case for({_component, owner} <- owner_kinds(m, froms), uniq: true, do: owner) do
+            [] -> froms
+            owners -> owners
+          end
+
+        for k <- kinds, do: {k, (kind(m, k) || unknown_kind(k)).plural}
+    end
+  end
+
+  def groups(m, screen) when screen in [:open_for_you, :supervised_by_you] do
+    if screen_rule(m, screen),
+      do: for(s <- spans(m), kind?(m, s.subject), do: {{s.subflow, s.span}, span_title(m, s)}),
+      else: []
+  end
+
+  def groups(_m, _screen), do: []
+
+  # The whole page a group of it filters.
+  defp whole({:group, :assigned, _key, by}), do: {:assigned, by}
+  defp whole({:group, screen, _key, by}), do: {screen, by}
 
   # Either entry names the relation and the inputs' kind; the spans are Open for you's.
   defp supervision(m), do: open_for_you_rule(m) || supervised_rule(m)
@@ -1470,28 +1530,14 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # Open for you, calm: its groups (all, then one per span, each with its count), an
-  # Overview, and one list per span; on a group's page (`active`, `{subflow, span}`) only
-  # that span's list. `[` and `]` open the previous and the next group.
+  # Open for you, calm: its groups, an Overview, and one list per span; on a group's page
+  # (`active`, `{subflow, span}`) only that span's list.
   defp open_for_you(m, answers, active) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
         rule = open_for_you_rule(m)
         per_span = open_for_you_facts(m, answers)
-        all = for {_s, facts} <- per_span, item <- facts, do: item
-
-        groups =
-          [
-            {"All", length(all), path({:open_for_you, nil}), active == nil}
-            | for {s, facts} <- per_span do
-                {span_title(m, s), length(facts), path({:open_for_you_group, s.subflow, s.span}),
-                 active == {s.subflow, s.span}}
-              end
-          ]
-          |> Enum.map(fn {label, count, to, on?} ->
-            Blocks.group(label: label, count: count, to: to, active: on?)
-          end)
-
+        counts = Map.new(per_span, fn {s, facts} -> {{s.subflow, s.span}, length(facts)} end)
         shown = for {s, _} = group <- per_span, active in [nil, {s.subflow, s.span}], do: group
         items = for {_s, facts} <- shown, item <- facts, do: item
 
@@ -1505,25 +1551,48 @@ defmodule AtlasControl.Pages do
              )}
           end
 
-        {title, back} =
-          case shown do
-            [{s, _}] when active != nil ->
-              {"#{rule.title} · #{span_title(m, s)}", path({:open_for_you, nil})}
-
-            _ ->
-              {rule.title || "", nil}
-          end
-
-        title
-        |> page(back, [
-          {"groups", Blocks.groups(groups: groups)},
+        grouped_page(m, {:open_for_you, nil}, counts, active, rule.title || "", [
           {"summary", screen_overview(rule, items, [])} | lists
         ])
-        |> Map.put(:console_actions, group_actions(groups))
 
       failed ->
         unavailable(failed, "/")
     end
+  end
+
+  # A screen, `{screen, by}`, with its groups first (`groups/2`): All, then each group
+  # with its count (`counts`, by key), the one shown (`active`; nil: All) marked. A group's
+  # page is titled with the group's name too and goes back to the whole page. `[` and `]`
+  # open the previous and the next group.
+  defp grouped_page(m, {screen, by} = whole, counts, active, title, blocks) do
+    named = groups(m, screen)
+
+    groups = [
+      Blocks.group(
+        label: "All",
+        count: Enum.sum(Map.values(counts)),
+        to: path(whole),
+        active: active == nil
+      )
+      | for {key, label} <- named do
+          Blocks.group(
+            label: label,
+            count: counts[key] || 0,
+            to: path({:group, screen, key, by}),
+            active: active == key
+          )
+        end
+    ]
+
+    {title, back} =
+      case List.keyfind(named, active, 0) do
+        {_key, label} -> {"#{title} · #{label}", path(whole)}
+        nil -> {title, nil}
+      end
+
+    title
+    |> page(back, [{"groups", Blocks.groups(groups: groups)} | blocks])
+    |> Map.put(:console_actions, group_actions(groups))
   end
 
   # The Console's way through a page's groups: `[` opens the previous, `]` the next.
@@ -1555,17 +1624,21 @@ defmodule AtlasControl.Pages do
       else: label
   end
 
-  # The span a group of Open for you shows, or nil when the model has none such.
-  defp group_span(m, subflow, span),
-    do: Enum.find(spans(m), &(&1.subflow == subflow and &1.span == span))
-
-  # Supervised by you, calm: an Overview with the quiet count of the client's running
-  # work, and the flows it supervises (state, who it waits on).
-  defp supervised_by_you(m, by, answers) do
+  # Supervised by you, calm: its groups (per span the flows are in), an Overview with the
+  # quiet count of the client's running work, and the flows it supervises (state, who it
+  # waits on); on a group's page (`active`) only those in that span.
+  defp supervised_by_you(m, by, answers, active) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
         rule = supervised_rule(m)
-        {items, running} = supervised_facts(m, by, answers)
+        {all, running} = supervised_facts(m, by, answers)
+
+        span_key = fn {kind, _fact, w} ->
+          s = span_of(m, kind, w["presentation"])
+          {s.subflow, s.span}
+        end
+
+        items = Enum.filter(all, &(active in [nil, span_key.(&1)]))
 
         work =
           case rule[:work] do
@@ -1580,7 +1653,9 @@ defmodule AtlasControl.Pages do
             empty: rule.empty
           )
 
-        page(rule.title || "", nil, [
+        counts = Enum.frequencies_by(all, span_key)
+
+        grouped_page(m, {:supervised_by_you, by}, counts, active, rule.title || "", [
           {"summary", screen_overview(rule, items, work)},
           {"list", list}
         ])
@@ -1642,20 +1717,25 @@ defmodule AtlasControl.Pages do
   """
   def render(route, m, answers, form \\ %{})
 
-  def render({:assigned, by}, m, answers, form), do: assigned(m, by, answers, marked(form))
+  def render({:assigned, by}, m, answers, form),
+    do: assigned(m, by, answers, marked(form), nil)
+
   # A supervision screen without its start entry is no page (`resolve/2`).
   def render({screen, by}, m, answers, form) when screen in [:open_for_you, :supervised_by_you] do
     case {screen, screen_rule(m, screen)} do
       {_, nil} -> render(:unknown, m, answers, form)
       {:open_for_you, _} -> open_for_you(m, answers, nil)
-      {:supervised_by_you, _} -> supervised_by_you(m, by, answers)
+      {:supervised_by_you, _} -> supervised_by_you(m, by, answers, nil)
     end
   end
 
-  def render({:open_for_you_group, subflow, span}, m, answers, form) do
-    if open_for_you_rule(m) && group_span(m, subflow, span),
-      do: open_for_you(m, answers, {subflow, span}),
-      else: render(:unknown, m, answers, form)
+  def render({:group, screen, key, by} = route, m, answers, form) do
+    case {resolve(route, m), screen} do
+      {:unknown, _} -> render(:unknown, m, answers, form)
+      {_, :assigned} -> assigned(m, by, answers, marked(form), key)
+      {_, :open_for_you} -> open_for_you(m, answers, key)
+      {_, :supervised_by_you} -> supervised_by_you(m, by, answers, key)
+    end
   end
 
   def render({:hand_over, kind, key, run}, m, answers, form),

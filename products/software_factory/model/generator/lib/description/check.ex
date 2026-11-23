@@ -317,11 +317,15 @@ defmodule RelaDSL.Description.Check do
             else: []
 
         {ps ++
-           keys(tab, ~w(id label to assigned), at) ++
+           keys(tab, ~w(id label to assigned icon), at) ++
            texts ++
            if(is_boolean(Map.get(tab, "assigned", false)),
              do: [],
              else: p(at, :tab_assigned, [], "shell.tabs.assigned: expected boolean")
+           ) ++
+           if(is_nil(tab["icon"]) or (text?(tab["icon"]) and byte_size(tab["icon"]) <= 64),
+             do: [],
+             else: p(at, :tab_icon, [], "shell.tabs.icon: expected a name of at most 64 bytes")
            ) ++
            destination ++ twice, MapSet.put(ids, tab["id"]), MapSet.put(targets, target)}
       end)

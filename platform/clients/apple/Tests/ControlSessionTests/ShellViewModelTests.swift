@@ -224,31 +224,36 @@ final class ShellViewModelTests: XCTestCase {
         XCTAssertEqual(ShellViewModel(h.state).selectedPath, "/k/part")
     }
 
-    func testAPagesGroupsAreItsTabsSubItemsAndAGroupShowsInTheMiddleColumn() {
+    func testEveryTabsGroupsAreItsSubItemsAndAnyGroupShowsInTheMiddleColumnOnItsTab() {
         let groups: (String) -> [String: Any] = { active in
             ["id": "groups", "type": "groups", "props": ["groups": [
-                ["label": "All", "count": 3, "to": "/k/widget", "active": active == "/k/widget"],
+                ["label": "All", "count": 3, "to": "/k/part", "active": active == "/k/part"],
                 ["label": "Build", "count": 2, "to": "/_open/issue/build", "active": active == "/_open/issue/build"],
             ]]]
         }
+        var parts = Lines.tab("parts", "/k/part")
+        parts["icon"] = "inbox"
+        parts["groups"] = [["label": "Build", "to": "/_open/issue/build"]]
         let h = Harness()
-        h.connect(start: Lines.page("/k/widget", blocks: [groups("/k/widget"), Lines.list([])]))
+        h.connect(boot: Lines.boot(tabs: [Lines.tab("widgets", "/k/widget"), parts]))
 
-        // The group that is the tab's page gives the tab its count; the others are sub-items.
+        // The other tab's groups show while the widgets tab is shown; no count yet.
         var shell = ShellViewModel(h.state)
-        XCTAssertEqual(shell.tabs.first?.count, 3)
-        XCTAssertEqual(shell.groups.map(\.to), ["/_open/issue/build"])
+        XCTAssertEqual(shell.tabs.last?.icon, "inbox")
+        XCTAssertEqual(shell.tabs.last?.groups, [ShellViewModel.Group(label: "Build", count: nil, to: "/_open/issue/build")])
         XCTAssertNil(shell.activeGroup)
 
-        // Choosing a group opens its page in the middle column, on the same tab.
+        // Choosing it opens its page in the middle column, on its own tab, with its counts.
         h.session.filter("/_open/issue/build")
         XCTAssertEqual(h.connection.take(), [.open(OpenRequest(to: "/_open/issue/build"))])
         h.connection.receive(Lines.page("/_open/issue/build", blocks: [groups("/_open/issue/build"), Lines.list([])]))
         shell = ShellViewModel(h.state)
         XCTAssertEqual(shell.index?.path, "/_open/issue/build")
         XCTAssertNil(shell.opened)
-        XCTAssertEqual(shell.activeTab, "widgets")
+        XCTAssertEqual(shell.activeTab, "parts")
         XCTAssertEqual(shell.activeGroup, "/_open/issue/build")
+        XCTAssertEqual(shell.tabs.last?.count, 3)
+        XCTAssertEqual(shell.tabs.last?.groups.first?.count, 2)
     }
 
 }

@@ -425,12 +425,14 @@ defmodule AtlasTui.Console do
   defp sync_active(%{console: %{shell: nil}} = model), do: model
   defp sync_active(%{console: %{expected: target}} = model) when target != nil, do: model
 
+  # The tab whose page, a page under it, or one of its groups (boot's `groups`) is shown.
   defp sync_active(model) do
     active =
       Enum.find(model.console.shell["tabs"], fn tab ->
         model.path == tab["to"] or
           (tab["to"] != "/" and is_binary(model.path) and
-             String.starts_with?(model.path, tab["to"] <> "/"))
+             String.starts_with?(model.path, tab["to"] <> "/")) or
+          Enum.any?(tab["groups"] || [], &(&1["to"] == model.path))
       end)
 
     %{model | console: %{model.console | active: active && active["id"]}}
