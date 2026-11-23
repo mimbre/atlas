@@ -14,9 +14,10 @@ defmodule RelaDSL.Control.Model do
       words) and `supervised_by_you` (the runs whose
       supervisor is the client, with `work`: the `kind`, `of`, `for` and `ended` names
       of a supervisor's running work, nil without `supervised_work`), both nil without
-      supervision, and the start page's `actions`. Both carry the supervision
-      `relation` and the kind a pickup or hand-over is sent as (`inputs`, the run
-      mapping's inputs);
+      supervision, the start page's `actions`, and `flows`: each subflow's short name (its
+      `label:`) by subflow name, which a person's list row shows for the flow its work is
+      in. Both carry the supervision `relation` and the kind a pickup or hand-over is sent
+      as (`inputs`, the run mapping's inputs);
     * `kinds/0`: every kind, sorted by name, with its names, its id, its fields in the
       order pages show them, the relations that start at it, and what its pages show
       besides (counts, progress, lateness, the fields a flow keeps to itself);
@@ -38,7 +39,7 @@ defmodule RelaDSL.Control.Model do
   """
 
   @doc false
-  def body(schema, extension, flow_runtime) do
+  def body(schema, extension, flow_runtime, flow_labels \\ %{}) do
     d = merge(schema, extension)
     presenters = RelaDSL.Presentation.presenters(d, flow_runtime)
     kinds = kinds(d, presenters)
@@ -50,7 +51,8 @@ defmodule RelaDSL.Control.Model do
         do: RelaDSL.Control.Rules.shell(unquote(Macro.escape(d["shell"])), settings)
 
       @doc "What a client opens on: what is assigned to it, open work and the start actions."
-      def start_page, do: unquote(Macro.escape(start_page(d, flow_runtime, presenters)))
+      def start_page,
+        do: unquote(Macro.escape(start_page(d, flow_runtime, presenters, flow_labels)))
 
       @doc "Every kind, as pages show it, sorted by name."
       def kinds, do: unquote(Macro.escape(kinds))
@@ -404,7 +406,7 @@ defmodule RelaDSL.Control.Model do
 
   # -- The start page ---------------------------------------------------------------------
 
-  defp start_page(d, flow_runtime, presenters) do
+  defp start_page(d, flow_runtime, presenters, flow_labels) do
     supervision = get_in(flow_runtime || %{}, ["flow_runtime", "supervision"])
 
     assigned =
@@ -496,7 +498,8 @@ defmodule RelaDSL.Control.Model do
           {kind, %{"start" => %{"key" => key, "label" => label}}} <-
             Enum.sort(d["entities"] || %{}),
           do: %{kind: kind, key: key, label: label}
-        )
+        ),
+      flows: flow_labels
     }
   end
 

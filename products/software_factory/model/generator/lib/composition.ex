@@ -349,7 +349,14 @@ defmodule RelaDSL.Composition do
     presentations = presentations!(flows, gates, environments, file)
     runtime = RelaDSL.Runtime.Model.body(schema, extension, plain_runtime)
     facts = RelaDSL.Facts.Model.body(schema, extension, plain_runtime, presentations)
-    control = RelaDSL.Control.Model.body(schema, extension, plain_runtime)
+    # Each subflow's short name, which a person's list row shows for the flow its work is in.
+    flow_labels =
+      for {name, definition} <- RelaDSL.Flow.Subflow.definitions(flows, gates, hd(environments)),
+          is_binary(definition["label"]),
+          into: %{},
+          do: {name, definition["label"]}
+
+    control = RelaDSL.Control.Model.body(schema, extension, plain_runtime, flow_labels)
 
     quote do
       unquote(compiled)

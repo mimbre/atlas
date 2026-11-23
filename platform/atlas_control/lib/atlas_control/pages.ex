@@ -868,8 +868,9 @@ defmodule AtlasControl.Pages do
   end
 
   # One calm row of what is assigned: the fact's key, the fact, who it is with (`owner?`, on
-  # Open work), why it is to be reviewed (the rule's label), what is expected, whether it is
-  # blocked, and its deadline (late first).
+  # Open work), why it is to be reviewed (the rule's label), the flow its work is in (its
+  # short name, never the long sentence of what is expected), whether it is blocked, and
+  # its deadline (late first).
   defp calm_row(m, relation, {from, fact, link}, owner? \\ false) do
     link_k = kind(m, link_kind(m, relation))
 
@@ -877,7 +878,7 @@ defmodule AtlasControl.Pages do
       [
         owner? && owner_text(link, relation),
         get_in(fact, ["review", "label"]),
-        expected(fact, link),
+        flow_name(m, fact, link),
         shown(fact, link, "status") == "blocked" && "blocked",
         late_detail(link_k, link)
       ]
@@ -958,6 +959,16 @@ defmodule AtlasControl.Pages do
         value -> value
       end
     end)
+  end
+
+  # The short name of the flow the work is in, as the model names its subflow (`flows`),
+  # while something is expected of its owner: what a list row says of the work, in place of
+  # the sentence of what is expected, which the item's page says.
+  defp flow_name(m, fact, link) do
+    if expected(fact, link) do
+      names = m.start[:flows] || %{}
+      Enum.find_value([link, fact], &names[get_in(&1, ["presentation", "flow"])])
+    end
   end
 
   # The start page's ways to the kinds kept off it: an action that opens the kind's list.
@@ -1642,16 +1653,26 @@ defmodule AtlasControl.Pages do
 
         items = Enum.filter(all, &(active in [nil, span_key.(&1)]))
 
-        work =
+        {work, doing} =
           case rule[:work] do
-            %{kind: kind} -> [{(kind(m, kind) || unknown_kind(kind)).plural, length(running)}]
-            _ -> []
+            %{kind: kind, of: of} ->
+              {[{(kind(m, kind) || unknown_kind(kind)).plural, length(running)}],
+               for(t <- running, key <- get_in(t, ["links", of]) || [], into: %{}, do: {key, t})}
+
+            _ ->
+              {[], %{}}
           end
+
+        doing = Map.new(doing, fn {key, t} -> {key, {rule.work.kind, t}} end)
 
         list =
           Blocks.list(
             title: rule.title || "",
-            rows: for({kind, fact, work} <- items, do: screen_row(m, kind, fact, work, active)),
+            rows:
+              for(
+                {kind, fact, work} <- items,
+                do: screen_row(m, kind, fact, work, active, doing[fact["key"]])
+              ),
             empty: rule.empty
           )
 
@@ -1667,7 +1688,7 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # A screen's Overview: titled by the model's count, its main count by its title, then
+  # A screen's Overview: titled by the model's count (so the count is not said again), then
   # how many are late or blocked, and `more`, only when some are.
   defp screen_overview(rule, items, more) do
     n = length(items)
@@ -1675,30 +1696,36 @@ defmodule AtlasControl.Pages do
     blocked = Enum.count(items, fn {_, fact, _} -> shown(fact, fact, "status") == "blocked" end)
 
     fields =
-      for {label, count} <-
-            [
-              {rule.title || "", n}
-              | Enum.filter([{"Late", late}, {"Blocked", blocked} | more], fn {_, c} -> c > 0 end)
-            ],
+      for {label, count} <- [{"Late", late}, {"Blocked", blocked} | more],
+          count > 0,
           do: Blocks.pair(label: label, value: Integer.to_string(count))
 
     title = String.replace(rule.count || "{count}", "{count}", Integer.to_string(n))
     Blocks.item(title: title, fields: fields)
   end
 
-  # One calm row of a screen: the fact's key, the fact, what is expected, whom it waits on
-  # (the owner keys Facts presents on the `work`), whether it is blocked; the rest is in its
-  # technical details. On a group's page (`active`, one span of one flow) the group's name
-  # says what is expected, so the row says what it belongs under (its parents' keys) instead.
-  defp screen_row(m, kind, fact, work, active) do
-    what =
-      if active == nil,
-        do: [expected(fact, work)],
-        else: Map.values(parent_values(m, kind, fact))
+  # One calm row of a screen: the fact's key, the fact, the flow its work is in (its short
+  # name), whom it waits on (the owner keys Facts presents on the `work`), whether it is
+  # blocked; the rest is on its page. On a group's page (`active`, one span of one flow) the
+  # group's name says the flow, so the row says what it belongs under (its parents' keys)
+  # instead. While the client's running work is on it (`doing`, `{kind, fact}`), the row
+  # says that work (its kind and detail) in place of the flow: an agent is at it.
+  defp screen_row(m, kind, fact, work, active, doing \\ nil) do
+    parents = if active == nil, do: [], else: Map.values(parent_values(m, kind, fact))
+
+    todo =
+      case doing do
+        {work_kind, t} ->
+          Enum.join([singular(m, work_kind), detail(kind(m, work_kind), t)] -- [nil], " · ")
+
+        nil ->
+          if active == nil, do: flow_name(m, fact, work)
+      end
 
     detail =
-      (what ++
+      (parents ++
          [
+           todo,
            case get_in(work, ["presentation", "owner"]) do
              [_ | _] = keys -> Enum.join(keys, ", ")
              _ -> nil
