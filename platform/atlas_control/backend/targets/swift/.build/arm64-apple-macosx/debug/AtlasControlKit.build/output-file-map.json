@@ -1,0 +1,53 @@
+{
+  "": {
+    "swift-dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/master.swiftdeps"
+  },
+  "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Blocks.swift": {
+    "dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Blocks.d",
+    "object": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Blocks.swift.o",
+    "swiftmodule": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Blocks~partial.swiftmodule",
+    "swift-dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Blocks.swiftdeps"
+  },
+  "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Contract.swift": {
+    "dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Contract.d",
+    "object": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Contract.swift.o",
+    "swiftmodule": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Contract~partial.swiftmodule",
+    "swift-dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Contract.swiftdeps"
+  },
+  "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Fallback.swift": {
+    "dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Fallback.d",
+    "object": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Fallback.swift.o",
+    "swiftmodule": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Fallback~partial.swiftmodule",
+    "swift-dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Fallback.swiftdeps"
+  },
+  "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/JSONValue.swift": {
+    "dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/JSONValue.d",
+    "object": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/JSONValue.swift.o",
+    "swiftmodule": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/JSONValue~partial.swiftmodule",
+    "swift-dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/JSONValue.swiftdeps"
+  },
+  "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Markup.swift": {
+    "dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Markup.d",
+    "object": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Markup.swift.o",
+    "swiftmodule": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Markup~partial.swiftmodule",
+    "swift-dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Markup.swiftdeps"
+  },
+  "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Messages.swift": {
+    "dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Messages.d",
+    "object": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Messages.swift.o",
+    "swiftmodule": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Messages~partial.swiftmodule",
+    "swift-dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Messages.swiftdeps"
+  },
+  "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Models.swift": {
+    "dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Models.d",
+    "object": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Models.swift.o",
+    "swiftmodule": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Models~partial.swiftmodule",
+    "swift-dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Models.swiftdeps"
+  },
+  "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Pages.swift": {
+    "dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Pages.d",
+    "object": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Pages.swift.o",
+    "swiftmodule": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Pages~partial.swiftmodule",
+    "swift-dependencies": "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/Pages.swiftdeps"
+  }
+}

@@ -1423,17 +1423,7 @@
   },
   "relations": {
     "accepted_by": {
-      "actions": {
-        "remove": {
-          "key": "a",
-          "label": "Reopen"
-        },
-        "set": {
-          "key": "a",
-          "label": "Accept"
-        }
-      },
-      "closes_parent": "{parent} is accepted; reopen it first, or put this under another {kind}",
+      "closes_parent": "{parent} is accepted; put this under another {kind}",
       "only_target": {
         "also": [
           "migration"

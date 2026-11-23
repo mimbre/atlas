@@ -26,6 +26,9 @@ defmodule AtlasBFFContract.Pages do
       defpage :new, "/k/:kind/new"
       defpage :new_under, "/k/:kind/new/:relation/:parent"
       defpage :item, "/k/:kind/:key"
+      # The fact's secondary menu: what its page offers besides the flow's next step
+      # (its More… action), each an action as on the fact's page.
+      defpage :more, "/k/:kind/:key/more"
       defpage :edit, "/k/:kind/:key/edit"
       defpage :delete, "/k/:kind/:key/delete"
       defpage :links, "/k/:kind/:key/links/:relation"

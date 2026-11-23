@@ -1,0 +1,4 @@
+module AtlasControlKit {
+    header "/Users/melle/projects/eyra/FewerActions/platform/atlas_control/backend/targets/swift/.build/arm64-apple-macosx/debug/AtlasControlKit.build/AtlasControlKit-Swift.h"
+    requires objc
+}

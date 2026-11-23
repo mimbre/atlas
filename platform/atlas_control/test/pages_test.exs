@@ -15,6 +15,15 @@ defmodule AtlasControl.PagesTest do
   # presentation Facts derives from its runs (`running/4`).
   defp render(route, m, answers, form \\ %{}), do: Pages.render(route, m, answers, form)
 
+  # The actions a fact's page offers under its More…: its secondary menu's, which reads as
+  # the page does.
+  defp more({:item, kind, key}, m, answers, form \\ %{}) do
+    %{blocks: [%{"type" => "item", "props" => menu}]} =
+      render({:more, kind, key}, m, answers, form)
+
+    menu["actions"] || []
+  end
+
   # The page while the run that presents its work is active in `state`.
   defp render_run(route, m, state, answers, form \\ %{}),
     do: render(route, m, running(answers, route, m, state), form)
@@ -317,8 +326,15 @@ defmodule AtlasControl.PagesTest do
     refute Map.has_key?(list, "title")
     assert [%{"label" => "Wheel", "to" => "/k/part/P-1"}] = list["rows"]
 
-    assert [%{"label" => "Create part", "key" => "c", "to" => "/k/part/new/of_widget/W-1"}] =
-             list["actions"]
+    refute Map.has_key?(list, "actions")
+
+    assert [%{"label" => "More…", "key" => "m", "to" => "/k/widget/W-1/more"}] = item["actions"]
+
+    assert %{"label" => "Create part", "key" => "c", "to" => "/k/part/new/of_widget/W-1"} in more(
+             {:item, "widget", "W-1"},
+             @d,
+             [answer, parts]
+           )
 
     %{blocks: [_, %{"props" => none}]} =
       render({:item, "widget", "W-1"}, @d, [answer, %{"facts" => []}])
@@ -427,11 +443,14 @@ defmodule AtlasControl.PagesTest do
     assert labels.(list["actions"]) == [{"c", "Create widget"}]
     assert list["empty"] == "No widgets yet."
 
-    %{blocks: [%{"props" => item}, %{"props" => tags} | _]} =
-      render({:item, "part", "P-1"}, @d, [%{"fact" => part}, %{"facts" => []}])
+    answers = [%{"fact" => part}, %{"facts" => []}]
+    %{blocks: [%{"props" => item} | _]} = render({:item, "part", "P-1"}, @d, answers)
 
-    assert labels.(item["actions"]) == [{"u", "Update part"}, {"d", "Delete part"}]
-    assert labels.(tags["actions"]) == [{"c", "Create tag"}]
+    # No flow covers a part: everything is raw, under More….
+    assert labels.(item["actions"]) == [{"m", "More…"}]
+
+    assert labels.(more({:item, "part", "P-1"}, @d, answers)) ==
+             [{"u", "Update part"}, {"d", "Delete part"}, {"c", "Create tag"}]
 
     %{title: "Create part in W-1", blocks: [%{"props" => create}]} =
       render({:new, "part", {"of_widget", "W-1"}}, @d, [])
@@ -460,16 +479,13 @@ defmodule AtlasControl.PagesTest do
 
     # A page with a second related list creates there with the next free key.
     two = shop(Two)
+    answers = [%{"fact" => fact("W-1", %{"title" => "One"})}, %{"facts" => []}, %{"facts" => []}]
+    %{blocks: [_, _, %{"props" => second}]} = render({:item, "widget", "W-1"}, two, answers)
 
-    %{blocks: [_, %{"props" => first}, %{"props" => second}]} =
-      render({:item, "widget", "W-1"}, two, [
-        %{"fact" => fact("W-1", %{"title" => "One"})},
-        %{"facts" => []},
-        %{"facts" => []}
-      ])
-
-    assert {labels.(first["actions"]), labels.(second["actions"])} ==
-             {[{"c", "Create part"}], [{"s", "Create spare"}]}
+    assert [{"c", "Create part"}, {"s", "Create spare"}] =
+             Enum.filter(labels.(more({:item, "widget", "W-1"}, two, answers)), fn {_, label} ->
+               label =~ "Create"
+             end)
 
     assert second["empty"] == "No spares yet."
   end
@@ -828,12 +844,12 @@ defmodule AtlasControl.PagesTest do
     # Labelled by that property; no field a user may set, but it can move to another part.
     %{blocks: [%{"props" => item} | _]} = render({:item, "tag", "T-a-1"}, @d, [stored])
     assert item["title"] == "Tag T-a-1: #a/1"
-    assert Enum.map(item["actions"], & &1["key"]) == ["u", "d"]
+    assert Enum.map(item["actions"], & &1["key"]) == ["m"]
+    assert Enum.map(more({:item, "tag", "T-a-1"}, @d, [stored]), & &1["key"]) == ["u", "d"]
 
     # A kind with nothing to set and no parent has nothing to change.
     loose = shop(Loose)
-    %{blocks: [%{"props" => item} | _]} = render({:item, "tag", "T-a-1"}, loose, [stored])
-    assert Enum.map(item["actions"], & &1["key"]) == ["d"]
+    assert Enum.map(more({:item, "tag", "T-a-1"}, loose, [stored]), & &1["key"]) == ["d"]
   end
 
   test "a fact with a web address can be opened in a browser, on its page and on its row" do
@@ -960,7 +976,7 @@ defmodule AtlasControl.PagesTest do
       ]
 
     %{blocks: [%{"props" => item} | _]} = render({:item, "task", "T-1"}, @due, answers)
-    assert Enum.map(item["actions"], & &1["key"]) == ["u"]
+    assert Enum.map(more({:item, "task", "T-1"}, @due, answers), & &1["key"]) == ["u"]
     assert %{"label" => "Due", "value" => "2026-11-04 11:00 UTC · overdue"} in item["fields"]
 
     # Not late (Facts left it out): the time alone.
@@ -1037,10 +1053,7 @@ defmodule AtlasControl.PagesTest do
     for links <- [%{}, %{"checked_by" => ["ada"]}] do
       widget = Map.put(fact("W-1", %{"title" => "One"}), "links", links)
 
-      %{blocks: [%{"props" => item} | _]} =
-        render({:item, "widget", "W-1"}, @handed, answers.(widget))
-
-      assert hand in item["actions"]
+      assert hand in more({:item, "widget", "W-1"}, @handed, answers.(widget))
     end
 
     widget = Map.put(fact("W-1", %{"title" => "One"}), "links", %{"checked_by" => ["ada"]})
@@ -1072,7 +1085,7 @@ defmodule AtlasControl.PagesTest do
     page = render({:item, "log", "L-01"}, @logged, [answer, entries])
     [item, entry_list] = for b <- page.blocks, do: b["props"]
     assert item["actions"] == []
-    assert entry_list["actions"] == []
+    refute Map.has_key?(entry_list, "actions")
     assert [%{"id" => "E-01"}] = entry_list["rows"]
   end
 
@@ -1224,14 +1237,12 @@ defmodule AtlasControl.PagesTest do
 
   test "each page offers the actions its kind allows" do
     widget = %{"fact" => fact("W-1", %{"title" => "One"}), "incoming" => %{}}
+    answers = [widget, %{"facts" => []}]
+    %{blocks: [%{"props" => item} | _]} = render({:item, "widget", "W-1"}, @d, answers)
+    assert Enum.map(item["actions"], &{&1["key"], &1["label"]}) == [{"m", "More…"}]
 
-    %{blocks: [%{"props" => item}, %{"props" => parts} | _]} =
-      render({:item, "widget", "W-1"}, @d, [widget, %{"facts" => []}])
-
-    assert Enum.map(item["actions"], &{&1["key"], &1["label"]}) ==
-             [{"u", "Update widget"}, {"d", "Delete widget"}]
-
-    assert Enum.map(parts["actions"], &{&1["key"], &1["label"]}) == [{"c", "Create part"}]
+    assert Enum.map(more({:item, "widget", "W-1"}, @d, answers), &{&1["key"], &1["label"]}) ==
+             [{"u", "Update widget"}, {"d", "Delete widget"}, {"c", "Create part"}]
 
     %{title: create} = render({:new, "widget"}, @d, [])
     %{title: update} = render({:edit, "widget", "W-1"}, @d, [widget])
@@ -1255,11 +1266,7 @@ defmodule AtlasControl.PagesTest do
 
     page = fn state ->
       answer = %{"fact" => fact("E-01", %{"title" => "One", "state" => state})}
-
-      %{blocks: [item | _]} =
-        render({:item, "entry", "E-01"}, logged, [answer, %{"facts" => []}])
-
-      item["props"]["actions"]
+      more({:item, "entry", "E-01"}, logged, [answer, %{"facts" => []}])
     end
 
     assert [%{"key" => "x", "label" => "Undo", "to" => "agent:undo"}] = page.("done")
@@ -1911,35 +1918,33 @@ defmodule AtlasControl.PagesTest do
   test "the owner's answers are actions, in place of one on the same key; nobody else's" do
     route = {:item, "widget", "W-1"}
 
-    page =
-      render_run(route, @answering, "check", answering_reads(route, "ada"), %{
-        by: "ada",
-        by_kind: "member"
-      })
-
+    form = %{by: "ada", by_kind: "member"}
+    reads = answering_reads(route, "ada")
+    page = render_run(route, @answering, "check", reads, form)
     item = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]
 
+    # The answers are the flow's next step; the rest is under More…, none on their keys.
     assert [
              %{"key" => "v", "label" => "Approve", "to" => "/k/widget/W-1/set/checked_by"},
-             %{"key" => "z", "label" => "Send back", "to" => "/k/widget/W-1/remove/checked_by"}
-             | rest
+             %{"key" => "z", "label" => "Send back", "to" => "/k/widget/W-1/remove/checked_by"},
+             %{"key" => "m", "label" => "More…", "to" => "/k/widget/W-1/more"}
            ] = item["actions"]
 
-    refute Enum.any?(rest, &(&1["key"] in ["v", "z"]))
+    more = more(route, @answering, running(reads, route, @answering, "check"), form)
+    refute Enum.any?(more, &(&1["key"] in ["v", "z"]))
 
-    page =
-      render_run(route, @answering, "check", answering_reads(route, "bob"), %{
-        by: "ada",
-        by_kind: "member"
-      })
-
+    reads = answering_reads(route, "bob")
+    page = render_run(route, @answering, "check", reads, form)
     item = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]
-    # The association's own action, as before; no answers.
-    assert %{"key" => "v", "label" => "Check", "to" => "/k/widget/W-1/set/checked_by"} in item[
-             "actions"
-           ]
-
     refute Enum.any?(item["actions"], &(&1["label"] == "Send back"))
+
+    # The association's own action, as before; no answers.
+    assert %{"key" => "v", "label" => "Check", "to" => "/k/widget/W-1/set/checked_by"} in more(
+             route,
+             @answering,
+             running(reads, route, @answering, "check"),
+             form
+           )
   end
 
   test "an answer that removes asks for a note, also when nothing is set; else it is refused" do
@@ -2137,7 +2142,7 @@ defmodule AtlasControl.PagesTest do
         render({:item, "tag", "T-a-1"}, @d, [answer, seen])
 
       assert [%{"props" => list}] = for(%{"type" => "list"} = b <- blocks, do: b)
-      assert list["actions"] == []
+      refute Map.has_key?(list, "actions")
       assert [%{"label" => "One"}] = list["rows"]
 
       # None: no list at all.
@@ -2222,22 +2227,20 @@ defmodule AtlasControl.PagesTest do
       }
 
     test "the page offers approve to a member, withdraw once approved; nothing to an agent" do
-      keys = fn page ->
-        %{blocks: [%{"props" => item} | _]} = page
-        for a <- item["actions"], do: {a["key"], a["label"], a["to"]}
+      keys = fn answers, form ->
+        for a <- more({:item, "widget", "W-1"}, @d, answers, form),
+            do: {a["key"], a["label"], a["to"]}
       end
 
-      page = render({:item, "widget", "W-1"}, @d, [widget(%{}), %{"facts" => []}], @member)
-      assert {"a", "Approve", "/k/widget/W-1/set/approved_by"} in keys.(page)
+      keys = &keys.([&1, %{"facts" => []}], &2)
+      assert {"a", "Approve", "/k/widget/W-1/set/approved_by"} in keys.(widget(%{}), @member)
 
       approved = widget(%{"approved_by" => ["ada"]})
-      page = render({:item, "widget", "W-1"}, @d, [approved, %{"facts" => []}], @member)
       # One action on one key: approve until approved, withdraw after.
-      assert {"a", "Withdraw", "/k/widget/W-1/remove/approved_by"} in keys.(page)
-      refute {"a", "Approve", "/k/widget/W-1/set/approved_by"} in keys.(page)
+      assert {"a", "Withdraw", "/k/widget/W-1/remove/approved_by"} in keys.(approved, @member)
+      refute {"a", "Approve", "/k/widget/W-1/set/approved_by"} in keys.(approved, @member)
 
-      page = render({:item, "widget", "W-1"}, @d, [widget(%{}), %{"facts" => []}], @agent)
-      refute Enum.any?(keys.(page), &(elem(&1, 0) == "a"))
+      refute Enum.any?(keys.(widget(%{}), @agent), &(elem(&1, 0) == "a"))
     end
 
     test "approve asks first, also while a fact under it is open (Facts says so); not an agent" do

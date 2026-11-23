@@ -148,9 +148,10 @@ defmodule Model.UseCase do
     max_outgoing: 1,
     inverse: {:accepted, "accepted"},
     only_target: [error: "only a person accepts", also: [:migration]],
-    actions: [set: [label: "Accept", key: "a"], remove: [label: "Reopen", key: "a"]],
+    # No Accept or Reopen by hand (D-0099): a use case is accepted once all its issues are
+    # done, a scene by its producer's answer (`change: %{self: :accepted_by}`).
     requires_completed_children: "{key} has {children} open",
-    closes_parent: "{parent} is accepted; reopen it first, or put this under another {kind}"
+    closes_parent: "{parent} is accepted; put this under another {kind}"
   )
 
   # Plan: Use case → Issues.

@@ -231,7 +231,8 @@ defmodule AtlasAgent.CLI do
   defp run(:tools, client), do: client |> AtlasAgent.Tools.list() |> as(:tools)
 
   defp run({:actions, at}, client) do
-    with {:ok, page} <- AtlasAgent.page(client, at), do: {:actions, AtlasAgent.actions(page)}
+    with {:ok, page} <- AtlasAgent.page(client, at),
+         do: {:actions, AtlasAgent.actions(client, page)}
   end
 
   defp run({:do, at, name, values, submit?}, client),
@@ -304,7 +305,7 @@ defmodule AtlasAgent.CLI do
   defp show({:actions, actions}, true), do: json(actions, 0)
 
   defp show({:actions, actions}, false),
-    do: IO.puts(Enum.map_join(actions, "\n", &Enum.join(entry(:action, &1, ""), "\n"))) && 0
+    do: IO.puts(Enum.map_join(actions, "\n", &Enum.join(action_lines(&1), "\n"))) && 0
 
   defp show({:page, page}, true), do: json(Map.take(page, ~w(path title blocks markup)), 0)
 
@@ -380,6 +381,13 @@ defmodule AtlasAgent.CLI do
   end
 
   defp entry(_type, value, indent), do: [indent <> "- " <> to_string(value)]
+
+  # An action, and under it the actions of the menu it opens (More…).
+  defp action_lines(%{"more" => more} = action),
+    do:
+      entry(:action, action, "") ++ ["  more:" | Enum.flat_map(more, &entry(:action, &1, "    "))]
+
+  defp action_lines(action), do: entry(:action, action, "")
 
   defp model_fields(type) when is_atom(type) and not is_nil(type), do: AtlasAgent.fields(type)
   defp model_fields(_type), do: nil

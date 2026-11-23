@@ -164,7 +164,7 @@ defmodule AtlasControl.Shell do
     do: target_path(route, kind, [kind, relation, parent], m)
 
   defp canonical_target({page, kind, key} = route, m)
-       when page in [:item, :edit, :delete],
+       when page in [:item, :more, :edit, :delete],
        do: target_path(route, kind, [kind, key], m)
 
   defp canonical_target({:new, _kind, _invalid}, _m),
