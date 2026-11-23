@@ -38,7 +38,9 @@ defmodule AtlasBFFContract.Contract do
   # 0.20.0: each shell tab names its icon (a semantic name, `icon`) and its groups
   # (`groups`: label and `to`); Supervised by you and what is assigned have groups too
   # (`/_supervised/:subflow/:span`, `/_assigned/:kind`).
-  version "0.20.0"
+  # 0.21.0: boot's tabs with groups carry their counts (`count` on the tab, its All, and on
+  # each group), so a client shows them before the tab is opened.
+  version "0.21.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup
