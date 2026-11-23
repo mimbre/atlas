@@ -428,6 +428,20 @@
     },
     {
       "call": "open",
+      "name": "more",
+      "page": "more",
+      "params": [
+        "kind",
+        "key"
+      ],
+      "path": "/k/:kind/:key/more",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
       "name": "edit",
       "page": "edit",
       "params": [
@@ -3237,6 +3251,15 @@
       "returns": "view model"
     },
     {
+      "name": "more",
+      "params": [
+        "kind",
+        "key"
+      ],
+      "path": "/k/:kind/:key/more",
+      "returns": "view model"
+    },
+    {
       "name": "edit",
       "params": [
         "kind",
@@ -5613,7 +5636,7 @@
       }
     }
   ],
-  "version": "0.21.0",
+  "version": "0.22.0",
   "wire": {
     "block": "{\"id\": \"<id>\", \"type\": \"<block>\", \"props\": {...}}",
     "markup": "{\"kind\": \"<kind>\", \"start\": \"<block id>\", \"end\": \"<block id>\", \"group\": \"<id, on a piece of split markup>\", \"props\": {...}}",

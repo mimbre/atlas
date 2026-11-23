@@ -39,10 +39,11 @@ defmodule AtlasControl.Model do
 
   Supervision (work acquisition decision 2026-11-17, §5.6–5.8), both nil without it:
   `open_for_you` is `%{title, count, empty, relation, inputs, spans}`, each span
-  `%{subflow, subject, written_on, span, label, states, with, with_subjects}`: the runs in
-  a span of their subflow without a human supervisor, to pick up (`written_on`: the kind
-  the span's work is written on, whose read carries its `"presentation"`: the kind the
-  subflow's projection `on` points at, or the subject itself); `supervised_by_you` is
+  `%{subflow, subject, written_on, span, label, states, with, with_subjects, creates}`: the
+  runs in a span of their subflow without a human supervisor, to pick up (`written_on`: the
+  kind the span's work is written on, whose read carries its `"presentation"`: the kind
+  the subflow's projection `on` points at, or the subject itself; `creates`: the kinds the
+  subflow's tasks make under the subject); `supervised_by_you` is
   `%{title, count, empty, relation, inputs, work}`: the runs `relation` links to the
   client, and its running work, `work` (nil or `%{kind, of, for, ended}`: the facts of
   `kind` done for it through `for`, of a span's subject or its `with` subjects through

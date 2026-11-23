@@ -123,6 +123,13 @@ defmodule AtlasControl.SupervisionTest do
         do: to
   end
 
+  # The supervision actions a fact's page offers as its next step, and those under its
+  # More… (its secondary menu, which reads as the page does).
+  defp offered(m, answers, viewer) do
+    next = supervision_tos(Pages.render({:item, "widget", "W-1"}, m, answers, viewer))
+    {next, supervision_tos(Pages.render({:more, "widget", "W-1"}, m, answers, viewer))}
+  end
+
   test "the two models differ only in the kind the span's work is written on" do
     assert span(@s).written_on == span(@s).subject
     assert span(@card).written_on == "card"
@@ -277,29 +284,30 @@ defmodule AtlasControl.SupervisionTest do
       retry = Pages.path({:retry, "widget", "W-1", "R-1"})
       remove = Pages.path({:remove_item, "widget", "W-1", "R-1"})
 
+      # Pick up and Retry are the flow's next step; Hand over… and Remove are under More….
       cases = [
-        {open, ada_bob, @tui_ada, [pick]},
-        {open, ada_bob, @tui_nobody, []},
-        {open, ada_bob, @agent, []},
-        {open, ada_bob, @agent_as_ada, []},
-        {mine, ada_bob, @tui_ada, [hand, retry, remove]},
-        {mine, [member("ada")], @tui_ada, [retry, remove]},
-        {mine, ada_bob, @tui_bob, []},
-        {mine, ada_bob, @agent_as_ada, []},
-        {work(m, "W-1", presented(state: "done")), ada_bob, @tui_ada, []},
-        {work(m, "W-1", presented(status: "blocked")), ada_bob, @tui_ada, []},
+        {open, ada_bob, @tui_ada, {[pick], []}},
+        {open, ada_bob, @tui_nobody, {[], []}},
+        {open, ada_bob, @agent, {[], []}},
+        {open, ada_bob, @agent_as_ada, {[], []}},
+        {mine, ada_bob, @tui_ada, {[retry], [hand, remove]}},
+        {mine, [member("ada")], @tui_ada, {[retry], [remove]}},
+        {mine, ada_bob, @tui_bob, {[], []}},
+        {mine, ada_bob, @agent_as_ada, {[], []}},
+        {work(m, "W-1", presented(state: "done")), ada_bob, @tui_ada, {[], []}},
+        {work(m, "W-1", presented(status: "blocked")), ada_bob, @tui_ada, {[], []}},
         # A supervisor removes what it supervises in any state, and retries it in a span.
         {work(m, "W-1", presented(status: "blocked", supervisor: ["ada"])), ada_bob, @tui_ada,
-         [remove]},
+         {[], [remove]}},
         # Another subflow presents the work, in a state of the span: not in the span.
-        {work(m, "W-1", presented(flow: "elsewhere")), ada_bob, @tui_ada, []},
+        {work(m, "W-1", presented(flow: "elsewhere")), ada_bob, @tui_ada, {[], []}},
         {work(m, "W-1", presented(flow: "elsewhere", supervisor: ["ada"])), ada_bob, @tui_ada,
-         [remove]}
+         {[], [remove]}}
       ]
 
       for {{item, members, viewer, expected}, at} <- Enum.with_index(cases) do
-        page = Pages.render({:item, "widget", "W-1"}, m, item_answers(m, item, members), viewer)
-        assert supervision_tos(page) == expected, "#{span(m).written_on}: case #{at}"
+        assert offered(m, item_answers(m, item, members), viewer) == expected,
+               "#{span(m).written_on}: case #{at}"
       end
     end
   end
@@ -327,6 +335,32 @@ defmodule AtlasControl.SupervisionTest do
         keys = Enum.map(actions, & &1["key"])
         assert keys == Enum.uniq(keys)
       end
+    end
+  end
+
+  test "nothing raw where the flow covers it: no Delete beside Remove, no Create of what it makes" do
+    for m <- @models do
+      tos = fn m, answers ->
+        page = Pages.render({:more, "widget", "W-1"}, m, answers, @tui_ada)
+        for %{"to" => to} <- block(page, "item")["props"]["actions"], do: elem(Pages.route(to), 0)
+      end
+
+      mine = item_answers(m, work(m, "W-1", presented(supervisor: ["ada"])), [member("ada")])
+      assert :remove_item in tos.(m, mine)
+      refute :delete in tos.(m, mine)
+      assert :new in tos.(m, mine)
+
+      # Without a run, nothing removes it: Delete does.
+      unrun = item_answers(m, work(m, "W-1", nil), [member("ada")])
+      assert :delete in tos.(m, unrun)
+
+      # The span's subflow makes the widget's parts: no Create part by hand.
+      made =
+        update_in(m, [:start, :open_for_you, :spans], fn spans ->
+          for s <- spans, do: %{s | creates: ["part"]}
+        end)
+
+      refute :new in tos.(made, mine)
     end
   end
 

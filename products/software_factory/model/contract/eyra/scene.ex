@@ -107,6 +107,7 @@ defmodule Model.Scene do
   end
 
   # A use case has no Accept of its own (D-0099): it is accepted once its issues are done.
+  # Nor is a scene accepted by hand: its producer's answer in Accept sets it.
   relation(:accepted_by,
     label: "accepted by",
     description: "Who accepted a scene, after testing it; at most one.",
@@ -115,9 +116,8 @@ defmodule Model.Scene do
     max_outgoing: 1,
     inverse: {:accepted, "accepted"},
     only_target: [error: "only a person accepts", also: [:migration]],
-    actions: [set: [label: "Accept", key: "a"], remove: [label: "Reopen", key: "a"]],
     requires_completed_children: "{key} has {children} open",
-    closes_parent: "{parent} is accepted; reopen it first, or put this under another {kind}"
+    closes_parent: "{parent} is accepted; put this under another {kind}"
   )
 
   # Design: Scene → Use cases.
