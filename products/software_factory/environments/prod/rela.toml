@@ -1,7 +1,9 @@
 # rela of Atlas prod on Fly (IS-Atlas-79). Deployed from the repository root by CI on a
 # merge to master: fly deploy . --config products/software_factory/environments/prod/rela.toml --dockerfile platform/ops/rela.Dockerfile
 # No [[services]] and no public address: only prod's own private network (eyra-atlas-prod)
-# reaches it, which the core and admitted devices join.
+# reaches it, which the core and admitted devices join; there, only the core gets in: with the
+# secret ATLAS_RELA_TOKEN, which it shares with eyra-atlas (platform/ops/rela-gate.py, IS-Atlas-80).
+# The health check's GET /api/v1/_schema needs none.
 app = "eyra-atlas-rela"
 primary_region = "ams"
 kill_signal = "SIGTERM"
