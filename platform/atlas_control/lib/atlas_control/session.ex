@@ -91,6 +91,10 @@ defmodule AtlasControl.Session do
        # its words and what they were read from (`set`; nil: to be read again with the
        # next page, the words meanwhile those read last).
        count: %{text: nil, set: nil},
+       # The counts of the tabs with groups, for boot: by the tab's `to`, its page's groups'
+       # counts (`%{to => count}`, All's under the tab's own `to`) and what they were read
+       # from (`set`); dropped when a hint makes them stale.
+       tab_counts: %{},
        cause: nil,
        # The pages sent lately, by path, with what each depended on.
        recent: Recent.new(),
@@ -553,7 +557,7 @@ defmodule AtlasControl.Session do
            &route(&1, candidate)
          ) do
       {:ok, shell} ->
-        candidate = listen(candidate)
+        {shell, candidate} = counted(shell, listen(candidate))
         send_client(state, Map.put(shell, "op", "boot"))
         {:noreply, candidate}
 
@@ -643,6 +647,47 @@ defmodule AtlasControl.Session do
 
   defp handle_op(op, _message, state),
     do: {:noreply, notice(state, "error", "Unknown op #{inspect(op)}")}
+
+  # Boot's tabs with groups carry their counts, so a client shows them before the tab is
+  # opened: the tab's All, each group its own, from the tab's page (`groups` block). Read
+  # once and kept (`tab_counts`) until a hint makes them stale; none while unreadable.
+  defp counted(shell, state) do
+    {tabs, state} =
+      Enum.map_reduce(shell["tabs"], state, fn
+        %{"groups" => [_ | _] = groups} = tab, state ->
+          {counts, state} = tab_counts(state, tab["to"])
+
+          groups =
+            for group <- groups do
+              if n = counts[group["to"]], do: Map.put(group, "count", n), else: group
+            end
+
+          tab = if n = counts[tab["to"]], do: Map.put(tab, "count", n), else: tab
+          {%{tab | "groups" => groups}, state}
+
+        tab, state ->
+          {tab, state}
+      end)
+
+    {%{shell | "tabs" => tabs}, state}
+  end
+
+  defp tab_counts(%{tab_counts: %{} = known} = state, to) when is_map_key(known, to),
+    do: {known[to].counts, state}
+
+  defp tab_counts(state, to) do
+    {page, _answers, set} = page(state, to |> route(state) |> start(state), %{})
+
+    counts =
+      for %{"id" => "groups", "props" => %{"groups" => groups}} <- page.blocks,
+          %{"to" => group_to, "count" => n} <- groups,
+          into: %{},
+          do: {group_to, n}
+
+    if counts == %{},
+      do: {counts, state},
+      else: {counts, put_in(state.tab_counts[to], %{counts: counts, set: set})}
+  end
 
   defp bye(state, text) do
     send_client(state, %{"op" => "bye", "text" => text})
@@ -1488,7 +1533,7 @@ defmodule AtlasControl.Session do
   # said is found again, the kind of fact the client is and the header's count too.
   defp missed(state) do
     state = put_in(state.count.set, nil)
-    %{state | by_kind: known_kind(state, actor_kind(state))}
+    %{state | by_kind: known_kind(state, actor_kind(state)), tab_counts: %{}}
   end
 
   # A hint that the fact the client is was made or deleted: which kind of fact the client
@@ -1637,6 +1682,7 @@ defmodule AtlasControl.Session do
       changes = Batch.changes(hints)
       position = Batch.position(hints)
       {state, count?} = stale_count(state, changes)
+      state = stale_tab_counts(state, changes)
       {state, kind?} = client_kind(state, changes)
       screen = current_path(state.route)
       stale = Affected.affected(state.recent, changes)
@@ -1684,6 +1730,16 @@ defmodule AtlasControl.Session do
   end
 
   defp stale_count(state, _changes), do: {state, false}
+
+  defp stale_tab_counts(state, changes) do
+    fresh =
+      for {_to, %{set: set}} = entry <- state.tab_counts,
+          not Affected.stale?(set.deps, set.as_of, changes),
+          into: %{},
+          do: entry
+
+    %{state | tab_counts: fresh}
+  end
 
   defp cancel_flush(%{flush_timer: nil} = state), do: state
 

@@ -24,7 +24,7 @@ mica-bff's spec format (`~/projects/nova/mica-bff/docs/adr/0001-spec-format.md`)
    | `links`, `set`, `remove` | `/k/:kind/:key/links/:relation`, `…/set/:relation`, `…/remove/:relation` |
    | `answer` | `/k/:kind/:key/answer/:answer`: an owner's declared answer (a change it makes as itself), a confirm or, when the answer needs one, a note |
    | `open_for_you`, `supervised_by_you` | `/_open`, `/_supervised`: the supervision screens (contract 0.18.0, work acquisition decision 2026-11-17 §5.8) |
-   | `open_for_you_group`, `supervised_by_you_group`, `assigned_group` | `/_open/:subflow/:span`, `/_supervised/:subflow/:span`, `/_assigned/:kind`: one group of a screen's `groups` block, only its items (contract 0.19.0 for Open for you; 0.20.0 the others, and boot's tabs carry each screen's groups and an `icon`) |
+   | `open_for_you_group`, `supervised_by_you_group`, `assigned_group` | `/_open/:subflow/:span`, `/_supervised/:subflow/:span`, `/_assigned/:kind`: one group of a screen's `groups` block, only its items (contract 0.19.0 for Open for you; 0.20.0 the others, and boot's tabs carry each screen's groups and an `icon`; 0.21.0 their counts, so a client shows them before the tab is opened) |
    | `pick_up`, `hand_over` | `/k/:kind/:key/pick_up/:run`, `…/hand_over/:run`: become the supervisor of the run that presents the fact (a confirm), or hand it over to another person (a form); each with its submit endpoint of the same name |
 
 

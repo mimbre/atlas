@@ -22,7 +22,7 @@ final class ContractTests: XCTestCase {
     }
 
     func test_version() {
-        XCTAssertEqual(Contract.version, "0.20.0")
+        XCTAssertEqual(Contract.version, "0.21.0")
     }
 
     func test_block_list_decodes_and_round_trips() throws {
@@ -708,7 +708,7 @@ final class ContractTests: XCTestCase {
     }
 
     func test_control_message_boot_shell_decodes_and_round_trips() throws {
-        let text = ##"{"active_tab":"active_tab 1","env":"env 1","initial_to":"initial_to 1","op":"boot","revision":"revision 1","spec":"spec 1","tabs":[{"groups":[{"label":"label 1","to":"to 1"}],"icon":"icon 1","id":"id 1","label":"label 1","to":"to 1"}],"title":"title 1"}"##
+        let text = ##"{"active_tab":"active_tab 1","env":"env 1","initial_to":"initial_to 1","op":"boot","revision":"revision 1","spec":"spec 1","tabs":[{"count":7,"groups":[{"count":7,"label":"label 1","to":"to 1"}],"icon":"icon 1","id":"id 1","label":"label 1","to":"to 1"}],"title":"title 1"}"##
         let message = try decode(ControlMessage.self, text)
         guard case .bootShell = message else { return XCTFail("decoded as \(message)") }
         try assertRoundTrip(message, text)

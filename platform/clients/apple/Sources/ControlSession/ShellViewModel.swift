@@ -11,14 +11,14 @@ public struct ShellViewModel: Sendable, Equatable {
         /// Its icon, a semantic name boot gives (the app draws it as a symbol).
         public var icon: String?
         public var shortcut: Int?
-        /// How many items its page has, when a page said so (its All group's count).
+        /// How many items its page has (its All group's count), as boot or a page said last.
         public var count: Int?
         /// The groups of its page, under it in the sidebar whichever tab is shown.
         public var groups: [Group]
     }
 
     /// A group of a tab's page, from boot: choosing one shows only its items in the
-    /// middle column, on its tab. Its count is the last one a page gave.
+    /// middle column, on its tab. Its count is the last one boot or a page gave.
     public struct Group: Sendable, Equatable, Identifiable {
         public var id: String { to }
         public var label: String
@@ -46,6 +46,10 @@ public struct ShellViewModel: Sendable, Equatable {
 
     /// Actual displayed identity, never the pending open request.
     public var selectedPath: String?
+    /// The group the middle column shows, or was asked to show (chosen in the sidebar, its
+    /// page still on the way), when it is one rather than its tab's page: the sidebar
+    /// selects it once, on the click, and keeps it while its page loads.
+    public var activeGroup: String?
 
     public init(_ state: SessionState) {
         let shell = state.shell
@@ -66,16 +70,12 @@ public struct ShellViewModel: Sendable, Equatable {
         index = state.index
         opened = state.opened
         selectedPath = state.pageOnScreen?.path
+        let middle = state.expectedColumn == .index ? state.expected ?? index?.path : index?.path
+        activeGroup = middle.flatMap { path in tabs.lazy.flatMap(\.groups).first { $0.to == path }?.to }
     }
 
     /// The tab `⌘<number>` switches to.
     public func tab(shortcut number: Int) -> Tab? {
         tabs.first { $0.shortcut == number }
-    }
-
-    /// The group the middle column shows, when it shows one rather than its tab's page.
-    public var activeGroup: String? {
-        guard let path = index?.path else { return nil }
-        return tabs.lazy.flatMap(\.groups).first { $0.to == path }?.to
     }
 }
