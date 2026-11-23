@@ -632,7 +632,7 @@ defmodule AtlasControl.PagesTest do
 
     # Without a rule: every field a user may set, still no id.
     %{blocks: [%{"props" => plain}]} = render({:new, "part"}, @d, [])
-    assert Enum.map(plain["inputs"], & &1["name"]) == ["title"]
+    assert Enum.map(plain["inputs"], & &1["name"]) == ["title", "notes"]
   end
 
   test "a form shown again keeps what was typed and shows why it was refused" do
@@ -668,7 +668,7 @@ defmodule AtlasControl.PagesTest do
     %{blocks: [%{"props" => form}]} =
       render({:edit, "part", "P-1"}, @d, [%{"fact" => part}, widgets])
 
-    assert Enum.map(form["inputs"], & &1["name"]) == ["_key", "title", "of_widget"]
+    assert Enum.map(form["inputs"], & &1["name"]) == ["_key", "title", "notes", "of_widget"]
 
     # The current parent selected; a fact that has one keeps one, so no empty choice.
     assert %{
@@ -1827,7 +1827,7 @@ defmodule AtlasControl.PagesTest do
   # What to do (IS-Atlas-54): a flow on widgets, on their card; its state is the card's step.
   @todo AtlasControl.Model.catalog(Shop.Todo)
 
-  test "a fact's owner sees what to do, first; anyone else does not" do
+  test "a fact's owner who decides sees one line of what to do, what is judged, then the fact" do
     notes = "Some intro.\n\nCheck: the paint is even\nand dry.\n\n## Later\nnot this"
 
     widget =
@@ -1845,22 +1845,30 @@ defmodule AtlasControl.PagesTest do
         }
       })
 
+    part =
+      fact("P-1", %{"title" => "Lid", "notes" => "\n# Round\nand flat", "of_widget" => "W-1"})
+
     answers =
       for read <- Pages.reads({:item, "widget", "W-1"}, @todo) do
         case read do
           {"widget", _} -> %{"fact" => widget}
           {"card", _} -> %{"fact" => card}
+          {"part", _} -> %{"facts" => [part]}
           _ -> %{"facts" => []}
         end
       end
 
     page = render_run({:item, "widget", "W-1"}, @todo, "check", answers, %{by: "ada"})
-    assert [%{"id" => "todo", "type" => "item", "props" => todo} | _] = page.blocks
 
-    assert %{"start" => "todo", "props" => %{"title" => "Your move", "role" => "todo"}} =
-             hd(page.markup)
-
-    assert todo["title"] == "Your move: Check it"
+    # One stretch, in no parts: what to do in one line, with the section it names; what
+    # is under it, each saying what it is about; then the fact, with why and how.
+    assert ["todo", "list:of_widget", "item" | _] = Enum.map(page.blocks, & &1["id"])
+    refute Enum.any?(page.markup, &(&1["kind"] == "part"))
+    assert %{"start" => "list:of_widget", "props" => %{"title" => "Parts"}} = hd(page.markup)
+    todo = by_id(page)["todo"]
+    assert todo["title"] == "Your move: Check it   Keys: a Approve"
+    assert [%{"label" => "Check", "value" => "the paint is even\nand dry."}] = todo["fields"]
+    assert [%{"id" => "P-1", "label" => "Lid — Round"}] = by_id(page)["list:of_widget"]["rows"]
 
     assert [
              %{
@@ -1868,10 +1876,8 @@ defmodule AtlasControl.PagesTest do
                "value" => "Flow f: painted → ada",
                "origin" => %{"by" => "flow"}
              },
-             %{"label" => "How", "value" => "Look it over."},
-             %{"label" => "Check", "value" => "the paint is even\nand dry."},
-             %{"label" => "Keys", "value" => "a Approve"}
-           ] = todo["fields"]
+             %{"label" => "How", "value" => "Look it over."}
+           ] = Enum.take(by_id(page)["item"]["fields"], -2)
 
     # The state is not a field of the fact.
     item = Enum.find(page.blocks, &(&1["id"] == "item"))

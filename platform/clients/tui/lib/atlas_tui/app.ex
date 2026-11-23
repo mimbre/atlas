@@ -21,6 +21,9 @@ defmodule AtlasTui.App do
   # a time, so on a busy machine the bytes of one key can come further apart than this.
   @escape_wait 30
   @reconnect 2_000
+  # While it makes a plan the agent says how far it is every 5 s (`AtlasAgent.Steer`);
+  # silent this long, it is taken as stopped, so a request never hangs at Planning….
+  @agent_silence 30_000
   @root Path.expand("../../../../..", __DIR__)
 
   def run(env, settings) do
@@ -50,7 +53,8 @@ defmodule AtlasTui.App do
       buffer: "",
       escape_wait: settings["escape_ms"] || @escape_wait,
       agent: nil,
-      agent_buffer: ""
+      agent_buffer: "",
+      agent_heard: nil
     }
 
     state = connect(state)
@@ -182,7 +186,7 @@ defmodule AtlasTui.App do
 
       {port, {:data, {:eol, line}}} when port == state.agent ->
         line = state.agent_buffer <> line
-        state = %{state | agent_buffer: ""}
+        state = heard_agent(%{state | agent_buffer: ""})
 
         case JSON.decode(line) do
           {:ok, message} -> loop(draw(%{state | model: Model.agent(state.model, message)}))
@@ -198,6 +202,17 @@ defmodule AtlasTui.App do
         loop(
           draw(%{state | agent: nil, agent_buffer: "", model: Model.agent_gone(state.model, why)})
         )
+
+      # Only a plan being made waits for the agent; else the agent may well be quiet.
+      {:agent_silent, token}
+      when token == state.agent_heard and state.model.plan.state == "planning" ->
+        if state.agent, do: Port.close(state.agent)
+        why = "it said nothing for #{div(@agent_silence, 1000)} s; see #{agent_log()}"
+        model = Model.agent_gone(state.model, why)
+        loop(draw(%{state | agent: nil, agent_buffer: "", agent_heard: nil, model: model}))
+
+      {:agent_silent, _token} ->
+        loop(state)
 
       :reconcile ->
         {model, outgoing} = Console.refresh(state.model)
@@ -276,7 +291,14 @@ defmodule AtlasTui.App do
   defp to_agent(state, message) do
     state = if state.agent, do: state, else: %{state | agent: start_agent(state.model.env)}
     Port.command(state.agent, [JSON.encode!(message), "\n"])
-    state
+    if message["op"] == "ask", do: heard_agent(state), else: state
+  end
+
+  # Restart the wait for the agent's next word.
+  defp heard_agent(state) do
+    token = make_ref()
+    Process.send_after(self(), {:agent_silent, token}, @agent_silence)
+    %{state | agent_heard: token}
   end
 
   defp start_agent(env) do

@@ -104,6 +104,7 @@ defmodule AtlasControl.Shop.Part do
 
   entity :part, label: "Part", plural: "parts", id_type: :manual, id_prefix: "P-" do
     field(:title, :string, required: true)
+    field(:notes, :string, description: "Free text", multiline: true)
     primary(:title)
   end
 

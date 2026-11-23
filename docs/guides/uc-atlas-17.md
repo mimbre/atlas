@@ -30,6 +30,7 @@ Also try:
 - **Cancel.** Ask again, then `esc` on the plan: nothing is written. `esc` while it is still planning stops the agent.
 - **Change the request.** On a proposed plan, `:` opens the line with your request in it. Change it and `enter` asks again.
 - **Nothing to do.** Ask something the page gives no reason for: `No steps proposed`, and the agent says why.
+- **Slow or no answer.** While it plans, the title counts up every 5 s (`Planning… 10 s`). A planner that does not answer within `agent.timeout_seconds` (120 by default) ends in `No plan`, saying so; an agent that says nothing for 30 s ends in `The agent stopped` (IS-Atlas-89).
 - **A step that cannot run.** When a planner proposes a field a form does not ask for, the step shows `[!]` with the reason. `enter` refuses until you drop it.
 
 Following each step closely, stopping a run with `esc` and what happens on a refusal are UC-Atlas-18. Seeing afterwards what the agent did, and overruling it, is UC-Atlas-19.
@@ -37,7 +38,7 @@ Following each step closely, stopping a run with `esc` and what happens on a ref
 ## How it works
 
 - **The agent** is `atlas steer`, started by the TUI on the first `:` as a child process and kept while the TUI runs. It is a Control client of its own, with its own connections, like `atlas put`. The TUI and the agent talk in JSON lines (`AtlasAgent.Steer`). Its log is `steer.log` beside the environment's other logs.
-- **The plan** comes from the planner of UC-Atlas-16 (`agent.planner` in `products/software_factory/environments/<env>.json`), checked against Control's forms. The agent writes only on `enter`, and only the kept steps of the plan you saw, with the values you left.
+- **The plan** comes from the planner of UC-Atlas-16 (`agent.planner` in `products/software_factory/environments/<env>.json`), checked against Control's forms. The agent writes only on `enter`, and only the kept steps of the plan you saw, with the values you left. Test and prod plan with `claude -p` at `agent.effort` `low` and without your own Claude settings: about 15 s where the default effort took up to minutes.
 - **The plan is a block** of Control's contract: `plan` with its `step`s (contract 0.5.0). An iOS or macOS client renders the same thing. Today the agent sends it; once Runtime runs agents (SC-Atlas-02), Control will.
 
 ## What changed for this
