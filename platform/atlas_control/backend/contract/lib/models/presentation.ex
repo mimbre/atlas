@@ -136,9 +136,20 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :row, :string
   end
 
-  # Native shell metadata, independent of page blocks and terminal key bindings.
+  # Native shell metadata, independent of page blocks and terminal key bindings. `icon`
+  # is a semantic name a client may draw as it likes (a Mac app: a symbol); `groups` are
+  # the groups the tab's page declares (`groups` block), so a client can offer them
+  # while another tab is shown; their counts are on the page.
   defmodel :shell_tab do
     field :id, :string, required: true
+    field :label, :string, required: true
+    field :to, :string, required: true
+    field :icon, :string
+    field :groups, {:list, :shell_group}
+  end
+
+  # One group of a shell tab: its name and the page that shows only its items.
+  defmodel :shell_group do
     field :label, :string, required: true
     field :to, :string, required: true
   end

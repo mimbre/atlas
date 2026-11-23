@@ -130,12 +130,13 @@ defmodule Model.AtlasEyra do
   # rather than putting it first; this name is the one place to change it.
   @boot_tab :assigned
 
+  # Each tab's icon is a semantic name; a client draws it as it likes (the Mac app: a symbol).
   @tabs [
-    [id: :open_for_you, label: "Open for you", to: "/_open"],
-    [id: :supervised_by_you, label: "Supervised by you", to: "/_supervised"],
-    [id: :assigned, label: "Assigned to you", to: "/", assigned: true],
-    [id: :scenes, label: "Scenes", to: "/k/scene"],
-    [id: "open-work", label: "Open work", to: "/k/assignment"]
+    [id: :open_for_you, label: "Open for you", to: "/_open", icon: :inbox],
+    [id: :supervised_by_you, label: "Supervised by you", to: "/_supervised", icon: :watching],
+    [id: :assigned, label: "Assigned to you", to: "/", assigned: true, icon: :mine],
+    [id: :scenes, label: "Scenes", to: "/k/scene", icon: :stack],
+    [id: "open-work", label: "Open work", to: "/k/assignment", icon: :checklist]
   ]
 
   shell(

@@ -8,20 +8,22 @@ public struct ShellViewModel: Sendable, Equatable {
         public var id: String
         public var label: String
         public var to: String
+        /// Its icon, a semantic name boot gives (the app draws it as a symbol).
+        public var icon: String?
         public var shortcut: Int?
-        /// How many items its page has, when the page says so (its own group's count).
+        /// How many items its page has, when a page said so (its All group's count).
         public var count: Int?
+        /// The groups of its page, under it in the sidebar whichever tab is shown.
+        public var groups: [Group]
     }
 
-    /// A group of the middle column's page (its `groups` block), under its tab in the
-    /// sidebar: choosing one shows only its items there. A group that is a tab's own page
-    /// is that tab, and gives the tab its count.
+    /// A group of a tab's page, from boot: choosing one shows only its items in the
+    /// middle column, on its tab. Its count is the last one a page gave.
     public struct Group: Sendable, Equatable, Identifiable {
         public var id: String { to }
         public var label: String
-        public var count: Int
+        public var count: Int?
         public var to: String
-        public var active: Bool
     }
 
     /// The shell's title; nil before the first boot.
@@ -32,14 +34,12 @@ public struct ShellViewModel: Sendable, Equatable {
     public var isProduction: Bool
     public var tabs: [Tab]
     public var activeTab: String?
-    /// The active tab's groups, from the page in the middle column.
-    public var groups: [Group]
     /// The tabs may be out of date (not booted on this connection, or the last boot failed).
     public var stale: Bool
     public var bootFailure: SessionState.BootFailure?
     /// What waits for the user, in the model's words: the sidebar section's header.
     public var count: String?
-    /// The middle column: the active tab's index page.
+    /// The middle column: the active tab's index page, or one of its groups.
     public var index: PageMessage?
     /// The right column: the page opened from a row.
     public var opened: PageMessage?
@@ -52,17 +52,12 @@ public struct ShellViewModel: Sendable, Equatable {
         title = shell?.title
         env = shell?.env ?? state.settings.env
         isProduction = env == "prod"
-        let pageGroups: [GroupModel] = (state.index?.blocks ?? []).flatMap { block -> [GroupModel] in
-            if case .groups(let groups) = block.content { return groups.groups }
-            return []
-        }
         tabs = (shell?.tabs ?? []).enumerated().map { offset, tab in
-            Tab(id: tab.id, label: tab.label, to: tab.to, shortcut: offset < 9 ? offset + 1 : nil,
-                count: pageGroups.first { $0.to == tab.to }?.count)
-        }
-        let tabPaths = Set(tabs.map(\.to))
-        groups = pageGroups.filter { !tabPaths.contains($0.to) }.map {
-            Group(label: $0.label, count: $0.count, to: $0.to, active: $0.active == true)
+            Tab(id: tab.id, label: tab.label, to: tab.to, icon: tab.icon,
+                shortcut: offset < 9 ? offset + 1 : nil, count: state.groupCounts[tab.to],
+                groups: (tab.groups ?? []).map {
+                    Group(label: $0.label, count: state.groupCounts[$0.to], to: $0.to)
+                })
         }
         activeTab = state.activeTab
         stale = state.shellStale && shell != nil
@@ -79,5 +74,8 @@ public struct ShellViewModel: Sendable, Equatable {
     }
 
     /// The group the middle column shows, when it shows one rather than its tab's page.
-    public var activeGroup: String? { groups.first { $0.active }?.to }
+    public var activeGroup: String? {
+        guard let path = index?.path else { return nil }
+        return tabs.lazy.flatMap(\.groups).first { $0.to == path }?.to
+    }
 }
