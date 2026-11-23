@@ -227,8 +227,16 @@
     },
     "break_down_use_case": {
       "prod": {
-        "digest": "d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5",
+        "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
         "history": [
+          {
+            "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
           {
             "digest": "c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33",
             "states": [
@@ -261,8 +269,16 @@
         ]
       },
       "test": {
-        "digest": "d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5",
+        "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
         "history": [
+          {
+            "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
           {
             "digest": "c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33",
             "states": [

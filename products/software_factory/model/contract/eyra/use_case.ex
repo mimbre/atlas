@@ -139,7 +139,7 @@ defmodule Model.UseCase do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is one small change a developer can build, review and merge on its own, in the order given.",
+          "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is a vertical slice: it works end to end and can be shown working. The first is the thinnest happy path (a walking skeleton); each later one builds on the ones before it, in the order given. Propose as few issues as possible: split a slice further only when it is too big for one reviewable pull request, what one agent builds and reviews in one go. Never split by layer (model, contract, Control, client): each issue cuts through all the layers it needs. When its scene names its phase, respect it: in Explore, usually only the happy-path slice; edge cases come later as follow-ups.",
         fields: [:title, :description, :design],
         parents: [:title, :description],
         creates: [kind: :issue, file: "issues.json"],
@@ -279,5 +279,13 @@ defmodule Model.UseCase do
     to: "d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5",
     states: :same,
     reason: "Plan: renamed from Use case → Issues"
+  )
+
+  # Plan: its agent proposes vertical slices, the thinnest happy path first; nothing else changed.
+  migrate(:break_down_use_case,
+    from: "d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5",
+    to: "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
+    states: :same,
+    reason: "Plan: its agent proposes vertical slices"
   )
 end

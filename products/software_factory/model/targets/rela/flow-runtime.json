@@ -435,7 +435,8 @@
         "choice_states": [],
         "migrations": [
           {"from":"d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7","to":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Use case → Issues: its agent reads the use case's Design part"},
-          {"from":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","to":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: renamed from Use case → Issues"}
+          {"from":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","to":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: renamed from Use case → Issues"},
+          {"from":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","to":"258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its agent proposes vertical slices"}
         ],
         "subject": "use_case",
         "projection": {
