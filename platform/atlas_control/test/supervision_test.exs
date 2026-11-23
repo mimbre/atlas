@@ -40,7 +40,7 @@ defmodule AtlasControl.SupervisionTest do
       "supervisor" => Keyword.get(opts, :supervisor, []),
       "owner" => Keyword.get(opts, :owner, []),
       "actionable" => true,
-      "expected" => nil
+      "expected" => Keyword.get(opts, :expected)
     }
   end
 
@@ -172,9 +172,9 @@ defmodule AtlasControl.SupervisionTest do
     s = span(m)
 
     items = [
-      work(m, "W-1", presented()),
+      work(m, "W-1", presented(expected: "Paint it")),
       work(m, "W-2", presented(state: "done")),
-      work(m, "W-3", presented(supervisor: ["ada"]))
+      work(m, "W-3", presented(supervisor: ["ada"], expected: "Paint it"))
     ]
 
     for {screen, all_to, mine} <- [
@@ -196,6 +196,10 @@ defmodule AtlasControl.SupervisionTest do
       # `[` and `]` open the previous and the next group.
       assert Enum.map(page.console_actions, & &1.operation["to"]) == [group["to"], group["to"]]
 
+      # Each row shows its key; on the whole page, where flows mix, what is expected too.
+      rows = for %{"type" => "list"} = b <- page.blocks, row <- b["props"]["rows"], do: row
+      assert [%{"id" => ^mine, "detail" => "Paint it"}] = rows
+
       # The group's page: the same groups, that one active, and only its span's items.
       group_route = {:group, screen, {s.subflow, s.span}, "ada"}
       page = Pages.render(group_route, m, screen_answers(group_route, m, items, []))
@@ -204,8 +208,10 @@ defmodule AtlasControl.SupervisionTest do
       assert [%{"active" => false}, %{"active" => true}] =
                block(page, "groups")["props"]["groups"]
 
+      # Its rows keep their key; the group's name says what is expected, so they do not.
       lists = for %{"type" => "list"} = b <- page.blocks, do: b
       assert Enum.flat_map(lists, &keys_of(&1["props"]["rows"])) == [mine]
+      assert [%{"id" => ^mine, "detail" => ""}] = Enum.flat_map(lists, & &1["props"]["rows"])
       assert page.back == all_to
     end
   end

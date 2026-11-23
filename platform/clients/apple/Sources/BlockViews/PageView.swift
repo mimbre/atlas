@@ -218,7 +218,7 @@ struct ListRowView: View {
     }
 }
 
-/// A row's content: its id (a calm row has none, and then there is no id column at all),
+/// A row's content: its id (the item's key; a row without one has no id column at all),
 /// its label, its detail, and whether a write to it is being processed.
 struct RowLabel: View {
     let row: RowModel
