@@ -433,10 +433,7 @@
             "creates": {
               "fields": ["design", "note"],
               "file": "use_cases.json",
-              "kind": "use_case",
-              "values": {
-                "design_status": "accepted"
-              }
+              "kind": "use_case"
             },
             "field": "task_result",
             "fields": ["title", "description", "note"],

@@ -25,24 +25,6 @@ defmodule Model.UseCase do
   """
   use RelaDSL
 
-  type(:design_status,
-    values: [:writing, :in_review, :changes_requested, :approved, :accepted],
-    labels: [
-      writing: "Writing",
-      in_review: "In review",
-      changes_requested: "Changes requested",
-      approved: "Approved",
-      accepted: "Accepted"
-    ],
-    descriptions: [
-      writing: "The Design part is being written.",
-      in_review: "The Design part waits for its review pass.",
-      changes_requested: "The review sent the Design part back.",
-      approved: "The review approved the Design part; it can be broken down and built.",
-      accepted: "Its Design part is accepted: proposed with it by its scene's break-down."
-    ]
-  )
-
   entity :use_case,
     label: "Use case",
     plural: "use_cases",
@@ -69,11 +51,6 @@ defmodule Model.UseCase do
         "The Design part: how it is built, proposed with it by its scene's break-down and accepted by its supervisor",
       multiline: true,
       label: "Design"
-    )
-
-    field(:design_status, :design_status,
-      description: "Where the Design part is; empty for a use case without a design phase",
-      label: "Design status"
     )
 
     field(:note, :string,
@@ -115,7 +92,7 @@ defmodule Model.UseCase do
 
     create(ask: [:title, :description], defaults: [status: :refine, phase: :break_down])
     progress(over: :in_use_case, field: :stage, own: :status)
-    completion([[by: :accepted_by], [field: :phase, value: :accepted]])
+    completion(field: :phase, value: :accepted)
   end
 
   relation(:in_scene,
@@ -138,19 +115,6 @@ defmodule Model.UseCase do
     max_outgoing: 1,
     inverse: {:issues, "issues"},
     parent: true
-  )
-
-  relation(:accepted_by,
-    label: "accepted by",
-    description: "Who accepted a scene or use case, after testing it; at most one.",
-    from: [:scene, :use_case],
-    to: [:person],
-    max_outgoing: 1,
-    inverse: {:accepted, "accepted"},
-    only_target: [error: "only a person accepts", also: [:migration]],
-    actions: [set: [label: "Accept", key: "a"], remove: [label: "Reopen", key: "a"]],
-    requires_completed_children: "{key} has {children} open",
-    closes_parent: "{parent} is accepted; reopen it first, or put this under another {kind}"
   )
 
   # Plan: Use case → Issues.
@@ -270,8 +234,8 @@ defmodule Model.UseCase do
 
   # A use case from before (no `phase`) is the acceptance's: a completed one is completed
   # history, any other joins `building`, whose count hands one with nothing under it to
-  # "Use case → Issues". So do the 32 whose design flow (design_and_accept, gone) had not
-  # ended: their runs are no longer selected.
+  # "Use case → Issues". So do the 32 whose design flow (removed, D-0099) had not ended:
+  # their runs are no longer selected.
   select(:accept_use_case,
     choices: [],
     projection: @projection,

@@ -23,25 +23,6 @@ types:
       break_down: 'Its break-down flow has it: it is broken down into what builds it.'
       accept: 'Its acceptance flow has it: what is under it is built, then it is accepted.'
       accepted: Its acceptance flow accepted it.
-  design_status:
-    values:
-    - writing
-    - in_review
-    - changes_requested
-    - approved
-    - accepted
-    labels:
-      writing: Writing
-      in_review: In review
-      changes_requested: Changes requested
-      approved: Approved
-      accepted: Accepted
-    descriptions:
-      writing: The Design part is being written.
-      in_review: The Design part waits for its review pass.
-      changes_requested: The review sent the Design part back.
-      approved: The review approved the Design part; it can be broken down and built.
-      accepted: 'Its Design part is accepted: proposed with it by its scene''s break-down.'
 entities:
   scene:
     label: Scene
@@ -117,9 +98,6 @@ entities:
       design:
         type: string
         description: 'The Design part: how it is built, proposed with it by its scene''s break-down and accepted by its supervisor'
-      design_status:
-        type: design_status
-        description: Where the Design part is; empty for a use case without a design phase
       note:
         type: string
         description: 'Its proposer''s note: an architecture choice it needs that is not decided, said instead of decided'
@@ -145,6 +123,17 @@ entities:
         type: string
         description: 'Flow: the last design gate verdict, or a maintainer''s choice (none, review, rework, ready, person, close)'
 relations:
+  accepted_by:
+    label: accepted by
+    description: Who accepted a scene, after testing it; at most one.
+    from:
+    - scene
+    to:
+    - person
+    max_outgoing: 1
+    inverse:
+      id: accepted
+      label: accepted
   in_scene:
     label: in scene
     description: A use case belongs to at most one scene (Flux); a scene has zero or more use cases.
@@ -167,15 +156,3 @@ relations:
     inverse:
       id: issues
       label: issues
-  accepted_by:
-    label: accepted by
-    description: Who accepted a scene or use case, after testing it; at most one.
-    from:
-    - scene
-    - use_case
-    to:
-    - person
-    max_outgoing: 1
-    inverse:
-      id: accepted
-      label: accepted

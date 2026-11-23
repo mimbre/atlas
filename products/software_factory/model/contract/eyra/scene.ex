@@ -10,8 +10,8 @@ defmodule Model.Scene do
       repository and writes the use cases it proposes to a file in its result
       (`creates:`), each with its Design part, designed within the existing architecture
       (the decisions it reads first) and a note where it would need a new architecture
-      choice. Flow, the only writer, makes them under the scene, designed (`design_status:
-      accepted`), and "Accept it"
+      choice. Flow, the only writer, makes them under the scene, designed (a use case is
+      design, D-0099), and "Accept it"
       (`accepting`) goes to the supervisor, who looks at them, changes, removes or adds
       any by hand, and accepts the break-down. Its run ends there and hands the scene to
       `accept_scene` (`phase: accept`). After a "Not accepted", its agent reads the
@@ -106,6 +106,20 @@ defmodule Model.Scene do
     completion(by: :accepted_by)
   end
 
+  # A use case has no Accept of its own (D-0099): it is accepted once its issues are done.
+  relation(:accepted_by,
+    label: "accepted by",
+    description: "Who accepted a scene, after testing it; at most one.",
+    from: [:scene],
+    to: [:person],
+    max_outgoing: 1,
+    inverse: {:accepted, "accepted"},
+    only_target: [error: "only a person accepts", also: [:migration]],
+    actions: [set: [label: "Accept", key: "a"], remove: [label: "Reopen", key: "a"]],
+    requires_completed_children: "{key} has {children} open",
+    closes_parent: "{parent} is accepted; reopen it first, or put this under another {kind}"
+  )
+
   # Design: Scene → Use cases.
   subflow :break_down_scene, label: "Design", subject: :scene do
     run_as("system:sf-flow")
@@ -132,12 +146,7 @@ defmodule Model.Scene do
           "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
         fields: [:title, :description, :note],
         read_first: true,
-        creates: [
-          kind: :use_case,
-          file: "use_cases.json",
-          fields: [:design, :note],
-          values: [design_status: :accepted]
-        ],
+        creates: [kind: :use_case, file: "use_cases.json", fields: [:design, :note]],
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
@@ -310,5 +319,14 @@ defmodule Model.Scene do
     to: "0b7d903c06f4bfcc82b632475f3274cb32542868402a7e8959ea5407affe0d10",
     states: :same,
     reason: "Accept: renamed from Accept the scene"
+  )
+
+  # Design: the use cases it makes are designed; it no longer writes a design status
+  # (D-0099). A run waiting for its pickup or its supervisor stays where it is.
+  migrate(:break_down_scene,
+    from: "bf01ce6f998aa561aeed3447ae41c1bd35bd2df082399358b59a2353a20a9ba9",
+    to: "54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec",
+    states: :same,
+    reason: "Design: its use cases carry no design status"
   )
 end
