@@ -168,9 +168,9 @@ defmodule AtlasControl.SupervisionTest do
 
       assert keys_of(hd(lists)["props"]["rows"]) == ["W-1"], span(m).written_on
 
-      # The Overview's main count is the number of rows.
-      assert [main | _] = block(page, "summary")["props"]["fields"]
-      assert main["value"] == "1"
+      # The Overview's title says the count; no pair says it again.
+      assert %{"title" => title, "fields" => []} = block(page, "summary")["props"]
+      assert title =~ "1"
     end
   end
 
@@ -203,9 +203,12 @@ defmodule AtlasControl.SupervisionTest do
       # `[` and `]` open the previous and the next group.
       assert Enum.map(page.console_actions, & &1.operation["to"]) == [group["to"], group["to"]]
 
-      # Each row shows its key; on the whole page, where flows mix, what is expected too.
+      # Each row shows its key and, on the whole page, where flows mix, its flow's short name
+      # (never the sentence of what is expected).
+      flow = m.start.flows[s.subflow]
+      assert is_binary(flow)
       rows = for %{"type" => "list"} = b <- page.blocks, row <- b["props"]["rows"], do: row
-      assert [%{"id" => ^mine, "detail" => "Paint it"}] = rows
+      assert [%{"id" => ^mine, "detail" => ^flow}] = rows
 
       # The group's page: the same groups, that one active, and only its span's items.
       group_route = {:group, screen, {s.subflow, s.span}, "ada"}
@@ -215,7 +218,7 @@ defmodule AtlasControl.SupervisionTest do
       assert [%{"active" => false}, %{"active" => true}] =
                block(page, "groups")["props"]["groups"]
 
-      # Its rows keep their key; the group's name says what is expected, so they do not.
+      # Its rows keep their key; the group's name says the flow, so they do not.
       lists = for %{"type" => "list"} = b <- page.blocks, do: b
       assert Enum.flat_map(lists, &keys_of(&1["props"]["rows"])) == [mine]
       assert [%{"id" => ^mine, "detail" => ""}] = Enum.flat_map(lists, & &1["props"]["rows"])
@@ -248,11 +251,17 @@ defmodule AtlasControl.SupervisionTest do
       assert length(rows) == 2
       assert Enum.map(running, & &1["key"]) == ["J-1", "J-2"], span(m).written_on
 
-      [main | more] = block(page, "summary")["props"]["fields"]
-      assert main["value"] == "2"
-      # The quiet count of running work: a pair whose value is the count, by the work's kind.
+      # The quiet count of running work: a pair whose value is the count, by the work's kind;
+      # the count of rows is the Overview's title, not a pair.
       jobs_k = m.kinds[work.kind]
-      assert %{"value" => "2"} = Enum.find(more, &(&1["label"] == jobs_k.plural))
+      fields = block(page, "summary")["props"]["fields"]
+      assert %{"value" => "2"} = Enum.find(fields, &(&1["label"] == jobs_k.plural))
+      refute Enum.any?(fields, &(&1["label"] == Pages.supervised_rule(m).title))
+
+      # A row the client's running work is on says that work (its kind), not the flow.
+      details = Map.new(list["rows"], &{&1["id"], &1["detail"]})
+      assert String.starts_with?(details["W-2"], jobs_k.label)
+      refute details["W-5"] =~ jobs_k.label
 
       # Someone else supervises none of these.
       bob = {:supervised_by_you, "bob"}
