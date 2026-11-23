@@ -349,7 +349,7 @@ defmodule RelaDSL.Composition do
     presentations = presentations!(flows, gates, environments, file)
     runtime = RelaDSL.Runtime.Model.body(schema, extension, plain_runtime)
     facts = RelaDSL.Facts.Model.body(schema, extension, plain_runtime, presentations)
-    control = RelaDSL.Control.Model.body(schema, extension, plain_runtime)
+    control = RelaDSL.Control.Model.body(schema, extension, plain_runtime, flows)
 
     quote do
       unquote(compiled)

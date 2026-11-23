@@ -278,7 +278,20 @@ defmodule Model.SupervisionTest do
     for span <- open.spans do
       assert span.with_subjects == Enum.map(span.with, &flows[&1]["subject"]), span.span
       assert Enum.all?(span.with_subjects, &Map.has_key?(schema()["entities"], &1)), span.span
+
+      # What the span's subflow makes under its subject: the kinds its tasks create.
+      assert span.creates ==
+               Enum.uniq(
+                 for {_, s} <- flows[span.subflow]["states"],
+                     kind = get_in(s, ["spec", "creates", "kind"]),
+                     do: kind
+               ),
+             span.span
     end
+
+    # Plan makes a use case's issues, Design a scene's use cases.
+    assert %{"use_case" => ["issue"], "scene" => ["use_case"]} =
+             Map.new(open.spans, &{&1.subject, &1.creates})
   end
 
   test "foundation alone declares no running work" do

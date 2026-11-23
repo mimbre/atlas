@@ -38,7 +38,9 @@ defmodule AtlasBFFContract.Contract do
   # 0.20.0: each shell tab names its icon (a semantic name, `icon`) and its groups
   # (`groups`: label and `to`); Supervised by you and what is assigned have groups too
   # (`/_supervised/:subflow/:span`, `/_assigned/:kind`).
-  version "0.20.0"
+  # 0.21.0: a fact's page offers the flow's next step and one More… action, which opens
+  # the fact's secondary menu (`/k/:kind/:key/more`) with everything else.
+  version "0.21.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

@@ -147,8 +147,8 @@ defmodule Model.OpenForYouTest do
     assert tos(rows(render({:open_for_you, "ada"}, m), list)) == []
     assert tos(rows(render({:supervised_by_you, "ada"}, m), "list")) == [to]
 
-    # (4) Its supervisor may hand it over (to bea).
-    assert [{:hand_over, "issue", @issue, ^run}] = actions(render({:item, "issue", @issue}, m))
+    # (4) Its supervisor may hand it over (to bea), under the page's More….
+    assert [{:hand_over, "issue", @issue, ^run}] = actions(render({:more, "issue", @issue}, m))
     hand = {:hand_over, "issue", @issue, run, "ada"}
     assert Pages.hand_over_problem(m, hand, answers(hand, m), @ada) == nil
 

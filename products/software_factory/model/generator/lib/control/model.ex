@@ -9,9 +9,10 @@ defmodule RelaDSL.Control.Model do
     * `start_page/0`: what a client opens on (`start_page`): `assigned` (what is assigned
       to it), `open` (open work, for everyone), `open_for_you` (the supervised spans a
       person may pick a run up in, each with the subject kinds of its `with:` subflows
-      (`with_subjects`), the kind its work is written on, whose read carries its presentation
-      (`written_on`: its projection's `on` component's kind, else the subject), and their
-      words) and `supervised_by_you` (the runs whose
+      (`with_subjects`), the kinds its subflow's tasks create (`creates`), the kind its
+      work is written on, whose read carries its presentation (`written_on`: its
+      projection's `on` component's kind, else the subject), and their words) and
+      `supervised_by_you` (the runs whose
       supervisor is the client, with `work`: the `kind`, `of`, `for` and `ended` names
       of a supervisor's running work, nil without `supervised_work`), both nil without
       supervision, and the start page's `actions`. Both carry the supervision
@@ -38,7 +39,7 @@ defmodule RelaDSL.Control.Model do
   """
 
   @doc false
-  def body(schema, extension, flow_runtime) do
+  def body(schema, extension, flow_runtime, subflows) do
     d = merge(schema, extension)
     presenters = RelaDSL.Presentation.presenters(d, flow_runtime)
     kinds = kinds(d, presenters)
@@ -50,7 +51,8 @@ defmodule RelaDSL.Control.Model do
         do: RelaDSL.Control.Rules.shell(unquote(Macro.escape(d["shell"])), settings)
 
       @doc "What a client opens on: what is assigned to it, open work and the start actions."
-      def start_page, do: unquote(Macro.escape(start_page(d, flow_runtime, presenters)))
+      def start_page,
+        do: unquote(Macro.escape(start_page(d, flow_runtime, presenters, subflows)))
 
       @doc "Every kind, as pages show it, sorted by name."
       def kinds, do: unquote(Macro.escape(kinds))
@@ -404,7 +406,7 @@ defmodule RelaDSL.Control.Model do
 
   # -- The start page ---------------------------------------------------------------------
 
-  defp start_page(d, flow_runtime, presenters) do
+  defp start_page(d, flow_runtime, presenters, subflows) do
     supervision = get_in(flow_runtime || %{}, ["flow_runtime", "supervision"])
 
     assigned =
@@ -436,6 +438,13 @@ defmodule RelaDSL.Control.Model do
         {%{} = rule, %{} = s} ->
           subjects = get_in(flow_runtime, ["flow_runtime", "selection"]) || %{}
 
+          # The kinds each subflow's tasks create (a break-down's proposals, made under
+          # its subject): a flow makes those, so a page offers no raw create of them.
+          creates =
+            for f <- subflows,
+                %{mechanism: {:task, %{creates: [_ | _] = c}}} <- f.states,
+                do: {to_string(f.name), to_string(c[:kind])}
+
           %{
             title: rule["title"],
             empty: rule["empty"],
@@ -454,7 +463,8 @@ defmodule RelaDSL.Control.Model do
                   states: span["states"],
                   with: span["with"] || [],
                   with_subjects:
-                    for(w <- span["with"] || [], do: get_in(subjects, [w, "subject"]))
+                    for(w <- span["with"] || [], do: get_in(subjects, [w, "subject"])),
+                  creates: for({^subflow, kind} <- creates, uniq: true, do: kind)
                 }
               end
           }

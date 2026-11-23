@@ -105,6 +105,7 @@ public enum Page: String, CaseIterable, Sendable {
     case new
     case newUnder = "new_under"
     case item
+    case more
     case edit
     case delete
     case links
@@ -137,6 +138,7 @@ public enum Page: String, CaseIterable, Sendable {
         case .new: "/k/:kind/new"
         case .newUnder: "/k/:kind/new/:relation/:parent"
         case .item: "/k/:kind/:key"
+        case .more: "/k/:kind/:key/more"
         case .edit: "/k/:kind/:key/edit"
         case .delete: "/k/:kind/:key/delete"
         case .links: "/k/:kind/:key/links/:relation"

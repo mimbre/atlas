@@ -22,7 +22,7 @@ final class ContractTests: XCTestCase {
     }
 
     func test_version() {
-        XCTAssertEqual(Contract.version, "0.20.0")
+        XCTAssertEqual(Contract.version, "0.21.0")
     }
 
     func test_block_list_decodes_and_round_trips() throws {
@@ -373,6 +373,14 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(Page.match(path), PageMatch(page: .item, params: params))
         XCTAssertEqual(Page.item.template, "/k/:kind/:key")
         XCTAssertThrowsError(try Page.item.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .item, param: "kind")) }
+    }
+
+    func test_page_more_builds_and_matches_its_path() throws {
+        let params: [String: String] = ["key": "v key/1", "kind": "v kind/1"]
+        let path = try Page.more.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .more, params: params))
+        XCTAssertEqual(Page.more.template, "/k/:kind/:key/more")
+        XCTAssertThrowsError(try Page.more.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .more, param: "kind")) }
     }
 
     func test_page_edit_builds_and_matches_its_path() throws {
