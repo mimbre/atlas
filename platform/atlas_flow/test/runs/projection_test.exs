@@ -157,7 +157,9 @@ defmodule AtlasFlow.Runs.ProjectionTest do
              }
            ] = sent("B-1")
 
-    assert todo == expected("packing") and is_binary(cause)
+    assert todo == expected("packing")
+    # The cause names the flow by its label.
+    assert cause == "Flow Sort: not all in it is packed → bob"
 
     # Projected again, as it is: safe to repeat.
     Engine.round(server)

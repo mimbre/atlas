@@ -116,7 +116,7 @@ defmodule Model.RunPresentationTest do
         "scene",
         assignment(
           "SC-Atlas-01",
-          %{"flow_state" => "to_accept", "expected" => "Accept the scene"},
+          %{"flow_state" => "to_accept", "expected" => "Accept"},
           [
             "melle"
           ]

@@ -20,7 +20,8 @@ defmodule RelaDSL.Flow.Subflow do
   `RelaDSL.DefinitionDigest` of that data, so a run started under it keeps its identity.
   Nothing is read from a file. Its callbacks, with state names as text:
 
-    * `name/0`, `subject/0`, `digest/0`, `initial/0`, `states/0` (sorted), `per_subject/0`;
+    * `name/0`, `label/0`, `subject/0`, `digest/0`, `initial/0`, `states/0` (sorted),
+      `per_subject/0`;
     * `start?(:create | :predicate, values)`: whether that trigger starts a run;
     * `enter(state, values)`: what entering the state writes, in order:
       `{:set, %{field => value}}` and `{:create, %{"type", "properties", "relate"}}`;
@@ -117,6 +118,7 @@ defmodule RelaDSL.Flow.Subflow do
       unquote(if behaviour, do: quote(do: @behaviour(unquote(behaviour))))
 
       def name, do: unquote(name)
+      def label, do: unquote(definition["label"])
       def subject, do: unquote(definition["subject"])
       def digest, do: unquote(DefinitionDigest.of(definition))
       def initial, do: unquote(definition["initial"])
