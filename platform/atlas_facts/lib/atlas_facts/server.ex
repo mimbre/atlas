@@ -3,7 +3,9 @@ defmodule AtlasFacts.Server do
   Facts on the Bus: the store endpoint. Generic: what a kind is, it reads from rela; what
   may be written, what a write brings along and what is worked out on a read, it asks the
   model (`AtlasFacts.Model`), wired at boot. At boot rela must serve the schema the model
-  was built with (`rela_schema/0`); otherwise Facts refuses to start, and says why.
+  was built with (`rela_schema/0`); otherwise Facts refuses to start, and says why. Every
+  fact is then loaded into memory (`AtlasFacts.Cache`): reads are answered from there,
+  writes go to rela first.
 
   - A `fact` is stored in rela and answered with one `stored` (acknowledgement and hint,
     with the fact's position) or one `refused` (final, with reasons). Never silence.
@@ -46,7 +48,7 @@ defmodule AtlasFacts.Server do
 
   alias AtlasBus.Envelope
 
-  alias AtlasFacts.{Copies, Description, Ledger, Links, Rela}
+  alias AtlasFacts.{Cache, Copies, Description, Ledger, Links, Rela}
   alias AtlasFacts.Freshness.{Changes, Deps}
 
   @description "_description"
@@ -59,13 +61,12 @@ defmodule AtlasFacts.Server do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
 
-  @doc "Flush copies after direct backend writes in private fixtures. Not a Bus operation."
-  def flush_collections(server), do: GenServer.call(server, :flush_collections)
+  @doc "Load every fact from rela again, after writes past Facts. Not a Bus operation."
+  def reload(server), do: GenServer.call(server, :reload)
 
   @impl true
-  def handle_call(:flush_collections, _from, state) do
-    :ok = AtlasFacts.Collections.clear(state.rela)
-    {:reply, :ok, state}
+  def handle_call(:reload, _from, state) do
+    {:reply, state.description && Cache.load(state.cache, state.description), state}
   end
 
   # A lookup that could not read the store: the write is not recorded.
@@ -78,13 +79,24 @@ defmodule AtlasFacts.Server do
     model =
       AtlasFacts.Model.check!(Keyword.get_lazy(opts, :model, &AtlasFacts.Model.configured!/0))
 
-    rela = AtlasFacts.Collections.open(Keyword.fetch!(opts, :rela), opts)
+    rela = Cache.open(Keyword.fetch!(opts, :rela))
 
     case Rela.description(rela) do
       {:ok, served} ->
         case AtlasFacts.Model.mismatch(model, served) do
           nil ->
-            start(opts, model, rela, served)
+            # Warm: every fact is read before the first read is answered.
+            case Cache.load(rela, served) do
+              :ok ->
+                start(opts, model, rela, served)
+
+              {:error, reason} ->
+                Logger.warning(
+                  "Facts starts without its facts (#{inspect(reason)}); it reads them again"
+                )
+
+                start(opts, model, rela, nil)
+            end
 
           reason ->
             Logger.error("Facts does not start: " <> reason)
@@ -107,6 +119,7 @@ defmodule AtlasFacts.Server do
     {:ok,
      %{
        rela: rela,
+       cache: rela,
        ledger: Ledger.open(dir),
        links: Links.open(dir),
        model: model,
@@ -130,29 +143,24 @@ defmodule AtlasFacts.Server do
     binding = Ledger.request_identity(envelope, content)
 
     if class == "fact" do
-      AtlasFacts.Collections.mutation(state.rela, fn ->
-        if Ledger.matches_request?(state.ledger, envelope.id, binding) do
-          rela = state.rela
-          log = Changes.open()
+      if Ledger.matches_request?(state.ledger, envelope.id, binding) do
+        rela = state.rela
+        log = Changes.open()
 
-          # Every write rela accepts while this fact is handled is noted, for its hint.
-          recording =
-            rela
-            |> AtlasFacts.Collections.uncached()
-            |> AtlasFacts.Collections.through(&Changes.recorder(&1, log))
+        # Every write rela accepts while this fact is handled is noted, for its hint.
+        recording = Changes.recorder(rela, log)
 
-          try do
-            {:noreply, state} =
-              dispatch(envelope, content, Map.merge(state, %{rela: recording, changes: log}))
+        try do
+          {:noreply, state} =
+            dispatch(envelope, content, Map.merge(state, %{rela: recording, changes: log}))
 
-            {:noreply, %{Map.delete(state, :changes) | rela: rela}}
-          after
-            Changes.close(log)
-          end
-        else
-          refusal(envelope, :request_conflict, state)
+          {:noreply, %{Map.delete(state, :changes) | rela: rela}}
+        after
+          Changes.close(log)
         end
-      end)
+      else
+        refusal(envelope, :request_conflict, state)
+      end
     else
       dispatch(envelope, content, state)
     end
@@ -204,7 +212,7 @@ defmodule AtlasFacts.Server do
         if envelope.class == "fact",
           do:
             AtlasFacts.FlowInputs.capture(
-              AtlasFacts.Collections.uncached(state.rela),
+              state.rela,
               context(state),
               envelope,
               content
@@ -245,8 +253,6 @@ defmodule AtlasFacts.Server do
          candidate
        )
        when is_binary(id) and is_binary(kind) and is_map(content) do
-    state = %{state | rela: AtlasFacts.Collections.uncached(state.rela)}
-
     with {"refused", about, nil} <- Ledger.answer(state.ledger, id),
          true <- Enum.all?(~w(op key by), &(about[&1] == content[&1])),
          :ok <- recovery_preflight(state, kind, content, writer),
@@ -324,7 +330,7 @@ defmodule AtlasFacts.Server do
   end
 
   defp flow_input(envelope, content, state) do
-    rela = AtlasFacts.Collections.uncached(state.rela)
+    rela = state.rela
 
     write = fn kind, content, request_id ->
       id = AtlasBus.Digest.of_term(["input-subject-write", request_id])
@@ -543,15 +549,13 @@ defmodule AtlasFacts.Server do
   end
 
   defp guidance(envelope, content, role, state) do
-    rela = AtlasFacts.Collections.uncached(state.rela)
-
     result =
       if envelope.class == "fact",
         do:
-          AtlasFacts.Guidance.write(rela, context(state), role, envelope, content, fn ->
+          AtlasFacts.Guidance.write(state.rela, context(state), role, envelope, content, fn ->
             Ledger.reserve(state.ledger)
           end),
-        else: AtlasFacts.Guidance.read(rela, context(state), role, content)
+        else: AtlasFacts.Guidance.read(state.rela, context(state), role, content)
 
     case result do
       {:ok, answer} when envelope.class == "fact" ->
@@ -618,16 +622,7 @@ defmodule AtlasFacts.Server do
   end
 
   defp ordinary(%Envelope{class: "read"} = envelope, content, state) do
-    original = state.rela
-
-    state =
-      if content["consistency"] == "transition",
-        do: %{state | rela: AtlasFacts.Collections.uncached(original)},
-        else: state
-
     {answer, state} = answered_read(state, envelope.kind, content || %{})
-    state = %{state | rela: original}
-
     reply(envelope, "answer", Map.put(answer, "position", Ledger.position(state.ledger)), nil)
     {:noreply, state}
   end
@@ -710,12 +705,15 @@ defmodule AtlasFacts.Server do
   end
 
   # rela's schema, as rela serves it, read every time it is asked for. One that is not the
-  # model's (rela was restarted with another build) is no schema Facts writes by.
+  # model's (rela was restarted with another build) is no schema Facts writes by. The
+  # first one Facts has also loads every fact (`AtlasFacts.Cache`): none is answered before.
   defp describe(state) do
     with {:ok, served} <- Rela.description(state.rela) do
       case AtlasFacts.Model.mismatch(state.model, served) do
         nil ->
-          {:ok, served}
+          if Cache.loaded?(state.cache),
+            do: {:ok, served},
+            else: with(:ok <- Cache.load(state.cache, served), do: {:ok, served})
 
         reason ->
           Logger.error(reason)
@@ -810,9 +808,7 @@ defmodule AtlasFacts.Server do
         answered_read(state, kind, read)
 
       role ->
-        rela = AtlasFacts.Collections.uncached(state.rela)
-
-        case AtlasFacts.Guidance.read(rela, context(state), role, read) do
+        case AtlasFacts.Guidance.read(state.rela, context(state), role, read) do
           {:ok, answer} ->
             {answer, state}
 
@@ -896,7 +892,7 @@ defmodule AtlasFacts.Server do
   defp read_plain(state, kind, spec, key) do
     Deps.key(kind, key)
 
-    case Rela.get(AtlasFacts.Collections.uncached(state.rela), spec["plural"], key) do
+    case Rela.get(state.rela, spec["plural"], key) do
       {:ok, fact} -> %{"fact" => wire(state, kind, fact)}
       {:error, :not_found} -> %{"fact" => nil}
       {:error, reason} -> read_error(reason)
@@ -922,7 +918,7 @@ defmodule AtlasFacts.Server do
     Deps.key(kind, key)
 
     with {:ok, fact} <-
-           Rela.get(AtlasFacts.Collections.uncached(state.rela), spec["plural"], key),
+           Rela.get(state.rela, spec["plural"], key),
          {:ok, [fact]} <- with_progress(state, kind, [fact]),
          {:ok, incoming} <- incoming(state, kind, spec, key) do
       wired = wire(state, kind, fact)

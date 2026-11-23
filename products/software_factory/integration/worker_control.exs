@@ -247,7 +247,7 @@ defmodule WorkerControlTest do
 
   defp direct_change(c, plural, key, props, version, targets) do
     result = Rela.change(c.rela, plural, key, props, version, targets)
-    :ok = AtlasFacts.Server.flush_collections(c.server)
+    :ok = AtlasFacts.Server.reload(c.server)
     result
   end
 

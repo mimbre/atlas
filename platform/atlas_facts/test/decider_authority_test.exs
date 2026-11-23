@@ -45,10 +45,7 @@ defmodule AtlasFacts.DeciderAuthorityTest do
     {:ok, store} = Store.start_link(0, schema: Decided.rela_schema())
     Application.put_env(:atlas_bus, :store, "store-#{System.unique_integer([:positive])}")
 
-    start_supervised!(
-      {AtlasFacts.Server,
-       rela: {Store, store}, model: Decided, data_dir: dir, collection_freshness_ms: 60_000}
-    )
+    start_supervised!({AtlasFacts.Server, rela: {Store, store}, model: Decided, data_dir: dir})
 
     :ok = AtlasBus.attach("authority-#{System.unique_integer([:positive])}")
     %{store: store, fingerprint: fingerprint}
@@ -109,28 +106,5 @@ defmodule AtlasFacts.DeciderAuthorityTest do
                %{"ruled_by" => ["clerk-A"]},
                "clerk-A"
              )
-  end
-
-  test "authority lookup bypasses a warmed collection after an external verdict write", c do
-    fields = %{"phase" => "packing", "status" => "open"}
-    assert {"stored", _} = send_write("stamp", "stamp-A", "create", %{})
-
-    assert {"stored", _} =
-             send_write("bead", "bead-A", "create", fields, %{"ruled_by" => ["stamp-A"]})
-
-    verdict = %{
-      "gate" => "allocate",
-      "purpose" => "decider",
-      "subject" => "bead-A",
-      "verdict" => "agent",
-      "fingerprint" => SubjectFingerprint.of(%{"values" => fields}, c.fingerprint)
-    }
-
-    assert {"stored", _} = send_write("jar", "jar-A", "create", verdict, %{"about" => ["bead-A"]})
-    assert {"answer", %{"facts" => _}} = send_read(Envelope.new("read", "jar"), %{})
-    assert {:ok, _} = Store.change(c.store, "jars", "jar-A", %{"verdict" => "ask"}, nil, %{})
-    Store.reset(c.store)
-    assert {"refused", _} = send_write("bead", "bead-A", "change", %{"status" => "sealed"})
-    assert Store.calls(c.store)[{:list, "jars"}] == 1
   end
 end

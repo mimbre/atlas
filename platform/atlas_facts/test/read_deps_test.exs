@@ -81,10 +81,7 @@ defmodule AtlasFacts.ReadDepsTest do
     Application.put_env(:atlas_bus, :store, "read-deps-#{System.unique_integer([:positive])}")
     up = start_supervised!({Agent, fn -> true end})
 
-    start_supervised!(
-      {AtlasFacts.Server,
-       rela: {Store, up}, model: Reading, data_dir: dir, collection_freshness_ms: 0}
-    )
+    start_supervised!({AtlasFacts.Server, rela: {Store, up}, model: Reading, data_dir: dir})
 
     # Page reads are Control's.
     :ok = AtlasBus.attach("control/read-deps-#{System.unique_integer([:positive])}")
@@ -193,10 +190,7 @@ defmodule AtlasFacts.ReadDepsTest do
 
       start_supervised!(
         {AtlasFacts.Server,
-         rela: {Store, up},
-         model: Reviewed,
-         data_dir: Path.join(dir, "reviewed"),
-         collection_freshness_ms: 0}
+         rela: {Store, up}, model: Reviewed, data_dir: Path.join(dir, "reviewed")}
       )
 
       :ok
@@ -261,11 +255,10 @@ defmodule AtlasFacts.ReadDepsTest do
     assert read("_position") == %{"position" => 0}
   end
 
-  test "the description and an answer that is an error depend on nothing", %{up: up} do
+  test "the description and an answer that is an error depend on nothing", _ do
     refute Map.has_key?(read("_description"), "deps")
-    Agent.update(up, fn _ -> false end)
-    answer = read("part", %{"key" => "P-1", "plain" => true})
-    assert answer["error_kind"] == "unreachable"
+    answer = read("ghost", %{})
+    assert answer["error_kind"] == "answered"
     refute Map.has_key?(answer, "deps")
   end
 end

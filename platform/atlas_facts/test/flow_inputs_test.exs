@@ -720,8 +720,8 @@ defmodule AtlasFacts.FlowInputsTest do
                {:error, :interrupted}
              end)
 
-    # The private fixture wrote directly to the backend, outside Facts' invalidation.
-    :ok = AtlasFacts.Server.flush_collections(facts)
+    # The private fixture wrote directly to the backend, past Facts.
+    :ok = AtlasFacts.Server.reload(facts)
 
     assert {"answer", %{"facts" => [record]}} = request.("read", %{})
     assert record["values"]["status"] == "prepared"
@@ -741,43 +741,6 @@ defmodule AtlasFacts.FlowInputsTest do
       assert {"refused", _} =
                request.("fact", %{"op" => op, "key" => record["key"], "values" => %{}})
     end
-  end
-
-  @tag :tmp_dir
-  test "transition reads bypass a primed collection and return the current version", c do
-    Application.put_env(:atlas_bus, :store, "input-reads-#{System.unique_integer([:positive])}")
-
-    facts =
-      start_supervised!(
-        {AtlasFacts.Server,
-         rela: c.rela, data_dir: c.tmp_dir, model: Inputs, flow_input_clock: fn -> @now end}
-      )
-
-    :ok = AtlasBus.attach("flow")
-
-    read = fn kind, content ->
-      e = Envelope.new("read", kind)
-      id = e.id
-      :ok = AtlasBus.send(e, content)
-      assert {"answer", answer} = reply_to(id, facts)
-      answer
-    end
-
-    assert %{"facts" => [_]} = read.("cursor", %{})
-    {:ok, old} = Rela.get(c.rela, "cursors", "R-1")
-    {:ok, []} = Rela.change(c.rela, "cursors", "R-1", %{"state" => "fresh"}, old.version, %{})
-
-    assert %{"fact" => %{"version" => stale}} =
-             read.("cursor", %{"key" => "R-1", "incoming" => false})
-
-    assert stale == old.version
-
-    assert %{"fact" => %{"version" => fresh, "values" => %{"state" => "fresh"}}} =
-             read.("cursor", %{"key" => "R-1", "plain" => true, "consistency" => "transition"})
-
-    assert fresh != stale
-    assert {:ok, accepted} = submit(c)
-    assert %{"inputs" => [^accepted]} = read.("choice", %{"run" => "R-1"})
   end
 
   @tag :tmp_dir

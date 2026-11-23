@@ -14,9 +14,6 @@ defmodule AtlasFacts.GuidanceStore do
         }
       end)
 
-  def fail_next_get(pid, plural, key, reason),
-    do: Agent.update(pid, &%{&1 | faults: Map.put(&1.faults, {plural, key}, reason)})
-
   def fail_next_delete(pid, plural, key, reason),
     do: Agent.update(pid, &%{&1 | faults: Map.put(&1.faults, {:delete, plural, key}, reason)})
 
@@ -40,19 +37,10 @@ defmodule AtlasFacts.GuidanceStore do
   def description(pid), do: Agent.get(pid, &{:ok, &1.description})
   @impl true
   def get(pid, plural, key) do
-    Agent.get_and_update(pid, fn s ->
-      case Map.pop(s.faults, {plural, key}) do
-        {nil, _} ->
-          result =
-            case get_in(facts(s), [plural, key]) do
-              nil -> {:error, :not_found}
-              props -> {:ok, wire(key, props)}
-            end
-
-          {result, s}
-
-        {reason, faults} ->
-          {{:error, reason}, %{s | faults: faults}}
+    Agent.get(pid, fn s ->
+      case get_in(facts(s), [plural, key]) do
+        nil -> {:error, :not_found}
+        props -> {:ok, wire(key, props)}
       end
     end)
   end
@@ -84,22 +72,15 @@ defmodule AtlasFacts.GuidanceStore do
             owner -> owner
           end
 
-        faults =
-          if owner do
-            send(owner, {:committed, self(), key})
+        if owner do
+          send(owner, {:committed, self(), key})
 
-            receive do
-              :release_commit ->
-                s.faults
-
-              {:release_commit, {:fail_get, plural, key, reason}} ->
-                Map.put(s.faults, {plural, key}, reason)
-            end
-          else
-            s.faults
+          receive do
+            :release_commit -> :ok
           end
+        end
 
-        {{:ok, []}, %{s | barrier: if(owner, do: nil, else: s.barrier), faults: faults}}
+        {{:ok, []}, %{s | barrier: if(owner, do: nil, else: s.barrier)}}
       end
     end)
   end

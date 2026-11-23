@@ -59,7 +59,7 @@ defmodule SettleSubmitTest do
     for n <- numbers,
         do: {:ok, _} = FakeRela.create(rela, "widgets", "W-#{n}", %{"title" => "W#{n}"}, %{})
 
-    :ok = AtlasFacts.Server.flush_collections(facts)
+    :ok = AtlasFacts.Server.reload(facts)
   end
 
   defp client do
