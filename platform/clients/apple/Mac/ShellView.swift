@@ -42,9 +42,13 @@ struct ShellView: View {
 
 /// The tabs, in boot's order, each with its icon and count, with the count (what waits for
 /// the user) as the section's header; under every tab with groups, its groups with their
-/// counts (as a mail app's folders), in a disclosure that is open until folded (the fold is
-/// kept per tab), so any group can be chosen from anywhere. It scrolls, so it holds boot's
-/// limit of 64.
+/// counts (as a mail app's folders), folded by the tab's chevron (the fold is kept per
+/// tab), so any group can be chosen from anywhere. It scrolls, so it holds boot's limit
+/// of 64.
+///
+/// The rows are one flat list, each the same kind of view: a `DisclosureGroup` per tab
+/// (an outline) drew rows of the old outline over the new one when boot changed the
+/// tabs or their groups (IS-Atlas-75: a group drawn on top of Workers).
 struct Sidebar: View {
     let shell: ShellViewModel
     let select: (String) -> Void
@@ -54,6 +58,16 @@ struct Sidebar: View {
     enum Choice: Hashable {
         case tab(String)
         case group(String)
+    }
+
+    /// One row: a tab (with its icon, and its fold when it has groups) or a group under it.
+    struct Row: Identifiable {
+        let id: Choice
+        let label: String
+        let count: Int?
+        let icon: String?
+        /// Whether its groups are shown (a tab with groups); nil for any other row.
+        let open: Bool?
     }
 
     /// The tabs whose groups are folded, by id, one per line; kept across launches.
@@ -71,21 +85,24 @@ struct Sidebar: View {
             })
     }
 
+    private var rows: [Row] {
+        let foldedIds = Set(folded.split(separator: "\n").map(String.init))
+        return shell.tabs.flatMap { tab -> [Row] in
+            let open = !foldedIds.contains(tab.id)
+            let row = Row(id: .tab(tab.id), label: tab.label, count: tab.count, icon: Self.symbol(tab.icon),
+                          open: tab.groups.isEmpty ? nil : open)
+            guard open else { return [row] }
+            return [row] + tab.groups.map {
+                Row(id: .group($0.to), label: $0.label, count: $0.count, icon: nil, open: nil)
+            }
+        }
+    }
+
     var body: some View {
         List(selection: choice) {
             Section {
-                ForEach(shell.tabs) { tab in
-                    if tab.groups.isEmpty {
-                        tabLabel(tab)
-                    } else {
-                        DisclosureGroup(isExpanded: expansion(tab.id)) {
-                            ForEach(tab.groups) { group in
-                                Text(group.label).badge(badge(group.count)).tag(Choice.group(group.to))
-                            }
-                        } label: {
-                            tabLabel(tab)
-                        }
-                    }
+                ForEach(rows) { row in
+                    rowView(row).badge(row.count.map { Text("\($0)") }).tag(row.id)
                 }
             } header: {
                 if let count = shell.count { Text(count) }
@@ -96,23 +113,32 @@ struct Sidebar: View {
         .navigationSplitViewColumnWidth(min: 160, ideal: 220)
     }
 
-    private func tabLabel(_ tab: ShellViewModel.Tab) -> some View {
-        Label(tab.label, systemImage: Self.symbol(tab.icon)).badge(badge(tab.count)).tag(Choice.tab(tab.id))
+    /// A tab: its fold's chevron (a blank of the same width without groups), icon and
+    /// label; a group: its label, under its tab's.
+    private func rowView(_ row: Row) -> some View {
+        HStack(spacing: 4) {
+            if case .tab(let id) = row.id {
+                Button { fold(id, open: row.open == false) } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(row.open == true ? 90 : 0))
+                        .frame(width: 12)
+                }
+                .buttonStyle(.plain)
+                .opacity(row.open == nil ? 0 : 1)
+                .disabled(row.open == nil)
+                Label(row.label, systemImage: row.icon ?? "circle")
+            } else {
+                Text(row.label).padding(.leading, 44)
+            }
+        }
     }
 
-    /// A count as a badge, 0 too; none while no page has said it.
-    private func badge(_ count: Int?) -> Text? {
-        count.map { Text("\($0)") }
-    }
-
-    private func expansion(_ id: String) -> Binding<Bool> {
-        Binding(
-            get: { !folded.split(separator: "\n").contains(Substring(id)) },
-            set: { open in
-                var ids = folded.split(separator: "\n").map(String.init).filter { $0 != id }
-                if !open { ids.append(id) }
-                folded = ids.joined(separator: "\n")
-            })
+    private func fold(_ id: String, open: Bool) {
+        var ids = folded.split(separator: "\n").map(String.init).filter { $0 != id }
+        if !open { ids.append(id) }
+        folded = ids.joined(separator: "\n")
     }
 
     /// The symbol for a tab's icon, a semantic name Control gives; a plain one for a name

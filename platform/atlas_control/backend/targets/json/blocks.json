@@ -2886,6 +2886,11 @@
           "name": "groups",
           "required": false,
           "type": "list of shell_group"
+        },
+        {
+          "name": "count",
+          "required": false,
+          "type": "integer"
         }
       ],
       "name": "shell_tab"
@@ -2901,6 +2906,11 @@
           "name": "to",
           "required": true,
           "type": "string"
+        },
+        {
+          "name": "count",
+          "required": false,
+          "type": "integer"
         }
       ],
       "name": "shell_group"
@@ -5626,7 +5636,7 @@
       }
     }
   ],
-  "version": "0.21.0",
+  "version": "0.22.0",
   "wire": {
     "block": "{\"id\": \"<id>\", \"type\": \"<block>\", \"props\": {...}}",
     "markup": "{\"kind\": \"<kind>\", \"start\": \"<block id>\", \"end\": \"<block id>\", \"group\": \"<id, on a piece of split markup>\", \"props\": {...}}",
