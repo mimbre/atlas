@@ -32,7 +32,8 @@ defmodule AtlasAgent.Steer do
 
   To the client: `{"op":"plan","block":<a plan block>}`, the plan as it is now, after
   every change (the contract's `plan` block, with its `step`s), and `{"op":"notice",
-  "tone","text"}`.
+  "tone","text"}`. While a plan is being made it comes again every 5 s, its title saying
+  for how long, so the client knows the agent is still there.
 
   Nothing is written except by `run`, and only the steps of the plan it was given, so
   nothing the planner answers runs before a user accepts it. Each plan and each run
@@ -46,6 +47,8 @@ defmodule AtlasAgent.Steer do
   """
 
   alias AtlasAgent.{Client, Overrule, Plan, Record}
+
+  @tick 5_000
 
   def main(env) do
     case AtlasAgent.settings(env) do
@@ -85,6 +88,13 @@ defmodule AtlasAgent.Steer do
 
       {:DOWN, ref, :process, _, reason} when state.task != nil and ref == state.task.ref ->
         loop(planned({:error, "the planner stopped: #{inspect(reason)}"}, %{state | task: nil}))
+
+      {:tick, ref} when state.task != nil and ref == state.task.ref ->
+        Process.send_after(self(), {:tick, ref}, @tick)
+        loop(show(state))
+
+      {:tick, _old} ->
+        loop(state)
 
       :step ->
         loop(step(state))
@@ -195,8 +205,11 @@ defmodule AtlasAgent.Steer do
       state: "planning",
       summary: nil,
       by: nil,
-      steps: []
+      steps: [],
+      started: System.monotonic_time(:millisecond)
     }
+
+    Process.send_after(self(), {:tick, task.ref}, @tick)
 
     show(%{state | task: task, plan: plan})
   end
@@ -475,7 +488,13 @@ defmodule AtlasAgent.Steer do
   defp title(%{by_itself: true, state: s} = plan) when s in ["running", "done"],
     do: title(%{plan | by_itself: false}) <> ", without asking"
 
-  defp title(%{state: "planning"}), do: "Planning…"
+  defp title(%{state: "planning", started: started}) do
+    case div(System.monotonic_time(:millisecond) - started, 1000) do
+      0 -> "Planning…"
+      s -> "Planning… #{s} s"
+    end
+  end
+
   defp title(%{state: "proposed", steps: []}), do: "No steps proposed"
   defp title(%{state: "proposed", steps: steps}), do: "Proposed: #{count(steps, "step")}"
   defp title(%{state: "running"} = plan), do: "Running: #{stored(plan)} of #{kept(plan)} stored"
