@@ -382,10 +382,11 @@ defmodule AtlasAgent.CLI do
 
   defp entry(_type, value, indent), do: [indent <> "- " <> to_string(value)]
 
-  # An action, and under it the actions of the menu it opens (More…).
+  # An action, and under it the actions of the menu it opens (More…), each as an action.
   defp action_lines(%{"more" => more} = action),
     do:
-      entry(:action, action, "") ++ ["  more:" | Enum.flat_map(more, &entry(:action, &1, "    "))]
+      entry(:action, Map.delete(action, "more"), "") ++
+        ["  more:" | Enum.flat_map(more, &entry(:action, &1, "    "))]
 
   defp action_lines(action), do: entry(:action, action, "")
 
