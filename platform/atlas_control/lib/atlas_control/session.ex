@@ -720,7 +720,7 @@ defmodule AtlasControl.Session do
 
   # `_` in place of a kind, for a key no id prefix claims: the kind without a prefix that
   # has it, asked of Facts (ids made from a name have no prefix).
-  defp by_key({page, "_", key}, to, state) when page in [:item, :edit, :delete] do
+  defp by_key({page, "_", key}, to, state) when page in [:item, :more, :edit, :delete] do
     case kind_holding(key, state) do
       {:ok, kind} -> {page, kind, key}
       %{"error" => _} = failed -> {:unavailable, to, failed}

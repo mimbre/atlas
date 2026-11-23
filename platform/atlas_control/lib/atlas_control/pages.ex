@@ -81,6 +81,10 @@ defmodule AtlasControl.Pages do
     remove_item: {"Remove", "m"}
   }
 
+  # A fact's page offers the flow's next step, and everything else under this one action,
+  # which opens the fact's secondary menu (`{:more, kind, key}`). Remove is `m` there too.
+  @more {"More…", "m"}
+
   # The client one supervises from (M3b plan §1, S-6): only its session sends a pickup
   # or a hand-over, until there is sign-in.
   @supervising_client "tui"
@@ -130,7 +134,7 @@ defmodule AtlasControl.Pages do
       {:ok, :new_under, p} ->
         {:new, p.kind, {p.relation, p.parent}}
 
-      {:ok, page, p} when page in [:item, :edit, :delete] ->
+      {:ok, page, p} when page in [:item, :more, :edit, :delete] ->
         {page, p.kind, p.key}
 
       {:ok, page, p} when page in [:links, :set, :remove] ->
@@ -177,7 +181,7 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  def resolve({page, "_", key}, m) when page in [:item, :edit, :delete] do
+  def resolve({page, "_", key}, m) when page in [:item, :more, :edit, :delete] do
     case kind_of_key(m, key) do
       nil -> :unknown
       kind -> {page, kind, key}
@@ -363,7 +367,7 @@ defmodule AtlasControl.Pages do
   def path({:new, kind, {relation, parent}}),
     do: Blocks.path(:new_under, kind: kind, relation: relation, parent: parent)
 
-  def path({page, kind, key}) when page in [:item, :edit, :delete],
+  def path({page, kind, key}) when page in [:item, :more, :edit, :delete],
     do: Blocks.path(page, kind: kind, key: key)
 
   def path({page, kind, key, relation}) when page in [:links, :set, :remove],
@@ -509,6 +513,9 @@ defmodule AtlasControl.Pages do
     [{kind, presented(m, kind, %{"key" => key})} | children] ++
       causes ++ parts ++ candidate_reads(m, kind)
   end
+
+  # A fact's secondary menu offers what its page would: it reads as the page does.
+  def reads({:more, kind, key}, m), do: reads({:item, kind, key}, m)
 
   # A change form also lists where the fact can move: every fact of each parent kind.
   def reads({:edit, kind, key}, m) do
@@ -1482,37 +1489,30 @@ defmodule AtlasControl.Pages do
     )
   end
 
-  # Pick up, Hand over…, Retry and Remove on a fact's page, after its answers and restart:
-  # Pick up for one who may supervise, at the TUI, while the presenting run is active in a
-  # span with no supervisor; Hand over… for its supervisor at the TUI while someone else
-  # could take it; Retry and Remove as `may_retry?/4` and `may_remove?/4` say.
-
+  # Pick up, Hand over…, Retry and Remove on a fact's page, `{next, more}`: Pick up and
+  # Retry are the flow's next step, Hand over… and Remove are under More…. Pick up for one
+  # who may supervise, at the TUI, while the presenting run is active in a span with no
+  # supervisor; Hand over… for its supervisor at the TUI while someone else could take
+  # it; Retry and Remove as `may_retry?/4` and `may_remove?/4` say.
   defp supervision_actions(m, kind, fact, p, candidates, form) do
-    run = p["run"]
     supervisor = supervisor(p)
-    route = &{&1, kind, fact["key"], run}
+    route = &{&1, kind, fact["key"], p["run"]}
+    supervising? = in_span?(m, kind, p) and may_supervise?(m, form)
 
-    supervising =
-      if in_span?(m, kind, p) and may_supervise?(m, form) do
-        pick =
-          if supervisor == [],
-            do: [supervision_action(:pick_up, route.(:pick_up))],
-            else: []
+    offered =
+      for {verb, may?} <- [
+            pick_up: supervising? and supervisor == [],
+            hand_over:
+              supervising? and form[:by] in supervisor and
+                Enum.any?(candidates, &(&1["key"] != form[:by])),
+            retry: may_retry?(m, kind, p, form),
+            remove_item: may_remove?(m, kind, p, form)
+          ],
+          may?,
+          do: {verb, supervision_action(verb, route.(verb))}
 
-        hand =
-          if form[:by] in supervisor and Enum.any?(candidates, &(&1["key"] != form[:by])),
-            do: [supervision_action(:hand_over, route.(:hand_over))],
-            else: []
-
-        pick ++ hand
-      else
-        []
-      end
-
-    supervising ++
-      for {verb, may?} <- [retry: &may_retry?/4, remove_item: &may_remove?/4],
-          may?.(m, kind, p, form),
-          do: supervision_action(verb, route.(verb))
+    {for({verb, a} <- offered, verb in [:pick_up, :retry], do: a),
+     for({verb, a} <- offered, verb in [:hand_over, :remove_item], do: a)}
   end
 
   defp supervision_action(verb, route) do
@@ -1923,9 +1923,10 @@ defmodule AtlasControl.Pages do
         relations = child_relations(m, kind)
         parts = item_parts(m, kind, child_answers)
         work = work_presentation(m, kind, fact, parts)
-        {child_answers, rest} = Enum.split(child_answers, length(relations))
-        {cause_answers, part_answers} = Enum.split(rest, length(cause_fields(m)))
         todo = m.module.todo(kind, fact, parts_by_kind(parts), viewer(form))
+        {next, more} = offered(m, kind, k, fact, child_answers, form)
+        {child_answers, rest} = Enum.split(child_answers, length(relations))
+        {cause_answers, _part_answers} = Enum.split(rest, length(cause_fields(m)))
 
         fields =
           [Blocks.pair(label: "Id", value: key)] ++
@@ -1943,25 +1944,13 @@ defmodule AtlasControl.Pages do
             supervisor_pair(m, kind, work) ++
             copy(answer["copy"])
 
+        # The flow's next step, and one More… for everything else (`offered/6`).
         item =
           Blocks.item(
             title: "#{k.label} #{key}: #{label(k, fact)}",
             fields: fields,
-            # Nothing to change when a user may set nothing but where the id comes from, and
-            # there is no parent to move it to. The owner's answers (IS-Atlas-56) take the
-            # place of an action on the same key.
-            actions:
-              fact_actions(m, k, fact, form) ++
-                link_actions(m, kind, fact, form) ++
-                Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
-                  link_actions(m, part_kind, part, form)
-                end),
+            actions: next ++ more_action(kind, key, more),
             links: links(k, fact)
-          )
-          |> answers_first(
-            answer_actions(kind, fact, todo) ++
-              restart_actions(m, kind, fact, parts, form) ++
-              supervision_actions(m, kind, fact, work, candidates(m, kind, part_answers), form)
           )
 
         # Where its owner decides (the to-do has answers), what is judged is what is under
@@ -1976,12 +1965,12 @@ defmodule AtlasControl.Pages do
           |> Enum.reject(fn {{_relation, answer}, create_key} ->
             create_key == nil and match?(%{"facts" => []}, answer)
           end)
-          |> Enum.map(fn {{{relation, from, r}, child_answer}, create_key} ->
+          |> Enum.map(fn {{{relation, from, r}, child_answer}, _create_key} ->
             judged = deciding and r.parent
 
             {judged,
              {list_id(relation, from, r),
-              child_list(m, {relation, from, r}, key, child_answer, create_key, judged)}}
+              child_list(m, {relation, from, r}, child_answer, judged)}}
           end)
           |> Enum.split_with(&elem(&1, 0))
 
@@ -2052,6 +2041,26 @@ defmodule AtlasControl.Pages do
 
       %{"error" => _} = failed ->
         unavailable(failed, path({:list, kind}))
+    end
+  end
+
+  # A fact's secondary menu: what its page offers besides the flow's next step.
+  defp page({:more, kind, key}, kind, k, m, [answer | rest], form) do
+    title = "More… #{key}"
+
+    case answer do
+      %{"fact" => nil} ->
+        missing(title, "#{key} does not exist (any more).", path({:list, kind}))
+
+      %{"fact" => fact} ->
+        {_next, more} = offered(m, kind, k, fact, rest, form)
+
+        page(title, path({:item, kind, key}), [
+          Blocks.item(title: "#{k.label} #{key}: #{label(k, fact)}", fields: [], actions: more)
+        ])
+
+      %{"error" => _} = failed ->
+        unavailable(failed, path({:item, kind, key}))
     end
   end
 
@@ -2710,15 +2719,81 @@ defmodule AtlasControl.Pages do
 
   def self_answer(_m, _kind, _relation, _answers), do: nil
 
-  # The operations and actions the model offers on a fact's page, for this client.
-  defp fact_actions(m, k, fact, form) do
-    for action <- m.module.actions(k.name, fact, viewer(form)) do
+  # What a fact's page offers, `{next, more}`, as the page's reads answered it (the fact's
+  # answer is not among `rest`): the flow's next step (the owner's answers, the restart,
+  # Pick up and Retry), and everything else, which its More… action opens. Nothing raw
+  # where the flow covers it: no Delete where Remove ends the run instead, no change of
+  # who has a supervised flow's work while nobody picked it up (D-0099), and no Create of
+  # what a flow makes under it. An action on the same key as a next step gives way to it.
+  defp offered(m, kind, k, fact, rest, form) do
+    parts = item_parts(m, kind, rest)
+    work = work_presentation(m, kind, fact, parts)
+    todo = m.module.todo(kind, fact, parts_by_kind(parts), viewer(form))
+    part_answers = Enum.drop(rest, length(child_relations(m, kind)) + length(cause_fields(m)))
+
+    {picks, supervising} =
+      supervision_actions(m, kind, fact, work, candidates(m, kind, part_answers), form)
+
+    next =
+      answer_actions(kind, fact, todo) ++ restart_actions(m, kind, fact, parts, form) ++ picks
+
+    span? = kind in span_kinds(m)
+
+    handing =
+      if span? and supervisor(work) == [],
+        do: [],
+        else:
+          Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
+            link_actions(m, part_kind, part, form)
+          end)
+
+    more =
+      supervising ++
+        fact_actions(m, k, fact, form, span? and is_binary(work["run"])) ++
+        link_actions(m, kind, fact, form) ++ handing ++ create_actions(m, kind, fact["key"])
+
+    keys = Enum.map(next, & &1["key"])
+    {next, Enum.reject(more, &(&1["key"] in keys))}
+  end
+
+  # The action that opens a fact's secondary menu, when there is anything in it.
+  defp more_action(_kind, _key, []), do: []
+
+  defp more_action(kind, key, _more) do
+    {label, k} = @more
+    [Blocks.action(label: label, key: k, to: path({:more, kind, key}))]
+  end
+
+  # The operations and actions the model offers on a fact's page, for this client; no
+  # Delete when the fact is `removed?` instead (Remove).
+  defp fact_actions(m, k, fact, form, removed?) do
+    for action <- m.module.actions(k.name, fact, viewer(form)),
+        not (removed? and action == %{op: :delete}) do
       case action do
         %{op: :update} -> action(:update, k, path({:edit, k.name, fact["key"]}))
         %{op: :delete} -> action(:delete, k, path({:delete, k.name, fact["key"]}))
         %{label: label, key: key, to: to} -> Blocks.action(label: label, key: key, to: to)
       end
     end
+  end
+
+  # A Create in each related list a fact of the kind may be made by hand in: not under a
+  # relation marked to add nothing, nor an association (no create key), nor of a kind a
+  # flow on `kind` makes (a span's `creates`).
+  defp create_actions(m, kind, key) do
+    made = for s <- spans(m), s.subject == kind, made <- s[:creates] || [], do: made
+
+    for {{relation, from, r}, create_key} <-
+          Enum.zip(child_relations(m, kind), create_keys(m, kind)),
+        create_key != nil and r.add and by_hand?(m, from, :create),
+        from not in made,
+        do:
+          action(
+            :create,
+            kind(m, from) || unknown_kind(from),
+            path({:new, from, {relation, key}}),
+            create_key
+          )
   end
 
   # Set or remove, as the model names them, for a client that may.
@@ -2769,7 +2844,7 @@ defmodule AtlasControl.Pages do
 
   # A judged list (its owner decides on what is under it) says what each fact is about:
   # its label, then the first line of its first text of several lines.
-  defp child_list(m, {relation, from, r}, key, answer, create_key, judged) do
+  defp child_list(m, {_relation, from, r}, answer, judged) do
     from_k = kind(m, from) || unknown_kind(from)
     title = String.capitalize(r.inverse_label || from_k.plural)
 
@@ -2795,22 +2870,13 @@ defmodule AtlasControl.Pages do
           []
       end
 
-    # A relation marked to add nothing lists its facts without a way to add one here; so
-    # does one with no create key (an association).
-    add? = create_key != nil and r.add and by_hand?(m, from, :create)
-
     empty =
       case answer do
         %{"error" => error} -> "#{error}."
         _ -> "No #{String.downcase(title)} yet."
       end
 
-    actions =
-      if add?,
-        do: [action(:create, from_k, path({:new, from, {relation, key}}), create_key)],
-        else: []
-
-    {title, Blocks.list(rows: rows, empty: empty, actions: actions)}
+    {title, Blocks.list(rows: rows, empty: empty)}
   end
 
   # A kind a relation names that the model does not have: named by its own name.
@@ -3095,17 +3161,6 @@ defmodule AtlasControl.Pages do
           is_binary(relation),
           do:
             Blocks.action(label: a.label, key: a.key, to: path({op, kind, fact["key"], relation}))
-  end
-
-  # The answers first among an item's actions: an action on the same key gives way to one.
-  defp answers_first(item, []), do: item
-
-  defp answers_first(item, answers) do
-    keys = Enum.map(answers, & &1["key"])
-
-    update_in(item, ["props", "actions"], fn actions ->
-      answers ++ Enum.reject(actions || [], &(&1["key"] in keys))
-    end)
   end
 
   # The component answers of an item page's reads, after its lists and causes.

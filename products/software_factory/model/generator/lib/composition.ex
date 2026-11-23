@@ -356,7 +356,7 @@ defmodule RelaDSL.Composition do
           into: %{},
           do: {name, definition["label"]}
 
-    control = RelaDSL.Control.Model.body(schema, extension, plain_runtime, flow_labels)
+    control = RelaDSL.Control.Model.body(schema, extension, plain_runtime, flows, flow_labels)
 
     quote do
       unquote(compiled)

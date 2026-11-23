@@ -261,7 +261,7 @@ defmodule AtlasControl.SessionTest do
   test "a client sees the top list at once", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
-    assert %{"env" => "test", "spec" => "0.21.0"} = next(c, "welcome")
+    assert %{"env" => "test", "spec" => "0.22.0"} = next(c, "welcome")
     assert %{"path" => "/", "title" => "Widgets", "reason" => "open"} = page = next(c, "page")
     assert rows(page) == ["One"]
   end
@@ -1347,7 +1347,8 @@ defmodule AtlasControl.SessionTest do
     a = client(port)
     next(a, "page")
 
-    put(a, %{"op" => "open", "to" => "/k/widget/W-1"})
+    # Update is under the page's More…; there is no Delete.
+    put(a, %{"op" => "open", "to" => "/k/widget/W-1/more"})
     %{"blocks" => [%{"props" => %{"actions" => actions}} | _]} = next(a, "page")
     assert Enum.any?(actions, &(&1["to"] == "/k/widget/W-1/edit"))
     refute Enum.any?(actions, &(&1["to"] == "/k/widget/W-1/delete"))
