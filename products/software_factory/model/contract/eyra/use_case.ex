@@ -1,9 +1,9 @@
 defmodule Model.UseCase do
   @moduledoc """
   A use case is software design: the technical contract for part of a scene, proposed
-  with its Design part by the scene's break-down ("Scene → Use cases"). Its two flows:
+  with its Design part by the scene's break-down (Design: Scene → Use cases). Its two flows:
 
-    * `break_down_use_case` "Use case → Issues": a person picks it up (its span, the whole
+    * `break_down_use_case` **Plan** (Use case → Issues): a person picks it up (its span, the whole
       flow) and hands it to a machinery: one agent on the supervisor's Runtime reads the
       use case (its description and Design part), its scene and a checkout of the
       repository, and writes the issues it proposes to a file in its result (`creates:`).
@@ -20,7 +20,7 @@ defmodule Model.UseCase do
   `phase` says which of the two has a use case (disjoint admissions). A new one starts in
   `break_down`. One from before (no `phase`, among them those whose design flow, now
   gone, had not ended) is the acceptance's, which imports it: with issues under it, it
-  builds on; with none, it goes to "Use case → Issues", whose agent breaks it down from
+  builds on; with none, it goes to Plan, whose agent breaks it down from
   its description (and its Design part when it has one).
   """
   use RelaDSL
@@ -153,12 +153,13 @@ defmodule Model.UseCase do
     closes_parent: "{parent} is accepted; reopen it first, or put this under another {kind}"
   )
 
-  subflow :break_down_use_case, label: "Use case → Issues", subject: :use_case do
+  # Plan: Use case → Issues.
+  subflow :break_down_use_case, label: "Plan", subject: :use_case do
     run_as("system:sf-flow")
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
     start(:predicate, when: "entity.phase == 'break_down'")
     initial(:break_down)
-    supervise(:break_down, label: "Use case → Issues", states: [:break_down, :accepting])
+    supervise(:break_down, label: "Plan", states: [:break_down, :accepting])
 
     state :break_down, label: "Break it down into issues" do
       present(
@@ -306,5 +307,13 @@ defmodule Model.UseCase do
     to: "c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33",
     states: :same,
     reason: "Use case → Issues: its agent reads the use case's Design part"
+  )
+
+  # Plan: its label was its signature, Use case → Issues; nothing else changed.
+  migrate(:break_down_use_case,
+    from: "c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33",
+    to: "d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5",
+    states: :same,
+    reason: "Plan: renamed from Use case → Issues"
   )
 end

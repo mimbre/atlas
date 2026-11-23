@@ -140,7 +140,8 @@
           {"from":"6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052","to":"f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda","states":{"author":"working","done":"done"},"reason":"Slice 6: built by an agent, reviewed, fixed once and merged by its supervisor"},
           {"from":"f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda","to":"6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","working":"working"},"reason":"The review's follow-ups become new issues under its use case; same states"},
           {"from":"6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c","to":"21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","working":"working"},"reason":"A result without changes goes to its supervisor, not to a pull request; one state more"},
-          {"from":"21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20","to":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Issue → Pull request: its label is its signature"}
+          {"from":"21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20","to":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Issue → Pull request: its label is its signature"},
+          {"from":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","to":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Build: renamed from Issue → Pull request"}
         ],
         "subject": "issue",
         "projection": {
@@ -364,7 +365,8 @@
         "choices": [],
         "choice_states": [],
         "migrations": [
-          {"from":"f3af151326510e0e56885c3e76a3da8e50c061edbb28cededb570791013f21f9","to":"22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Scene → Use cases: designed use cases, decisions read first, the producer's note"}
+          {"from":"f3af151326510e0e56885c3e76a3da8e50c061edbb28cededb570791013f21f9","to":"22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Scene → Use cases: designed use cases, decisions read first, the producer's note"},
+          {"from":"22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1","to":"bf01ce6f998aa561aeed3447ae41c1bd35bd2df082399358b59a2353a20a9ba9","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Design: renamed from Scene → Use cases"}
         ],
         "subject": "scene",
         "projection": {
@@ -390,7 +392,8 @@
         "choices": [],
         "choice_states": [],
         "migrations": [
-          {"from":"95c7c942d555713bab940479905782881b0bcb706efc832d83c8f921519602e4","to":"1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3","states":{"accepted":"accepted","breaking_down":"breaking_down","building":"building","rework":"building","to_test":"to_accept"},"reason":"Accept the scene: its producer accepts it, or a new round of its break-down starts"}
+          {"from":"95c7c942d555713bab940479905782881b0bcb706efc832d83c8f921519602e4","to":"1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3","states":{"accepted":"accepted","breaking_down":"breaking_down","building":"building","rework":"building","to_test":"to_accept"},"reason":"Accept the scene: its producer accepts it, or a new round of its break-down starts"},
+          {"from":"1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3","to":"0b7d903c06f4bfcc82b632475f3274cb32542868402a7e8959ea5407affe0d10","states":{"accepted":"accepted","breaking_down":"breaking_down","building":"building","to_accept":"to_accept"},"reason":"Accept: renamed from Accept the scene"}
         ],
         "subject": "scene",
         "projection": {
@@ -430,7 +433,8 @@
         "choices": [],
         "choice_states": [],
         "migrations": [
-          {"from":"d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7","to":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Use case → Issues: its agent reads the use case's Design part"}
+          {"from":"d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7","to":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Use case → Issues: its agent reads the use case's Design part"},
+          {"from":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","to":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: renamed from Use case → Issues"}
         ],
         "subject": "use_case",
         "projection": {
@@ -595,7 +599,7 @@
         "issue": [
           {
             "name": "build",
-            "label": "Issue → Pull request",
+            "label": "Build",
             "states": [
               "working",
               "reviewing",
@@ -613,7 +617,7 @@
         "break_down_use_case": [
           {
             "name": "break_down",
-            "label": "Use case → Issues",
+            "label": "Plan",
             "states": [
               "break_down",
               "accepting"
@@ -624,7 +628,7 @@
         "break_down_scene": [
           {
             "name": "break_down",
-            "label": "Scene → Use cases",
+            "label": "Design",
             "states": [
               "break_down",
               "accepting"

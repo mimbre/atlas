@@ -331,9 +331,8 @@ defmodule Model.SupervisionTest do
                AtlasControl.Shell.boot(m, person, to)
     end
 
-    # Open for you groups by flow, each labelled by its signature.
-    assert Enum.map(tabs["open_for_you"]["groups"], & &1["label"]) ==
-             ["Scene → Use cases", "Use case → Issues", "Issue → Pull request"]
+    # Open for you groups by flow, each labelled by its name.
+    assert Enum.map(tabs["open_for_you"]["groups"], & &1["label"]) == ["Design", "Plan", "Build"]
   end
 
   defp start_page_assigned?, do: match?(%{relation: _}, AtlasEyra.start_page().assigned)

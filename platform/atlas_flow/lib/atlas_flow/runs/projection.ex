@@ -323,7 +323,7 @@ defmodule AtlasFlow.Runs.Projection do
             "values" => values,
             "version" => nil,
             "by" => "flow",
-            "cause" => cause(name, current, owner),
+            "cause" => cause(runner.flows[name], current, owner),
             "was" =>
               Map.merge(
                 Map.new(Map.keys(values), &{&1, fact["values"][&1]}),
@@ -409,10 +409,11 @@ defmodule AtlasFlow.Runs.Projection do
   defp owner(%{"owner" => %{"key" => key}}), do: key
   defp owner(_current), do: nil
 
-  defp cause(name, current, owner) do
+  # Why it moved, naming the flow by its label (such as "Design"), else its name.
+  defp cause(flow, current, owner) do
     why = current["why"] || current["name"]
     to = if owner, do: " → #{owner}", else: ""
-    "Flow #{name}: #{why}#{to}"
+    "Flow #{flow.label() || flow.name()}: #{why}#{to}"
   end
 
   # The fact shows the run's state already, and its owner was set by hand before the run

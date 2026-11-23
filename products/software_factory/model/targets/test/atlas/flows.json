@@ -67,7 +67,7 @@
   "flows": {
     "accept_scene": {
       "initial": "building",
-      "label": "Accept the scene",
+      "label": "Accept",
       "owner": {
         "default": {
           "key": "coordinator",
@@ -172,7 +172,7 @@
           ],
           "creates": [],
           "final": false,
-          "label": "Accept the scene",
+          "label": "Accept",
           "owner": {
             "default": {
               "config": "decider",
@@ -182,7 +182,7 @@
             "via": "assignment"
           },
           "present": {
-            "expected": "Accept the scene",
+            "expected": "Accept",
             "todo": {
               "answers": [
                 {
@@ -323,7 +323,7 @@
     },
     "break_down_scene": {
       "initial": "break_down",
-      "label": "Scene → Use cases",
+      "label": "Design",
       "owner": {
         "default": {
           "key": "coordinator",
@@ -478,7 +478,7 @@
     },
     "break_down_use_case": {
       "initial": "break_down",
-      "label": "Use case → Issues",
+      "label": "Plan",
       "owner": {
         "default": {
           "key": "coordinator",
@@ -992,7 +992,7 @@
     "issue": {
       "channel": "work",
       "initial": "working",
-      "label": "Issue → Pull request",
+      "label": "Build",
       "owner": {
         "default": {
           "key": "coordinator",
@@ -2827,6 +2827,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "4ba46cf5f95c06556158687f5b098e294855b50395fbd9ab9b1896253493612e",
+  "rela_flows_sha256": "d38feca67f322df893f7b2725f6c2df2ff77612b3c89436c83ea1ce2db74a9d4",
   "writer": "system:atlas-flow"
 }
