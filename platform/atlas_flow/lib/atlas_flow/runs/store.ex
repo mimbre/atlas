@@ -208,6 +208,10 @@ defmodule AtlasFlow.Runs.Store do
           |> Map.put("parents", parents(model.relations()))
           |> Map.put("relations", model.relations())
           |> Map.put("ids", if(function_exported?(model, :ids, 0), do: model.ids(), else: %{}))
+          |> Map.put(
+            "read_first",
+            if(function_exported?(model, :read_first, 2), do: &model.read_first/2)
+          )
 
         {config,
          validate_selection(config, flows) || two_writers(selection) || refused || unsupported}
@@ -1569,7 +1573,8 @@ defmodule AtlasFlow.Runs.Store do
       number: fn -> Task.number(spec, run) end,
       now: now,
       parents: config["parents"] || %{},
-      ids: config["ids"] || %{}
+      ids: config["ids"] || %{},
+      read_first: config["read_first"]
     }
 
     case Task.step(run, spec, subject, ctx) do

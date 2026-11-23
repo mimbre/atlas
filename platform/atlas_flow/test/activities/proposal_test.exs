@@ -35,6 +35,8 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
     entity :item, label: "Item", plural: "items", id_type: :manual, id_prefix: "IT-" do
       field(:title, :string)
       field(:description, :string)
+      field(:size, :string)
+      field(:origin, :string)
     end
 
     relation(:owned_by, label: "owned by", from: [:crate], to: [:robot, :clerk], max_outgoing: 1)
@@ -91,7 +93,7 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
           input: [repository: "example.org/acme/proposal", base: "develop"],
           instructions: "Sort the crate.",
           fields: [:title],
-          creates: [kind: :item, file: "items.json"],
+          creates: [kind: :item, file: "items.json", fields: [:size], values: [origin: "robot"]],
           records: [kind: "task", relation: "task_of"],
           machinery: "robot",
           on: [completed: :sorted, check_failed: :sorted, stuck: :stuck, abandoned: :stuck]
@@ -279,14 +281,27 @@ defmodule AtlasFlow.Activities.ProposalTest do
     run = intended(c, "C-1")
     assert run["pending"]["task"]["work"]["instructions"] =~ "items.json"
 
-    proposal = [%{"title" => "One", "description" => "The first."}, %{"title" => "Two"}]
+    # Each item with the texts the creates' fields name (others are dropped), and its values.
+    proposal = [
+      %{"title" => "One", "description" => "The first.", "size" => "L", "colour" => "red"},
+      %{"title" => "Two"}
+    ]
+
     sorted = finish(c, "C-1", [{"items.json", JSON.encode!(proposal)}])
     assert {sorted["state"], sorted["status"]} == {"sorted", "completed"}
 
     one = FakeFacts.get("item", "IT-08")
-    assert one["values"] == %{"title" => "One", "description" => "The first."}
+
+    assert one["values"] == %{
+             "title" => "One",
+             "description" => "The first.",
+             "size" => "L",
+             "origin" => "robot"
+           }
+
+    assert run["pending"]["task"]["work"]["instructions"] =~ "its `size`"
     assert one["links"]["in_crate"] == ["C-1"]
-    assert FakeFacts.get("item", "IT-09")["values"] == %{"title" => "Two"}
+    assert FakeFacts.get("item", "IT-09")["values"] == %{"title" => "Two", "origin" => "robot"}
     assert FakeFacts.get("item", "IT-10") == nil
   end
 

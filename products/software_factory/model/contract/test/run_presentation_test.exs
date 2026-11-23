@@ -2,8 +2,8 @@ defmodule Model.RunPresentationTest do
   @moduledoc """
   How Atlas's work is presented from its runs (slice 13), as Facts derives it
   (`AtlasFacts.Presentation`) from the composition's presenters and Control shows it:
-  an accepted decision's follow-through, a reopened use case, and Accept on a use case
-  page that ends its run as the decider's own Accept does.
+  an accepted decision's follow-through, a reopened use case, and Accept on a scene page
+  that ends its run as its producer's own Accept does.
   """
   use ExUnit.Case, async: true
 
@@ -104,55 +104,61 @@ defmodule Model.RunPresentationTest do
              nil
   end
 
-  test "Accept on the page of a use case in test writes the verdict the run ends on" do
-    use_case = %{
-      "key" => "UC-Atlas-01",
-      "values" => %{"design_status" => "accepted", "verdict" => "none"},
-      "links" => %{"assignment" => ["AS-UC-Atlas-01"]}
+  test "Accept on the page of a scene to accept writes the verdict the run ends on" do
+    scene = %{
+      "key" => "SC-Atlas-01",
+      "values" => %{"phase" => "accept", "verdict" => "none"},
+      "links" => %{"assignment" => ["AS-SC-Atlas-01"]}
     }
 
     tested =
       present(
-        "use_case",
-        assignment("UC-Atlas-01", %{"flow_state" => "to_test", "expected" => "Test it"}, ["melle"]),
-        use_case,
-        [run("accept_use_case", "active", "to_test")]
+        "scene",
+        assignment(
+          "SC-Atlas-01",
+          %{"flow_state" => "to_accept", "expected" => "Accept the scene"},
+          [
+            "melle"
+          ]
+        ),
+        scene,
+        [run("accept_scene", "active", "to_accept")]
       )
 
     answers =
-      for {kind, read} <- Pages.reads({:set, "use_case", "UC-Atlas-01", "accepted_by"}, @m) do
+      for {kind, read} <- Pages.reads({:set, "scene", "SC-Atlas-01", "accepted_by"}, @m) do
         case {kind, read} do
-          {"use_case", %{"key" => _}} -> %{"fact" => use_case}
+          {"scene", %{"key" => _}} -> %{"fact" => scene}
           {"assignment", %{"key" => _}} -> %{"fact" => tested}
           _ -> %{"facts" => []}
         end
       end
 
     assert %{"self" => "accepted_by", "values" => values} =
-             Pages.self_answer(@m, "use_case", "accepted_by", answers)
+             Pages.self_answer(@m, "scene", "accepted_by", answers)
 
     # What it writes is what the decider's Accept writes: the run goes to accepted.
     assert values == %{"verdict" => "accept"}
-    build = subflow("accept_use_case")
-    assert build.next("to_test", Map.merge(use_case["values"], values), nil) == {:to, "accepted"}
+    accept = subflow("accept_scene")
+    assert accept.next("to_accept", Map.merge(scene["values"], values), nil) == {:to, "accepted"}
 
     # Outside that state, Accept sets the link alone.
     building =
       present(
-        "use_case",
-        assignment("UC-Atlas-01", %{"flow_state" => "building", "expected" => "Build it"}, [
+        "scene",
+        assignment("SC-Atlas-01", %{"flow_state" => "building", "expected" => "Build it"}, [
           "coordinator"
         ]),
-        use_case,
-        [run("accept_use_case", "active", "building")]
+        scene,
+        [run("accept_scene", "active", "building")]
       )
 
     answers =
       Enum.map(answers, fn
-        %{"fact" => %{"key" => "AS-UC-Atlas-01"}} -> %{"fact" => building}
+        %{"fact" => %{"key" => "AS-SC-Atlas-01"}} -> %{"fact" => building}
         other -> other
       end)
 
-    assert Pages.self_answer(@m, "use_case", "accepted_by", answers) == nil
+    assert Pages.self_answer(@m, "scene", "accepted_by", answers) == nil
   end
 end

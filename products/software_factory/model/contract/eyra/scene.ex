@@ -1,22 +1,28 @@
 defmodule Model.Scene do
   @moduledoc """
-  A scene, and its two flows. A person supervises a flow, never a step (D-0099): each
-  pickup point is a subflow of its own.
+  A scene, and its two flows: the start and the end of the scene pipeline (`pipeline
+  :scene` in `Model.AtlasEyra`). A person supervises a flow, never a step (D-0099): each
+  pickup point is a subflow of its own; the pipeline is horseshoe-shaped: it starts with
+  the scene, its producer's input, and ends with its producer's acceptance.
 
-    * `break_down_scene`: a person picks it up (its span) and hands it to a machinery:
+    * `break_down_scene` "Scene → Use cases": a person picks it up (its span) and hands it to a machinery:
       one agent on the supervisor's Runtime reads the scene and a checkout of the
       repository and writes the use cases it proposes to a file in its result
-      (`creates:`). Flow, the only writer, makes them under the scene, and "Accept it"
+      (`creates:`), each with its Design part, designed within the existing architecture
+      (the decisions it reads first) and a note where it would need a new architecture
+      choice. Flow, the only writer, makes them under the scene, designed (`design_status:
+      accepted`), and "Accept it"
       (`accepting`) goes to the supervisor, who looks at them, changes, removes or adds
       any by hand, and accepts the break-down. Its run ends there and hands the scene to
-      `accept_scene` (`phase: accept`).
-    * `accept_scene`: builds it until none of its use cases is open (`children`,
-      `open_children`: the composition's count of the use cases in the scene, and of
-      those without a completed `accept_use_case` run), then the configured decider tests
-      it and accepts it, or rejects it with a note (`rework`, until a new open use case
-      sends it back to building). With no use case under it, it hands the scene back to
-      a new round of `break_down_scene` (`phase: break_down`) and waits for it
-      (`breaking_down`).
+      `accept_scene` (`phase: accept`). After a "Not accepted", its agent reads the
+      producer's note and proposes only what is missing: nothing under the scene is redone.
+    * `accept_scene` "Accept the scene": waits until every use case under it is accepted
+      (`children`, `open_children`: the composition's count of the use cases in the scene,
+      and of those without an accepted `accept_use_case` run), then goes to its producer
+      (the configured decider until a scene records who produced it). Accept ends the
+      pipeline; Not accepted keeps the producer's note (`note`) and starts a new round of
+      `break_down_scene` (`phase: break_down`), which this run waits for
+      (`breaking_down`). So does a scene with nothing under it.
 
   `phase` says which of the two has the scene: their admissions are disjoint, so one
   writer presents a scene at any moment. A new scene starts in `break_down`; one from
@@ -34,11 +40,12 @@ defmodule Model.Scene do
   )
 
   type(:pipeline_phase,
-    values: [:break_down, :accept],
-    labels: [break_down: "Break down", accept: "Accept"],
+    values: [:break_down, :accept, :accepted],
+    labels: [break_down: "Break down", accept: "Accept", accepted: "Accepted"],
     descriptions: [
       break_down: "Its break-down flow has it: it is broken down into what builds it.",
-      accept: "Its acceptance flow has it: what is under it is built, then it is accepted."
+      accept: "Its acceptance flow has it: what is under it is built, then it is accepted.",
+      accepted: "Its acceptance flow accepted it."
     ]
   )
 
@@ -68,6 +75,12 @@ defmodule Model.Scene do
       label: "Phase"
     )
 
+    field(:note, :string,
+      description: "Its producer's note when it was not accepted; its next break-down reads it",
+      multiline: true,
+      label: "Producer's note"
+    )
+
     field(:children, :integer, description: "Flow: how many use cases are in it")
     field(:open_children, :integer, description: "Flow: how many of them are not finished")
 
@@ -93,19 +106,20 @@ defmodule Model.Scene do
     completion(by: :accepted_by)
   end
 
-  subflow :break_down_scene, label: "Break down scene", subject: :scene do
+  subflow :break_down_scene, label: "Scene → Use cases", subject: :scene do
     run_as("system:sf-flow")
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
     start(:predicate, when: "entity.phase == 'break_down'")
     initial(:break_down)
-    supervise(:break_down, label: "Break down scene", states: [:break_down, :accepting])
+    supervise(:break_down, label: "Scene → Use cases", states: [:break_down, :accepting])
 
     state :break_down, label: "Break it down into use cases" do
       present(
         expected: "Break it down into use cases",
-        why: "nothing is under it yet",
+        why: "it is to be broken down",
         instructions:
-          "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
+          "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery.",
+        section: [field: :note, heading: "Its producer's note"]
       )
 
       task(:plan,
@@ -114,9 +128,15 @@ defmodule Model.Scene do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Break the scene below into the use cases that build it. The repository you are given, a Git checkout of develop, is what they build on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then.",
-        fields: [:title, :description],
-        creates: [kind: :use_case, file: "use_cases.json"],
+          "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
+        fields: [:title, :description, :note],
+        read_first: true,
+        creates: [
+          kind: :use_case,
+          file: "use_cases.json",
+          fields: [:design, :note],
+          values: [design_status: :accepted]
+        ],
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
@@ -150,7 +170,7 @@ defmodule Model.Scene do
     end
   end
 
-  subflow :accept_scene, label: "Build, test and accept", subject: :scene do
+  subflow :accept_scene, label: "Accept the scene", subject: :scene do
     run_as("system:sf-flow")
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
     start(:predicate, when: "entity.phase == 'accept'")
@@ -159,60 +179,56 @@ defmodule Model.Scene do
     state :building, label: "Build it" do
       present(
         expected: "Build it",
-        why: "not all under it is completed",
+        why: "not all under it is accepted",
         instructions:
-          "Build what is under it; Flow hands it on for testing once all of it is completed."
+          "Its use cases are designed, broken down and built; Flow hands it to its producer once all of them are accepted."
       )
 
       branch(to: :breaking_down, by: :atlas, when: "entity.children == 0")
-      branch(to: :to_test, by: :atlas, when: "entity.open_children == 0")
+      branch(to: :to_accept, by: :atlas, when: "entity.open_children == 0")
     end
 
-    # Nothing under it: a new round of its break-down has it, and this run waits for it.
+    # A new round of its break-down has it (nothing under it, or not accepted), and this
+    # run waits for it.
     state :breaking_down, label: "Being broken down" do
       set(phase: :break_down)
 
       present(
         expected: "Wait for its break-down",
-        why: "nothing is under it",
+        why: "it is broken down again",
         instructions: "Its break-down flow has it; Flow hands it back once that is accepted."
       )
 
       branch(to: :building, when: "entity.phase == 'accept'")
     end
 
-    state :to_test, label: "Test it" do
+    state :to_accept, label: "Accept the scene" do
       owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
       set(verdict: :none)
 
       present(
-        expected: "Test it",
-        why: "all under it is completed",
-        instructions: "Try the test below, then accept it, or reject it with a note.",
-        section: [field: :description, heading: "Melle can test"],
+        expected: "Accept the scene",
+        why: "all under it is accepted",
+        instructions:
+          "Try the scene as its actor would, then accept it, or say why not: its break-down then proposes what is missing, and nothing under it is redone.",
+        section: [field: :description, heading: "The scene"],
         answers: [
           [
             key: "a",
             label: "Accept",
             change: %{self: :accepted_by, values: %{verdict: :accept}}
           ],
-          [key: "f", label: "Reject", note: true, change: %{values: %{verdict: :reject}}]
+          [
+            key: "f",
+            label: "Not accepted",
+            note: true,
+            change: %{values: %{verdict: :reject, note: "$note"}}
+          ]
         ]
       )
 
       branch(to: :accepted, when: "entity.verdict == 'accept'")
-      branch(to: :rework, when: "entity.verdict == 'reject'")
-      branch(to: :building, by: :atlas, when: "entity.open_children > 0")
-    end
-
-    state :rework, label: "Rework it" do
-      present(
-        expected: "Rework: {note}",
-        why: "reopened",
-        instructions:
-          "Rework it as the note says; Flow hands it back for testing once all under it is completed."
-      )
-
+      branch(to: :breaking_down, when: "entity.verdict == 'reject'")
       branch(to: :building, by: :atlas, when: "entity.open_children > 0")
     end
 
@@ -238,10 +254,9 @@ defmodule Model.Scene do
     restart_by: [:owner, :decider]
   )
 
-  # A scene from before the split (no `phase`; on prod 9 building, 2 waiting for their
-  # break-down, none picked up) is the acceptance's: a completed one is completed history,
-  # any other joins `building`, whose count hands one with nothing under it to a new
-  # break-down. Their runs of the removed test_and_accept_scene are no longer selected.
+  # A scene from before the split has no `phase` and is the acceptance's: a completed one
+  # is completed history, any other joins `building`, whose count hands one with nothing
+  # under it to a new break-down.
   select(:accept_scene,
     choices: [],
     projection: @projection,
@@ -252,5 +267,30 @@ defmodule Model.Scene do
     ],
     reopen: :explicit,
     restart_by: [:owner, :decider]
+  )
+
+  # "Scene → Use cases": its agent designs each use case it proposes, reads the decisions
+  # first and the producer's note; a run waiting for its pickup or its supervisor stays
+  # where it is.
+  migrate(:break_down_scene,
+    from: "f3af151326510e0e56885c3e76a3da8e50c061edbb28cededb570791013f21f9",
+    to: "22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1",
+    states: :same,
+    reason: "Scene → Use cases: designed use cases, decisions read first, the producer's note"
+  )
+
+  # "Accept the scene": its test became its producer's acceptance; a rejection now starts
+  # a new round of its break-down instead of a rework by hand.
+  migrate(:accept_scene,
+    from: "95c7c942d555713bab940479905782881b0bcb706efc832d83c8f921519602e4",
+    to: "1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3",
+    states: [
+      accepted: :accepted,
+      breaking_down: :breaking_down,
+      building: :building,
+      rework: :building,
+      to_test: :to_accept
+    ],
+    reason: "Accept the scene: its producer accepts it, or a new round of its break-down starts"
   )
 end

@@ -78,7 +78,7 @@ defmodule Model.PipelineRunsTest do
     spans = Model.AtlasEyra.supervision()["spans"]
 
     assert Enum.sort(Map.keys(spans)) ==
-             ~w(break_down_scene break_down_use_case design_and_accept issue)
+             ~w(break_down_scene break_down_use_case issue)
 
     for env <- @envs, {name, [span]} <- spans do
       f = flow(env, name)
@@ -86,7 +86,18 @@ defmodule Model.PipelineRunsTest do
     end
   end
 
-  test "a scene: its break-down, then its acceptance; nothing under it, a new round" do
+  test "the scene pipeline is horseshoe-shaped: it starts and ends on the scene" do
+    assert [%{name: :scene, flows: flows}] = Model.AtlasEyra.__composition__().pipelines
+
+    assert flows ==
+             ~w(break_down_scene break_down_use_case issue accept_use_case accept_scene)a
+
+    # An issue counts as done only when its run ended done, never stuck.
+    count = Enum.find(Model.AtlasEyra.composition()["counts"], &(&1["child"] == "issue"))
+    assert count["done"] == ["done"]
+  end
+
+  test "a scene: its break-down, then its producer's acceptance; not accepted, a new round" do
     for env <- @envs do
       assert writer(env, "scene", %{"phase" => "break_down"}) == "break_down_scene"
       assert writer(env, "scene", %{"phase" => "accept"}) == "accept_scene"
@@ -107,11 +118,27 @@ defmodule Model.PipelineRunsTest do
       {:ok, again} = step(env, "break_down_scene", round, "SC-1", %{"phase" => "break_down"})
       assert {again["generation"], at(again)} == {2, {"break_down", "active"}}
 
-      # Broken down again: built; all its use cases accepted: tested.
+      # Broken down again: built; all its use cases accepted: to its producer.
       {:ok, building} = step(env, "accept_scene", sent(waiting), "SC-1", accept)
       assert at(building) == {"building", "active"}
-      tested = counted(env, "accept_scene", sent(building), "SC-1", accept, 2, 0)
-      assert at(tested) == {"to_test", "active"}
+      to_accept = sent(counted(env, "accept_scene", sent(building), "SC-1", accept, 2, 0))
+      assert at(to_accept) == {"to_accept", "active"}
+
+      # Not accepted: the producer's note stays on the scene, and a new round of its
+      # break-down starts, which this run waits for.
+      rejected = Map.merge(accept, %{"verdict" => "reject", "note" => "Add an export"})
+      {:ok, rejected_run} = step(env, "accept_scene", to_accept, "SC-1", rejected)
+      assert at(rejected_run) == {"breaking_down", "active"}
+      assert written(rejected_run) == [%{"phase" => "break_down"}]
+      # Its next break-down's agent reads the producer's note.
+      {:task, spec} = flow(env, "break_down_scene").mechanism("break_down")
+      assert "note" in spec["fields"]
+
+      # Accept ends the pipeline.
+      {:ok, done} =
+        step(env, "accept_scene", to_accept, "SC-1", Map.put(accept, "verdict", "accept"))
+
+      assert at(done) == {"accepted", "completed"}
 
       # From before the split: building, or accepted history.
       assert at(new(env, "accept_scene", "SC-2", %{})) == {"building", "active"}
@@ -120,30 +147,61 @@ defmodule Model.PipelineRunsTest do
     end
   end
 
-  test "a use case: its design, its break-down, then its acceptance" do
+  test "Scene → Use cases proposes designed use cases, with the decisions read first" do
     for env <- @envs do
-      designed = %{"design_status" => "accepted", "phase" => "break_down"}
-      assert writer(env, "use_case", %{"design_status" => "writing"}) == "design_and_accept"
-      assert writer(env, "use_case", designed) == "break_down_use_case"
-      accept = %{designed | "phase" => "accept"}
-      assert writer(env, "use_case", accept) == "accept_use_case"
-      assert writer(env, "use_case", %{"design_status" => "approved"}) == "accept_use_case"
-      assert writer(env, "use_case", %{}) == "accept_use_case"
+      {:task, spec} = flow(env, "break_down_scene").mechanism("break_down")
+      assert spec["read_first"] == true
 
-      broken_down(env, "break_down_use_case", "UC-1", designed)
+      assert spec["creates"] == %{
+               "kind" => "use_case",
+               "file" => "use_cases.json",
+               "fields" => ["design", "note"],
+               "values" => %{"design_status" => "accepted"}
+             }
+
+      # Use case → Issues reads its Design part.
+      {:task, spec} = flow(env, "break_down_use_case").mechanism("break_down")
+      assert "design" in spec["fields"]
+    end
+  end
+
+  test "a use case: Use case → Issues, then accepted by itself once its issues are done" do
+    for env <- @envs do
+      new_one = %{"phase" => "break_down", "design_status" => "accepted"}
+      assert writer(env, "use_case", new_one) == "break_down_use_case"
+      accept = %{new_one | "phase" => "accept"}
+      assert writer(env, "use_case", accept) == "accept_use_case"
+      # From before, its design flow gone or not: the acceptance's.
+      for old <- [%{"design_status" => "writing"}, %{"design_status" => "approved"}, %{}],
+          do: assert(writer(env, "use_case", old) == "accept_use_case")
+
+      broken_down(env, "break_down_use_case", "UC-1", new_one)
       building = new(env, "accept_use_case", "UC-1", accept)
       assert at(building) == {"building", "active"}
 
-      assert at(counted(env, "accept_use_case", building, "UC-1", accept, 2, 0)) ==
-               {"to_test", "active"}
+      # All its issues done: accepted by itself, which completes it.
+      done = counted(env, "accept_use_case", building, "UC-1", accept, 2, 0)
+      assert at(done) == {"accepted", "completed"}
+      assert written(done) == [%{"phase" => "accepted"}]
 
-      # Approved before the split, nothing under it: imported, then broken down anew.
-      old = %{"design_status" => "approved"}
+      # One whose design was still being written, nothing under it: imported, then to
+      # Use case → Issues, which breaks it down from its description.
+      old = %{"design_status" => "writing"}
       imported = new(env, "accept_use_case", "UC-2", old)
       assert imported["last_input"]["import"]
       waiting = counted(env, "accept_use_case", imported, "UC-2", old, 0, 0)
       assert at(waiting) == {"breaking_down", "active"}
       assert written(waiting) == [%{"phase" => "break_down"}]
+
+      started =
+        new(
+          env,
+          "break_down_use_case",
+          "UC-2",
+          %{old | "design_status" => "writing"} |> Map.put("phase", "break_down")
+        )
+
+      assert at(started) == {"break_down", "active"}
     end
   end
 end

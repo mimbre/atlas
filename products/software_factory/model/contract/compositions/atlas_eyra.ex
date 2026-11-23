@@ -9,10 +9,14 @@ defmodule Model.AtlasEyra do
     * a pull request's review and test report their outcome to it (`review_outcome`,
       `test_outcome`); a result from a review or test that a newer one replaced is
       dropped;
-    * a use case counts its issues, and a scene its use cases (`children`, and
-      `open_children`: those whose subflow has not ended), to know when all are built;
+    * a use case counts its issues (`children`, and `open_children`: those whose run did
+      not end `done`), and a scene its use cases (those not accepted), to know when all
+      are built;
     * a decision tallies the work based on it (`work`), so its follow-through ends once
       something carries it out.
+
+  The scene pipeline (`pipeline :scene`) connects the subflows from a scene's break-down
+  to its producer's acceptance (D-0099).
 
   `mix model.gen` generates the Rela project (`targets/rela/`) and the targets from this module.
   """
@@ -308,12 +312,34 @@ defmodule Model.AtlasEyra do
       current: {:revision, :revision}
     )
 
-    count(:issue, to: {:use_case, :in_use_case}, all: :children, open: :open_children)
+    # An issue counts as done only when its run ended `done` (merged, or closed with nothing
+    # to merge), never `stuck`: a use case is accepted by itself once all are done.
+    count(:issue,
+      to: {:use_case, :in_use_case},
+      all: :children,
+      open: :open_children,
+      done: [:done]
+    )
 
     count(:accept_use_case,
       to: {:scene, :in_scene},
       all: :children,
       open: :open_children
+    )
+
+    # The scene pipeline (D-0099): Scene → Use cases (designed), Use case → Issues, Issue →
+    # Pull request, each use case accepted once its issues are done, and the producer's
+    # acceptance of the scene, whose Not accepted starts a new round of Scene → Use cases.
+    # Only its first three flows are picked up, never the pipeline.
+    pipeline(:scene,
+      label: "Scene pipeline",
+      flows: [
+        :break_down_scene,
+        :break_down_use_case,
+        :issue,
+        :accept_use_case,
+        :accept_scene
+      ]
     )
 
     # An accepted decision's work: every scene, use case and issue based on it.

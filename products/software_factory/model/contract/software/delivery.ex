@@ -39,7 +39,7 @@ defmodule Model.Delivery do
     set_by: [:migration, :connector]
   )
 
-  subflow :issue, label: "Issue", subject: :issue do
+  subflow :issue, label: "Issue → Pull request", subject: :issue do
     run_as "system:sf-flow"
 
     owner via: :assignment,
@@ -52,7 +52,7 @@ defmodule Model.Delivery do
     initial :working
     # Its pull request is its supervisor's to merge: the span holds until it is merged.
     supervise :build,
-      label: "Build",
+      label: "Issue → Pull request",
       states: [:working, :reviewing, :fixing, :publishing, :merging, :unchanged],
       with: [:package, :pull_request]
 
@@ -209,4 +209,12 @@ defmodule Model.Delivery do
     final :done, label: "Done"
     final :stuck, label: "Stuck"
   end
+
+  # "Issue → Pull request": its label is its signature; nothing else changed.
+  migrate(:issue,
+    from: "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
+    to: "7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182",
+    states: :same,
+    reason: "Issue → Pull request: its label is its signature"
+  )
 end
