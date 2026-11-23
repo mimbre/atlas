@@ -3,8 +3,17 @@
   "subflows": {
     "accept_scene": {
       "prod": {
-        "digest": "95c7c942d555713bab940479905782881b0bcb706efc832d83c8f921519602e4",
+        "digest": "1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3",
         "history": [
+          {
+            "digest": "1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3",
+            "states": [
+              "accepted",
+              "breaking_down",
+              "building",
+              "to_accept"
+            ]
+          },
           {
             "digest": "95c7c942d555713bab940479905782881b0bcb706efc832d83c8f921519602e4",
             "states": [
@@ -20,13 +29,21 @@
           "accepted",
           "breaking_down",
           "building",
-          "rework",
-          "to_test"
+          "to_accept"
         ]
       },
       "test": {
-        "digest": "95c7c942d555713bab940479905782881b0bcb706efc832d83c8f921519602e4",
+        "digest": "1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3",
         "history": [
+          {
+            "digest": "1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3",
+            "states": [
+              "accepted",
+              "breaking_down",
+              "building",
+              "to_accept"
+            ]
+          },
           {
             "digest": "95c7c942d555713bab940479905782881b0bcb706efc832d83c8f921519602e4",
             "states": [
@@ -42,14 +59,13 @@
           "accepted",
           "breaking_down",
           "building",
-          "rework",
-          "to_test"
+          "to_accept"
         ]
       }
     },
     "accept_use_case": {
       "prod": {
-        "digest": "151dd750a7eaf0d154c02949d366125d1b30c84c546353c20c3f73b17e1bd578",
+        "digest": "80bad80a42f6b5651f0c5a122fe566de2d6b6af26c344a73ebf30fc131c021ad",
         "history": [
           {
             "digest": "151dd750a7eaf0d154c02949d366125d1b30c84c546353c20c3f73b17e1bd578",
@@ -60,18 +76,24 @@
               "rework",
               "to_test"
             ]
+          },
+          {
+            "digest": "80bad80a42f6b5651f0c5a122fe566de2d6b6af26c344a73ebf30fc131c021ad",
+            "states": [
+              "accepted",
+              "breaking_down",
+              "building"
+            ]
           }
         ],
         "states": [
           "accepted",
           "breaking_down",
-          "building",
-          "rework",
-          "to_test"
+          "building"
         ]
       },
       "test": {
-        "digest": "151dd750a7eaf0d154c02949d366125d1b30c84c546353c20c3f73b17e1bd578",
+        "digest": "80bad80a42f6b5651f0c5a122fe566de2d6b6af26c344a73ebf30fc131c021ad",
         "history": [
           {
             "digest": "151dd750a7eaf0d154c02949d366125d1b30c84c546353c20c3f73b17e1bd578",
@@ -82,21 +104,35 @@
               "rework",
               "to_test"
             ]
+          },
+          {
+            "digest": "80bad80a42f6b5651f0c5a122fe566de2d6b6af26c344a73ebf30fc131c021ad",
+            "states": [
+              "accepted",
+              "breaking_down",
+              "building"
+            ]
           }
         ],
         "states": [
           "accepted",
           "breaking_down",
-          "building",
-          "rework",
-          "to_test"
+          "building"
         ]
       }
     },
     "break_down_scene": {
       "prod": {
-        "digest": "f3af151326510e0e56885c3e76a3da8e50c061edbb28cededb570791013f21f9",
+        "digest": "22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1",
         "history": [
+          {
+            "digest": "22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
           {
             "digest": "f3af151326510e0e56885c3e76a3da8e50c061edbb28cededb570791013f21f9",
             "states": [
@@ -113,8 +149,16 @@
         ]
       },
       "test": {
-        "digest": "f3af151326510e0e56885c3e76a3da8e50c061edbb28cededb570791013f21f9",
+        "digest": "22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1",
         "history": [
+          {
+            "digest": "22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
           {
             "digest": "f3af151326510e0e56885c3e76a3da8e50c061edbb28cededb570791013f21f9",
             "states": [
@@ -133,8 +177,16 @@
     },
     "break_down_use_case": {
       "prod": {
-        "digest": "d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7",
+        "digest": "c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33",
         "history": [
+          {
+            "digest": "c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
           {
             "digest": "d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7",
             "states": [
@@ -151,8 +203,16 @@
         ]
       },
       "test": {
-        "digest": "d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7",
+        "digest": "c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33",
         "history": [
+          {
+            "digest": "c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
           {
             "digest": "d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7",
             "states": [
@@ -311,104 +371,6 @@
         ]
       }
     },
-    "design_and_accept": {
-      "prod": {
-        "digest": "49179c2eb7302bf8bd0b2ffee7780b36f6efc7c390cc09ddc171d1c417464829",
-        "history": [
-          {
-            "digest": "25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e",
-            "states": [
-              "accepted",
-              "design_gate",
-              "design_review",
-              "designing",
-              "dropped",
-              "needs_person",
-              "redesign",
-              "to_accept"
-            ]
-          },
-          {
-            "digest": "49179c2eb7302bf8bd0b2ffee7780b36f6efc7c390cc09ddc171d1c417464829",
-            "states": [
-              "accepted",
-              "accepting",
-              "designing"
-            ]
-          },
-          {
-            "digest": "57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571",
-            "states": [
-              "accepted",
-              "design_review",
-              "designing",
-              "redesign"
-            ]
-          },
-          {
-            "digest": "9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4",
-            "states": [
-              "accepted",
-              "accepting",
-              "designing"
-            ]
-          }
-        ],
-        "states": [
-          "accepted",
-          "accepting",
-          "designing"
-        ]
-      },
-      "test": {
-        "digest": "49179c2eb7302bf8bd0b2ffee7780b36f6efc7c390cc09ddc171d1c417464829",
-        "history": [
-          {
-            "digest": "25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e",
-            "states": [
-              "accepted",
-              "design_gate",
-              "design_review",
-              "designing",
-              "dropped",
-              "needs_person",
-              "redesign",
-              "to_accept"
-            ]
-          },
-          {
-            "digest": "49179c2eb7302bf8bd0b2ffee7780b36f6efc7c390cc09ddc171d1c417464829",
-            "states": [
-              "accepted",
-              "accepting",
-              "designing"
-            ]
-          },
-          {
-            "digest": "57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571",
-            "states": [
-              "accepted",
-              "design_review",
-              "designing",
-              "redesign"
-            ]
-          },
-          {
-            "digest": "9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4",
-            "states": [
-              "accepted",
-              "accepting",
-              "designing"
-            ]
-          }
-        ],
-        "states": [
-          "accepted",
-          "accepting",
-          "designing"
-        ]
-      }
-    },
     "follow_through": {
       "prod": {
         "digest": "7e8f40a075b06a9f8106efff63bc6eb11a1488e4a657c1c868ba3172092508b0",
@@ -453,7 +415,7 @@
     },
     "issue": {
       "prod": {
-        "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
+        "digest": "7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182",
         "history": [
           {
             "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
@@ -485,6 +447,19 @@
             "states": [
               "author",
               "done"
+            ]
+          },
+          {
+            "digest": "7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182",
+            "states": [
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "reviewing",
+              "stuck",
+              "unchanged",
+              "working"
             ]
           },
           {
@@ -527,7 +502,7 @@
         ]
       },
       "test": {
-        "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
+        "digest": "7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182",
         "history": [
           {
             "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
@@ -559,6 +534,19 @@
             "states": [
               "author",
               "done"
+            ]
+          },
+          {
+            "digest": "7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182",
+            "states": [
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "reviewing",
+              "stuck",
+              "unchanged",
+              "working"
             ]
           },
           {

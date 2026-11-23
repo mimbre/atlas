@@ -86,9 +86,11 @@ defmodule RelaDSL.Schema do
   `check` is the command (argv) run after the work, `instructions` the standard text,
   and `fields` the subject's fields added to it; `parents` the fields added of each of its
   parents (through the relations the model marks `parent`, nearest first), so the agent
-  knows why it is to be done. `records` names the kind and relation
+  knows why it is to be done; `read_first: true` adds what the model says is to be read
+  first about the subject (`read_first`). `records` names the kind and relation
   of its task records, `machinery` the kind of the assignee it runs for. A task that
-  proposes facts names them, `creates: [kind: kind, file: name]`: its agent writes a JSON
+  proposes facts names them, `creates: [kind: kind, file: name]` (with `fields:`, more of
+  the kind's text fields each may carry, and `values:`, set on each): its agent writes a JSON
   list of `{title, description}` to the file at the top of the repository, and Flow, the
   only writer, makes one fact of `kind` for each under the subject (through the kind's
   parent relation to it) once the task completed. One that writes a field of the subject
@@ -294,6 +296,7 @@ defmodule RelaDSL.Schema do
     :instructions,
     :fields,
     :parents,
+    :read_first,
     :creates,
     :writes,
     :follow_ups,
@@ -1349,9 +1352,12 @@ defmodule RelaDSL.Schema do
         pre <> "records: must be [kind: text, relation: text]",
       not (spec[:creates] == nil or
              (Keyword.keyword?(spec[:creates]) and
-                Enum.sort(Keyword.keys(spec[:creates])) == [:file, :kind] and
-                is_atom(spec[:creates][:kind]) and text?.(spec[:creates][:file]))) &&
-        pre <> "creates: must be [kind: kind, file: text]",
+                Keyword.keys(spec[:creates]) -- [:kind, :file, :fields, :values] == [] and
+                is_atom(spec[:creates][:kind]) and text?.(spec[:creates][:file]) and
+                Enum.all?(spec[:creates][:fields] || [], &is_atom/1) and
+                Keyword.keyword?(spec[:creates][:values] || []))) &&
+        pre <>
+          "creates: must be [kind: kind, file: text], with fields: [field] and values: [field: value]",
       not (spec[:writes] == nil or
              (Keyword.keyword?(spec[:writes]) and
                 Enum.sort(Keyword.keys(spec[:writes])) == [:field, :file] and
@@ -1361,6 +1367,7 @@ defmodule RelaDSL.Schema do
         pre <> "creates: and writes: exclude each other",
       not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
         pre <> "follow_ups: must be a kind",
+      spec[:read_first] not in [nil, true] && pre <> "read_first: is true or left out",
       not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
     ]
     |> Enum.filter(& &1)

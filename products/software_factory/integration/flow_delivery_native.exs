@@ -96,7 +96,7 @@ try do
   %{config: config, flows: flows, refusal: nil} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
 
   assert Enum.sort(Map.keys(config["selection"])) ==
-           ~w(accept_scene accept_use_case break_down_scene break_down_use_case decide design_and_accept follow_through issue pr_review pr_test pull_request to_do)
+           ~w(accept_scene accept_use_case break_down_scene break_down_use_case decide follow_through issue pr_review pr_test pull_request to_do)
 
   # GitHub, faked: the base branch and the commits the pull request will have.
   {:ok, gh} = FakeGitHub.start_link()

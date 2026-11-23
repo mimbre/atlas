@@ -36,6 +36,19 @@ defmodule RelaDSL.Schema.CompositionTest do
   """
 
   @link "link :receipt, to: {:letter, :receipt_of}, field: :reply, states: [signed: :signed, lost: :lost]\n"
+
+  # A second subflow on the letter, after its receipt: the letter's end of a pipeline.
+  @reply """
+  subflow :reply, subject: :letter do
+    owner default: {:team, :desk}
+    start :predicate, when: "entity.reply == 'signed'"
+    initial :read
+    state :read do
+      wait_for [:carrier], on: :seen, reset: false, yes: :done
+    end
+    final :done
+  end
+  """
   @count "count :receipt, to: {:letter, :receipt_of}, all: :receipts, open: :open_receipts\n"
 
   describe "a composition compiles to plain data" do
@@ -59,6 +72,17 @@ defmodule RelaDSL.Schema.CompositionTest do
              } = c.__composition__()
 
       assert c.__composition__().file =~ ~r/composition_\d+\.ex$/
+    end
+
+    test "a count's done states and a pipeline that ends on the subject it starts on" do
+      count = String.replace(@count, "\n", ", done: [:signed]\n")
+      pipeline = "pipeline :post, label: \"Post\", flows: [:letter, :receipt, :reply]\n"
+      c = compose!([@letter, @receipt, @reply], [@link, count, pipeline])
+
+      assert %{
+               counts: [%{done: [:signed]}],
+               pipelines: [%{name: :post, label: "Post", flows: [:letter, :receipt, :reply]}]
+             } = c.__composition__()
     end
   end
 
@@ -178,6 +202,33 @@ defmodule RelaDSL.Schema.CompositionTest do
         [@link, @count],
         1,
         "Kernel defines no subflows"
+      )
+    end
+
+    test "a count's done state the child does not end in" do
+      count = String.replace(@count, "\n", ", done: [:torn]\n")
+      refused([@letter, @receipt], [@link, count], 3, "subflow receipt has no final state torn")
+    end
+
+    test "a pipeline that does not end on the subject it starts on" do
+      pipeline = "pipeline :post, flows: [:letter, :receipt]\n"
+
+      refused(
+        [@letter, @receipt],
+        [@link, @count, pipeline],
+        4,
+        "pipeline post: starts on letter and ends on receipt"
+      )
+    end
+
+    test "a pipeline of a subflow the composition does not hold" do
+      pipeline = "pipeline :post, flows: [:letter, :parcel]\n"
+
+      refused(
+        [@letter, @receipt],
+        [@link, @count, pipeline],
+        4,
+        "pipeline post: parcel names no subflow"
       )
     end
   end

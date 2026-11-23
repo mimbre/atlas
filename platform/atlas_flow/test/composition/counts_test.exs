@@ -32,6 +32,16 @@ defmodule AtlasFlow.Composition.CountsTest do
              %{"cups" => 1, "open_cups" => 1}
   end
 
+  test "with done states, a child that ended in another final state is still open" do
+    count = Map.put(@count, "done", ["full"])
+    ended = fn state -> Map.put(run("completed"), "state", state) end
+
+    assert Counts.values(count, [cup("C-1"), cup("C-2")], %{
+             "C-1" => ended.("full"),
+             "C-2" => ended.("spilt")
+           }) == %{"cups" => 2, "open_cups" => 1}
+  end
+
   test "an empty aggregate is zero, and only what the parent does not hold changes" do
     values = Counts.values(@count, [], %{})
     assert values == %{"cups" => 0, "open_cups" => 0}
