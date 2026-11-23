@@ -115,9 +115,8 @@ defmodule AtlasFacts.PresentationReadTest do
 
     run(rela, "active", "weigh")
 
-    # Every read lists afresh: the test writes to rela directly.
     start_supervised!(
-      {AtlasFacts.Server, rela: rela, data_dir: dir, model: Parcels, collection_freshness_ms: 0}
+      {AtlasFacts.Server, rela: rela, data_dir: dir, model: Parcels, name: __MODULE__}
     )
 
     :ok = AtlasBus.attach("control/session-presentation-#{System.unique_integer([:positive])}")
@@ -140,7 +139,9 @@ defmodule AtlasFacts.PresentationReadTest do
     end
   end
 
+  # Every read loads the facts again: the test writes to rela directly.
   defp read(kind, content) do
+    :ok = AtlasFacts.Server.reload(__MODULE__)
     envelope = Envelope.new("read", kind)
     :ok = AtlasBus.send(envelope, content)
     id = envelope.id

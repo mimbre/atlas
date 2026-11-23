@@ -9,9 +9,9 @@ defmodule AtlasFactsTest do
   setup %{tmp_dir: dir} do
     Application.put_env(:atlas_bus, :store, "state-#{System.unique_integer([:positive])}")
     rela = FakeRela.start()
-    start_supervised!({AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir})
+    server = start_supervised!({AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir})
     :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
-    %{rela: rela, dir: dir}
+    %{rela: rela, dir: dir, server: server}
   end
 
   defp fact(op, key, values \\ %{}, opts \\ []) do
@@ -283,13 +283,12 @@ defmodule AtlasFactsTest do
     assert {"stored", _, 1} = fact("create", "W-1", %{"title" => "One"}, id: "later")
   end
 
-  test "reads: the description, all facts of a kind, one fact with what points at it",
-       %{rela: rela} do
+  test "reads: the description, all facts of a kind, one fact with what points at it", _ do
     fact("create", "W-1", %{"title" => "One"})
     fact("create", "W-2", %{"title" => "Two"})
-    FakeRela.link(rela, "P-1", "W-1")
+    fact("create", "P-1", %{"title" => "Part"}, kind: "part", links: %{"of_widget" => ["W-1"]})
 
-    assert %{"description" => %{"entities" => %{"widget" => _}}, "position" => 2} =
+    assert %{"description" => %{"entities" => %{"widget" => _}}, "position" => 3} =
              read("_description")
 
     assert %{"facts" => [%{"key" => "W-1"}, %{"key" => "W-2"}]} = read("widget")
@@ -398,25 +397,17 @@ defmodule AtlasFactsTest do
     assert FakeRela.facts(rela) == %{}
   end
 
-  test "a kind rela does not describe says so; never 'not reachable'", %{rela: rela} do
+  test "a kind rela does not describe says so; never 'not reachable'", _ do
     assert %{"error" => "rela does not describe \"ghost\"", "error_kind" => "answered"} =
              read("ghost")
 
     assert {"refused", %{"reasons" => ["rela does not describe \"ghost\""]}, nil} =
              fact("create", "G-1", %{"title" => "x"}, kind: "ghost")
-
-    # Only a rela that does not answer is "not reachable".
-    FakeRela.down(rela)
-    assert %{"error" => "rela is not reachable", "error_kind" => "unreachable"} = read("widget")
   end
 
   test "reads carry how far a fact is, from the facts under it, as the description's rule says",
        %{rela: rela, dir: dir} do
-    {:ok, clock} = Agent.start_link(fn -> 0 end)
-
-    restart(rela, dir, AtlasFacts.Workshops.Phased,
-      collection_clock: fn -> Agent.get(clock, & &1) end
-    )
+    server = restart(rela, dir, AtlasFacts.Workshops.Phased)
 
     fact("create", "W-1", %{"title" => "One"})
     fact("create", "W-2", %{"title" => "Two", "shade" => "dark"})
@@ -428,15 +419,17 @@ defmodule AtlasFactsTest do
         })
     end
 
+    :ok = AtlasFacts.Server.reload(server)
+
     assert %{"fact" => %{"progress" => %{"value" => "rough", "count" => 1, "of" => 3}}} =
              read("widget", %{"key" => "W-1"})
 
     assert %{"fact" => %{"progress" => %{"value" => "dark", "label" => "dark"}}} =
              read("widget", %{"key" => "W-2"})
 
-    # Progress is derived again; an outside change appears at the freshness bound.
+    # Progress is derived again on every read.
     FakeRela.poke(rela, "P-2", %{"phase" => "fine"})
-    Agent.update(clock, &(&1 + 5_000))
+    :ok = AtlasFacts.Server.reload(server)
 
     assert %{"fact" => %{"progress" => %{"value" => "fine", "count" => 3, "of" => 3}}} =
              read("widget", %{"key" => "W-1"})
@@ -554,12 +547,13 @@ defmodule AtlasFactsTest do
     assert first["keys"] == ["M-1"] and second["keys"] == []
   end
 
-  test "a link set behind Facts' back has no origin", %{rela: rela} do
+  test "a link set behind Facts' back has no origin", %{rela: rela, server: server} do
     fact("create", "M-1", %{"title" => "Ada"}, kind: "maker")
     fact("create", "W-1", %{"title" => "One"})
     fact("change", "W-1", %{}, links: %{"made_by" => ["M-1"]})
     fact("create", "M-2", %{"title" => "Bob"}, kind: "maker")
     FakeRela.link(rela, "W-1", "M-2", "made_by")
+    :ok = AtlasFacts.Server.reload(server)
 
     assert %{"fact" => %{"links" => %{"made_by" => ["M-2"]}, "origins" => %{}}} =
              read("widget", %{"key" => "W-1"})

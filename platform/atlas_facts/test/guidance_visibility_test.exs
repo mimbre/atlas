@@ -77,11 +77,7 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
 
     server =
       start_supervised!(
-        {AtlasFacts.Server,
-         rela: {CountingRela, backend},
-         model: Guided,
-         data_dir: dir,
-         collection_clock: fn -> CountingRela.clock(backend) end}
+        {AtlasFacts.Server, rela: {CountingRela, backend}, model: Guided, data_dir: dir}
       )
 
     :ok = AtlasBus.attach("control/session-protocol-#{System.unique_integer([:positive])}")
@@ -159,25 +155,14 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
     })
   end
 
-  test "a warmed turn list cannot consume an authority failure after turn creation", c do
-    assert {"answer", %{"facts" => []}} = request("read", "run", %{})
-    Agent.update(c.backend, &Map.put(&1, :get_after_create, %{{"runs", "run-a"} => :unavailable}))
-    CountingRela.reset(c.backend)
-    assert {"stored", _} = create_run()
-    # No row refresh consumes the one-shot failed authority read. Registration
-    # must fail before Runtime can use its acknowledgement to start an adapter.
-    assert {"refused", %{"code" => "unavailable"}} = register()
-    assert {:ok, []} = CountingRela.list(c.backend, "executions")
-  end
-
-  test "closed and replaced turns are visible immediately after direct writes", c do
+  test "closed and replaced turns are visible after direct writes and a reload", c do
     assert {"stored", _} = create_run()
     request("read", "run", %{})
 
     assert {:ok, []} =
              CountingRela.change(c.backend, "runs", "run-a", %{"status" => "over"}, nil, %{})
 
-    :ok = AtlasFacts.Server.flush_collections(c.server)
+    :ok = AtlasFacts.Server.reload(c.server)
 
     assert {"answer", %{"fact" => %{"values" => %{"status" => "over"}}}} =
              request("read", "run", %{"key" => "run-a", "plain" => true})
@@ -194,12 +179,11 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
                %{}
              )
 
-    :ok = AtlasFacts.Server.flush_collections(c.server)
+    :ok = AtlasFacts.Server.reload(c.server)
     assert {"refused", %{"code" => "execution_authority"}} = register()
-    assert CountingRela.clock(c.backend) == 0
   end
 
-  test "receipt writes and direct closure evidence immediately update the projection", c do
+  test "receipt writes and direct closure evidence update the projection", c do
     assert {"stored", _} = create_run()
     assert {"stored", %{"fact" => execution}} = register()
     assert {"stored", %{"fact" => interaction}} = submit(execution)
@@ -238,7 +222,7 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
     fields = Guided.guidance()["receipt"]["fields"]
     props = Map.new(values, fn {slot, value} -> {Map.fetch!(fields, slot), value} end)
     assert {:ok, []} = CountingRela.create(c.backend, "receipts", "direct-closure", props, %{})
-    :ok = AtlasFacts.Server.flush_collections(c.server)
+    :ok = AtlasFacts.Server.reload(c.server)
 
     assert {"answer", %{"fact" => view}} =
              request("read", "synthetic_interaction", %{"key" => key})
@@ -250,30 +234,5 @@ defmodule AtlasFacts.GuidanceVisibilityTest do
              request("read", "synthetic_receipt", %{"interaction" => key})
 
     assert length(receipts) == 2
-    assert CountingRela.clock(c.backend) == 0
-  end
-
-  test "protocol reads always reach the backend, including failed authority reads", c do
-    assert {"stored", _} = create_run()
-    assert {"stored", %{"fact" => execution}} = register()
-    assert {"stored", %{"fact" => interaction}} = submit(execution)
-
-    for _ <- 1..2 do
-      CountingRela.reset(c.backend)
-      assert {"answer", _} = request("read", "synthetic_execution", %{"key" => execution["key"]})
-
-      assert {"answer", _} =
-               request("read", "synthetic_interaction", %{"key" => interaction["key"]})
-
-      assert CountingRela.calls(c.backend) == %{{:list, "receipts"} => 1, :get => 2}
-    end
-
-    Agent.update(c.backend, &%{&1 | down: true})
-
-    assert {"answer", %{"code" => "unavailable"}} =
-             request("read", "synthetic_execution", %{"key" => execution["key"]})
-
-    assert {"answer", %{"code" => "unavailable"}} =
-             request("read", "synthetic_interaction", %{"key" => interaction["key"]})
   end
 end

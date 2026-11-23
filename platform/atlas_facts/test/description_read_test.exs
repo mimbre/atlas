@@ -10,6 +10,8 @@ defmodule AtlasFacts.DescriptionReadTest do
         {result, %{s | calls: s.calls + 1}}
       end)
     end
+
+    def list(_counter, _plural), do: {:ok, []}
   end
 
   @moduletag :tmp_dir

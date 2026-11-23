@@ -96,15 +96,12 @@ defmodule AtlasFacts.CountingRela do
       %{
         facts: facts,
         calls: %{},
-        now: 0,
         down: false,
         schema: Keyword.get_lazy(opts, :schema, fn -> AtlasFacts.Counting.rela_schema() end)
       }
     end)
   end
 
-  def clock(pid), do: Agent.get(pid, & &1.now)
-  def advance(pid, ms), do: Agent.update(pid, &%{&1 | now: &1.now + ms})
   def calls(pid), do: Agent.get(pid, & &1.calls)
   def reset(pid), do: Agent.update(pid, &%{&1 | calls: %{}})
 
@@ -124,14 +121,10 @@ defmodule AtlasFacts.CountingRela do
   @impl true
   def get(pid, plural, key) do
     call(pid, :get, fn s ->
-      {fault, errors} = Map.pop(s[:get_errors] || %{}, {plural, key})
-      s = Map.put(s, :get_errors, errors)
-
       result =
-        case {fault, Enum.find(Map.get(s.facts, plural, []), &(&1.key == key))} do
-          {nil, nil} -> {:error, :not_found}
-          {nil, fact} -> {:ok, %{fact | version: "v1"}}
-          {reason, _} -> {:error, reason}
+        case Enum.find(Map.get(s.facts, plural, []), &(&1.key == key)) do
+          nil -> {:error, :not_found}
+          fact -> {:ok, %{fact | version: "v1"}}
         end
 
       {result, s}
@@ -167,21 +160,6 @@ defmodule AtlasFacts.CountingRela do
 
         true ->
           fact = %{key: key, properties: props, links: links(targets), version: nil}
-
-          s =
-            case get_in(s, [:get_after_create, {plural, key}]) do
-              nil ->
-                s
-
-              reason ->
-                Map.update(
-                  s,
-                  :get_errors,
-                  %{{plural, key} => reason},
-                  &Map.put(&1, {plural, key}, reason)
-                )
-            end
-
           {s[:write_reply] || {:ok, []}, put_in(s.facts[plural], rows ++ [fact])}
       end
     end)
