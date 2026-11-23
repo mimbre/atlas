@@ -20,13 +20,31 @@ public struct PageView: View {
     }
 
     public var body: some View {
-        List(selection: Binding(get: { selectedPath }, set: { to in
-            if let to, to != selectedPath { open(to) }
-        })) {
-            ForEach(presentation.groups) { group in
-                switch group {
-                case .entry(let entry): topLevel(entry)
-                case .section(let section): still(sectionView(section))
+        let lines = lines
+        // The list selects a row by its id (the line's), never by a tag inside it; the row
+        // selected is the first whose `to` is `selectedPath`, and selecting one opens its `to`.
+        List(selection: Binding(
+            get: { lines.first { $0.to != nil && $0.to == selectedPath }?.id },
+            set: { id in
+                if let to = lines.first(where: { $0.id == id })?.to, to != selectedPath { open(to) }
+            })) {
+            // One flat run of rows, each with an id of its own: the list keeps a row's view
+            // by its id, so two lists' rows must never share one (a second list showed the
+            // first one's rows).
+            ForEach(lines) { line in
+                switch line.content {
+                case .title(let title):
+                    still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.s10))
+                case .empty(let empty):
+                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary))
+                case .row(let row):
+                    RowLabel(row: row).listRowSeparator(.hidden)
+                case .actions(let actions):
+                    still(UnsupportedActionsView(actions: actions))
+                case .entry(let entry):
+                    still(entryView(entry))
+                case .section(let section):
+                    still(sectionView(section))
                 }
             }
         }
@@ -34,26 +52,50 @@ public struct PageView: View {
         .navigationTitle(presentation.title)
     }
 
-    /// A block at the top of the page: a list's rows each a row of the page's selection;
-    /// any other block one row that cannot be selected.
-    @ViewBuilder private func topLevel(_ entry: PagePresentation.Entry) -> some View {
-        if case .list(let list) = entry.item {
-            if let title = list.title {
-                still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.s10))
+    /// A row of the page's list: a list block's title, its empty text, one of its rows (the
+    /// page's selection), its actions; or any other block, or a section, as one row.
+    private struct Line: Identifiable {
+        enum Content {
+            case title(String)
+            case empty(String)
+            case row(RowModel)
+            case actions([ActionModel])
+            case entry(PagePresentation.Entry)
+            case section(PagePresentation.Section)
+        }
+
+        let id: String
+        let content: Content
+
+        /// The page a row opens; nil for any other line.
+        var to: String? {
+            if case .row(let row) = content { row.to } else { nil }
+        }
+    }
+
+    /// The page's rows, top down, each id made of its block's.
+    private var lines: [Line] {
+        presentation.groups.flatMap { group -> [Line] in
+            switch group {
+            case .section(let section):
+                return [Line(id: group.id, content: .section(section))]
+            case .entry(let entry):
+                guard case .list(let list) = entry.item else {
+                    return [Line(id: group.id, content: .entry(entry))]
+                }
+                var lines: [Line] = []
+                if let title = list.title { lines.append(Line(id: group.id + "/title", content: .title(title))) }
+                if list.rows.isEmpty, let empty = list.empty {
+                    lines.append(Line(id: group.id + "/empty", content: .empty(empty)))
+                }
+                for (offset, row) in list.rows.enumerated() {
+                    lines.append(Line(id: group.id + "/row/\(offset)", content: .row(row)))
+                }
+                if let actions = list.actions, !actions.isEmpty {
+                    lines.append(Line(id: group.id + "/actions", content: .actions(actions)))
+                }
+                return lines
             }
-            if list.rows.isEmpty, let empty = list.empty {
-                still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary))
-            }
-            ForEach(Array(list.rows.enumerated()), id: \.offset) { _, row in
-                RowLabel(row: row)
-                    .tag(row.to as String?)
-                    .listRowSeparator(.hidden)
-            }
-            if let actions = list.actions, !actions.isEmpty {
-                still(UnsupportedActionsView(actions: actions))
-            }
-        } else {
-            still(entryView(entry))
         }
     }
 

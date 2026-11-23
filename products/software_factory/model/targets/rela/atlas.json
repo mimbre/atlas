@@ -1585,27 +1585,32 @@
     "default": "assigned",
     "tabs": [
       {
+        "icon": "inbox",
         "id": "open_for_you",
         "label": "Open for you",
         "to": "/_open"
       },
       {
+        "icon": "watching",
         "id": "supervised_by_you",
         "label": "Supervised by you",
         "to": "/_supervised"
       },
       {
         "assigned": true,
+        "icon": "mine",
         "id": "assigned",
         "label": "Assigned to you",
         "to": "/"
       },
       {
+        "icon": "stack",
         "id": "scenes",
         "label": "Scenes",
         "to": "/k/scene"
       },
       {
+        "icon": "checklist",
         "id": "open-work",
         "label": "Open work",
         "to": "/k/assignment"

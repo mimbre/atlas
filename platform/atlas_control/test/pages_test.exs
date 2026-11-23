@@ -1551,7 +1551,7 @@ defmodule AtlasControl.PagesTest do
     blocks = by_id(page)
 
     # Overview, then the list; ids stable. No technical details: those are `atlas get`'s.
-    assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list"]
+    assert Enum.map(page.blocks, & &1["id"]) == ["groups", "summary", "list"]
     assert blocks["summary"]["title"] == "Overview"
     assert counts(page) == %{"To do" => "3", "Late" => "1", "Blocked" => "1"}
     refute Map.has_key?(blocks["summary"], "actions")
@@ -1566,7 +1566,8 @@ defmodule AtlasControl.PagesTest do
     assert three in [nil, ""]
     refute Enum.any?([one, two], &(&1 =~ ~r/since|cause|ada|C-W-|R-9/))
     assert page.markup == []
-    refute Map.has_key?(page, :console_actions)
+    # No details to fold: the page's only own keys go through its groups.
+    assert Enum.map(page.console_actions, & &1.keys) == [["["], ["]"]]
   end
 
   test "the Overview counts late on the fact too, and blocked as the link's presentation says" do
@@ -1990,13 +1991,30 @@ defmodule AtlasControl.PagesTest do
     assert Pages.assigned_count(@assigning, answers) == "2 kept by you"
     assert counts(page) == %{"To do" => "2"}
 
+    # Its groups: all, then one per kind it may hold, each its own page with only those.
+    groups = for g <- by_id(page)["groups"]["groups"], do: {g["to"], g["count"], g["active"]}
+
+    assert groups == [
+             {"/", 2, true},
+             {"/_assigned/widget", 1, false},
+             {"/_assigned/part", 1, false}
+           ]
+
+    assert Pages.route("/_assigned/part") == {:group, :assigned, "part", nil}
+    part = {:group, :assigned, "part", "K-1"}
+    assert Pages.reads(part, @assigning) == Pages.reads({:assigned, "K-1"}, @assigning)
+
+    %{title: "Kept by you · " <> _, back: "/"} =
+      page = render_run(part, @assigning, "open", answers)
+
+    assert [%{"to" => "/k/part/P-1"}] = by_id(page)["list"]["rows"]
+
     # Nothing kept: the Overview and the empty list.
     page =
       render_run({:assigned, "K-1"}, @assigning, "open", [%{"facts" => []}, %{"facts" => []}])
 
-    assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list"]
+    assert Enum.map(page.blocks, & &1["id"]) == ["groups", "summary", "list"]
     assert page.markup == []
-    refute Map.has_key?(page, :console_actions)
     assert counts(page) == %{"To do" => "0"}
     empty = by_id(page)["list"]
     assert empty["rows"] == [] and empty["empty"] == "Nothing is kept by you."

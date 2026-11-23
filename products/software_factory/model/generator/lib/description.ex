@@ -42,8 +42,9 @@ defmodule RelaDSL.Description do
   while it runs). It needs `supervision:`, and is given once, where those relations are.
   `start_page` takes `assigned:`, `open:`, and, with supervision, `open_for_you:` and
   `supervised_by_you:` (each `title:`, `count:`, `empty:`).
-  `shell` takes `title:`, `tabs:` (each `id:`, `label:`, `to:`, `assigned:`) and
-  `default:`, the id of the tab a client opens on without a target (else the first).
+  `shell` takes `title:`, `tabs:` (each `id:`, `label:`, `to:`, `assigned:`, and `icon:`, a
+  semantic name a client may draw the tab with) and `default:`, the id of the tab a client
+  opens on without a target (else the first).
 
   Values are written as Elixir terms: atoms become strings (but `true`, `false` and
   `nil`), keyword lists become objects in the order written, other lists stay lists.

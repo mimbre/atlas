@@ -92,9 +92,11 @@ enum PathRules {
 /// The pages the contract lists: a client with a screen follows only these.
 public enum Page: String, CaseIterable, Sendable {
     case home
+    case assignedGroup = "assigned_group"
     case openForYou = "open_for_you"
     case openForYouGroup = "open_for_you_group"
     case supervisedByYou = "supervised_by_you"
+    case supervisedByYouGroup = "supervised_by_you_group"
     case workers
     case worker
     case workerGuidance = "worker_guidance"
@@ -122,9 +124,11 @@ public enum Page: String, CaseIterable, Sendable {
     public var template: String {
         switch self {
         case .home: "/"
+        case .assignedGroup: "/_assigned/:kind"
         case .openForYou: "/_open"
         case .openForYouGroup: "/_open/:subflow/:span"
         case .supervisedByYou: "/_supervised"
+        case .supervisedByYouGroup: "/_supervised/:subflow/:span"
         case .workers: "/workers"
         case .worker: "/workers/:machine/:worker/:turn/:attempt"
         case .workerGuidance: "/workers/:machine/:worker/:turn/:attempt/guidance"
