@@ -787,9 +787,9 @@ defmodule AtlasControl.Pages do
   end
 
   # What is assigned to the client, calm (platform/atlas_control/backend/README.md): its
-  # groups (per kind), an Overview of the counts and the list without technical noise; on
-  # a group's page (`active`, a kind) only that kind's. The technical details are an
-  # agent's or developer's (`atlas get`), never on a page a human reads.
+  # groups (per kind), an Overview of the counts and the list, each row with its key, without
+  # technical noise; on a group's page (`active`, a kind) only that kind's. The technical
+  # details are an agent's or developer's (`atlas get`), never on a page a human reads.
   defp assigned(m, by, answers, marked, active) do
     rule = assigned_rule(m)
     all = assigned_facts(m, answers, marked)
@@ -867,9 +867,9 @@ defmodule AtlasControl.Pages do
     Blocks.item(title: "Overview", fields: fields)
   end
 
-  # One calm row of what is assigned: the fact, who it is with (`owner?`, on Open work),
-  # why it is to be reviewed (the rule's label), what is expected, whether it is blocked,
-  # and its deadline (late first).
+  # One calm row of what is assigned: the fact's key, the fact, who it is with (`owner?`, on
+  # Open work), why it is to be reviewed (the rule's label), what is expected, whether it is
+  # blocked, and its deadline (late first).
   defp calm_row(m, relation, {from, fact, link}, owner? \\ false) do
     link_k = kind(m, link_kind(m, relation))
 
@@ -885,6 +885,7 @@ defmodule AtlasControl.Pages do
       |> Enum.join(" · ")
 
     Blocks.row(
+      id: fact["key"],
       label: label(kind(m, from), fact),
       detail: detail,
       to: path({:item, from, fact["key"]})
@@ -1546,7 +1547,8 @@ defmodule AtlasControl.Pages do
             {"list:#{s.subflow}:#{s.span}",
              Blocks.list(
                title: span_title(m, s),
-               rows: for({kind, fact, work} <- facts, do: screen_row(m, kind, fact, work)),
+               rows:
+                 for({kind, fact, work} <- facts, do: screen_row(m, kind, fact, work, active)),
                empty: rule.empty
              )}
           end
@@ -1649,7 +1651,7 @@ defmodule AtlasControl.Pages do
         list =
           Blocks.list(
             title: rule.title || "",
-            rows: for({kind, fact, work} <- items, do: screen_row(m, kind, fact, work)),
+            rows: for({kind, fact, work} <- items, do: screen_row(m, kind, fact, work, active)),
             empty: rule.empty
           )
 
@@ -1684,23 +1686,30 @@ defmodule AtlasControl.Pages do
     Blocks.item(title: title, fields: fields)
   end
 
-  # One calm row of a screen: the fact, what is expected, whom it waits on (the owner
-  # keys Facts presents on the `work`), whether it is blocked; the rest is in its
-  # technical details.
-  defp screen_row(m, kind, fact, work) do
+  # One calm row of a screen: the fact's key, the fact, what is expected, whom it waits on
+  # (the owner keys Facts presents on the `work`), whether it is blocked; the rest is in its
+  # technical details. On a group's page (`active`, one span of one flow) the group's name
+  # says what is expected, so the row says what it belongs under (its parents' keys) instead.
+  defp screen_row(m, kind, fact, work, active) do
+    what =
+      if active == nil,
+        do: [expected(fact, work)],
+        else: Map.values(parent_values(m, kind, fact))
+
     detail =
-      [
-        expected(fact, work),
-        case get_in(work, ["presentation", "owner"]) do
-          [_ | _] = keys -> Enum.join(keys, ", ")
-          _ -> nil
-        end,
-        shown(fact, work, "status") == "blocked" && "blocked"
-      ]
+      (what ++
+         [
+           case get_in(work, ["presentation", "owner"]) do
+             [_ | _] = keys -> Enum.join(keys, ", ")
+             _ -> nil
+           end,
+           shown(fact, work, "status") == "blocked" && "blocked"
+         ])
       |> Enum.reject(&(&1 in [nil, "", false]))
       |> Enum.join(" · ")
 
     Blocks.row(
+      id: fact["key"],
       label: label(kind(m, kind), fact),
       detail: detail,
       to: path({:item, kind, fact["key"]})
@@ -2425,6 +2434,7 @@ defmodule AtlasControl.Pages do
                          t <- stopping,
                          do:
                            Blocks.row(
+                             id: t["key"],
                              label: label(work_k, t),
                              to: path({:item, work.kind, t["key"]})
                            )

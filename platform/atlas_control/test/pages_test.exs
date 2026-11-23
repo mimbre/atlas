@@ -1388,11 +1388,11 @@ defmodule AtlasControl.PagesTest do
     page = render_run({:assigned, "ada"}, @carded_start, "open", [cards, widgets])
     list = by_id(page)["list"]
 
-    # The fact, not its card; a completed one is not there; what the card expects, calm.
-    assert [%{"label" => "One", "to" => "/k/widget/W-1", "detail" => "Paint it"} = row] =
-             list["rows"]
+    # The fact, its key, not its card; a completed one is not there; what the card expects, calm.
+    assert [
+             %{"id" => "W-1", "label" => "One", "to" => "/k/widget/W-1", "detail" => "Paint it"}
+           ] = list["rows"]
 
-    refute Map.has_key?(row, "id")
     assert Pages.assigned_count(@carded_start, [cards, widgets]) == "1 held"
 
     selected_widgets = %{"facts" => Enum.take(widgets["facts"], 2)}
@@ -1556,10 +1556,10 @@ defmodule AtlasControl.PagesTest do
     assert counts(page) == %{"To do" => "3", "Late" => "1", "Blocked" => "1"}
     refute Map.has_key?(blocks["summary"], "actions")
 
-    # Calm rows: no id, no since, cause or owner; what is expected, blocked, late.
+    # Calm rows: each item's key; no since, cause or owner; what is expected, blocked, late.
     rows = blocks["list"]["rows"]
     assert Enum.map(rows, & &1["to"]) == ~w(/k/widget/W-1 /k/widget/W-2 /k/widget/W-3)
-    refute Enum.any?(rows, &Map.has_key?(&1, "id"))
+    assert Enum.map(rows, & &1["id"]) == ~w(W-1 W-2 W-3)
     [one, two, three] = Enum.map(rows, & &1["detail"])
     assert one == "Needs a look · Paint it · blocked"
     assert two =~ ~r/^Sand it · Late · due 2020-01-02 12:00$/
@@ -1665,12 +1665,13 @@ defmodule AtlasControl.PagesTest do
     list = by_id(page)["list"]
     assert list["title"] == "All held"
 
-    # Late first; each with who holds it, what is expected, and its time; calm: no id,
-    # no since or cause.
-    assert [%{"to" => "/k/widget/W-2"} = late, %{"to" => "/k/widget/W-1"} = one] =
-             list["rows"]
+    # Late first; each with its key, who holds it, what is expected, and its time; calm: no
+    # since or cause.
+    assert [
+             %{"id" => "W-2", "to" => "/k/widget/W-2"} = late,
+             %{"id" => "W-1", "to" => "/k/widget/W-1"} = one
+           ] = list["rows"]
 
-    refute Enum.any?(list["rows"], &Map.has_key?(&1, "id"))
     assert late["detail"] == "bob · Sand it · Late · due 2020-01-02 12:00"
     assert one["detail"] == "ada · Paint it"
 
@@ -1730,10 +1731,10 @@ defmodule AtlasControl.PagesTest do
     assert blocks["list"]["empty"] == "Nothing is held."
     assert blocks["list"]["actions"] in [nil, []]
 
-    # Calm rows, late first: who it is with, why reviewed, what is expected, blocked, late.
+    # Calm rows, late first: the key; who it is with, why reviewed, what is expected, blocked, late.
     rows = blocks["list"]["rows"]
     assert Enum.map(rows, & &1["to"]) == ~w(/k/widget/W-2 /k/widget/W-1 /k/widget/W-3)
-    refute Enum.any?(rows, &Map.has_key?(&1, "id"))
+    assert Enum.map(rows, & &1["id"]) == ~w(W-2 W-1 W-3)
 
     assert Enum.map(rows, & &1["detail"]) == [
              "cy · Sand it · Late · due 2020-01-02 12:00",
