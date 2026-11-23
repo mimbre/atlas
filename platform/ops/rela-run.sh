@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # rela of an Atlas environment on Fly: its data on the volume (/data/rela), this image's
-# description, listening on the environment's own private network only (the app has no
-# public address). The same start-test.sh as on a Mac, with another bind and folders.
+# description. The app has no public address; on the environment's private network only
+# the core may use it (IS-Atlas-80): rela listens on loopback, and rela-gate.py, on the
+# private network, passes on only what carries the core's credential ($ATLAS_RELA_TOKEN,
+# a Fly secret of both apps). The same start-test.sh as on a Mac, with other folders.
 set -euo pipefail
 
 /app/platform/ops/apply-move.sh rela
@@ -14,8 +16,20 @@ if [ -e /data/hold ]; then
   exec sleep infinity
 fi
 
-export ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=/app/bin ATLAS_RELA_BIND=:: ATLAS_RELA_PORT="${ATLAS_RELA_PORT:-7690}"
-
+port="${ATLAS_RELA_PORT:-7690}"
+inner=$((port + 1))
 # start-test checks existing SQLite or legacy data before changing its description,
 # including boot after a move. It refuses when that data needs a migration first.
-exec /app/platform/atlas_facts/rela/scripts/start-test.sh
+env -u ATLAS_RELA_TOKEN ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=/app/bin ATLAS_RELA_PORT="$inner" \
+  /app/platform/atlas_facts/rela/scripts/start-test.sh &
+rela=$!
+python3 /app/platform/ops/rela-gate.py "$port" "$inner" &
+gate=$!
+
+# Either one ending ends the machine (Fly restarts it); a stop stops rela cleanly.
+stop() { kill -TERM "$rela" "$gate" 2>/dev/null || true; wait "$rela" 2>/dev/null || true; }
+trap 'stop; exit 143' TERM INT
+status=1
+wait -n "$rela" "$gate" || status=$?
+stop
+exit "$status"

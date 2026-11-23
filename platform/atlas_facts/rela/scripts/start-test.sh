@@ -18,8 +18,6 @@ root="${ATLAS_TEST_ROOT:-$HOME/.local/share/atlas/test}"
 data="${ATLAS_RELA_DATA:-$root/rela}"
 bin="${ATLAS_RELA_BIN:-$root/bin}"
 port="${ATLAS_RELA_PORT:-7690}"
-# Loopback on a Mac; on Fly the private network (platform/ops/rela-run.sh sets it).
-bind="${ATLAS_RELA_BIND:-127.0.0.1}"
 
 version=26.11.3
 # The archive for this machine: the MacBook and the Mac mini (darwin_arm64), CI (linux_amd64).
@@ -91,8 +89,8 @@ mkdir -p "$data/entities" "$data/relations"
 "${ATLAS_CONFIG_PYTHON:-python3}" "$here/scripts/config.py" copy --root "$project" --data "$data"
 "$bin/rela" --project "$data" --quiet validate
 
-# No acl.yaml and a loopback bind (on Fly: test's own private network, which only its core
-# and admitted devices join): every caller there may read and write.
-# RELA_DATAENTRY_USER names the writer in rela's audit log.
+# Loopback only, here and on Fly (where platform/ops/rela-run.sh puts rela-gate.py, which
+# lets only the core in, on the private network): no acl.yaml, every caller may read and
+# write. RELA_DATAENTRY_USER names the writer in rela's audit log.
 export RELA_DATAENTRY_USER="${RELA_DATAENTRY_USER:-atlas-${ATLAS_ENV:-test}}"
-exec "$bin/$server" -project "$data" -bind "$bind" -port "$port" -quiet
+exec "$bin/$server" -project "$data" -bind 127.0.0.1 -port "$port" -quiet

@@ -14,6 +14,6 @@ COPY products/software_factory/model/targets/rela/schema.yaml products/software_
 COPY products/software_factory/model/targets/rela/modules /app/products/software_factory/model/targets/rela/modules
 COPY products/software_factory/model/targets/rela/compositions /app/products/software_factory/model/targets/rela/compositions
 RUN python3 /app/platform/atlas_facts/rela/scripts/verify.py /app/products/software_factory/model/targets/rela
-COPY platform/ops/apply-move.sh platform/ops/rela-run.sh platform/ops/counts.sh platform/ops/manifest.sh /app/platform/ops/
+COPY platform/ops/apply-move.sh platform/ops/rela-run.sh platform/ops/rela-gate.py platform/ops/counts.sh platform/ops/manifest.sh /app/platform/ops/
 
 CMD ["/app/platform/ops/rela-run.sh"]
