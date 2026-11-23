@@ -1367,7 +1367,7 @@ defmodule RelaDSL.Schema do
         pre <> "creates: and writes: exclude each other",
       not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
         pre <> "follow_ups: must be a kind",
-      not (spec[:read_first] in [nil, true]) && pre <> "read_first: is true or left out",
+      spec[:read_first] not in [nil, true] && pre <> "read_first: is true or left out",
       not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
     ]
     |> Enum.filter(& &1)
