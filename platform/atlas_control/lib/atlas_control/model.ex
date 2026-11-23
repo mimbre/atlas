@@ -29,12 +29,13 @@ defmodule AtlasControl.Model do
   @callback shell(settings :: map) :: nil | map
 
   @doc """
-  What a client opens on: `%{assigned, open, open_for_you, supervised_by_you, actions}`.
-  `assigned` is nil or `%{relation, title, empty, count}`: a client that is a fact of a
-  kind `relation` points at opens on what points at it through it; `open` is nil or
+  What a client opens on: `%{assigned, open, open_for_you, supervised_by_you, actions,
+  flows}`. `assigned` is nil or `%{relation, title, empty, count}`: a client that is a fact
+  of a kind `relation` points at opens on what points at it through it; `open` is nil or
   `%{title, empty}`: the list of a kind the relation starts at shows every open fact, for
-  everyone, with what Facts' presentation of its work says is expected; `actions`
-  (`%{kind, key, label}`) open a kind's list from the start page.
+  everyone, with the flow its work is in; `actions` (`%{kind, key, label}`) open a kind's
+  list from the start page; `flows` (`%{subflow => label}`) is each subflow's short name,
+  which a row says for the flow Facts presents its work in.
 
   Supervision (work acquisition decision 2026-11-17, §5.6–5.8), both nil without it:
   `open_for_you` is `%{title, count, empty, relation, inputs, spans}`, each span
