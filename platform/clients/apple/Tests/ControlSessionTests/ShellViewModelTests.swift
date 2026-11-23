@@ -243,9 +243,13 @@ final class ShellViewModelTests: XCTestCase {
         XCTAssertEqual(shell.tabs.last?.groups, [ShellViewModel.Group(label: "Build", count: nil, to: "/_open/issue/build")])
         XCTAssertNil(shell.activeGroup)
 
-        // Choosing it opens its page in the middle column, on its own tab, with its counts.
+        // Choosing it selects it at once, kept while its page loads, on its own tab; its
+        // page opens in the middle column, with its counts.
         h.session.filter("/_open/issue/build")
         XCTAssertEqual(h.connection.take(), [.open(OpenRequest(to: "/_open/issue/build"))])
+        shell = ShellViewModel(h.state)
+        XCTAssertEqual(shell.activeGroup, "/_open/issue/build")
+        XCTAssertEqual(shell.activeTab, "parts")
         h.connection.receive(Lines.page("/_open/issue/build", blocks: [groups("/_open/issue/build"), Lines.list([])]))
         shell = ShellViewModel(h.state)
         XCTAssertEqual(shell.index?.path, "/_open/issue/build")
@@ -254,6 +258,32 @@ final class ShellViewModelTests: XCTestCase {
         XCTAssertEqual(shell.activeGroup, "/_open/issue/build")
         XCTAssertEqual(shell.tabs.last?.count, 3)
         XCTAssertEqual(shell.tabs.last?.groups.first?.count, 2)
+    }
+
+    func testBootsCountsShowBeforeTheTabIsOpenedAndTheLatestCountWins() {
+        var parts = Lines.tab("parts", "/k/part")
+        parts["count"] = 5
+        parts["groups"] = [["label": "Build", "to": "/_open/issue/build", "count": 4], ["label": "Plan", "to": "/_open/plan"]]
+        let h = Harness()
+        h.connect(boot: Lines.boot(tabs: [Lines.tab("widgets", "/k/widget"), parts]))
+
+        var shell = ShellViewModel(h.state)
+        XCTAssertEqual(shell.tabs.last?.count, 5)
+        XCTAssertEqual(shell.tabs.last?.groups.map(\.count), [4, nil])
+
+        // A page's groups say it later: theirs show.
+        h.session.selectTab("parts")
+        _ = h.connection.take()
+        h.connection.receive(Lines.page("/k/part", blocks: [
+            ["id": "groups", "type": "groups", "props": ["groups": [
+                ["label": "All", "count": 6, "to": "/k/part", "active": true],
+                ["label": "Build", "count": 6, "to": "/_open/issue/build", "active": false],
+            ]]],
+            Lines.list([]),
+        ]))
+        shell = ShellViewModel(h.state)
+        XCTAssertEqual(shell.tabs.last?.count, 6)
+        XCTAssertEqual(shell.tabs.last?.groups.first?.count, 6)
     }
 
 }

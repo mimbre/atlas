@@ -632,7 +632,7 @@ defmodule AtlasControl.PagesTest do
 
     # Without a rule: every field a user may set, still no id.
     %{blocks: [%{"props" => plain}]} = render({:new, "part"}, @d, [])
-    assert Enum.map(plain["inputs"], & &1["name"]) == ["title"]
+    assert Enum.map(plain["inputs"], & &1["name"]) == ["title", "notes"]
   end
 
   test "a form shown again keeps what was typed and shows why it was refused" do
@@ -668,7 +668,7 @@ defmodule AtlasControl.PagesTest do
     %{blocks: [%{"props" => form}]} =
       render({:edit, "part", "P-1"}, @d, [%{"fact" => part}, widgets])
 
-    assert Enum.map(form["inputs"], & &1["name"]) == ["_key", "title", "of_widget"]
+    assert Enum.map(form["inputs"], & &1["name"]) == ["_key", "title", "notes", "of_widget"]
 
     # The current parent selected; a fact that has one keeps one, so no empty choice.
     assert %{
@@ -1388,11 +1388,11 @@ defmodule AtlasControl.PagesTest do
     page = render_run({:assigned, "ada"}, @carded_start, "open", [cards, widgets])
     list = by_id(page)["list"]
 
-    # The fact, not its card; a completed one is not there; what the card expects, calm.
-    assert [%{"label" => "One", "to" => "/k/widget/W-1", "detail" => "Paint it"} = row] =
-             list["rows"]
+    # The fact, its key, not its card; a completed one is not there; the flow its card is in.
+    assert [
+             %{"id" => "W-1", "label" => "One", "to" => "/k/widget/W-1", "detail" => "F"}
+           ] = list["rows"]
 
-    refute Map.has_key?(row, "id")
     assert Pages.assigned_count(@carded_start, [cards, widgets]) == "1 held"
 
     selected_widgets = %{"facts" => Enum.take(widgets["facts"], 2)}
@@ -1463,8 +1463,8 @@ defmodule AtlasControl.PagesTest do
       |> Map.put("presentation", shown)
     end
 
-    open = %{"actionable" => true, "manual" => false, "expected" => "Paint it"}
-    ended = %{"actionable" => false, "manual" => false, "expected" => nil}
+    open = %{"actionable" => true, "manual" => false, "expected" => "Paint it", "flow" => "f"}
+    ended = %{"actionable" => false, "manual" => false, "expected" => nil, "flow" => "f"}
 
     cards = %{
       "facts" => [
@@ -1487,10 +1487,10 @@ defmodule AtlasControl.PagesTest do
 
     assert Enum.map(list["rows"], & &1["to"]) |> Enum.sort() == ["/k/widget/W-1", "/k/widget/W-3"]
 
-    # What is expected is the presentation's: none on work whose run ended.
+    # The flow it is in, while its presentation expects something: none on work whose run ended.
     rows = Map.new(list["rows"], &{&1["to"], &1["detail"]})
-    assert rows["/k/widget/W-1"] =~ "Paint it"
-    refute rows["/k/widget/W-3"] =~ "Paint it"
+    assert rows["/k/widget/W-1"] == "F"
+    assert rows["/k/widget/W-3"] == ""
     # The owner set by hand keeps it on the page.
     assert rows["/k/widget/W-3"] != nil
   end
@@ -1556,13 +1556,13 @@ defmodule AtlasControl.PagesTest do
     assert counts(page) == %{"To do" => "3", "Late" => "1", "Blocked" => "1"}
     refute Map.has_key?(blocks["summary"], "actions")
 
-    # Calm rows: no id, no since, cause or owner; what is expected, blocked, late.
+    # Calm rows: each item's key; no since, cause or owner; what is expected, blocked, late.
     rows = blocks["list"]["rows"]
     assert Enum.map(rows, & &1["to"]) == ~w(/k/widget/W-1 /k/widget/W-2 /k/widget/W-3)
-    refute Enum.any?(rows, &Map.has_key?(&1, "id"))
+    assert Enum.map(rows, & &1["id"]) == ~w(W-1 W-2 W-3)
     [one, two, three] = Enum.map(rows, & &1["detail"])
-    assert one == "Needs a look · Paint it · blocked"
-    assert two =~ ~r/^Sand it · Late · due 2020-01-02 12:00$/
+    assert one == "Needs a look · F · blocked"
+    assert two =~ ~r/^Late · due 2020-01-02 12:00$/
     assert three in [nil, ""]
     refute Enum.any?([one, two], &(&1 =~ ~r/since|cause|ada|C-W-|R-9/))
     assert page.markup == []
@@ -1665,14 +1665,15 @@ defmodule AtlasControl.PagesTest do
     list = by_id(page)["list"]
     assert list["title"] == "All held"
 
-    # Late first; each with who holds it, what is expected, and its time; calm: no id,
-    # no since or cause.
-    assert [%{"to" => "/k/widget/W-2"} = late, %{"to" => "/k/widget/W-1"} = one] =
-             list["rows"]
+    # Late first; each with its key, who holds it, the flow it is in (never the sentence of
+    # what is expected), and its time; calm: no since or cause.
+    assert [
+             %{"id" => "W-2", "to" => "/k/widget/W-2"} = late,
+             %{"id" => "W-1", "to" => "/k/widget/W-1"} = one
+           ] = list["rows"]
 
-    refute Enum.any?(list["rows"], &Map.has_key?(&1, "id"))
-    assert late["detail"] == "bob · Sand it · Late · due 2020-01-02 12:00"
-    assert one["detail"] == "ada · Paint it"
+    assert late["detail"] == "bob · F · Late · due 2020-01-02 12:00"
+    assert one["detail"] == "ada · F"
 
     # Everyone's: nobody unassigned, so no such count.
     assert counts(page) == %{"Open" => "2", "Late" => "1"}
@@ -1730,15 +1731,16 @@ defmodule AtlasControl.PagesTest do
     assert blocks["list"]["empty"] == "Nothing is held."
     assert blocks["list"]["actions"] in [nil, []]
 
-    # Calm rows, late first: who it is with, why reviewed, what is expected, blocked, late.
+    # Calm rows, late first: the key; who it is with, why reviewed, blocked, late; no flow
+    # names one (its presentation says no flow), and no sentence of what is expected.
     rows = blocks["list"]["rows"]
     assert Enum.map(rows, & &1["to"]) == ~w(/k/widget/W-2 /k/widget/W-1 /k/widget/W-3)
-    refute Enum.any?(rows, &Map.has_key?(&1, "id"))
+    assert Enum.map(rows, & &1["id"]) == ~w(W-2 W-1 W-3)
 
     assert Enum.map(rows, & &1["detail"]) == [
-             "cy · Sand it · Late · due 2020-01-02 12:00",
-             "ada, bob · Needs a look · Paint it · blocked",
-             "unassigned · Oil it"
+             "cy · Late · due 2020-01-02 12:00",
+             "ada, bob · Needs a look · blocked",
+             "unassigned"
            ]
 
     refute Enum.any?(rows, &(&1["detail"] =~ ~r/since|cause|C-W-|R-9/))
@@ -1825,7 +1827,7 @@ defmodule AtlasControl.PagesTest do
   # What to do (IS-Atlas-54): a flow on widgets, on their card; its state is the card's step.
   @todo AtlasControl.Model.catalog(Shop.Todo)
 
-  test "a fact's owner sees what to do, first; anyone else does not" do
+  test "a fact's owner who decides sees one line of what to do, what is judged, then the fact" do
     notes = "Some intro.\n\nCheck: the paint is even\nand dry.\n\n## Later\nnot this"
 
     widget =
@@ -1843,22 +1845,30 @@ defmodule AtlasControl.PagesTest do
         }
       })
 
+    part =
+      fact("P-1", %{"title" => "Lid", "notes" => "\n# Round\nand flat", "of_widget" => "W-1"})
+
     answers =
       for read <- Pages.reads({:item, "widget", "W-1"}, @todo) do
         case read do
           {"widget", _} -> %{"fact" => widget}
           {"card", _} -> %{"fact" => card}
+          {"part", _} -> %{"facts" => [part]}
           _ -> %{"facts" => []}
         end
       end
 
     page = render_run({:item, "widget", "W-1"}, @todo, "check", answers, %{by: "ada"})
-    assert [%{"id" => "todo", "type" => "item", "props" => todo} | _] = page.blocks
 
-    assert %{"start" => "todo", "props" => %{"title" => "Your move", "role" => "todo"}} =
-             hd(page.markup)
-
-    assert todo["title"] == "Your move: Check it"
+    # One stretch, in no parts: what to do in one line, with the section it names; what
+    # is under it, each saying what it is about; then the fact, with why and how.
+    assert ["todo", "list:of_widget", "item" | _] = Enum.map(page.blocks, & &1["id"])
+    refute Enum.any?(page.markup, &(&1["kind"] == "part"))
+    assert %{"start" => "list:of_widget", "props" => %{"title" => "Parts"}} = hd(page.markup)
+    todo = by_id(page)["todo"]
+    assert todo["title"] == "Your move: Check it   Keys: a Approve"
+    assert [%{"label" => "Check", "value" => "the paint is even\nand dry."}] = todo["fields"]
+    assert [%{"id" => "P-1", "label" => "Lid — Round"}] = by_id(page)["list:of_widget"]["rows"]
 
     assert [
              %{
@@ -1866,10 +1876,8 @@ defmodule AtlasControl.PagesTest do
                "value" => "Flow f: painted → ada",
                "origin" => %{"by" => "flow"}
              },
-             %{"label" => "How", "value" => "Look it over."},
-             %{"label" => "Check", "value" => "the paint is even\nand dry."},
-             %{"label" => "Keys", "value" => "a Approve"}
-           ] = todo["fields"]
+             %{"label" => "How", "value" => "Look it over."}
+           ] = Enum.take(by_id(page)["item"]["fields"], -2)
 
     # The state is not a field of the fact.
     item = Enum.find(page.blocks, &(&1["id"] == "item"))
@@ -1984,9 +1992,9 @@ defmodule AtlasControl.PagesTest do
 
     list = by_id(page)["list"]
 
-    # Newest move first; a completed one is not there; what its flow expects.
+    # Newest move first; a completed one is not there; the flow it is in.
     assert [%{"to" => "/k/part/P-1"}, %{"to" => "/k/widget/W-1"} = older] = list["rows"]
-    assert older["detail"] == "dark"
+    assert older["detail"] == "F"
     assert [%{"key" => "s", "label" => "Widgets", "to" => "/k/widget"}] = list["actions"]
     assert Pages.assigned_count(@assigning, answers) == "2 kept by you"
     assert counts(page) == %{"To do" => "2"}

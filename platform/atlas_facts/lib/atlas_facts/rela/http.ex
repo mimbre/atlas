@@ -1,7 +1,9 @@
 defmodule AtlasFacts.Rela.Http do
   @moduledoc """
   The current rela (upstream v26.11.3) over HTTP. `config` is its API base URL, for
-  example `http://127.0.0.1:7690/api/v1`.
+  example `http://127.0.0.1:7690/api/v1`. With `config :atlas_facts, rela_token:` (on Fly,
+  where rela's edge lets only the core in, IS-Atlas-80) every request carries it as
+  `Authorization: Bearer`.
 
   What this release does that Facts must work around (rela project's IS-02 handoff):
   it stores invalid data with 201/200 plus `warnings`; `dry_run` is safe on create only;
@@ -120,6 +122,11 @@ defmodule AtlasFacts.Rela.Http do
   defp failure({:ok, 422, %{"detail" => "entity already exists" <> _}, _}),
     do: {:error, :exists}
 
+  # The edge in front of rela refused Facts' credential: no fault of the request, and it
+  # goes once the credential is right again.
+  defp failure({:ok, 401, _, _}),
+    do: {:error, {:failed, "rela refused Facts' credential (401): check ATLAS_RELA_TOKEN"}}
+
   defp failure({:ok, status, body, _}) when status in 400..499,
     do: {:error, {:invalid, [problem(body, status)]}}
 
@@ -138,7 +145,7 @@ defmodule AtlasFacts.Rela.Http do
   defp problem(_body, status), do: "rela answered #{status}"
 
   defp request(method, url, body \\ nil, headers \\ []) do
-    headers = Enum.map([{"accept", "application/json"} | headers], &charlists/1)
+    headers = Enum.map([{"accept", "application/json"} | headers ++ credential()], &charlists/1)
 
     request =
       if body,
@@ -154,6 +161,13 @@ defmodule AtlasFacts.Rela.Http do
 
       {:error, _reason} ->
         {:error, :unavailable}
+    end
+  end
+
+  defp credential do
+    case Application.get_env(:atlas_facts, :rela_token) do
+      nil -> []
+      token -> [{"authorization", "Bearer " <> token}]
     end
   end
 

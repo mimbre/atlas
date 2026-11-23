@@ -214,6 +214,15 @@ defmodule AtlasAgent.SteerTest do
       assert written(c) == []
     end
 
+    test "a slow planner shows how long it is planning (IS-Atlas-89)", %{tmp: tmp} do
+      planner(tmp, [])
+      File.write!(Path.join(tmp, "planner.sh"), "#!/bin/sh\nsleep 6; cat '#{tmp}/plan.json'\n")
+      s = steer()
+      say(s, %{"op" => "ask", "request" => "hello", "on" => "/"})
+      assert_receive {:steer, %{"block" => %{"props" => %{"title" => "Planning… 5 s"}}}}, 7_000
+      assert plan("proposed")["title"] == "No steps proposed"
+    end
+
     test "one step runs without asking; three steps ask", %{control: c, tmp: tmp} do
       widget = FakeControl.put(c, "widget", %{"title" => "A widget"})
 

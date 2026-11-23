@@ -18,5 +18,5 @@
     }
   },
   "reconcile_seconds": 5,
-  "agent": { "planner": "claude", "step_pause_ms": 500, "ask_above": 1 }
+  "agent": { "planner": "claude", "effort": "low", "step_pause_ms": 500, "ask_above": 1 }
 }

@@ -282,6 +282,8 @@ Real behaviour on test: author, review, rework and create. A later requested cha
 
 ### 10. Migrate design and acceptance
 
+Superseded: `design_and_accept` was removed (#479) and the use case's `design_status` with it. A use case is design (D-0099): Design (Scene → Use cases) makes it designed.
+
 Scope: `products/software_factory/model/targets/rela/flow-runtime.json`; `products/software_factory/model/contract/lib/use_case.ex`, its golden and regenerated targets only for parity fixes; new `products/software_factory/e2e/test/flow_acceptance_test.exs`; neutral import fixtures in Flow `test/runs/run_test.exs`.
 
 Select only `design_and_accept`. Preserve current design work, ownership and prior acceptance. Do not manufacture passes for completed subjects. Use disjoint phase admission: the generated design phase owns presentation before design acceptance; the legacy building phase owns it afterwards. Test the handoff before enabling selection.

@@ -5,13 +5,15 @@ defmodule AtlasAgent.Planner do
 
   - `"planner": "claude"` (also when unset): a local headless Claude session
     (`claude -p`). Its only tools are `atlas help`, `atlas get` and `atlas list` on the
-    same environment, so it can read Atlas and change nothing. `"model"` picks the model.
+    same environment, so it can read Atlas and change nothing. It runs without the
+    user's own Claude settings (hooks, plugins, CLAUDE.md). `"model"` picks the model,
+    `"effort"` its effort (IS-Atlas-89: `low` answered in about 15 s, the default in 20-60 s).
   - `"planner": ["<command>", "<arg>", ...]`: any command. It gets the planner's input as
     JSON on stdin and prints the plan as JSON on stdout. The end-to-end test uses a
     scripted stand-in this way, so CI needs no model.
 
   `"name"` names the planner for its users (a plan says who made it); `"timeout_seconds"`
-  is how long it may take, 300 by default.
+  is how long it may take, 120 by default; then the request fails and says so.
 
   The input: `%{"request", "env", "page", "tools"}`; `page` is the view model of the page
   the request was made on, `tools` are `AtlasAgent.Tools.list/1`. After a refusal it also
@@ -24,7 +26,7 @@ defmodule AtlasAgent.Planner do
   Runtime of SC-Atlas-02 will take this place later.
   """
 
-  @timeout 300_000
+  @timeout 120_000
 
   @doc "Ask the planner of `settings` for a plan: `{:ok, %{\"summary\", \"steps\"}, by}`."
   def plan(settings, input) do
@@ -86,12 +88,16 @@ defmodule AtlasAgent.Planner do
           "--permission-mode",
           "dontAsk",
           "--strict-mcp-config",
+          "--setting-sources",
+          "",
           "--no-session-persistence",
           "--output-format",
           "json",
           "--json-schema",
           JSON.encode!(schema())
-        ] ++ if(agent["model"], do: ["--model", agent["model"]], else: [])
+        ] ++
+        if(agent["model"], do: ["--model", agent["model"]], else: []) ++
+        if(agent["effort"], do: ["--effort", agent["effort"]], else: [])
 
     # `atlas` is this build's, on this environment (ATLAS_ENV_FILE passes on as it is).
     path = Path.join(AtlasAgent.root(), "bin") <> ":" <> (System.get_env("PATH") || "")

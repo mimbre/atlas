@@ -1439,13 +1439,15 @@ public struct ShellTabModel: Codable, Sendable, Equatable {
     public var to: String
     public var icon: String?
     public var groups: [ShellGroupModel]?
+    public var count: Int?
 
-    public init(id: String, label: String, to: String, icon: String? = nil, groups: [ShellGroupModel]? = nil) {
+    public init(id: String, label: String, to: String, icon: String? = nil, groups: [ShellGroupModel]? = nil, count: Int? = nil) {
         self.id = id
         self.label = label
         self.to = to
         self.icon = icon
         self.groups = groups
+        self.count = count
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1454,6 +1456,7 @@ public struct ShellTabModel: Codable, Sendable, Equatable {
         case to
         case icon
         case groups
+        case count
     }
 }
 
@@ -1461,15 +1464,18 @@ public struct ShellTabModel: Codable, Sendable, Equatable {
 public struct ShellGroupModel: Codable, Sendable, Equatable {
     public var label: String
     public var to: String
+    public var count: Int?
 
-    public init(label: String, to: String) {
+    public init(label: String, to: String, count: Int? = nil) {
         self.label = label
         self.to = to
+        self.count = count
     }
 
     enum CodingKeys: String, CodingKey {
         case label
         case to
+        case count
     }
 }
 

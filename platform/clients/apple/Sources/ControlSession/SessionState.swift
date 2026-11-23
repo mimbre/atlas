@@ -172,8 +172,9 @@ public struct SessionState: Sendable, Equatable {
     public private(set) var lastHint: Update?
     /// What waits for the user, in the model's words (`count` of the last page shown).
     public private(set) var count: String?
-    /// The last count of each group the pages declared (`groups`), by its `to`: what the
-    /// sidebar shows under every tab, also while another tab is shown.
+    /// The last count of each tab and group, by its `to`, as boot or a page's `groups` said
+    /// it, whichever came last: what the sidebar shows under every tab, also before it is
+    /// opened.
     public private(set) var groupCounts: [String: Int] = [:]
     /// A submit is sent and Control has not replied to it (a page stored or refused, or
     /// one opened since); another waits until it has.
@@ -382,6 +383,12 @@ public struct SessionState: Sendable, Equatable {
             self.shell = shell
             shellStale = false
             bootFailure = nil
+            for tab in shell.tabs {
+                if let count = tab.count { groupCounts[tab.to] = count }
+                for group in tab.groups ?? [] {
+                    if let count = group.count { groupCounts[group.to] = count }
+                }
+            }
             if phase == .boot { return start(shell) }
             return keepTab(shell)
         }

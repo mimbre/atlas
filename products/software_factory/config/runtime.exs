@@ -41,6 +41,9 @@ if config_env() != :test do
     rela_url: settings["rela"]["url"],
     # On Fly rela has an IPv6 address on the private network only.
     rela_ipv6: settings["rela"]["ipv6"] == true,
+    # On Fly only the core may use rela (IS-Atlas-80): `rela.token_env` names the variable
+    # (a Fly secret of both apps) with the credential rela's edge asks for. None on a Mac.
+    rela_token: if(name = settings["rela"]["token_env"], do: System.fetch_env!(name)),
     # Facts' own data folder (`facts.data`; settings files before the rename said `state`).
     data_dir: expand.(get_in(settings, ["facts", "data"]) || raise("#{file} has no facts.data")),
     # The connectors at Facts' edge: only those this environment has settings for.
