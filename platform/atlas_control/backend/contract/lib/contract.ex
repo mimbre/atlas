@@ -35,7 +35,10 @@ defmodule AtlasBFFContract.Contract do
   # you and Supervised by you, and Pick up and Hand over… on a fact, with their submits.
   # 0.19.0: a page may declare the groups its items fall into (`groups`), each a filter of
   # the page; Open for you per group (`/_open/:subflow/:span`).
-  version "0.19.0"
+  # 0.20.0: each shell tab names its icon (a semantic name, `icon`) and its groups
+  # (`groups`: label and `to`); Supervised by you and what is assigned have groups too
+  # (`/_supervised/:subflow/:span`, `/_assigned/:kind`).
+  version "0.20.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

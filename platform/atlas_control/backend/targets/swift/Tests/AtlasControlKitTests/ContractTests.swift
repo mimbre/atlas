@@ -22,7 +22,7 @@ final class ContractTests: XCTestCase {
     }
 
     func test_version() {
-        XCTAssertEqual(Contract.version, "0.19.0")
+        XCTAssertEqual(Contract.version, "0.20.0")
     }
 
     func test_block_list_decodes_and_round_trips() throws {
@@ -275,6 +275,14 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(Page.home.template, "/")
     }
 
+    func test_page_assigned_group_builds_and_matches_its_path() throws {
+        let params: [String: String] = ["kind": "v kind/1"]
+        let path = try Page.assignedGroup.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .assignedGroup, params: params))
+        XCTAssertEqual(Page.assignedGroup.template, "/_assigned/:kind")
+        XCTAssertThrowsError(try Page.assignedGroup.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .assignedGroup, param: "kind")) }
+    }
+
     func test_page_open_for_you_builds_and_matches_its_path() throws {
         let params: [String: String] = [:]
         let path = try Page.openForYou.path(params)
@@ -295,6 +303,14 @@ final class ContractTests: XCTestCase {
         let path = try Page.supervisedByYou.path(params)
         XCTAssertEqual(Page.match(path), PageMatch(page: .supervisedByYou, params: params))
         XCTAssertEqual(Page.supervisedByYou.template, "/_supervised")
+    }
+
+    func test_page_supervised_by_you_group_builds_and_matches_its_path() throws {
+        let params: [String: String] = ["span": "v span/1", "subflow": "v subflow/1"]
+        let path = try Page.supervisedByYouGroup.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .supervisedByYouGroup, params: params))
+        XCTAssertEqual(Page.supervisedByYouGroup.template, "/_supervised/:subflow/:span")
+        XCTAssertThrowsError(try Page.supervisedByYouGroup.path([:])) { XCTAssertEqual($0 as? PathError, .missing(page: .supervisedByYouGroup, param: "subflow")) }
     }
 
     func test_page_workers_builds_and_matches_its_path() throws {
@@ -692,7 +708,7 @@ final class ContractTests: XCTestCase {
     }
 
     func test_control_message_boot_shell_decodes_and_round_trips() throws {
-        let text = ##"{"active_tab":"active_tab 1","env":"env 1","initial_to":"initial_to 1","op":"boot","revision":"revision 1","spec":"spec 1","tabs":[{"id":"id 1","label":"label 1","to":"to 1"}],"title":"title 1"}"##
+        let text = ##"{"active_tab":"active_tab 1","env":"env 1","initial_to":"initial_to 1","op":"boot","revision":"revision 1","spec":"spec 1","tabs":[{"groups":[{"label":"label 1","to":"to 1"}],"icon":"icon 1","id":"id 1","label":"label 1","to":"to 1"}],"title":"title 1"}"##
         let message = try decode(ControlMessage.self, text)
         guard case .bootShell = message else { return XCTFail("decoded as \(message)") }
         try assertRoundTrip(message, text)

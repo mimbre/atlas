@@ -1437,15 +1437,37 @@ public struct ShellTabModel: Codable, Sendable, Equatable {
     public var id: String
     public var label: String
     public var to: String
+    public var icon: String?
+    public var groups: [ShellGroupModel]?
 
-    public init(id: String, label: String, to: String) {
+    public init(id: String, label: String, to: String, icon: String? = nil, groups: [ShellGroupModel]? = nil) {
         self.id = id
+        self.label = label
+        self.to = to
+        self.icon = icon
+        self.groups = groups
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case label
+        case to
+        case icon
+        case groups
+    }
+}
+
+/// The model `shell_group`.
+public struct ShellGroupModel: Codable, Sendable, Equatable {
+    public var label: String
+    public var to: String
+
+    public init(label: String, to: String) {
         self.label = label
         self.to = to
     }
 
     enum CodingKeys: String, CodingKey {
-        case id
         case label
         case to
     }

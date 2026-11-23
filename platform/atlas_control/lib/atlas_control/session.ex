@@ -1781,13 +1781,26 @@ defmodule AtlasControl.Session do
   defp start({screen, _by}, state) when screen in [:open_for_you, :supervised_by_you],
     do: {screen, state.by}
 
+  # A group of a screen reads for the client as its screen does; what is assigned
+  # only for a client that has it (`start(:home, state)`).
+  defp start({:group, :assigned, key, _by}, state) do
+    if Pages.assigned_start?(state.model, state.by_kind),
+      do: {:group, :assigned, key, state.by},
+      else: :unknown
+  end
+
+  defp start({:group, screen, key, _by}, state), do: {:group, screen, key, state.by}
+
   defp start({:hand_over, kind, key, run}, state), do: {:hand_over, kind, key, run, state.by}
 
   defp start(route, _state), do: route
 
-  # The header's count: from the page when it is the start page of assignments, else read
-  # with the page when what it was read from changed (its own read set) or it was never
-  # read.
+  # The header's count: from the page when it is the start page of assignments (or one of
+  # its groups, which reads the same), else read with the page when what it was read from
+  # changed (its own read set) or it was never read.
+  defp count(state, {:group, :assigned, _key, by}, answers, set),
+    do: count(state, {:assigned, by}, answers, set)
+
   defp count(state, {:assigned, _} = _route, answers, set),
     do: %{
       state

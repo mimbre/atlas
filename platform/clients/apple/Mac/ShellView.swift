@@ -40,19 +40,24 @@ struct ShellView: View {
     }
 }
 
-/// The tabs, in boot's order, with the count (what waits for the user) as the section's
-/// header; under the active tab, the groups of its page, each with its count (as a mail
-/// app's folders). It scrolls, so it holds boot's limit of 64.
+/// The tabs, in boot's order, each with its icon and count, with the count (what waits for
+/// the user) as the section's header; under every tab with groups, its groups with their
+/// counts (as a mail app's folders), in a disclosure that is open until folded (the fold is
+/// kept per tab), so any group can be chosen from anywhere. It scrolls, so it holds boot's
+/// limit of 64.
 struct Sidebar: View {
     let shell: ShellViewModel
     let select: (String) -> Void
     let filter: (String) -> Void
 
-    /// A tab, by its id, or a group of the active tab's page, by its `to`.
+    /// A tab, by its id, or a group of a tab's page, by its `to`.
     enum Choice: Hashable {
         case tab(String)
         case group(String)
     }
+
+    /// The tabs whose groups are folded, by id, one per line; kept across launches.
+    @AppStorage("sidebar.foldedTabs") private var folded = ""
 
     private var choice: Binding<Choice?> {
         Binding(
@@ -70,12 +75,15 @@ struct Sidebar: View {
         List(selection: choice) {
             Section {
                 ForEach(shell.tabs) { tab in
-                    Text(tab.label).badge(tab.count ?? 0).tag(Choice.tab(tab.id))
-                    if tab.id == shell.activeTab {
-                        ForEach(shell.groups) { group in
-                            Text(group.label).badge(group.count)
-                                .padding(.leading, 12)
-                                .tag(Choice.group(group.to))
+                    if tab.groups.isEmpty {
+                        tabLabel(tab)
+                    } else {
+                        DisclosureGroup(isExpanded: expansion(tab.id)) {
+                            ForEach(tab.groups) { group in
+                                Text(group.label).badge(badge(group.count)).tag(Choice.group(group.to))
+                            }
+                        } label: {
+                            tabLabel(tab)
                         }
                     }
                 }
@@ -86,6 +94,39 @@ struct Sidebar: View {
         .listStyle(.sidebar)
         .opacity(shell.stale ? 0.6 : 1)
         .navigationSplitViewColumnWidth(min: 160, ideal: 220)
+    }
+
+    private func tabLabel(_ tab: ShellViewModel.Tab) -> some View {
+        Label(tab.label, systemImage: Self.symbol(tab.icon)).badge(badge(tab.count)).tag(Choice.tab(tab.id))
+    }
+
+    /// A count as a badge, 0 too; none while no page has said it.
+    private func badge(_ count: Int?) -> Text? {
+        count.map { Text("\($0)") }
+    }
+
+    private func expansion(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { !folded.split(separator: "\n").contains(Substring(id)) },
+            set: { open in
+                var ids = folded.split(separator: "\n").map(String.init).filter { $0 != id }
+                if !open { ids.append(id) }
+                folded = ids.joined(separator: "\n")
+            })
+    }
+
+    /// The symbol for a tab's icon, a semantic name Control gives; a plain one for a name
+    /// this app does not know.
+    static func symbol(_ icon: String?) -> String {
+        switch icon {
+        case "inbox": "tray"
+        case "watching": "eye"
+        case "mine": "person.crop.circle"
+        case "stack": "rectangle.stack"
+        case "checklist": "checklist"
+        case "machines": "cpu"
+        default: "circle"
+        }
     }
 }
 
