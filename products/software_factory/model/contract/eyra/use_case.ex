@@ -25,24 +25,6 @@ defmodule Model.UseCase do
   """
   use RelaDSL
 
-  type(:design_status,
-    values: [:writing, :in_review, :changes_requested, :approved, :accepted],
-    labels: [
-      writing: "Writing",
-      in_review: "In review",
-      changes_requested: "Changes requested",
-      approved: "Approved",
-      accepted: "Accepted"
-    ],
-    descriptions: [
-      writing: "The Design part is being written.",
-      in_review: "The Design part waits for its review pass.",
-      changes_requested: "The review sent the Design part back.",
-      approved: "The review approved the Design part; it can be broken down and built.",
-      accepted: "Its Design part is accepted: proposed with it by its scene's break-down."
-    ]
-  )
-
   entity :use_case,
     label: "Use case",
     plural: "use_cases",
@@ -69,11 +51,6 @@ defmodule Model.UseCase do
         "The Design part: how it is built, proposed with it by its scene's break-down and accepted by its supervisor",
       multiline: true,
       label: "Design"
-    )
-
-    field(:design_status, :design_status,
-      description: "Where the Design part is; empty for a use case without a design phase",
-      label: "Design status"
     )
 
     field(:note, :string,
@@ -115,7 +92,7 @@ defmodule Model.UseCase do
 
     create(ask: [:title, :description], defaults: [status: :refine, phase: :break_down])
     progress(over: :in_use_case, field: :stage, own: :status)
-    completion([[by: :accepted_by], [field: :phase, value: :accepted]])
+    completion(field: :phase, value: :accepted)
   end
 
   relation(:in_scene,
@@ -140,19 +117,6 @@ defmodule Model.UseCase do
     parent: true
   )
 
-  relation(:accepted_by,
-    label: "accepted by",
-    description: "Who accepted a scene or use case, after testing it; at most one.",
-    from: [:scene, :use_case],
-    to: [:person],
-    max_outgoing: 1,
-    inverse: {:accepted, "accepted"},
-    only_target: [error: "only a person accepts", also: [:migration]],
-    # No Accept or Reopen by hand (D-0099): a use case is accepted once all its issues are
-    # done, a scene by its producer's answer (`change: %{self: :accepted_by}`).
-    requires_completed_children: "{key} has {children} open",
-    closes_parent: "{parent} is accepted; put this under another {kind}"
-  )
 
   # Plan: Use case → Issues.
   subflow :break_down_use_case, label: "Plan", subject: :use_case do
@@ -176,7 +140,7 @@ defmodule Model.UseCase do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is one small change a developer can build, review and merge on its own, in the order given.",
+          "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is a vertical slice: it works end to end and can be shown working. The first is the thinnest happy path (a walking skeleton); each later one builds on the ones before it, in the order given. Propose as few issues as possible: split a slice further only when it is too big for one reviewable pull request, what one agent builds and reviews in one go. Never split by layer (model, contract, Control, client): each issue cuts through all the layers it needs. When its scene names its phase, respect it: in Explore, usually only the happy-path slice; edge cases come later as follow-ups.",
         fields: [:title, :description, :design],
         parents: [:title, :description],
         creates: [kind: :issue, file: "issues.json"],
@@ -271,8 +235,8 @@ defmodule Model.UseCase do
 
   # A use case from before (no `phase`) is the acceptance's: a completed one is completed
   # history, any other joins `building`, whose count hands one with nothing under it to
-  # "Use case → Issues". So do the 32 whose design flow (design_and_accept, gone) had not
-  # ended: their runs are no longer selected.
+  # "Use case → Issues". So do the 32 whose design flow (removed, D-0099) had not ended:
+  # their runs are no longer selected.
   select(:accept_use_case,
     choices: [],
     projection: @projection,
@@ -316,5 +280,13 @@ defmodule Model.UseCase do
     to: "d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5",
     states: :same,
     reason: "Plan: renamed from Use case → Issues"
+  )
+
+  # Plan: its agent proposes vertical slices, the thinnest happy path first; nothing else changed.
+  migrate(:break_down_use_case,
+    from: "d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5",
+    to: "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
+    states: :same,
+    reason: "Plan: its agent proposes vertical slices"
   )
 end

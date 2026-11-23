@@ -72,7 +72,7 @@ defmodule Model.RunPresentationTest do
   test "a reopened use case says so to anyone until its run is restarted; a completed one does not" do
     use_case = %{
       "key" => "UC-Atlas-01",
-      "values" => %{"design_status" => "accepted"},
+      "values" => %{},
       "links" => %{"assignment" => ["AS-UC-Atlas-01"]}
     }
 

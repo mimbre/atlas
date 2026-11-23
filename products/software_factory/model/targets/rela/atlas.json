@@ -1241,15 +1241,10 @@
       "top": false
     },
     "use_case": {
-      "completion": [
-        {
-          "by": "accepted_by"
-        },
-        {
-          "field": "phase",
-          "value": "accepted"
-        }
-      ],
+      "completion": {
+        "field": "phase",
+        "value": "accepted"
+      },
       "create": {
         "ask": [
           "title",
@@ -1276,9 +1271,6 @@
         "design": {
           "label": "Design",
           "multiline": true
-        },
-        "design_status": {
-          "label": "Design status"
         },
         "flux_id": {
           "set_by": "connector"
