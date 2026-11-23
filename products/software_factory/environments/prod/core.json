@@ -24,7 +24,8 @@
   "bus_link": { "host": "::", "port": 7594 },
   "rela": {
     "url": "http://eyra-atlas-rela.internal:7590/api/v1",
-    "ipv6": true
+    "ipv6": true,
+    "token_env": "ATLAS_RELA_TOKEN"
   },
   "facts": { "data": "/data/beam" },
   "flow": {

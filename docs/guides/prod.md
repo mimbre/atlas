@@ -149,6 +149,7 @@ A merge to master deploys prod (CI job `deploy-prod`, `platform/ops/deploy.sh pr
 | eyra/atlas, repository secret | `FLY_API_TOKEN_PROD` | `fly tokens create deploy -a eyra-atlas` | CI's per-app deploy token |
 | eyra/atlas, repository secret | `FLY_API_TOKEN_PROD_RELA` | `fly tokens create deploy -a eyra-atlas-rela` | CI's per-app deploy token |
 | Fly app `eyra-atlas`, `fly secrets set -a eyra-atlas GITHUB_TOKEN=…` | `GITHUB_TOKEN` | shared by the GitHub connector and Code's integrate receiver on eyra/atlas (private) | `gh auth token`: `connectors.github.token_command` in `products/software_factory/environments/prod.json`, the local gh keyring |
+| Fly app `eyra-atlas`, `fly secrets set -a eyra-atlas ATLAS_RELA_TOKEN=…` (`openssl rand -hex 32`; test: `eyra-atlas-test`, its own) | `ATLAS_RELA_TOKEN` | Facts' credential for rela (`rela.token_env` in `products/software_factory/environments/prod/core.json`), sent as `Authorization: Bearer` (IS-Atlas-80); the core refuses to boot without it | none: rela on a Mac listens on loopback only |
 
 On Fly the connector and Code's integrate receiver read the same secret
 (`connectors.github.token_env` in `products/software_factory/environments/prod/core.json`). Restrict the fine-grained token
