@@ -218,6 +218,18 @@ defmodule AtlasFacts.PresentationTest do
     assert %{"flow" => "sorting", "supervisor" => []} = view(label(%{"step" => "weigh"}), runs)
   end
 
+  test "of two active runs, the one whose phase admits the subject presents it" do
+    runs = [
+      watched(run("sorting", 1, "active", "weigh"), []),
+      watched(run("shipping", 1, "active", "track"), ["bob"])
+    ]
+
+    second = %{"key" => "P-1", "values" => %{"phase" => "second"}}
+
+    assert %{"flow" => "shipping", "state" => "track", "supervisor" => ["bob"]} =
+             view(label(%{"step" => "track"}), runs, second)
+  end
+
   test "no run: nothing to do" do
     assert %{"run" => nil, "actionable" => false, "reopened" => false} =
              view(label(%{"step" => "weigh"}), [])

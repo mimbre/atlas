@@ -11,8 +11,8 @@ defmodule Model.UseCase do
       only writer, puts that text in its Design part (`design`), and "Accept its design"
       (`accepting`) goes to the supervisor, who reads it, changes it by hand if need be,
       and accepts it: `design_status` becomes `approved`, the run ends `accepted`, which
-      sets `design_status: accepted` and starts the second subflow, whose break-down can
-      then be picked up. When the agent writes nothing, or its task ends otherwise, the
+      sets `design_status: accepted` and hands the use case to its break-down (`phase:
+      break_down`), which can then be picked up. When the agent writes nothing, or its task ends otherwise, the
       supervisor writes the design by hand in "Accept its design". Nobody sets
       `design_status` by hand on the way.
     * A use case whose design was in review before slice 9 (`in_review`, written by
@@ -51,44 +51,29 @@ defmodule Model.UseCase do
 
   `pass_result`, `gate_result` and `verdict` stay on the kind, unwritten, for them.
 
-  `test_and_accept_use_case`:
+  `break_down_use_case` and `accept_use_case` follow it, each a flow of its own: a
+  person supervises a flow, never a step (D-0099).
 
-    * The use case is broken down into issues (`children`), built until none is open
-      (`open_children`), then tested by the configured decider. `children` and
-      `open_children` are the composition's count of the issues in the use case.
-    * Slice 7: a person picks up its break-down (`break_down`, the span `break_down`) and
-      hands it to a machinery: one agent on the supervisor's Runtime reads the use case,
-      its scene and a checkout of the repository, and writes the issues it proposes to a
-      file in its result (`creates:`). Flow, the only writer, makes them under the use
-      case, and "Accept it" (`accepting`) goes to the supervisor, who looks at them and
-      accepts the break-down; the issues can then be picked up and built. When the agent
-      proposes nothing, or the use case is taken from the machinery, the supervisor
-      breaks it down by hand in "Accept it".
-    * A rejection sends it to its rework; a new open issue sends it back to building.
+    * `break_down_use_case`: once its design is accepted (which hands it on, `phase:
+      break_down`), a person picks it up (its span) and hands it to a machinery: one
+      agent on the supervisor's Runtime reads the use case, its scene and a checkout of
+      the repository, and writes the issues it proposes to a file in its result
+      (`creates:`). Flow, the only writer, makes them under the use case, and "Accept it"
+      (`accepting`) goes to the supervisor, who looks at them, changes, removes or adds
+      any by hand, and accepts the break-down. Its run ends there and hands the use case
+      to `accept_use_case` (`phase: accept`).
+    * `accept_use_case`: builds it until none of its issues is open (`children`,
+      `open_children`: the composition's count of its issues), then the configured
+      decider tests it and accepts it, or rejects it with a note (`rework`, until a new
+      open issue sends it back to building). An approved use case with no issue under it
+      goes back to a new round of `break_down_use_case` (`phase: break_down`), and this
+      run waits for it (`breaking_down`).
 
-  Slice 11 runs it on Flow's durable runs (`select`) for the building phase of the legacy
-  flow `design_and_accept`, which then drives no use case at all: its design run owns a
-  use case while the design is written or reviewed, its build run from the design's
-  acceptance on, and for a use case with no design phase. The parity fixes keep it to
-  what runs today:
-
-    * no passes (rework): its spec is no pass contract a runner accepts
-      (`AtlasFlow.Activities.Pass.valid?/1`), for the reasons the design's passes wait
-      (slice 10); a definition a runner refuses would refuse every selected subflow. The
-      coordinator reworks it by hand, as today;
-    * `to_test` is the configured decider's (`{:person, config: :decider}`), as the
-      legacy flow's `to_test` is, and moves on `verdict`, which its two answers write,
-      no longer on an acceptor's typed choice: Facts takes a choice only from one a
-      relation of the use case names, and none names who rejects (`accepted_by` names
-      the one who accepted, and naming oneself there accepts and completes the use case).
-      Accept writes `verdict: accept` with `accepted_by` set to the one who answers, in one
-      change, so Facts' rules on `accepted_by` (only a person, only themselves, nothing
-      under it open) guard it as today; Reject writes `verdict: reject` with a note. Its
-      entry resets `verdict` to `none`, so an older verdict moves nothing;
-    * a new open issue sends it back from `to_test` to building, and a use case with no
-      design phase is not broken down while nothing is under it, nor tested: the legacy
-      flow builds it (`building`) until something under it is; with issues it is tested
-      once all are completed, as the legacy flow's `progress: to_test` says.
+  `design_status` and `phase` say which of the three has a use case (disjoint
+  admissions): the design while it is written or reviewed, then the break-down
+  (`phase: break_down`) or the acceptance (`phase: accept`). One from before the split
+  has no `phase` and is the acceptance's, which imports it; so is one without a design
+  phase (no `design_status`).
   """
   use RelaDSL
 
@@ -141,6 +126,12 @@ defmodule Model.UseCase do
     field(:design_status, :design_status,
       description: "Where the Design part is; empty for a use case without a design phase",
       label: "Design status"
+    )
+
+    field(:phase, :pipeline_phase,
+      description:
+        "Flow: which flow of its pipeline has it after its design (break down, accept)",
+      label: "Phase"
     )
 
     field(:children, :integer, description: "Flow: how many issues are in it")
@@ -281,16 +272,16 @@ defmodule Model.UseCase do
     end
 
     final :accepted, label: "Design accepted" do
-      set(design_status: :accepted)
+      set(design_status: :accepted, phase: :break_down)
     end
   end
 
-  subflow :test_and_accept_use_case, label: "Build, test and accept", subject: :use_case do
+  subflow :break_down_use_case, label: "Break down use case", subject: :use_case do
     run_as("system:sf-flow")
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
-    start(:predicate, when: "entity.design_status == 'accepted'")
+    start(:predicate, when: "entity.phase == 'break_down'")
     initial(:break_down)
-    supervise(:break_down, label: "Break down", states: [:break_down, :accepting])
+    supervise(:break_down, label: "Break down use case", states: [:break_down, :accepting])
 
     state :break_down, label: "Break it down into issues" do
       present(
@@ -322,8 +313,7 @@ defmodule Model.UseCase do
     end
 
     # Its supervisor looks at the issues Flow made from the agent's proposal, changes,
-    # removes or adds any by hand, and accepts the break-down. Without issues under it,
-    # building sends it back to break it down again.
+    # removes or adds any by hand, and accepts the break-down.
     state :accepting, label: "Accept it" do
       owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
       set(verdict: :none)
@@ -336,8 +326,19 @@ defmodule Model.UseCase do
         answers: [[key: "a", label: "Accept", change: %{values: %{verdict: :accept}}]]
       )
 
-      branch(to: :building, when: "entity.verdict == 'accept'")
+      branch(to: :broken_down, when: "entity.verdict == 'accept'")
     end
+
+    final :broken_down, label: "Broken down" do
+      set(phase: :accept)
+    end
+  end
+
+  subflow :accept_use_case, label: "Build, test and accept", subject: :use_case do
+    run_as("system:sf-flow")
+    owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
+    start(:predicate, when: "entity.phase == 'accept'")
+    initial(:building)
 
     state :building, label: "Build it" do
       present(
@@ -348,13 +349,26 @@ defmodule Model.UseCase do
       )
 
       branch(
-        to: :break_down,
+        to: :breaking_down,
         by: :atlas,
         when:
           "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')"
       )
 
       branch(to: :to_test, by: :atlas, when: "entity.children > 0 and entity.open_children == 0")
+    end
+
+    # Nothing under it: a new round of its break-down has it, and this run waits for it.
+    state :breaking_down, label: "Being broken down" do
+      set(phase: :break_down)
+
+      present(
+        expected: "Wait for its break-down",
+        why: "nothing is under it",
+        instructions: "Its break-down flow has it; Flow hands it back once that is accepted."
+      )
+
+      branch(to: :building, when: "entity.phase == 'accept'")
     end
 
     state :to_test, label: "Test it" do
@@ -395,11 +409,19 @@ defmodule Model.UseCase do
     final(:accepted, label: "Accepted")
   end
 
+  @projection [
+    on: :assignment,
+    state_field: :flow_state,
+    handover_field: :handover,
+    owner_relation: :assigned_to,
+    field: :expected
+  ]
+
   # How the runs of design_and_accept are selected, imported from the use case as it was
   # before the subflow ran, and presented: on its Assignment, as the legacy flow
   # design_and_accept did. One writer presents a use case at any moment, by its
   # `design_status` (disjoint phase admission): this run while the design is written or
-  # reviewed, the build run (test_and_accept_use_case) from its acceptance on (`approved`,
+  # reviewed, its break-down's or its acceptance's from its acceptance on (`approved`,
   # or `accepted`, which this run writes as it ends), and for a use case with no design
   # phase (no `design_status`). Such a use case never starts a design run.
   #
@@ -415,13 +437,7 @@ defmodule Model.UseCase do
   # default, 5.2). No legacy flow takes it back: slice 11 ends its follow-through.
   select(:design_and_accept,
     choices: [],
-    projection: [
-      on: :assignment,
-      state_field: :flow_state,
-      handover_field: :handover,
-      owner_relation: :assigned_to,
-      field: :expected
-    ],
+    projection: @projection,
     admission: [design_status: [:writing, :in_review, :changes_requested]],
     imports: [[when: [design_status: [:in_review]], state: :accepting]],
     reopen: :explicit,
@@ -470,80 +486,40 @@ defmodule Model.UseCase do
     reason: "Slice 9: an agent writes its design; its supervisor accepts it"
   )
 
-  # How the runs of test_and_accept_use_case are selected, imported from the use case as
-  # it was before the subflow ran, and presented: on its Assignment, where the legacy flow
-  # design_and_accept presented its building phase, which no longer drives a use case. It
-  # admits a use case from its design's acceptance on (`approved`, `accepted`) and one with
-  # no design phase (nil: no `design_status`): every one the design run does not, so each
-  # use case has one writer at any moment, and none is left to the legacy flow.
-  #
-  # The first row that holds gives the entry, writing nothing and rerunning nothing:
-  #
-  #   * a completed use case (accepted, `completion` as Facts derives it) is completed
-  #     history, `accepted`;
-  #   * an approved one (prod: 5 "Build it" and 3 "Break it down into issues", for the
-  #     coordinator), approved before this subflow ran, joins `building`; the count of its
-  #     issues, given to the run on its first entry, moves one with none under it to
-  #     `break_down`, and one whose issues are all completed to `to_test`, as the legacy
-  #     flow presents them;
-  #   * one with no design phase (test: 2 "Build it", for the coordinator) joins
-  #     `building`, where it stays while nothing is under it, as in the legacy flow.
-  #
-  # Any other matches no row: one whose design run accepted it (`accepted`) starts on its
-  # predicate, in `break_down`, once. Its design run's cursor is its own; the two share
-  # only the use case's count of its issues, which the composition gives both.
-  #
-  # A completed run is not started again when its use case is reopened (`accepted_by`
-  # removed, its design put back and accepted again): only an explicit restart makes a new
-  # generation (`reopen: :explicit`, the design's default, 5.2). Until one, nothing
-  # presents a reopened use case.
-  select(:test_and_accept_use_case,
+  # Slice "pickup points as flows": its run ends handing the use case to its break-down
+  # (`phase: break_down`). An accepted run stays accepted; the others are as they were.
+  migrate(:design_and_accept,
+    from: "9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4",
+    to: "49179c2eb7302bf8bd0b2ffee7780b36f6efc7c390cc09ddc171d1c417464829",
+    states: :same,
+    reason: "Its end hands the use case to its break-down flow (phase: break_down)"
+  )
+
+  # Each round of a use case's break-down is a new generation of its run: started when the
+  # use case is handed to it (`phase` becomes `break_down`), never on its own.
+  select(:break_down_use_case,
     choices: [],
-    projection: [
-      on: :assignment,
-      state_field: :flow_state,
-      handover_field: :handover,
-      owner_relation: :assigned_to,
-      field: :expected
-    ],
-    admission: [design_status: [:approved, :accepted, nil]],
-    imports: [
-      [completed: true, state: :accepted],
-      [when: [design_status: [:approved]], state: :building],
-      [when: [design_status: [nil]], state: :building]
-    ],
-    reopen: :explicit,
+    projection: @projection,
+    admission: [design_status: [:approved, :accepted, nil], phase: [:break_down]],
+    imports: [],
+    reopen: :new_generation,
     restart_by: [:owner, :decider]
   )
 
-  # The approved migration of its runs, from the digest the base branch recorded
-  # (RelaDSL.RunIdentity); the same in prod and test, and the only one it ever had. No run
-  # had that digest: the subflow was never selected before slice 11. A run that did would
-  # move along it as a state migration (re-entering its state, then moving on the counts
-  # and the verdict it finds), never as a re-key: its states are the same, but its passes
-  # went, and the acceptor's choice became the decider's verdict. One with a frozen pass
-  # is not quiescent and blocks.
-  migrate(:test_and_accept_use_case,
-    from: "439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1",
-    to: "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
-    states: :same,
-    reason: "Slice 11: selected without its passes; the decider's verdict ends to_test"
-  )
-
-  # Slice 7: its break-down is an agent's proposal, accepted by its supervisor. A run in
-  # `break_down` re-enters it and waits there, as before, for its owner: once a person
-  # picks it up and hands it to a machinery, its agent proposes its issues. Every other
-  # state stays as it is.
-  migrate(:test_and_accept_use_case,
-    from: "d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04",
-    to: "ec6cdede1bc4a90a80e6f4dfae1d390ad1538f9c99ab67f40f7842a23c004cf9",
-    states: [
-      accepted: :accepted,
-      break_down: :break_down,
-      building: :building,
-      rework: :rework,
-      to_test: :to_test
+  # A use case from before the split (no `phase`; on prod 5 building, 3 waiting for their
+  # break-down, none picked up), or one without a design phase, is the acceptance's: a
+  # completed one is completed history, any other joins `building`, whose count hands an
+  # approved one with nothing under it to a new break-down. Their runs of the removed
+  # test_and_accept_use_case are no longer selected.
+  select(:accept_use_case,
+    choices: [],
+    projection: @projection,
+    admission: [design_status: [:approved, :accepted, nil], phase: [:accept, nil]],
+    imports: [
+      [completed: true, state: :accepted],
+      [when: [phase: [nil]], state: :building]
     ],
-    reason: "Slice 7: an agent proposes its issues; its supervisor accepts them"
+    reopen: :explicit,
+    restart_by: [:owner, :decider]
   )
 end

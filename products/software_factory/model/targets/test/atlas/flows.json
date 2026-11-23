@@ -12,7 +12,7 @@
       },
       {
         "all": "children",
-        "child": "test_and_accept_use_case",
+        "child": "accept_use_case",
         "child_subject": "use_case",
         "open": "open_children",
         "parent_subject": "scene",
@@ -64,6 +64,667 @@
     "version": 1
   },
   "flows": {
+    "accept_scene": {
+      "initial": "building",
+      "label": "Build, test and accept",
+      "owner": {
+        "default": {
+          "key": "coordinator",
+          "kind": "agent"
+        },
+        "relation": "assigned_to",
+        "via": "assignment"
+      },
+      "per_subject": "one",
+      "run_as": "system:sf-flow",
+      "start": [
+        {
+          "on": "predicate",
+          "when": "entity.phase == 'accept'"
+        }
+      ],
+      "states": {
+        "accepted": {
+          "awaits": [],
+          "branches": [],
+          "creates": [],
+          "final": true,
+          "label": "Accepted",
+          "set": [],
+          "timers": [],
+          "waiting_for": []
+        },
+        "breaking_down": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "building",
+              "when": "entity.phase == 'accept'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Being broken down",
+          "present": {
+            "expected": "Wait for its break-down",
+            "todo": {
+              "instructions": "Its break-down flow has it; Flow hands it back once that is accepted."
+            },
+            "why": "nothing is under it"
+          },
+          "set": [
+            {
+              "field": "phase",
+              "value": "break_down"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "building": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "breaking_down",
+              "when": "entity.children == 0"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "to_test",
+              "when": "entity.open_children == 0"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Build it",
+          "present": {
+            "expected": "Build it",
+            "todo": {
+              "instructions": "Build what is under it; Flow hands it on for testing once all of it is completed."
+            },
+            "why": "not all under it is completed"
+          },
+          "set": [],
+          "timers": [],
+          "waiting_for": []
+        },
+        "rework": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "building",
+              "when": "entity.open_children > 0"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Rework it",
+          "present": {
+            "expected": "Rework: {note}",
+            "todo": {
+              "instructions": "Rework it as the note says; Flow hands it back for testing once all under it is completed."
+            },
+            "why": "reopened"
+          },
+          "set": [],
+          "timers": [],
+          "waiting_for": []
+        },
+        "to_test": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "accepted",
+              "when": "entity.verdict == 'accept'"
+            },
+            {
+              "roles": [],
+              "to": "rework",
+              "when": "entity.verdict == 'reject'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "building",
+              "when": "entity.open_children > 0"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Test it",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Test it",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "self": "accepted_by",
+                    "values": {
+                      "verdict": "accept"
+                    }
+                  },
+                  "key": "a",
+                  "label": "Accept"
+                },
+                {
+                  "change": {
+                    "values": {
+                      "verdict": "reject"
+                    }
+                  },
+                  "key": "f",
+                  "label": "Reject",
+                  "note": true
+                }
+              ],
+              "instructions": "Try the test below, then accept it, or reject it with a note.",
+              "section": {
+                "field": "description",
+                "heading": "Melle can test"
+              }
+            },
+            "why": "all under it is completed"
+          },
+          "set": [
+            {
+              "field": "verdict",
+              "value": "none"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        }
+      },
+      "subject": "scene"
+    },
+    "accept_use_case": {
+      "initial": "building",
+      "label": "Build, test and accept",
+      "owner": {
+        "default": {
+          "key": "coordinator",
+          "kind": "agent"
+        },
+        "relation": "assigned_to",
+        "via": "assignment"
+      },
+      "per_subject": "one",
+      "run_as": "system:sf-flow",
+      "start": [
+        {
+          "on": "predicate",
+          "when": "entity.phase == 'accept'"
+        }
+      ],
+      "states": {
+        "accepted": {
+          "awaits": [],
+          "branches": [],
+          "creates": [],
+          "final": true,
+          "label": "Accepted",
+          "set": [],
+          "timers": [],
+          "waiting_for": []
+        },
+        "breaking_down": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "building",
+              "when": "entity.phase == 'accept'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Being broken down",
+          "present": {
+            "expected": "Wait for its break-down",
+            "todo": {
+              "instructions": "Its break-down flow has it; Flow hands it back once that is accepted."
+            },
+            "why": "nothing is under it"
+          },
+          "set": [
+            {
+              "field": "phase",
+              "value": "break_down"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "building": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "breaking_down",
+              "when": "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "to_test",
+              "when": "entity.children > 0 and entity.open_children == 0"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Build it",
+          "present": {
+            "expected": "Build it",
+            "todo": {
+              "instructions": "Build what is under it; Flow hands it on for testing once all of it is completed."
+            },
+            "why": "not all under it is completed"
+          },
+          "set": [],
+          "timers": [],
+          "waiting_for": []
+        },
+        "rework": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "building",
+              "when": "entity.open_children > 0"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Rework it",
+          "present": {
+            "expected": "Rework: {note}",
+            "todo": {
+              "instructions": "Rework it as the note says; Flow hands it back for testing once all under it is completed."
+            },
+            "why": "reopened"
+          },
+          "set": [],
+          "timers": [],
+          "waiting_for": []
+        },
+        "to_test": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "accepted",
+              "when": "entity.verdict == 'accept'"
+            },
+            {
+              "roles": [],
+              "to": "rework",
+              "when": "entity.verdict == 'reject'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "building",
+              "when": "entity.open_children > 0"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Test it",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Test it",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "self": "accepted_by",
+                    "values": {
+                      "verdict": "accept"
+                    }
+                  },
+                  "key": "a",
+                  "label": "Accept"
+                },
+                {
+                  "change": {
+                    "values": {
+                      "verdict": "reject"
+                    }
+                  },
+                  "key": "f",
+                  "label": "Reject",
+                  "note": true
+                }
+              ],
+              "instructions": "Try the test below, then accept it, or reject it with a note.",
+              "section": {
+                "field": "description",
+                "heading": "Melle can test"
+              }
+            },
+            "why": "all under it is completed"
+          },
+          "set": [
+            {
+              "field": "verdict",
+              "value": "none"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        }
+      },
+      "subject": "use_case"
+    },
+    "break_down_scene": {
+      "initial": "break_down",
+      "label": "Break down scene",
+      "owner": {
+        "default": {
+          "key": "coordinator",
+          "kind": "agent"
+        },
+        "relation": "assigned_to",
+        "via": "assignment"
+      },
+      "per_subject": "one",
+      "run_as": "system:sf-flow",
+      "start": [
+        {
+          "on": "predicate",
+          "when": "entity.phase == 'break_down'"
+        }
+      ],
+      "states": {
+        "accepting": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "broken_down",
+              "when": "entity.verdict == 'accept'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Accept it",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Accept its use cases",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "verdict": "accept"
+                    }
+                  },
+                  "key": "a",
+                  "label": "Accept"
+                }
+              ],
+              "instructions": "Read the use cases under it, which its agent proposed; change, delete or add any, then accept them. They can then be designed, broken down and built."
+            },
+            "why": "its agent's break-down is done"
+          },
+          "set": [
+            {
+              "field": "verdict",
+              "value": "none"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "break_down": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'completed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'check_failed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'stuck'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'abandoned'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Break it down into use cases",
+          "present": {
+            "expected": "Break it down into use cases",
+            "todo": {
+              "instructions": "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "nothing is under it yet"
+          },
+          "set": [],
+          "spec": {
+            "cost_class": "standard",
+            "creates": {
+              "file": "use_cases.json",
+              "kind": "use_case"
+            },
+            "field": "task_result",
+            "fields": ["title", "description"],
+            "input": {
+              "base": "develop",
+              "repository": "github.com/mimbre/atlas"
+            },
+            "instructions": "Break the scene below into the use cases that build it. The repository you are given, a Git checkout of develop, is what they build on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then.",
+            "kind": "plan",
+            "machinery": "machinery",
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "architect"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
+        "broken_down": {
+          "awaits": [],
+          "branches": [],
+          "creates": [],
+          "final": true,
+          "label": "Broken down",
+          "set": [
+            {
+              "field": "phase",
+              "value": "accept"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        }
+      },
+      "subject": "scene"
+    },
+    "break_down_use_case": {
+      "initial": "break_down",
+      "label": "Break down use case",
+      "owner": {
+        "default": {
+          "key": "coordinator",
+          "kind": "agent"
+        },
+        "relation": "assigned_to",
+        "via": "assignment"
+      },
+      "per_subject": "one",
+      "run_as": "system:sf-flow",
+      "start": [
+        {
+          "on": "predicate",
+          "when": "entity.phase == 'break_down'"
+        }
+      ],
+      "states": {
+        "accepting": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "broken_down",
+              "when": "entity.verdict == 'accept'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Accept it",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Accept its issues",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "verdict": "accept"
+                    }
+                  },
+                  "key": "a",
+                  "label": "Accept"
+                }
+              ],
+              "instructions": "Read the issues under it, which its agent proposed; change, delete or add any, then accept them. They can then be picked up and built."
+            },
+            "why": "its agent's break-down is done"
+          },
+          "set": [
+            {
+              "field": "verdict",
+              "value": "none"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "break_down": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'completed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'check_failed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'stuck'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "accepting",
+              "when": "entity.task_result == 'abandoned'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Break it down into issues",
+          "present": {
+            "expected": "Break it down into issues",
+            "todo": {
+              "instructions": "Its machinery runs one agent on it that proposes its issues; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "nothing is under it yet"
+          },
+          "set": [],
+          "spec": {
+            "cost_class": "standard",
+            "creates": {
+              "file": "issues.json",
+              "kind": "issue"
+            },
+            "field": "task_result",
+            "fields": ["title", "description"],
+            "input": {
+              "base": "develop",
+              "repository": "github.com/mimbre/atlas"
+            },
+            "instructions": "Break the use case below into the issues that build it. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is one small change a developer can build, review and merge on its own, in the order given.",
+            "kind": "plan",
+            "machinery": "machinery",
+            "parents": ["title", "description"],
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "architect"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
+        "broken_down": {
+          "awaits": [],
+          "branches": [],
+          "creates": [],
+          "final": true,
+          "label": "Broken down",
+          "set": [
+            {
+              "field": "phase",
+              "value": "accept"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        }
+      },
+      "subject": "use_case"
+    },
     "decide": {
       "channel": "debate",
       "initial": "deciding",
@@ -374,6 +1035,10 @@
             {
               "field": "design_status",
               "value": "accepted"
+            },
+            {
+              "field": "phase",
+              "value": "break_down"
             }
           ],
           "timers": [],
@@ -2108,534 +2773,6 @@
       },
       "subject": "pull_request"
     },
-    "test_and_accept_scene": {
-      "initial": "break_down",
-      "label": "Build, test and accept",
-      "owner": {
-        "default": {
-          "key": "coordinator",
-          "kind": "agent"
-        },
-        "relation": "assigned_to",
-        "via": "assignment"
-      },
-      "per_subject": "one",
-      "run_as": "system:sf-flow",
-      "start": [
-        {
-          "on": "create"
-        }
-      ],
-      "states": {
-        "accepted": {
-          "awaits": [],
-          "branches": [],
-          "creates": [],
-          "final": true,
-          "label": "Accepted",
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "accepting": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": [],
-              "to": "building",
-              "when": "entity.verdict == 'accept'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Accept it",
-          "owner": {
-            "default": {
-              "config": "decider",
-              "kind": "person"
-            },
-            "relation": "assigned_to",
-            "via": "assignment"
-          },
-          "present": {
-            "expected": "Accept its use cases",
-            "todo": {
-              "answers": [
-                {
-                  "change": {
-                    "values": {
-                      "verdict": "accept"
-                    }
-                  },
-                  "key": "a",
-                  "label": "Accept"
-                }
-              ],
-              "instructions": "Read the use cases under it, which its agent proposed; change, delete or add any, then accept them. They can then be designed, broken down and built."
-            },
-            "why": "its agent's break-down is done"
-          },
-          "set": [
-            {
-              "field": "verdict",
-              "value": "none"
-            }
-          ],
-          "timers": [],
-          "waiting_for": []
-        },
-        "break_down": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'completed'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'check_failed'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'stuck'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'abandoned'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "kind": "task",
-          "label": "Break it down into use cases",
-          "present": {
-            "expected": "Break it down into use cases",
-            "todo": {
-              "instructions": "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
-            },
-            "why": "nothing is under it yet"
-          },
-          "set": [],
-          "spec": {
-            "cost_class": "standard",
-            "creates": {
-              "file": "use_cases.json",
-              "kind": "use_case"
-            },
-            "field": "task_result",
-            "fields": ["title", "description"],
-            "input": {
-              "base": "develop",
-              "repository": "github.com/mimbre/atlas"
-            },
-            "instructions": "Break the scene below into the use cases that build it. The repository you are given, a Git checkout of develop, is what they build on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then.",
-            "kind": "plan",
-            "machinery": "machinery",
-            "profile": "deep_coding",
-            "records": {
-              "kind": "task",
-              "relation": "task_of"
-            },
-            "role": "architect"
-          },
-          "timers": [],
-          "waiting_for": []
-        },
-        "building": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "break_down",
-              "when": "entity.children == 0"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "to_test",
-              "when": "entity.open_children == 0"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Build it",
-          "present": {
-            "expected": "Build it",
-            "todo": {
-              "instructions": "Build what is under it; Flow hands it on for testing once all of it is completed."
-            },
-            "why": "not all under it is completed"
-          },
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "rework": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "building",
-              "when": "entity.open_children > 0"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Rework it",
-          "present": {
-            "expected": "Rework: {note}",
-            "todo": {
-              "instructions": "Rework it as the note says; Flow hands it back for testing once all under it is completed."
-            },
-            "why": "reopened"
-          },
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "to_test": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": [],
-              "to": "accepted",
-              "when": "entity.verdict == 'accept'"
-            },
-            {
-              "roles": [],
-              "to": "rework",
-              "when": "entity.verdict == 'reject'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "building",
-              "when": "entity.open_children > 0"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Test it",
-          "owner": {
-            "default": {
-              "config": "decider",
-              "kind": "person"
-            },
-            "relation": "assigned_to",
-            "via": "assignment"
-          },
-          "present": {
-            "expected": "Test it",
-            "todo": {
-              "answers": [
-                {
-                  "change": {
-                    "self": "accepted_by",
-                    "values": {
-                      "verdict": "accept"
-                    }
-                  },
-                  "key": "a",
-                  "label": "Accept"
-                },
-                {
-                  "change": {
-                    "values": {
-                      "verdict": "reject"
-                    }
-                  },
-                  "key": "f",
-                  "label": "Reject",
-                  "note": true
-                }
-              ],
-              "instructions": "Try the test below, then accept it, or reject it with a note.",
-              "section": {
-                "field": "description",
-                "heading": "Melle can test"
-              }
-            },
-            "why": "all under it is completed"
-          },
-          "set": [
-            {
-              "field": "verdict",
-              "value": "none"
-            }
-          ],
-          "timers": [],
-          "waiting_for": []
-        }
-      },
-      "subject": "scene"
-    },
-    "test_and_accept_use_case": {
-      "initial": "break_down",
-      "label": "Build, test and accept",
-      "owner": {
-        "default": {
-          "key": "coordinator",
-          "kind": "agent"
-        },
-        "relation": "assigned_to",
-        "via": "assignment"
-      },
-      "per_subject": "one",
-      "run_as": "system:sf-flow",
-      "start": [
-        {
-          "on": "predicate",
-          "when": "entity.design_status == 'accepted'"
-        }
-      ],
-      "states": {
-        "accepted": {
-          "awaits": [],
-          "branches": [],
-          "creates": [],
-          "final": true,
-          "label": "Accepted",
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "accepting": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": [],
-              "to": "building",
-              "when": "entity.verdict == 'accept'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Accept it",
-          "owner": {
-            "default": {
-              "config": "decider",
-              "kind": "person"
-            },
-            "relation": "assigned_to",
-            "via": "assignment"
-          },
-          "present": {
-            "expected": "Accept its issues",
-            "todo": {
-              "answers": [
-                {
-                  "change": {
-                    "values": {
-                      "verdict": "accept"
-                    }
-                  },
-                  "key": "a",
-                  "label": "Accept"
-                }
-              ],
-              "instructions": "Read the issues under it, which its agent proposed; change, delete or add any, then accept them. They can then be picked up and built."
-            },
-            "why": "its agent's break-down is done"
-          },
-          "set": [
-            {
-              "field": "verdict",
-              "value": "none"
-            }
-          ],
-          "timers": [],
-          "waiting_for": []
-        },
-        "break_down": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'completed'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'check_failed'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'stuck'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'abandoned'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "kind": "task",
-          "label": "Break it down into issues",
-          "present": {
-            "expected": "Break it down into issues",
-            "todo": {
-              "instructions": "Its machinery runs one agent on it that proposes its issues; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
-            },
-            "why": "nothing is under it yet"
-          },
-          "set": [],
-          "spec": {
-            "cost_class": "standard",
-            "creates": {
-              "file": "issues.json",
-              "kind": "issue"
-            },
-            "field": "task_result",
-            "fields": ["title", "description"],
-            "input": {
-              "base": "develop",
-              "repository": "github.com/mimbre/atlas"
-            },
-            "instructions": "Break the use case below into the issues that build it. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is one small change a developer can build, review and merge on its own, in the order given.",
-            "kind": "plan",
-            "machinery": "machinery",
-            "parents": ["title", "description"],
-            "profile": "deep_coding",
-            "records": {
-              "kind": "task",
-              "relation": "task_of"
-            },
-            "role": "architect"
-          },
-          "timers": [],
-          "waiting_for": []
-        },
-        "building": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "break_down",
-              "when": "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "to_test",
-              "when": "entity.children > 0 and entity.open_children == 0"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Build it",
-          "present": {
-            "expected": "Build it",
-            "todo": {
-              "instructions": "Build what is under it; Flow hands it on for testing once all of it is completed."
-            },
-            "why": "not all under it is completed"
-          },
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "rework": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "building",
-              "when": "entity.open_children > 0"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Rework it",
-          "present": {
-            "expected": "Rework: {note}",
-            "todo": {
-              "instructions": "Rework it as the note says; Flow hands it back for testing once all under it is completed."
-            },
-            "why": "reopened"
-          },
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "to_test": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": [],
-              "to": "accepted",
-              "when": "entity.verdict == 'accept'"
-            },
-            {
-              "roles": [],
-              "to": "rework",
-              "when": "entity.verdict == 'reject'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "building",
-              "when": "entity.open_children > 0"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Test it",
-          "owner": {
-            "default": {
-              "config": "decider",
-              "kind": "person"
-            },
-            "relation": "assigned_to",
-            "via": "assignment"
-          },
-          "present": {
-            "expected": "Test it",
-            "todo": {
-              "answers": [
-                {
-                  "change": {
-                    "self": "accepted_by",
-                    "values": {
-                      "verdict": "accept"
-                    }
-                  },
-                  "key": "a",
-                  "label": "Accept"
-                },
-                {
-                  "change": {
-                    "values": {
-                      "verdict": "reject"
-                    }
-                  },
-                  "key": "f",
-                  "label": "Reject",
-                  "note": true
-                }
-              ],
-              "instructions": "Try the test below, then accept it, or reject it with a note.",
-              "section": {
-                "field": "description",
-                "heading": "Melle can test"
-              }
-            },
-            "why": "all under it is completed"
-          },
-          "set": [
-            {
-              "field": "verdict",
-              "value": "none"
-            }
-          ],
-          "timers": [],
-          "waiting_for": []
-        }
-      },
-      "subject": "use_case"
-    },
     "to_do": {
       "initial": "open",
       "label": "To-Do",
@@ -2965,6 +3102,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "a3102c9eb790a71b454e1607a7b896ab163e385b056eac6013565a3cf97c6aa9",
+  "rela_flows_sha256": "94f3e4432b7153f69f31096fdd75bcb966925c31978edec0ed75049b97f2118b",
   "writer": "system:atlas-flow"
 }

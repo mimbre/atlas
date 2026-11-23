@@ -558,7 +558,7 @@ defmodule Model.DeliveryRunsTest do
       assert Run.validate(issue_flow(env)) == :ok
 
       assert Enum.map(runner.config["composition"]["counts"], & &1["child"]) ==
-               [@issue, "test_and_accept_use_case"]
+               [@issue, "accept_use_case"]
     end
   end
 
