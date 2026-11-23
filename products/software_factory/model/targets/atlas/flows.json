@@ -296,7 +296,7 @@
             {
               "roles": ["atlas-flow"],
               "to": "breaking_down",
-              "when": "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')"
+              "when": "entity.children == 0"
             },
             {
               "roles": ["atlas-flow"],
@@ -323,7 +323,7 @@
     },
     "break_down_scene": {
       "initial": "break_down",
-      "label": "Break down scene",
+      "label": "Scene → Use cases",
       "owner": {
         "default": {
           "key": "coordinator",
@@ -431,8 +431,12 @@
           "spec": {
             "cost_class": "standard",
             "creates": {
+              "fields": ["design", "note"],
               "file": "use_cases.json",
-              "kind": "use_case"
+              "kind": "use_case",
+              "values": {
+                "design_status": "accepted"
+              }
             },
             "field": "task_result",
             "fields": ["title", "description", "note"],
@@ -440,10 +444,11 @@
               "base": "develop",
               "repository": "github.com/mimbre/atlas"
             },
-            "instructions": "Break the scene below into the use cases that build it. The repository you are given, a Git checkout of develop, is what they build on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
+            "instructions": "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
             "kind": "plan",
             "machinery": "machinery",
             "profile": "deep_coding",
+            "read_first": true,
             "records": {
               "kind": "task",
               "relation": "task_of"
@@ -473,7 +478,7 @@
     },
     "break_down_use_case": {
       "initial": "break_down",
-      "label": "Break down use case",
+      "label": "Use case → Issues",
       "owner": {
         "default": {
           "key": "coordinator",
@@ -581,12 +586,12 @@
               "kind": "issue"
             },
             "field": "task_result",
-            "fields": ["title", "description"],
+            "fields": ["title", "description", "design"],
             "input": {
               "base": "develop",
               "repository": "github.com/mimbre/atlas"
             },
-            "instructions": "Break the use case below into the issues that build it. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is one small change a developer can build, review and merge on its own, in the order given.",
+            "instructions": "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is one small change a developer can build, review and merge on its own, in the order given.",
             "kind": "plan",
             "machinery": "machinery",
             "parents": ["title", "description"],
@@ -898,160 +903,6 @@
       },
       "subject": "decision"
     },
-    "design_and_accept": {
-      "channel": "work",
-      "initial": "designing",
-      "label": "Design and accept",
-      "owner": {
-        "default": {
-          "key": "coordinator",
-          "kind": "agent"
-        },
-        "relation": "assigned_to",
-        "via": "assignment"
-      },
-      "per_subject": "one",
-      "run_as": "system:sf-flow",
-      "start": [
-        {
-          "on": "create"
-        }
-      ],
-      "states": {
-        "accepted": {
-          "awaits": [],
-          "branches": [],
-          "creates": [],
-          "final": true,
-          "label": "Design accepted",
-          "set": [
-            {
-              "field": "design_status",
-              "value": "accepted"
-            },
-            {
-              "field": "phase",
-              "value": "break_down"
-            }
-          ],
-          "timers": [],
-          "waiting_for": []
-        },
-        "accepting": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": [],
-              "to": "accepted",
-              "when": "entity.design_status == 'approved' or entity.design_status == 'accepted'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Accept its design",
-          "owner": {
-            "default": {
-              "config": "decider",
-              "kind": "person"
-            },
-            "relation": "assigned_to",
-            "via": "assignment"
-          },
-          "present": {
-            "expected": "Accept its design",
-            "todo": {
-              "answers": [
-                {
-                  "change": {
-                    "values": {
-                      "design_status": "approved"
-                    }
-                  },
-                  "key": "a",
-                  "label": "Accept"
-                }
-              ],
-              "instructions": "Read its Design part, which its agent wrote; change it if need be, then accept it. It can then be broken down into issues."
-            },
-            "why": "its agent's design is written"
-          },
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "designing": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'completed'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'check_failed'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'stuck'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "accepting",
-              "when": "entity.task_result == 'abandoned'"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "kind": "task",
-          "label": "Design pass",
-          "owner": {
-            "default": {
-              "key": "architect",
-              "kind": "agent"
-            },
-            "relation": "assigned_to",
-            "via": "assignment"
-          },
-          "present": {
-            "expected": "Write its Design part",
-            "todo": {
-              "instructions": "Its machinery runs one agent on it that writes its Design part; Flow puts it on the use case. Nothing is done while it is not assigned to a machinery."
-            },
-            "why": "its design is not written yet"
-          },
-          "set": [],
-          "spec": {
-            "cost_class": "standard",
-            "field": "task_result",
-            "fields": ["title", "description"],
-            "input": {
-              "base": "develop",
-              "repository": "github.com/mimbre/atlas"
-            },
-            "instructions": "Write the design of the use case below: how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your design, as asked at the end. Say which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works, so that it can be broken down into small issues that build it.",
-            "kind": "plan",
-            "machinery": "machinery",
-            "parents": ["title", "description"],
-            "profile": "deep_coding",
-            "records": {
-              "kind": "task",
-              "relation": "task_of"
-            },
-            "role": "architect",
-            "writes": {
-              "field": "design",
-              "file": "design.md"
-            }
-          },
-          "timers": [],
-          "waiting_for": []
-        }
-      },
-      "subject": "use_case"
-    },
     "follow_through": {
       "initial": "waiting",
       "label": "Follow through",
@@ -1141,7 +992,7 @@
     "issue": {
       "channel": "work",
       "initial": "working",
-      "label": "Issue",
+      "label": "Issue → Pull request",
       "owner": {
         "default": {
           "key": "coordinator",
@@ -2934,25 +2785,6 @@
       "verdicts": ["review", "rework", "person"],
       "version": 1
     },
-    "design": {
-      "advice": ["review_pass", "design_review"],
-      "decide": {
-        "changes_required": "rework",
-        "error": "person",
-        "pass": "ready",
-        "uncertain": "person"
-      },
-      "evidence": ["packet", "findings", "guidelines", "guardrails"],
-      "flavor": "smart",
-      "person": "person",
-      "policy": {
-        "binds": "fingerprint",
-        "max_rounds": 3
-      },
-      "purpose": "flow",
-      "verdicts": ["ready", "rework", "person"],
-      "version": 1
-    },
     "integrate": {
       "decide": {
         "changes_required": "refuse",
@@ -2995,6 +2827,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "befc5c7057bf64ed7d3e5513be2437e1b1c3b3b9724fc437eb4b756e053f2ede",
+  "rela_flows_sha256": "765eb37103a4f63cf7a6a1d377f3d5c8c49558b85311ac8818efdcadcc804889",
   "writer": "system:atlas-flow"
 }

@@ -3,7 +3,7 @@ defmodule Model.GatesTest do
 
   test "the gates of the composition, in the order of its concepts" do
     assert Enum.map(Model.AtlasEyra.__rela__(:gates), & &1.name) ==
-             [:accept_decision, :delivery_evidence, :review, :integrate, :design]
+             [:accept_decision, :delivery_evidence, :review, :integrate]
   end
 
   # Named by the pull request's integrate effect, applied by hand until Code applies it:

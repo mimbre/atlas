@@ -5,10 +5,13 @@ defmodule Model.Scene do
   pickup point is a subflow of its own; the pipeline is horseshoe-shaped: it starts with
   the scene, its producer's input, and ends with its producer's acceptance.
 
-    * `break_down_scene`: a person picks it up (its span) and hands it to a machinery:
+    * `break_down_scene` "Scene → Use cases": a person picks it up (its span) and hands it to a machinery:
       one agent on the supervisor's Runtime reads the scene and a checkout of the
       repository and writes the use cases it proposes to a file in its result
-      (`creates:`). Flow, the only writer, makes them under the scene, and "Accept it"
+      (`creates:`), each with its Design part, designed within the existing architecture
+      (the decisions it reads first) and a note where it would need a new architecture
+      choice. Flow, the only writer, makes them under the scene, designed (`design_status:
+      accepted`), and "Accept it"
       (`accepting`) goes to the supervisor, who looks at them, changes, removes or adds
       any by hand, and accepts the break-down. Its run ends there and hands the scene to
       `accept_scene` (`phase: accept`). After a "Not accepted", its agent reads the
@@ -103,12 +106,12 @@ defmodule Model.Scene do
     completion(by: :accepted_by)
   end
 
-  subflow :break_down_scene, label: "Break down scene", subject: :scene do
+  subflow :break_down_scene, label: "Scene → Use cases", subject: :scene do
     run_as("system:sf-flow")
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
     start(:predicate, when: "entity.phase == 'break_down'")
     initial(:break_down)
-    supervise(:break_down, label: "Break down scene", states: [:break_down, :accepting])
+    supervise(:break_down, label: "Scene → Use cases", states: [:break_down, :accepting])
 
     state :break_down, label: "Break it down into use cases" do
       present(
@@ -125,9 +128,15 @@ defmodule Model.Scene do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Break the scene below into the use cases that build it. The repository you are given, a Git checkout of develop, is what they build on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
+          "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
         fields: [:title, :description, :note],
-        creates: [kind: :use_case, file: "use_cases.json"],
+        read_first: true,
+        creates: [
+          kind: :use_case,
+          file: "use_cases.json",
+          fields: [:design, :note],
+          values: [design_status: :accepted]
+        ],
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
@@ -260,13 +269,14 @@ defmodule Model.Scene do
     restart_by: [:owner, :decider]
   )
 
-  # Its break-down reads the producer's note: a run waiting for its pickup or its
-  # supervisor stays where it is.
+  # "Scene → Use cases": its agent designs each use case it proposes, reads the decisions
+  # first and the producer's note; a run waiting for its pickup or its supervisor stays
+  # where it is.
   migrate(:break_down_scene,
     from: "f3af151326510e0e56885c3e76a3da8e50c061edbb28cededb570791013f21f9",
-    to: "66733867e08287ef7ab0afa3fae01aa0994f533ee9f76ed5a4eb62441f5bd62f",
+    to: "22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1",
     states: :same,
-    reason: "Its break-down reads its producer's note"
+    reason: "Scene → Use cases: designed use cases, decisions read first, the producer's note"
   )
 
   # "Accept the scene": its test became its producer's acceptance; a rejection now starts

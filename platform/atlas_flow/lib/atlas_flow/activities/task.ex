@@ -59,13 +59,19 @@ defmodule AtlasFlow.Activities.Task do
 
   **A proposal (slice 7).** A spec's `creates` (`%{"kind", "file"}`) asks its agent, after
   the instructions, to write what it proposes to that file at the top of the repository: a
-  JSON list of `{title, description}`. When the task completed, Flow reads the file from
+  JSON list of `{title, description}`, and of the texts the spec's `fields` name. When the
+  task completed, Flow reads the file from
   its result commit (`refs/atlas/results/<key>`, through Bases and Code) and makes one fact of that kind per entry,
+  with the spec's `values` too,
   linked to the subject through the kind's parent relation to it and numbered after the
   facts of that kind there are (the model's `ids`), `by` Flow with the run's supervisor in
   its cause; the agent never writes into Atlas. With no such file, the task ends `stuck`.
   A spec's `writes` (`%{"field", "file"}`, slice 9) asks for one text instead: Flow puts the
   file's text in that field of the subject; with no such file, or an empty one, `stuck`.
+
+  **Read first.** A spec with `read_first: true` adds, after the subject's fields, what the
+  model says is to be read first about the subject (its standing decisions and those the
+  subject is based on), as the model's `read_first/2` gives it.
 
   **Follow-ups.** A review's spec may name a kind, `follow_ups`: its agent is asked to split
   what it finds into blocking findings (within the subject's scope; they go to the one fix
@@ -169,6 +175,7 @@ defmodule AtlasFlow.Activities.Task do
       spec["ladder"] in [nil, true] and input?(spec["kind"], spec["ladder"], spec["input"]) and
       check?(spec["check"]) and checked?(spec) and text?(spec["instructions"]) and
       texts?(spec["fields"] || []) and texts?(spec["parents"] || []) and
+      spec["read_first"] in [nil, true] and
       creates?(spec["creates"]) and writes?(spec["writes"]) and
       not (spec["creates"] != nil and spec["writes"] != nil) and
       (spec["follow_ups"] == nil or text?(spec["follow_ups"])) and
@@ -178,7 +185,10 @@ defmodule AtlasFlow.Activities.Task do
   defp creates?(nil), do: true
 
   defp creates?(%{"kind" => kind, "file" => file} = creates),
-    do: map_size(creates) == 2 and text?(kind) and text?(file)
+    do:
+      Enum.all?(Map.keys(creates), &(&1 in ~w(kind file fields values))) and text?(kind) and
+        text?(file) and texts?(creates["fields"] || []) and
+        is_map(creates["values"] || %{})
 
   defp creates?(_creates), do: false
 
@@ -400,6 +410,7 @@ defmodule AtlasFlow.Activities.Task do
           ["work", "instructions"],
           &(&1 <>
               parents <>
+              read_first(spec, subject, ctx) <>
               Enum.join(work.sections) <> proposal_format(spec) <> follow_ups_format(spec))
         )
         |> then(&if(work.loop, do: Map.put(&1, "loop", work.loop), else: &1))
@@ -458,6 +469,18 @@ defmodule AtlasFlow.Activities.Task do
     do: up(fields, kind, subject, relations, 8, "")
 
   defp parents(_spec, _kind, _subject, _relations), do: {:ok, ""}
+
+  # What the model says is to be read first about the subject (`read_first: true`): the
+  # standing decisions and those the subject is based on, as its `read_first` gives them.
+  defp read_first(%{"read_first" => true}, subject, %{read_first: read_first})
+       when is_function(read_first, 2) do
+    case read_first.(subject, &Talk.transition_read/2) do
+      text when is_binary(text) and text != "" -> "\n\n## Read these first\n\n" <> text
+      _ -> ""
+    end
+  end
+
+  defp read_first(_spec, _subject, _ctx), do: ""
 
   defp up(_fields, _kind, _fact, _relations, 0, text), do: {:ok, text}
 
@@ -842,10 +865,11 @@ defmodule AtlasFlow.Activities.Task do
 
   # What a task that proposes facts (`creates`) or writes a field of its subject
   # (`writes`) asks its agent: the file, at the top of the repository, and its form.
-  defp proposal_format(%{"creates" => %{"kind" => kind, "file" => file}}) do
+  defp proposal_format(%{"creates" => %{"kind" => kind, "file" => file} = creates}) do
     kind = String.replace(kind, "_", " ")
+    more = Enum.map_join(creates["fields"] || [], "", &", its `#{&1}` (as the instructions say)")
 
-    "\n\n## Your proposal\n\nWrite the #{kind}s you propose to the file `#{file}` at the top of the repository: a JSON list with one object per #{kind}, in order, each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done). Atlas makes them from that file; write nothing into Atlas yourself."
+    "\n\n## Your proposal\n\nWrite the #{kind}s you propose to the file `#{file}` at the top of the repository: a JSON list with one object per #{kind}, in order, each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done)#{more}. Atlas makes them from that file; write nothing into Atlas yourself."
   end
 
   defp proposal_format(%{"writes" => %{"field" => field, "file" => file}}) do
@@ -868,13 +892,13 @@ defmodule AtlasFlow.Activities.Task do
   # there are, by Flow for the run's supervisor. With no such file, or none Flow can read,
   # it ends stuck; `:unavailable` while its result, Code or Facts does not answer.
   defp proposed(
-         %{"creates" => %{"kind" => kind, "file" => file}} = spec,
+         %{"creates" => %{"kind" => kind}} = spec,
          "completed",
          run,
          intent,
          ctx
        ) do
-    with {:ok, entries} <- proposal(run, repository(spec), intent["key"], file),
+    with {:ok, entries} <- proposal(run, repository(spec), intent["key"], spec["creates"]),
          [relation] <-
            for([r, to] <- (ctx[:parents] || %{})[kind] || [], to == run["subject_kind"], do: r),
          {:ok, made} <-
@@ -1006,10 +1030,19 @@ defmodule AtlasFlow.Activities.Task do
   # for, and the run reconciled once it is there): each with a title, and its description
   # when it has one. The file's blob is read from Code here, on the Engine's path: one
   # small read, once per break-down.
-  defp proposal(run, repository, task_key, file) do
+  # Each entry: its title and description, the texts of the creates' `fields` it has, and
+  # the creates' `values`.
+  defp proposal(run, repository, task_key, %{"file" => file} = creates) do
     with {:ok, content} <- result_file(run, repository, task_key, file),
          {:ok, list} <- JSON.decode(content) do
-      case for %{"title" => t} = e <- List.wrap(list), text?(t), do: entry(t, e["description"]) do
+      more = fn e ->
+        for(f <- creates["fields"] || [], text?(e[f]), into: %{}, do: {f, String.trim(e[f])})
+        |> Map.merge(creates["values"] || %{})
+      end
+
+      case for %{"title" => t} = e <- List.wrap(list),
+               text?(t),
+               do: Map.merge(entry(t, e["description"]), more.(e)) do
         [] -> :no_proposal
         entries -> {:ok, entries}
       end

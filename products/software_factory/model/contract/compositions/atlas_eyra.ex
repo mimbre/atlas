@@ -326,15 +326,14 @@ defmodule Model.AtlasEyra do
       open: :open_children
     )
 
-    # The scene pipeline (D-0099): the scene's producer's input, its break-down, each use
-    # case's design and break-down, each issue's build, each use case's acceptance, and the
-    # producer's acceptance of the scene, whose Not accepted starts a new round of its
-    # break-down. Only its flows are picked up, never the pipeline.
+    # The scene pipeline (D-0099): Scene → Use cases (designed), Use case → Issues, Issue →
+    # Pull request, each use case accepted once its issues are done, and the producer's
+    # acceptance of the scene, whose Not accepted starts a new round of Scene → Use cases.
+    # Only its first three flows are picked up, never the pipeline.
     pipeline(:scene,
       label: "Scene pipeline",
       flows: [
         :break_down_scene,
-        :design_and_accept,
         :break_down_use_case,
         :issue,
         :accept_use_case,

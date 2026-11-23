@@ -41,7 +41,7 @@ types:
       in_review: The Design part waits for its review pass.
       changes_requested: The review sent the Design part back.
       approved: The review approved the Design part; it can be broken down and built.
-      accepted: An acceptor accepted the design (flow design_and_accept); building starts.
+      accepted: 'Its Design part is accepted: proposed with it by its scene''s break-down.'
 entities:
   scene:
     label: Scene
@@ -116,13 +116,16 @@ entities:
         description: Flux group; empty = no group
       design:
         type: string
-        description: 'The Design part: how it is built, written by its design agent, accepted by its supervisor'
+        description: 'The Design part: how it is built, proposed with it by its scene''s break-down and accepted by its supervisor'
       design_status:
         type: design_status
         description: Where the Design part is; empty for a use case without a design phase
+      note:
+        type: string
+        description: 'Its proposer''s note: an architecture choice it needs that is not decided, said instead of decided'
       phase:
         type: pipeline_phase
-        description: 'Flow: which flow of its pipeline has it after its design (break down, accept)'
+        description: 'Flow: which flow of its pipeline has it (break down, accept, accepted)'
       children:
         type: integer
         description: 'Flow: how many issues are in it'
