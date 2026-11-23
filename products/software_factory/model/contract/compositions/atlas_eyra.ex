@@ -310,7 +310,7 @@ defmodule Model.AtlasEyra do
 
     count(:issue, to: {:use_case, :in_use_case}, all: :children, open: :open_children)
 
-    count(:test_and_accept_use_case,
+    count(:accept_use_case,
       to: {:scene, :in_scene},
       all: :children,
       open: :open_children

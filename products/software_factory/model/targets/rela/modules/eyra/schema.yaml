@@ -10,6 +10,16 @@ types:
     descriptions:
       refine: Being written and negotiated; not ready to build from.
       ready_to_pick_up: Agreed; the next level can be derived and built.
+  pipeline_phase:
+    values:
+    - break_down
+    - accept
+    labels:
+      break_down: Break down
+      accept: Accept
+    descriptions:
+      break_down: 'Its break-down flow has it: it is broken down into what builds it.'
+      accept: 'Its acceptance flow has it: what is under it is built, then it is accepted.'
   design_status:
     values:
     - writing
@@ -55,6 +65,9 @@ entities:
       status:
         type: plan_status
         description: Flux group; empty = no group
+      phase:
+        type: pipeline_phase
+        description: 'Flow: which flow of its pipeline has it (break down, accept)'
       children:
         type: integer
         description: 'Flow: how many use cases are in it'
@@ -101,6 +114,9 @@ entities:
       design_status:
         type: design_status
         description: Where the Design part is; empty for a use case without a design phase
+      phase:
+        type: pipeline_phase
+        description: 'Flow: which flow of its pipeline has it after its design (break down, accept)'
       children:
         type: integer
         description: 'Flow: how many issues are in it'
