@@ -1954,7 +1954,8 @@ defmodule AtlasControl.Pages do
           )
 
         # Where its owner decides (the to-do has answers), what is judged is what is under
-        # it: those lists say what each one is about.
+        # it that anyone may put there (not what only a layer links, such as its runs):
+        # those lists say what each one is about.
         deciding = todo != nil and todo.answers != []
 
         {judged, lists} =
@@ -1966,7 +1967,7 @@ defmodule AtlasControl.Pages do
             create_key == nil and match?(%{"facts" => []}, answer)
           end)
           |> Enum.map(fn {{{relation, from, r}, child_answer}, _create_key} ->
-            judged = deciding and r.parent
+            judged = deciding and r.parent and r.set_by == nil
 
             {judged,
              {list_id(relation, from, r),
