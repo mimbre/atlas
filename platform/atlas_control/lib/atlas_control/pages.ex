@@ -1926,7 +1926,11 @@ defmodule AtlasControl.Pages do
             links: links(k, fact)
           )
 
-        lists =
+        # Where its owner decides (the to-do has answers), what is judged is what is under
+        # it: those lists say what each one is about.
+        deciding = todo != nil and todo.answers != []
+
+        {judged, lists} =
           relations
           |> Enum.zip(child_answers)
           |> Enum.zip(create_keys(m, kind))
@@ -1935,48 +1939,78 @@ defmodule AtlasControl.Pages do
             create_key == nil and match?(%{"facts" => []}, answer)
           end)
           |> Enum.map(fn {{{relation, from, r}, child_answer}, _create_key} ->
-            {list_id(relation, from, r), child_list(m, {relation, from, r}, child_answer)}
+            judged = deciding and r.parent
+
+            {judged,
+             {list_id(relation, from, r),
+              child_list(m, {relation, from, r}, child_answer, judged)}}
           end)
+          |> Enum.split_with(&elem(&1, 0))
+
+        judged = Enum.map(judged, &elem(&1, 1))
 
         # Two parts, by what they hold, never how they look: the main part (the fact
         # itself, and later what is said about it) and the related part (the related
         # lists, what names it as its cause, then the facts it points at). Each list in a
         # section that carries its title. A client lays the parts out as it sees fit.
         references =
-          lists ++
+          Enum.map(lists, &elem(&1, 1)) ++
             cause_lists(m, key, cause_answers) ++
             parent_lists(m, kind, fact) ++
             Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
               parent_lists(m, part_kind, part)
             end)
 
-        ids = for {id, _} <- references, do: id
-        main = Blocks.part("item", "item", title: "Content", role: "main")
+        sections =
+          for {id, {title, _list}} <- references, do: Blocks.section(id, id, title: title)
 
-        markup =
-          case ids do
-            [] ->
-              [main]
+        lists = for {id, {_title, list}} <- references, do: {id, list}
 
-            [first | _] ->
-              [main, Blocks.part(first, List.last(ids), title: "References", role: "related")] ++
-                for {id, {title, _list}} <- references, do: Blocks.section(id, id, title: title)
-          end
+        if deciding do
+          # A page where its owner decides is one stretch, top down, in no parts: the to-do
+          # and its answers in one line; what is judged (the choice's options, the section
+          # of the fact the state names, the facts under it); the fact itself in full, with
+          # why it came to them and how; then what it refers to.
+          content =
+            decide_blocks(todo, kind, key) ++
+              for({id, {_title, list}} <- judged, do: {id, list}) ++
+              [{"item", update_in(item, ["props", "fields"], &(&1 ++ todo_pairs(todo)))}] ++
+              lists
 
-        content = [{"item", item} | for({id, {_title, list}} <- references, do: {id, list})]
+          markup =
+            for({id, {title, _list}} <- judged, do: Blocks.section(id, id, title: title)) ++
+              sections
 
-        # Its owner's part first: what to do (IS-Atlas-54).
-        {content, markup} =
-          case todo do
-            nil ->
-              {content, markup}
+          page("#{k.label} #{key}", back, content, markup)
+        else
+          ids = for {id, _} <- references, do: id
+          main = Blocks.part("item", "item", title: "Content", role: "main")
 
-            todo ->
-              {[{"todo", todo_item(todo, kind, key)} | content],
-               [Blocks.part("todo", "todo", title: todo.words.title, role: "todo") | markup]}
-          end
+          markup =
+            case ids do
+              [] ->
+                [main]
 
-        page("#{k.label} #{key}", back, content, markup)
+              [first | _] ->
+                [main, Blocks.part(first, List.last(ids), title: "References", role: "related")] ++
+                  sections
+            end
+
+          content = [{"item", item} | lists]
+
+          # Its owner's part first: what to do (IS-Atlas-54).
+          {content, markup} =
+            case todo do
+              nil ->
+                {content, markup}
+
+              todo ->
+                {[{"todo", todo_item(todo, kind, key)} | content],
+                 [Blocks.part("todo", "todo", title: todo.words.title, role: "todo") | markup]}
+            end
+
+          page("#{k.label} #{key}", back, content, markup)
+        end
 
       %{"error" => _} = failed ->
         unavailable(failed, path({:list, kind}))
@@ -2781,7 +2815,9 @@ defmodule AtlasControl.Pages do
     text |> to_string() |> String.split(~r/[,\s]+/, trim: true) |> Enum.uniq()
   end
 
-  defp child_list(m, {_relation, from, r}, answer) do
+  # A judged list (its owner decides on what is under it) says what each fact is about:
+  # its label, then the first line of its first text of several lines.
+  defp child_list(m, {_relation, from, r}, answer, judged) do
     from_k = kind(m, from) || unknown_kind(from)
     title = String.capitalize(r.inverse_label || from_k.plural)
 
@@ -2796,7 +2832,7 @@ defmodule AtlasControl.Pages do
           |> Enum.map(
             &Blocks.row(
               id: &1["key"],
-              label: label(from_k, &1),
+              label: if(judged, do: about(from_k, &1), else: label(from_k, &1)),
               detail: detail(from_k, &1),
               to: path({:item, from, &1["key"]}),
               links: links(from_k, &1)
@@ -2911,8 +2947,8 @@ defmodule AtlasControl.Pages do
   end
 
   # What its owner is to do (IS-Atlas-54), as the model's `todo/4` gives it: what is
-  # expected, why it came to them, the instructions, the section of the fact they name,
-  # and the answers they can give. Every word is the model's or the fact's.
+  # expected, why it came to them, the instructions, the section of the fact they name;
+  # a choice, its options. Every word is the model's or the fact's.
   defp todo_item(%{choice: %{} = choice} = todo, kind, key) do
     options =
       Enum.zip(choice["options"], todo.answers)
@@ -2940,36 +2976,56 @@ defmodule AtlasControl.Pages do
     )
   end
 
-  defp todo_item(todo, _kind, _key) do
-    words = todo.words
+  defp todo_item(todo, _kind, _key),
+    do:
+      Blocks.item(
+        title: "#{todo.title}: #{todo.expected}",
+        fields: todo_pairs(todo) ++ section_pairs(todo)
+      )
 
-    answers =
-      for a <- todo.answers,
-          do: "#{a.key} #{a.label}" <> if(a[:details], do: " — #{a.details}", else: "")
+  # Where its owner decides: one line, the to-do and the keys of its answers, with what
+  # is judged of the fact itself under it: the section the state names, the choice.
+  defp decide_blocks(todo, kind, key) do
+    line =
+      Blocks.item(
+        title: "#{todo.title}: #{todo.expected}   #{todo.words.answers}: #{answer_keys(todo)}",
+        fields: section_pairs(todo)
+      )
 
-    fields =
-      [
-        Blocks.pair(
-          label: words.why,
-          value: todo.why.text,
-          origin: todo.why.since && Blocks.origin(since: todo.why.since, by: todo.why.by)
-        )
-      ] ++
-        if(todo.instructions,
-          do: [Blocks.pair(label: words.instructions, value: todo.instructions)],
-          else: []
-        ) ++
-        case todo.section do
-          %{heading: heading, text: text} -> [Blocks.pair(label: heading, value: text)]
-          nil -> []
-        end ++
-        if(answers == [],
-          do: [],
-          else: [Blocks.pair(label: words.answers, value: Enum.join(answers, "   "))]
-        )
-
-    Blocks.item(title: "#{todo.title}: #{todo.expected}", fields: fields)
+    case todo do
+      %{choice: %{}} -> [{"todo", line}, {"choice", todo_item(todo, kind, key)}]
+      _ -> [{"todo", line}]
+    end
   end
+
+  # A choice's keys select its options by number, `0` the recommended one.
+  defp answer_keys(%{choice: %{}, answers: answers}),
+    do:
+      Enum.map_join(Enum.uniq([hd(answers), List.last(answers)]), "–", & &1.key) <>
+        "   0 Recommended"
+
+  defp answer_keys(todo), do: Enum.map_join(todo.answers, "   ", &"#{&1.key} #{&1.label}")
+
+  # Why it came to its owner, and how to do it.
+  defp todo_pairs(todo) do
+    [
+      Blocks.pair(
+        label: todo.words.why,
+        value: todo.why.text,
+        origin: todo.why.since && Blocks.origin(since: todo.why.since, by: todo.why.by)
+      )
+    ] ++
+      if(todo.instructions,
+        do: [Blocks.pair(label: todo.words.instructions, value: todo.instructions)],
+        else: []
+      )
+  end
+
+  # The section of the fact the state names.
+  defp section_pairs(%{section: %{heading: heading, text: text}}),
+    do: [Blocks.pair(label: heading, value: text)]
+
+  defp section_pairs(_todo), do: []
 
   # How the numbered shortcuts `answer_actions/3` binds select a choice. Past 9 choices
   # a number takes more than one key, so it is typed and then confirmed.
@@ -3502,6 +3558,22 @@ defmodule AtlasControl.Pages do
       _ ->
         to_text(iso)
     end
+  end
+
+  # A fact's label and what it is about: the first line of its first text of several
+  # lines that says something, without the marks of a heading.
+  defp about(k, fact) do
+    line =
+      Enum.find_value(k.fields, fn f ->
+        f.multiline &&
+          fact["values"][f.name]
+          |> to_text()
+          |> String.split("\n")
+          |> Enum.map(&(&1 |> String.trim() |> String.trim_leading("#") |> String.trim()))
+          |> Enum.find(&(&1 != ""))
+      end)
+
+    if line, do: "#{label(k, fact)} — #{line}", else: label(k, fact)
   end
 
   # A kind with a progress rule shows how far a fact is (Facts works it out from the facts

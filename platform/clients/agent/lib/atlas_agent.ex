@@ -162,16 +162,15 @@ defmodule AtlasAgent do
   def get(client, key) do
     with {:ok, page} <- Client.open(client, "/k/_/#{enc(key)}") do
       # The fact's own item; its owner's What to do part, when the client is the owner, is
-      # a second one (IS-Atlas-54).
+      # a second one (IS-Atlas-54), or a choice, which a line saying what to do may head.
       items =
         for %{"type" => "item", "props" => props} = b <- page["blocks"] || [],
             do: {b["id"], props}
 
       todo =
-        Enum.find_value(items, fn {id, props} -> id == "todo" && props end) ||
-          Enum.find_value(page["blocks"] || [], fn b ->
-            if b["type"] == "single_choice", do: b["props"]
-          end)
+        Enum.find_value(page["blocks"] || [], fn b ->
+          if b["type"] == "single_choice", do: b["props"]
+        end) || Enum.find_value(items, fn {id, props} -> id == "todo" && props end)
 
       case for({id, props} <- items, id != "todo", do: props) do
         [item] ->
