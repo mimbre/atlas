@@ -5,7 +5,7 @@ defmodule Model.Scene do
   pickup point is a subflow of its own; the pipeline is horseshoe-shaped: it starts with
   the scene, its producer's input, and ends with its producer's acceptance.
 
-    * `break_down_scene` "Scene → Use cases": a person picks it up (its span) and hands it to a machinery:
+    * `break_down_scene` **Design** (Scene → Use cases): a person picks it up (its span) and hands it to a machinery:
       one agent on the supervisor's Runtime reads the scene and a checkout of the
       repository and writes the use cases it proposes to a file in its result
       (`creates:`), each with its Design part, designed within the existing architecture
@@ -16,7 +16,7 @@ defmodule Model.Scene do
       any by hand, and accepts the break-down. Its run ends there and hands the scene to
       `accept_scene` (`phase: accept`). After a "Not accepted", its agent reads the
       producer's note and proposes only what is missing: nothing under the scene is redone.
-    * `accept_scene` "Accept the scene": waits until every use case under it is accepted
+    * `accept_scene` **Accept** (Accept the scene): waits until every use case under it is accepted
       (`children`, `open_children`: the composition's count of the use cases in the scene,
       and of those without an accepted `accept_use_case` run), then goes to its producer
       (the configured decider until a scene records who produced it). Accept ends the
@@ -106,12 +106,13 @@ defmodule Model.Scene do
     completion(by: :accepted_by)
   end
 
-  subflow :break_down_scene, label: "Scene → Use cases", subject: :scene do
+  # Design: Scene → Use cases.
+  subflow :break_down_scene, label: "Design", subject: :scene do
     run_as("system:sf-flow")
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
     start(:predicate, when: "entity.phase == 'break_down'")
     initial(:break_down)
-    supervise(:break_down, label: "Scene → Use cases", states: [:break_down, :accepting])
+    supervise(:break_down, label: "Design", states: [:break_down, :accepting])
 
     state :break_down, label: "Break it down into use cases" do
       present(
@@ -170,7 +171,8 @@ defmodule Model.Scene do
     end
   end
 
-  subflow :accept_scene, label: "Accept the scene", subject: :scene do
+  # Accept: Accept the scene.
+  subflow :accept_scene, label: "Accept", subject: :scene do
     run_as("system:sf-flow")
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
     start(:predicate, when: "entity.phase == 'accept'")
@@ -202,12 +204,12 @@ defmodule Model.Scene do
       branch(to: :building, when: "entity.phase == 'accept'")
     end
 
-    state :to_accept, label: "Accept the scene" do
+    state :to_accept, label: "Accept" do
       owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
       set(verdict: :none)
 
       present(
-        expected: "Accept the scene",
+        expected: "Accept",
         why: "all under it is accepted",
         instructions:
           "Try the scene as its actor would, then accept it, or say why not: its break-down then proposes what is missing, and nothing under it is redone.",
@@ -292,5 +294,21 @@ defmodule Model.Scene do
       to_test: :to_accept
     ],
     reason: "Accept the scene: its producer accepts it, or a new round of its break-down starts"
+  )
+
+  # Design: its label was its signature, Scene → Use cases; nothing else changed.
+  migrate(:break_down_scene,
+    from: "22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1",
+    to: "bf01ce6f998aa561aeed3447ae41c1bd35bd2df082399358b59a2353a20a9ba9",
+    states: :same,
+    reason: "Design: renamed from Scene → Use cases"
+  )
+
+  # Accept: its label, and what its producer is asked, were Accept the scene.
+  migrate(:accept_scene,
+    from: "1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3",
+    to: "0b7d903c06f4bfcc82b632475f3274cb32542868402a7e8959ea5407affe0d10",
+    states: :same,
+    reason: "Accept: renamed from Accept the scene"
   )
 end

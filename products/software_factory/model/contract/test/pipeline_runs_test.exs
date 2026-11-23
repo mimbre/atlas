@@ -147,7 +147,7 @@ defmodule Model.PipelineRunsTest do
     end
   end
 
-  test "Scene → Use cases proposes designed use cases, with the decisions read first" do
+  test "Design proposes designed use cases, with the decisions read first" do
     for env <- @envs do
       {:task, spec} = flow(env, "break_down_scene").mechanism("break_down")
       assert spec["read_first"] == true
@@ -159,13 +159,13 @@ defmodule Model.PipelineRunsTest do
                "values" => %{"design_status" => "accepted"}
              }
 
-      # Use case → Issues reads its Design part.
+      # Plan reads its Design part.
       {:task, spec} = flow(env, "break_down_use_case").mechanism("break_down")
       assert "design" in spec["fields"]
     end
   end
 
-  test "a use case: Use case → Issues, then accepted by itself once its issues are done" do
+  test "a use case: Plan, then accepted by itself once its issues are done" do
     for env <- @envs do
       new_one = %{"phase" => "break_down", "design_status" => "accepted"}
       assert writer(env, "use_case", new_one) == "break_down_use_case"
@@ -185,7 +185,7 @@ defmodule Model.PipelineRunsTest do
       assert written(done) == [%{"phase" => "accepted"}]
 
       # One whose design was still being written, nothing under it: imported, then to
-      # Use case → Issues, which breaks it down from its description.
+      # Plan, which breaks it down from its description.
       old = %{"design_status" => "writing"}
       imported = new(env, "accept_use_case", "UC-2", old)
       assert imported["last_input"]["import"]

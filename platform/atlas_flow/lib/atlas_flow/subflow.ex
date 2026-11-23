@@ -10,6 +10,8 @@ defmodule AtlasFlow.Subflow do
   @type values :: %{optional(String.t()) => term}
 
   @callback name() :: String.t()
+  @doc "Its label, the name a page shows (such as \"Design\"), or nil."
+  @callback label() :: String.t() | nil
   @doc "The kind of fact it runs on."
   @callback subject() :: String.t()
   @doc "Its identity: the digest of its canonical data; a run keeps the digest it started with."
