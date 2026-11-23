@@ -75,8 +75,18 @@ defmodule AtlasFacts.Presentation do
     })
   end
 
+  # Several subflows may hold an active run on one subject (one waits while another has
+  # it): the one whose selection admits the subject now presents it, as it is the one
+  # that writes its work; else the first active one.
   defp by_run(presenter, latest, values, stored, completed?) do
-    case Enum.find(latest, fn {_, run} -> run["status"] in ["active", "blocked"] end) do
+    active = Enum.filter(latest, fn {_, run} -> run["status"] in ["active", "blocked"] end)
+
+    presenting =
+      Enum.find(active, List.first(active), fn {cfg, _} ->
+        holds?(cfg["admission"] || %{}, values)
+      end)
+
+    case presenting do
       {cfg, run} ->
         Map.merge(of_run(cfg, run), %{
           "state" => run["state"],

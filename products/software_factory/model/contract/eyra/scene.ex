@@ -1,41 +1,26 @@
 defmodule Model.Scene do
   @moduledoc """
-  The scene subflow: a scene is broken down into use cases (`children`), built until
-  none is open (`open_children`), then tested by the configured decider and accepted.
-  `children` and `open_children` are the composition's count of the use cases in the
-  scene: how many relate to it (`in_scene`), and how many of them have no completed run
-  of `test_and_accept_use_case`. Slice 8: a person picks up its break-down
-  (`break_down`, the span `break_down`) and hands it to a machinery: one agent on the
-  supervisor's Runtime reads the scene and a checkout of the repository and writes the
-  use cases it proposes to a file in its result (`creates:`, as slice 7 breaks a use case
-  into issues). Flow, the only writer, makes them under the scene, and "Accept it"
-  (`accepting`) goes to the supervisor, who looks at them and accepts the break-down.
-  When the agent proposes nothing, or the scene is taken from the machinery, the
-  supervisor breaks it down by hand in "Accept it". A rejection sends it to its rework;
-  a new open use case sends it back to building.
+  A scene, and its two flows. A person supervises a flow, never a step (D-0099): each
+  pickup point is a subflow of its own.
 
-  Slice 12 runs it on Flow's durable runs (`select`), for every scene, which the legacy
-  flow `test_and_accept` then drives none of. The parity fixes keep it to what runs today:
+    * `break_down_scene`: a person picks it up (its span) and hands it to a machinery:
+      one agent on the supervisor's Runtime reads the scene and a checkout of the
+      repository and writes the use cases it proposes to a file in its result
+      (`creates:`). Flow, the only writer, makes them under the scene, and "Accept it"
+      (`accepting`) goes to the supervisor, who looks at them, changes, removes or adds
+      any by hand, and accepts the break-down. Its run ends there and hands the scene to
+      `accept_scene` (`phase: accept`).
+    * `accept_scene`: builds it until none of its use cases is open (`children`,
+      `open_children`: the composition's count of the use cases in the scene, and of
+      those without a completed `accept_use_case` run), then the configured decider tests
+      it and accepts it, or rejects it with a note (`rework`, until a new open use case
+      sends it back to building). With no use case under it, it hands the scene back to
+      a new round of `break_down_scene` (`phase: break_down`) and waits for it
+      (`breaking_down`).
 
-    * no passes (rework): its spec is no pass contract a runner accepts
-      (`AtlasFlow.Activities.Pass.valid?/1`: a routing field, a frozen request), and a
-      pass needs what does not exist yet: a machine field on the agent to route by, a
-      packet freeze and review-packet contract, Runtime's pass receiver configured in an
-      environment; a definition a runner refuses would refuse every selected subflow.
-      The coordinator reworks it by hand, as today; `pass_result` stays on the kind,
-      unwritten, for it;
-    * `to_test` is the configured decider's (`{:person, config: :decider}`), as the
-      legacy flow's `to_test` is, and moves on `verdict`, which its two answers write, no
-      longer on an acceptor's typed choice (`wait_for [:acceptor]`): Facts takes a choice
-      only from one a relation of the scene names, and none names who rejects
-      (`accepted_by` names the one who accepted, and naming oneself there accepts and
-      completes the scene). Accept writes `verdict: accept` with `accepted_by` set to the
-      one who answers, in one change, so Facts' rules on `accepted_by` (only a person,
-      only themselves, nothing under it open) guard it as today; Reject writes
-      `verdict: reject` with a note. Its entry resets `verdict` to `none`, so an older
-      verdict moves nothing;
-    * a new open use case sends it back from `to_test` to building, as the legacy flow's
-      `progress: to_test` stops holding then.
+  `phase` says which of the two has the scene: their admissions are disjoint, so one
+  writer presents a scene at any moment. A new scene starts in `break_down`; one from
+  before the split has none and is the acceptance's, which imports it.
   """
   use RelaDSL
 
@@ -45,6 +30,15 @@ defmodule Model.Scene do
     descriptions: [
       refine: "Being written and negotiated; not ready to build from.",
       ready_to_pick_up: "Agreed; the next level can be derived and built."
+    ]
+  )
+
+  type(:pipeline_phase,
+    values: [:break_down, :accept],
+    labels: [break_down: "Break down", accept: "Accept"],
+    descriptions: [
+      break_down: "Its break-down flow has it: it is broken down into what builds it.",
+      accept: "Its acceptance flow has it: what is under it is built, then it is accepted."
     ]
   )
 
@@ -68,6 +62,12 @@ defmodule Model.Scene do
     )
 
     field(:status, :plan_status, description: "Flux group; empty = no group", label: "Flux group")
+
+    field(:phase, :pipeline_phase,
+      description: "Flow: which flow of its pipeline has it (break down, accept)",
+      label: "Phase"
+    )
+
     field(:children, :integer, description: "Flow: how many use cases are in it")
     field(:open_children, :integer, description: "Flow: how many of them are not finished")
 
@@ -88,17 +88,17 @@ defmodule Model.Scene do
       description: "Flow: how the last pass ended (none, delivered, failed)"
     )
 
-    create(ask: [:title, :description], defaults: [status: :refine])
+    create(ask: [:title, :description], defaults: [status: :refine, phase: :break_down])
     progress(over: :in_scene, own: :status)
     completion(by: :accepted_by)
   end
 
-  subflow :test_and_accept_scene, label: "Build, test and accept", subject: :scene do
+  subflow :break_down_scene, label: "Break down scene", subject: :scene do
     run_as("system:sf-flow")
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
-    start(:create)
+    start(:predicate, when: "entity.phase == 'break_down'")
     initial(:break_down)
-    supervise(:break_down, label: "Break down", states: [:break_down, :accepting])
+    supervise(:break_down, label: "Break down scene", states: [:break_down, :accepting])
 
     state :break_down, label: "Break it down into use cases" do
       present(
@@ -129,8 +129,7 @@ defmodule Model.Scene do
     end
 
     # Its supervisor looks at the use cases Flow made from the agent's proposal, changes,
-    # removes or adds any by hand, and accepts the break-down. Without use cases under
-    # it, building sends it back to break it down again.
+    # removes or adds any by hand, and accepts the break-down.
     state :accepting, label: "Accept it" do
       owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
       set(verdict: :none)
@@ -143,8 +142,19 @@ defmodule Model.Scene do
         answers: [[key: "a", label: "Accept", change: %{values: %{verdict: :accept}}]]
       )
 
-      branch(to: :building, when: "entity.verdict == 'accept'")
+      branch(to: :broken_down, when: "entity.verdict == 'accept'")
     end
+
+    final :broken_down, label: "Broken down" do
+      set(phase: :accept)
+    end
+  end
+
+  subflow :accept_scene, label: "Build, test and accept", subject: :scene do
+    run_as("system:sf-flow")
+    owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
+    start(:predicate, when: "entity.phase == 'accept'")
+    initial(:building)
 
     state :building, label: "Build it" do
       present(
@@ -154,8 +164,21 @@ defmodule Model.Scene do
           "Build what is under it; Flow hands it on for testing once all of it is completed."
       )
 
-      branch(to: :break_down, by: :atlas, when: "entity.children == 0")
+      branch(to: :breaking_down, by: :atlas, when: "entity.children == 0")
       branch(to: :to_test, by: :atlas, when: "entity.open_children == 0")
+    end
+
+    # Nothing under it: a new round of its break-down has it, and this run waits for it.
+    state :breaking_down, label: "Being broken down" do
+      set(phase: :break_down)
+
+      present(
+        expected: "Wait for its break-down",
+        why: "nothing is under it",
+        instructions: "Its break-down flow has it; Flow hands it back once that is accepted."
+      )
+
+      branch(to: :building, when: "entity.phase == 'accept'")
     end
 
     state :to_test, label: "Test it" do
@@ -196,76 +219,38 @@ defmodule Model.Scene do
     final(:accepted, label: "Accepted")
   end
 
-  # How the runs of test_and_accept_scene are selected, imported from the scene as it was
-  # before the subflow ran, and presented: on its Assignment, as the legacy flow
-  # test_and_accept did, which then drives no scene. It admits every scene (no admission
-  # condition): the one subflow on the kind, so each scene has one writer at any moment.
-  #
-  # The first row that holds gives the entry, writing nothing and rerunning nothing:
-  #
-  #   * a completed scene (accepted, `completion` as Facts derives it) is completed
-  #     history, `accepted` (none on test or prod today);
-  #   * any other (every scene on test and prod: 11 "Build it" and test's SC-Atlas-02
-  #     "Break it down into use cases and issues", all for the coordinator) joins
-  #     `building`. The count of its use cases, given to the run on its first entry (no
-  #     scene holds one yet: nothing counted them while no subflow ran on a scene), moves
-  #     one with none under it to `break_down`, and one whose use cases all completed to
-  #     `to_test`, as the legacy flow presents them. A row cannot read the use cases under
-  #     a scene, only its values; the count can.
-  #
-  # A scene created later matches the second row too, and its count moves it to
-  # `break_down` at once, as the legacy flow presents a new one.
-  #
-  # A completed run is not started again when its scene is reopened (`accepted_by`
-  # removed), nor when a use case under it reopens: only an explicit restart makes a new
-  # generation (`reopen: :explicit`, the design's default, 5.2). Until one, nothing
-  # presents a reopened scene; its count is still written.
-  select(:test_and_accept_scene,
+  @projection [
+    on: :assignment,
+    state_field: :flow_state,
+    handover_field: :handover,
+    owner_relation: :assigned_to,
+    field: :expected
+  ]
+
+  # Each round of a scene's break-down is a new generation of its run: started when the
+  # scene is handed to it (`phase` becomes `break_down`), never on its own.
+  select(:break_down_scene,
     choices: [],
-    projection: [
-      on: :assignment,
-      state_field: :flow_state,
-      handover_field: :handover,
-      owner_relation: :assigned_to,
-      field: :expected
-    ],
-    admission: [],
-    imports: [
-      [completed: true, state: :accepted],
-      [completed: false, state: :building]
-    ],
-    reopen: :explicit,
+    projection: @projection,
+    admission: [phase: [:break_down]],
+    imports: [],
+    reopen: :new_generation,
     restart_by: [:owner, :decider]
   )
 
-  # The approved migrations of its runs, from the digest the base branch recorded
-  # (RelaDSL.RunIdentity); the same in prod and test. Slice 12's first: no run had its
-  # `from`, the subflow was never selected before slice 12. A run that did would
-  # move along it as a state migration (re-entering its state, then moving on the counts
-  # and the verdict it finds), never as a re-key: its states are the same, but its passes
-  # went, and the acceptor's choice became the decider's verdict. One with a frozen pass
-  # is not quiescent and blocks.
-  migrate(:test_and_accept_scene,
-    from: "79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444",
-    to: "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f",
-    states: :same,
-    reason: "Slice 12: selected without its passes; the decider's verdict ends to_test"
-  )
-
-  # Slice 8: its break-down is an agent's proposal, accepted by its supervisor. A run in
-  # `break_down` re-enters it and waits there, as before, for its owner: once a person
-  # picks it up and hands it to a machinery, its agent proposes its use cases. Every other
-  # state stays as it is.
-  migrate(:test_and_accept_scene,
-    from: "c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f",
-    to: "95d5d0981bc11f7e9f6544c1f2c06c57d3063d6117d668877e48b84abe78c104",
-    states: [
-      accepted: :accepted,
-      break_down: :break_down,
-      building: :building,
-      rework: :rework,
-      to_test: :to_test
+  # A scene from before the split (no `phase`; on prod 9 building, 2 waiting for their
+  # break-down, none picked up) is the acceptance's: a completed one is completed history,
+  # any other joins `building`, whose count hands one with nothing under it to a new
+  # break-down. Their runs of the removed test_and_accept_scene are no longer selected.
+  select(:accept_scene,
+    choices: [],
+    projection: @projection,
+    admission: [phase: [:accept, nil]],
+    imports: [
+      [completed: true, state: :accepted],
+      [when: [phase: [nil]], state: :building]
     ],
-    reason: "Slice 8: an agent proposes its use cases; its supervisor accepts them"
+    reopen: :explicit,
+    restart_by: [:owner, :decider]
   )
 end

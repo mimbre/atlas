@@ -212,15 +212,15 @@ flows:
         label: Design accepted
         final: true
         outputs:
-          - set: { properties: { design_status: accepted } }
-  test_and_accept_use_case:
-    label: Build, test and accept
+          - set: { properties: { design_status: accepted, phase: break_down } }
+  break_down_use_case:
+    label: Break down use case
     subject: use_case
     run_as: system:sf-flow
     per_subject: one
     start:
       - on: predicate
-        when: "entity.design_status == 'accepted'"
+        when: "entity.phase == 'break_down'"
     initial: break_down
     states:
       break_down:
@@ -237,13 +237,35 @@ flows:
           - set: { properties: { verdict: none } }
         on:
           change:
-            - { to: building, when: "entity.verdict == 'accept'" }
+            - { to: broken_down, when: "entity.verdict == 'accept'" }
+      broken_down:
+        label: Broken down
+        final: true
+        outputs:
+          - set: { properties: { phase: accept } }
+  accept_use_case:
+    label: Build, test and accept
+    subject: use_case
+    run_as: system:sf-flow
+    per_subject: one
+    start:
+      - on: predicate
+        when: "entity.phase == 'accept'"
+    initial: building
+    states:
       building:
         label: Build it
         on:
           change:
-            - { to: break_down, roles: [atlas-flow], when: "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')" }
+            - { to: breaking_down, roles: [atlas-flow], when: "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')" }
             - { to: to_test, roles: [atlas-flow], when: "entity.children > 0 and entity.open_children == 0" }
+      breaking_down:
+        label: Being broken down
+        outputs:
+          - set: { properties: { phase: break_down } }
+        on:
+          change:
+            - { to: building, when: "entity.phase == 'accept'" }
       to_test:
         label: Test it
         outputs:
@@ -261,13 +283,14 @@ flows:
       accepted:
         label: Accepted
         final: true
-  test_and_accept_scene:
-    label: Build, test and accept
+  break_down_scene:
+    label: Break down scene
     subject: scene
     run_as: system:sf-flow
     per_subject: one
     start:
-      - on: create
+      - on: predicate
+        when: "entity.phase == 'break_down'"
     initial: break_down
     states:
       break_down:
@@ -284,13 +307,35 @@ flows:
           - set: { properties: { verdict: none } }
         on:
           change:
-            - { to: building, when: "entity.verdict == 'accept'" }
+            - { to: broken_down, when: "entity.verdict == 'accept'" }
+      broken_down:
+        label: Broken down
+        final: true
+        outputs:
+          - set: { properties: { phase: accept } }
+  accept_scene:
+    label: Build, test and accept
+    subject: scene
+    run_as: system:sf-flow
+    per_subject: one
+    start:
+      - on: predicate
+        when: "entity.phase == 'accept'"
+    initial: building
+    states:
       building:
         label: Build it
         on:
           change:
-            - { to: break_down, roles: [atlas-flow], when: "entity.children == 0" }
+            - { to: breaking_down, roles: [atlas-flow], when: "entity.children == 0" }
             - { to: to_test, roles: [atlas-flow], when: "entity.open_children == 0" }
+      breaking_down:
+        label: Being broken down
+        outputs:
+          - set: { properties: { phase: break_down } }
+        on:
+          change:
+            - { to: building, when: "entity.phase == 'accept'" }
       to_test:
         label: Test it
         outputs:
