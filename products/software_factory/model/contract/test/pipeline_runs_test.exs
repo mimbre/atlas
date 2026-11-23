@@ -86,7 +86,18 @@ defmodule Model.PipelineRunsTest do
     end
   end
 
-  test "a scene: its break-down, then its acceptance; nothing under it, a new round" do
+  test "the scene pipeline is horseshoe-shaped: it starts and ends on the scene" do
+    assert [%{name: :scene, flows: flows}] = Model.AtlasEyra.__composition__().pipelines
+
+    assert flows ==
+             ~w(break_down_scene design_and_accept break_down_use_case issue accept_use_case accept_scene)a
+
+    # An issue counts as done only when its run ended done, never stuck.
+    count = Enum.find(Model.AtlasEyra.composition()["counts"], &(&1["child"] == "issue"))
+    assert count["done"] == ["done"]
+  end
+
+  test "a scene: its break-down, then its producer's acceptance; not accepted, a new round" do
     for env <- @envs do
       assert writer(env, "scene", %{"phase" => "break_down"}) == "break_down_scene"
       assert writer(env, "scene", %{"phase" => "accept"}) == "accept_scene"
@@ -107,11 +118,27 @@ defmodule Model.PipelineRunsTest do
       {:ok, again} = step(env, "break_down_scene", round, "SC-1", %{"phase" => "break_down"})
       assert {again["generation"], at(again)} == {2, {"break_down", "active"}}
 
-      # Broken down again: built; all its use cases accepted: tested.
+      # Broken down again: built; all its use cases accepted: to its producer.
       {:ok, building} = step(env, "accept_scene", sent(waiting), "SC-1", accept)
       assert at(building) == {"building", "active"}
-      tested = counted(env, "accept_scene", sent(building), "SC-1", accept, 2, 0)
-      assert at(tested) == {"to_test", "active"}
+      to_accept = sent(counted(env, "accept_scene", sent(building), "SC-1", accept, 2, 0))
+      assert at(to_accept) == {"to_accept", "active"}
+
+      # Not accepted: the producer's note stays on the scene, and a new round of its
+      # break-down starts, which this run waits for.
+      rejected = Map.merge(accept, %{"verdict" => "reject", "note" => "Add an export"})
+      {:ok, rejected_run} = step(env, "accept_scene", to_accept, "SC-1", rejected)
+      assert at(rejected_run) == {"breaking_down", "active"}
+      assert written(rejected_run) == [%{"phase" => "break_down"}]
+      # Its next break-down's agent reads the producer's note.
+      {:task, spec} = flow(env, "break_down_scene").mechanism("break_down")
+      assert "note" in spec["fields"]
+
+      # Accept ends the pipeline.
+      {:ok, done} =
+        step(env, "accept_scene", to_accept, "SC-1", Map.put(accept, "verdict", "accept"))
+
+      assert at(done) == {"accepted", "completed"}
 
       # From before the split: building, or accepted history.
       assert at(new(env, "accept_scene", "SC-2", %{})) == {"building", "active"}
@@ -134,8 +161,10 @@ defmodule Model.PipelineRunsTest do
       building = new(env, "accept_use_case", "UC-1", accept)
       assert at(building) == {"building", "active"}
 
-      assert at(counted(env, "accept_use_case", building, "UC-1", accept, 2, 0)) ==
-               {"to_test", "active"}
+      # All its issues done: accepted by itself, which completes it.
+      done = counted(env, "accept_use_case", building, "UC-1", accept, 2, 0)
+      assert at(done) == {"accepted", "completed"}
+      assert written(done) == [%{"phase" => "accepted"}]
 
       # Approved before the split, nothing under it: imported, then broken down anew.
       old = %{"design_status" => "approved"}

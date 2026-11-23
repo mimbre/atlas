@@ -244,7 +244,7 @@ flows:
         outputs:
           - set: { properties: { phase: accept } }
   accept_use_case:
-    label: Build, test and accept
+    label: Accept the use case
     subject: use_case
     run_as: system:sf-flow
     per_subject: one
@@ -258,7 +258,7 @@ flows:
         on:
           change:
             - { to: breaking_down, roles: [atlas-flow], when: "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')" }
-            - { to: to_test, roles: [atlas-flow], when: "entity.children > 0 and entity.open_children == 0" }
+            - { to: accepted, roles: [atlas-flow], when: "entity.children > 0 and entity.open_children == 0" }
       breaking_down:
         label: Being broken down
         outputs:
@@ -266,23 +266,11 @@ flows:
         on:
           change:
             - { to: building, when: "entity.phase == 'accept'" }
-      to_test:
-        label: Test it
-        outputs:
-          - set: { properties: { verdict: none } }
-        on:
-          change:
-            - { to: accepted, when: "entity.verdict == 'accept'" }
-            - { to: rework, when: "entity.verdict == 'reject'" }
-            - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
-      rework:
-        label: Rework it
-        on:
-          change:
-            - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
       accepted:
         label: Accepted
         final: true
+        outputs:
+          - set: { properties: { phase: accepted } }
   break_down_scene:
     label: Break down scene
     subject: scene
@@ -314,7 +302,7 @@ flows:
         outputs:
           - set: { properties: { phase: accept } }
   accept_scene:
-    label: Build, test and accept
+    label: Accept the scene
     subject: scene
     run_as: system:sf-flow
     per_subject: one
@@ -328,7 +316,7 @@ flows:
         on:
           change:
             - { to: breaking_down, roles: [atlas-flow], when: "entity.children == 0" }
-            - { to: to_test, roles: [atlas-flow], when: "entity.open_children == 0" }
+            - { to: to_accept, roles: [atlas-flow], when: "entity.open_children == 0" }
       breaking_down:
         label: Being broken down
         outputs:
@@ -336,19 +324,14 @@ flows:
         on:
           change:
             - { to: building, when: "entity.phase == 'accept'" }
-      to_test:
-        label: Test it
+      to_accept:
+        label: Accept the scene
         outputs:
           - set: { properties: { verdict: none } }
         on:
           change:
             - { to: accepted, when: "entity.verdict == 'accept'" }
-            - { to: rework, when: "entity.verdict == 'reject'" }
-            - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
-      rework:
-        label: Rework it
-        on:
-          change:
+            - { to: breaking_down, when: "entity.verdict == 'reject'" }
             - { to: building, roles: [atlas-flow], when: "entity.open_children > 0" }
       accepted:
         label: Accepted

@@ -29,14 +29,19 @@ defmodule RelaDSL.Schema.Composition do
       related child is. More than one current child is ambiguous and writes nothing.
       `stale: :drop` drops a value from a child that is no longer the current one; a
       runner refuses it without `current:`, since nothing then says which one is.
-    * `count child, to: {parent_subject, relation}, all:, open:`: the parent's
+    * `count child, to: {parent_subject, relation}, all:, open:, done:`: the parent's
       fields `all` (how many children relate to it) and `open` (how many of them
-      have no run of `child` in a final state yet).
+      have no run of `child` in a final state yet; with `done:`, in one of those final
+      states: a child that ended otherwise is still open).
     * `tally to: {parent_subject, relation}, all:`: the parent's field `all`, how many
       facts relate to it by `relation`, of every kind the relation starts at, whether
       a subflow runs on them or not (work that points at the parent, say). It is given
       only to the runs of the subflows on the parent that read the field (its
       `readers`), never to another subflow on the same kind.
+    * `pipeline name, label:, flows: [subflow, ...]`: subflows connected into a larger
+      flow, in order (D-0099). A pipeline is never picked up on its own; it is
+      horseshoe-shaped: its first and last subflows run on one subject, its producer's
+      input and acceptance.
 
   `__composition__/0` holds the links, counts and tallies as written; `RelaDSL.Atlas.composition/2`
   gives them as versioned data (`"version" => 1`), as a runner and `flows.json` take them.
@@ -69,7 +74,7 @@ defmodule RelaDSL.Schema.Composition do
   description; that is Rela's knowledge, not the composition's.
   """
 
-  @macros [defcomposition: 2, subflows: 1, link: 2, count: 2, tally: 1]
+  @macros [defcomposition: 2, subflows: 1, link: 2, count: 2, tally: 1, pipeline: 2]
 
   @doc "Makes the module a composition."
   defmacro __using__(_opts) do
@@ -108,6 +113,9 @@ defmodule RelaDSL.Schema.Composition do
   @doc "A parent's count of every fact that relates to it: `to:`, `all:`."
   defmacro tally(opts), do: entry(:tally, opts)
 
+  @doc "Subflows connected into a larger flow, in order: `label:`, `flows:`."
+  defmacro pipeline(name, opts), do: entry(:pipeline, {name, opts})
+
   defp entry(kind, value) do
     quote do
       RelaDSL.Schema.Composition.__add__(
@@ -132,7 +140,8 @@ defmodule RelaDSL.Schema.Composition do
       subflows: nil,
       links: [],
       counts: [],
-      tallies: []
+      tallies: [],
+      pipelines: []
     })
 
     Module.put_attribute(mod, :afg_in_composition, true)
@@ -185,11 +194,24 @@ defmodule RelaDSL.Schema.Composition do
       relation: relation,
       all: opts[:all],
       open: opts[:open],
-      unknown: Keyword.keys(opts) -- [:to, :all, :open],
+      done: opts[:done],
+      unknown: Keyword.keys(opts) -- [:to, :all, :open, :done],
       line: line
     }
 
     %{c | counts: c.counts ++ [count]}
+  end
+
+  defp add(c, :pipeline, {name, opts}, line, _file) do
+    pipeline = %{
+      name: name,
+      label: opts[:label],
+      flows: List.wrap(opts[:flows]),
+      unknown: Keyword.keys(opts) -- [:label, :flows],
+      line: line
+    }
+
+    %{c | pipelines: c.pipelines ++ [pipeline]}
   end
 
   defp add(c, :tally, opts, line, _file) do
@@ -241,7 +263,8 @@ defmodule RelaDSL.Schema.Composition do
       subflows: modules,
       links: Enum.map(c.links, &Map.drop(&1, [:line, :unknown])),
       counts: Enum.map(c.counts, &Map.drop(&1, [:line, :unknown])),
-      tallies: Enum.map(c.tallies, &Map.drop(&1, [:unknown]))
+      tallies: Enum.map(c.tallies, &Map.drop(&1, [:unknown])),
+      pipelines: Enum.map(c.pipelines, &Map.drop(&1, [:line, :unknown]))
     }
 
     quote do
@@ -286,8 +309,8 @@ defmodule RelaDSL.Schema.Composition do
   def problems(composition, flows, line \\ 1) do
     c =
       Map.merge(
-        %{links: [], counts: [], tallies: []},
-        Map.take(composition, [:links, :counts, :tallies])
+        %{links: [], counts: [], tallies: [], pipelines: []},
+        Map.take(composition, [:links, :counts, :tallies, :pipelines])
       )
 
     c =
@@ -304,6 +327,7 @@ defmodule RelaDSL.Schema.Composition do
         Enum.flat_map(c.links, &link_problems(&1, by_name, flows)) ++
         Enum.flat_map(c.counts, &count_problems(&1, by_name, flows)) ++
         Enum.flat_map(c.tallies, &tally_problems(&1, flows)) ++
+        pipeline_problems(c.pipelines, by_name) ++
         awaits(c, flows, line) ++
         records(flows, line) ++
         writers(c, flows, line) ++
@@ -347,13 +371,46 @@ defmodule RelaDSL.Schema.Composition do
       {n.line, (n.all == nil or n.open == nil) && {:missing_option, who, :fields}},
       {n.line, by_name[n.child] == nil && {:no_such_subflow, who}},
       {n.line, (n.subject != nil and parents == []) && {:no_parent_subflow, who, n.subject}},
-      {n.line, n.unknown != [] && {:unknown_options, who, n.unknown}}
+      {n.line, n.unknown != [] && {:unknown_options, who, n.unknown}},
+      {n.line,
+       not (n[:done] == nil or (is_list(n.done) and n.done != [])) && {:bad_option, who, :done}}
     ] ++
+      for(
+        state <- List.wrap(n[:done]),
+        child = by_name[n.child],
+        child != nil,
+        state not in for(s <- child.states, s.final, do: s.name),
+        do: {n.line, {:no_such_final, who, state}}
+      ) ++
       for field <- [n.all, n.open],
           field != nil,
           parents != [],
           not read?(parents, ~r/\bentity\.#{field}\b/),
           do: {n.line, {:unread, who, field, n.subject}}
+  end
+
+  defp pipeline_problems(pipelines, by_name) do
+    names = Enum.map(pipelines, & &1.name)
+
+    Enum.flat_map(pipelines, fn p ->
+      who = {:pipeline, p.name}
+      known = for f <- p.flows, by_name[f] != nil, do: by_name[f]
+      first = List.first(known)
+      last = List.last(known)
+
+      [
+        {p.line, Enum.count(names, &(&1 == p.name)) > 1 && {:bad_option, who, :name}},
+        {p.line, p.unknown != [] && {:unknown_options, who, p.unknown}},
+        {p.line,
+         (length(p.flows) < 2 or Enum.uniq(p.flows) != p.flows) && {:bad_option, who, :flows}},
+        {p.line,
+         (length(known) == length(p.flows) and known != [] and first.subject != last.subject) &&
+           {:not_horseshoe, who, first.subject, last.subject}}
+      ] ++
+        for f <- p.flows,
+            by_name[f] == nil,
+            do: {p.line, {:no_such_subflow, {:pipeline_flow, p.name, f}}}
+    end)
   end
 
   defp tally_problems(t, flows) do
@@ -495,6 +552,23 @@ defmodule RelaDSL.Schema.Composition do
   def message({:unknown_options, who, keys}), do: pre(who) <> "knows no #{Enum.join(keys, ", ")}"
   def message({:bad_option, who, :stale}), do: pre(who) <> "stale: is :drop or left out"
 
+  def message({:bad_option, who, :done}),
+    do: pre(who) <> "done: is a list of the child's final states, or left out"
+
+  def message({:no_such_final, {_, child} = who, state}),
+    do: pre(who) <> "subflow #{child} has no final state #{state}"
+
+  def message({:bad_option, who, :name}), do: pre(who) <> "is declared more than once"
+
+  def message({:bad_option, who, :flows}),
+    do: pre(who) <> "flows: is a list of two or more subflows, each once"
+
+  def message({:not_horseshoe, who, first, last}),
+    do:
+      pre(who) <>
+        "starts on #{first} and ends on #{last}; a pipeline starts with its producer's input " <>
+        "and ends with its producer's acceptance, on one subject (D-0099)"
+
   def message({:bad_option, who, :current}),
     do: pre(who) <> "current: is {child field, parent field}, two names"
 
@@ -537,6 +611,8 @@ defmodule RelaDSL.Schema.Composition do
   defp pre({:link, child}), do: "link #{child}: "
   defp pre({:count, child}), do: "count #{child}: "
   defp pre({:tally, relation}), do: "tally #{relation}: "
+  defp pre({:pipeline, name}), do: "pipeline #{name}: "
+  defp pre({:pipeline_flow, name, flow}), do: "pipeline #{name}: #{flow} "
 
   defp writer(:gate), do: "the gates"
   defp writer({:effect, action}), do: "effect #{action}"

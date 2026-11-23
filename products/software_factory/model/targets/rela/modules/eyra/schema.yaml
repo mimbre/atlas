@@ -14,12 +14,15 @@ types:
     values:
     - break_down
     - accept
+    - accepted
     labels:
       break_down: Break down
       accept: Accept
+      accepted: Accepted
     descriptions:
       break_down: 'Its break-down flow has it: it is broken down into what builds it.'
       accept: 'Its acceptance flow has it: what is under it is built, then it is accepted.'
+      accepted: Its acceptance flow accepted it.
   design_status:
     values:
     - writing
@@ -68,6 +71,9 @@ entities:
       phase:
         type: pipeline_phase
         description: 'Flow: which flow of its pipeline has it (break down, accept)'
+      note:
+        type: string
+        description: Its producer's note when it was not accepted; its next break-down reads it
       children:
         type: integer
         description: 'Flow: how many use cases are in it'

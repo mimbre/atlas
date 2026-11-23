@@ -362,7 +362,9 @@
       "break_down_scene": {
         "choices": [],
         "choice_states": [],
-        "migrations": [],
+        "migrations": [
+          {"from":"f3af151326510e0e56885c3e76a3da8e50c061edbb28cededb570791013f21f9","to":"66733867e08287ef7ab0afa3fae01aa0994f533ee9f76ed5a4eb62441f5bd62f","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Its break-down reads its producer's note"}
+        ],
         "subject": "scene",
         "projection": {
           "on": "assignment",
@@ -386,7 +388,9 @@
       "accept_scene": {
         "choices": [],
         "choice_states": [],
-        "migrations": [],
+        "migrations": [
+          {"from":"95c7c942d555713bab940479905782881b0bcb706efc832d83c8f921519602e4","to":"1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3","states":{"accepted":"accepted","breaking_down":"breaking_down","building":"building","rework":"building","to_test":"to_accept"},"reason":"Accept the scene: its producer accepts it, or a new round of its break-down starts"}
+        ],
         "subject": "scene",
         "projection": {
           "on": "assignment",
@@ -492,7 +496,9 @@
       "accept_use_case": {
         "choices": [],
         "choice_states": [],
-        "migrations": [],
+        "migrations": [
+          {"from":"151dd750a7eaf0d154c02949d366125d1b30c84c546353c20c3f73b17e1bd578","to":"5fbf9c76eb7b0ca7ca9be05ea25e8d185a1e61018bbff5bc74644a9178658fb3","states":{"accepted":"accepted","breaking_down":"breaking_down","building":"building","rework":"building","to_test":"building"},"reason":"Accept the use case: accepted by itself once all its issues are done"}
+        ],
         "subject": "use_case",
         "projection": {
           "on": "assignment",
@@ -509,6 +515,7 @@
           ],
           "phase": [
             "accept",
+            "accepted",
             null
           ]
         },

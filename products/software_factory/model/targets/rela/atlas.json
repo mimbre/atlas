@@ -778,6 +778,10 @@
         "flux_id": {
           "set_by": "connector"
         },
+        "note": {
+          "label": "Producer's note",
+          "multiline": true
+        },
         "phase": {
           "label": "Phase"
         },
@@ -1237,9 +1241,15 @@
       "top": false
     },
     "use_case": {
-      "completion": {
-        "by": "accepted_by"
-      },
+      "completion": [
+        {
+          "by": "accepted_by"
+        },
+        {
+          "field": "phase",
+          "value": "accepted"
+        }
+      ],
       "create": {
         "ask": [
           "title",

@@ -6,6 +6,7 @@
         "all": "children",
         "child": "issue",
         "child_subject": "issue",
+        "done": ["done"],
         "open": "open_children",
         "parent_subject": "use_case",
         "relation": "in_use_case"
@@ -66,7 +67,7 @@
   "flows": {
     "accept_scene": {
       "initial": "building",
-      "label": "Build, test and accept",
+      "label": "Accept the scene",
       "owner": {
         "default": {
           "key": "coordinator",
@@ -111,7 +112,7 @@
             "todo": {
               "instructions": "Its break-down flow has it; Flow hands it back once that is accepted."
             },
-            "why": "nothing is under it"
+            "why": "it is broken down again"
           },
           "set": [
             {
@@ -132,7 +133,7 @@
             },
             {
               "roles": ["atlas-flow"],
-              "to": "to_test",
+              "to": "to_accept",
               "when": "entity.open_children == 0"
             }
           ],
@@ -142,38 +143,15 @@
           "present": {
             "expected": "Build it",
             "todo": {
-              "instructions": "Build what is under it; Flow hands it on for testing once all of it is completed."
+              "instructions": "Its use cases are designed, broken down and built; Flow hands it to its producer once all of them are accepted."
             },
-            "why": "not all under it is completed"
+            "why": "not all under it is accepted"
           },
           "set": [],
           "timers": [],
           "waiting_for": []
         },
-        "rework": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "building",
-              "when": "entity.open_children > 0"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Rework it",
-          "present": {
-            "expected": "Rework: {note}",
-            "todo": {
-              "instructions": "Rework it as the note says; Flow hands it back for testing once all under it is completed."
-            },
-            "why": "reopened"
-          },
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "to_test": {
+        "to_accept": {
           "awaits": [],
           "branches": [
             {
@@ -183,7 +161,7 @@
             },
             {
               "roles": [],
-              "to": "rework",
+              "to": "breaking_down",
               "when": "entity.verdict == 'reject'"
             },
             {
@@ -194,7 +172,7 @@
           ],
           "creates": [],
           "final": false,
-          "label": "Test it",
+          "label": "Accept the scene",
           "owner": {
             "default": {
               "config": "decider",
@@ -204,7 +182,7 @@
             "via": "assignment"
           },
           "present": {
-            "expected": "Test it",
+            "expected": "Accept the scene",
             "todo": {
               "answers": [
                 {
@@ -220,21 +198,22 @@
                 {
                   "change": {
                     "values": {
+                      "note": "$note",
                       "verdict": "reject"
                     }
                   },
                   "key": "f",
-                  "label": "Reject",
+                  "label": "Not accepted",
                   "note": true
                 }
               ],
-              "instructions": "Try the test below, then accept it, or reject it with a note.",
+              "instructions": "Try the scene as its actor would, then accept it, or say why not: its break-down then proposes what is missing, and nothing under it is redone.",
               "section": {
                 "field": "description",
-                "heading": "Melle can test"
+                "heading": "The scene"
               }
             },
-            "why": "all under it is completed"
+            "why": "all under it is accepted"
           },
           "set": [
             {
@@ -250,7 +229,7 @@
     },
     "accept_use_case": {
       "initial": "building",
-      "label": "Build, test and accept",
+      "label": "Accept the use case",
       "owner": {
         "default": {
           "key": "coordinator",
@@ -274,7 +253,12 @@
           "creates": [],
           "final": true,
           "label": "Accepted",
-          "set": [],
+          "set": [
+            {
+              "field": "phase",
+              "value": "accepted"
+            }
+          ],
           "timers": [],
           "waiting_for": []
         },
@@ -316,7 +300,7 @@
             },
             {
               "roles": ["atlas-flow"],
-              "to": "to_test",
+              "to": "accepted",
               "when": "entity.children > 0 and entity.open_children == 0"
             }
           ],
@@ -326,106 +310,11 @@
           "present": {
             "expected": "Build it",
             "todo": {
-              "instructions": "Build what is under it; Flow hands it on for testing once all of it is completed."
+              "instructions": "Its issues are built, reviewed and merged; Flow accepts it once all of them are done."
             },
-            "why": "not all under it is completed"
+            "why": "not all under it is done"
           },
           "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "rework": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": ["atlas-flow"],
-              "to": "building",
-              "when": "entity.open_children > 0"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Rework it",
-          "present": {
-            "expected": "Rework: {note}",
-            "todo": {
-              "instructions": "Rework it as the note says; Flow hands it back for testing once all under it is completed."
-            },
-            "why": "reopened"
-          },
-          "set": [],
-          "timers": [],
-          "waiting_for": []
-        },
-        "to_test": {
-          "awaits": [],
-          "branches": [
-            {
-              "roles": [],
-              "to": "accepted",
-              "when": "entity.verdict == 'accept'"
-            },
-            {
-              "roles": [],
-              "to": "rework",
-              "when": "entity.verdict == 'reject'"
-            },
-            {
-              "roles": ["atlas-flow"],
-              "to": "building",
-              "when": "entity.open_children > 0"
-            }
-          ],
-          "creates": [],
-          "final": false,
-          "label": "Test it",
-          "owner": {
-            "default": {
-              "config": "decider",
-              "kind": "person"
-            },
-            "relation": "assigned_to",
-            "via": "assignment"
-          },
-          "present": {
-            "expected": "Test it",
-            "todo": {
-              "answers": [
-                {
-                  "change": {
-                    "self": "accepted_by",
-                    "values": {
-                      "verdict": "accept"
-                    }
-                  },
-                  "key": "a",
-                  "label": "Accept"
-                },
-                {
-                  "change": {
-                    "values": {
-                      "verdict": "reject"
-                    }
-                  },
-                  "key": "f",
-                  "label": "Reject",
-                  "note": true
-                }
-              ],
-              "instructions": "Try the test below, then accept it, or reject it with a note.",
-              "section": {
-                "field": "description",
-                "heading": "Melle can test"
-              }
-            },
-            "why": "all under it is completed"
-          },
-          "set": [
-            {
-              "field": "verdict",
-              "value": "none"
-            }
-          ],
           "timers": [],
           "waiting_for": []
         }
@@ -530,9 +419,13 @@
           "present": {
             "expected": "Break it down into use cases",
             "todo": {
-              "instructions": "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery.",
+              "section": {
+                "field": "note",
+                "heading": "Its producer's note"
+              }
             },
-            "why": "nothing is under it yet"
+            "why": "it is to be broken down"
           },
           "set": [],
           "spec": {
@@ -542,12 +435,12 @@
               "kind": "use_case"
             },
             "field": "task_result",
-            "fields": ["title", "description"],
+            "fields": ["title", "description", "note"],
             "input": {
               "base": "develop",
               "repository": "github.com/mimbre/atlas"
             },
-            "instructions": "Break the scene below into the use cases that build it. The repository you are given, a Git checkout of develop, is what they build on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then.",
+            "instructions": "Break the scene below into the use cases that build it. The repository you are given, a Git checkout of develop, is what they build on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
             "kind": "plan",
             "machinery": "machinery",
             "profile": "deep_coding",
@@ -3102,6 +2995,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "94f3e4432b7153f69f31096fdd75bcb966925c31978edec0ed75049b97f2118b",
+  "rela_flows_sha256": "910f443bcfe70726b2ad10ded3860eee944b111d77404033406354de36315800",
   "writer": "system:atlas-flow"
 }

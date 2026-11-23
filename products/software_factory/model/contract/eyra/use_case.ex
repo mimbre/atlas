@@ -62,12 +62,15 @@ defmodule Model.UseCase do
       (`accepting`) goes to the supervisor, who looks at them, changes, removes or adds
       any by hand, and accepts the break-down. Its run ends there and hands the use case
       to `accept_use_case` (`phase: accept`).
-    * `accept_use_case`: builds it until none of its issues is open (`children`,
-      `open_children`: the composition's count of its issues), then the configured
-      decider tests it and accepts it, or rejects it with a note (`rework`, until a new
-      open issue sends it back to building). An approved use case with no issue under it
-      goes back to a new round of `break_down_use_case` (`phase: break_down`), and this
-      run waits for it (`breaking_down`).
+    * `accept_use_case` "Accept the use case": accepts it by itself once all its issues
+      are done (`children`, `open_children`: the composition's count of its issues, and of
+      those whose `issue` run is not `done`: reviewed and merged, or closed with nothing
+      to merge). Its producer, the supervisor of the scene's break-down that proposed it,
+      does not act; the person who accepts is the scene's producer, at the pipeline's
+      end. Accepted, it writes `phase: accepted`, which completes the use case. An
+      approved use case with no issue under it goes back to a new round of
+      `break_down_use_case` (`phase: break_down`), and this run waits for it
+      (`breaking_down`).
 
   `design_status` and `phase` say which of the three has a use case (disjoint
   admissions): the design while it is written or reviewed, then the break-down
@@ -161,7 +164,7 @@ defmodule Model.UseCase do
 
     create(ask: [:title, :description], defaults: [status: :refine, design_status: :writing])
     progress(over: :in_use_case, field: :stage, own: :status)
-    completion(by: :accepted_by)
+    completion([[by: :accepted_by], [field: :phase, value: :accepted]])
   end
 
   relation(:in_scene,
@@ -334,7 +337,7 @@ defmodule Model.UseCase do
     end
   end
 
-  subflow :accept_use_case, label: "Build, test and accept", subject: :use_case do
+  subflow :accept_use_case, label: "Accept the use case", subject: :use_case do
     run_as("system:sf-flow")
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
     start(:predicate, when: "entity.phase == 'accept'")
@@ -343,9 +346,9 @@ defmodule Model.UseCase do
     state :building, label: "Build it" do
       present(
         expected: "Build it",
-        why: "not all under it is completed",
+        why: "not all under it is done",
         instructions:
-          "Build what is under it; Flow hands it on for testing once all of it is completed."
+          "Its issues are built, reviewed and merged; Flow accepts it once all of them are done."
       )
 
       branch(
@@ -355,7 +358,7 @@ defmodule Model.UseCase do
           "entity.children == 0 and (entity.design_status == 'approved' or entity.design_status == 'accepted')"
       )
 
-      branch(to: :to_test, by: :atlas, when: "entity.children > 0 and entity.open_children == 0")
+      branch(to: :accepted, by: :atlas, when: "entity.children > 0 and entity.open_children == 0")
     end
 
     # Nothing under it: a new round of its break-down has it, and this run waits for it.
@@ -371,42 +374,9 @@ defmodule Model.UseCase do
       branch(to: :building, when: "entity.phase == 'accept'")
     end
 
-    state :to_test, label: "Test it" do
-      owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
-      set(verdict: :none)
-
-      present(
-        expected: "Test it",
-        why: "all under it is completed",
-        instructions: "Try the test below, then accept it, or reject it with a note.",
-        section: [field: :description, heading: "Melle can test"],
-        answers: [
-          [
-            key: "a",
-            label: "Accept",
-            change: %{self: :accepted_by, values: %{verdict: :accept}}
-          ],
-          [key: "f", label: "Reject", note: true, change: %{values: %{verdict: :reject}}]
-        ]
-      )
-
-      branch(to: :accepted, when: "entity.verdict == 'accept'")
-      branch(to: :rework, when: "entity.verdict == 'reject'")
-      branch(to: :building, by: :atlas, when: "entity.open_children > 0")
+    final :accepted, label: "Accepted" do
+      set(phase: :accepted)
     end
-
-    state :rework, label: "Rework it" do
-      present(
-        expected: "Rework: {note}",
-        why: "reopened",
-        instructions:
-          "Rework it as the note says; Flow hands it back for testing once all under it is completed."
-      )
-
-      branch(to: :building, by: :atlas, when: "entity.open_children > 0")
-    end
-
-    final(:accepted, label: "Accepted")
   end
 
   @projection [
@@ -506,20 +476,34 @@ defmodule Model.UseCase do
     restart_by: [:owner, :decider]
   )
 
-  # A use case from before the split (no `phase`; on prod 5 building, 3 waiting for their
-  # break-down, none picked up), or one without a design phase, is the acceptance's: a
-  # completed one is completed history, any other joins `building`, whose count hands an
-  # approved one with nothing under it to a new break-down. Their runs of the removed
-  # test_and_accept_use_case are no longer selected.
+  # A use case from before the split (no `phase`), or one without a design phase, is the
+  # acceptance's: a completed one is completed history, any other joins `building`, whose
+  # count hands an approved one with nothing under it to a new break-down.
   select(:accept_use_case,
     choices: [],
     projection: @projection,
-    admission: [design_status: [:approved, :accepted, nil], phase: [:accept, nil]],
+    admission: [design_status: [:approved, :accepted, nil], phase: [:accept, :accepted, nil]],
     imports: [
       [completed: true, state: :accepted],
       [when: [phase: [nil]], state: :building]
     ],
     reopen: :explicit,
     restart_by: [:owner, :decider]
+  )
+
+  # "Accept the use case": it is accepted by itself once all its issues are done; its test
+  # and rework by hand are gone. A run that waited for them builds again, and its count
+  # moves it on.
+  migrate(:accept_use_case,
+    from: "151dd750a7eaf0d154c02949d366125d1b30c84c546353c20c3f73b17e1bd578",
+    to: "5fbf9c76eb7b0ca7ca9be05ea25e8d185a1e61018bbff5bc74644a9178658fb3",
+    states: [
+      accepted: :accepted,
+      breaking_down: :breaking_down,
+      building: :building,
+      rework: :building,
+      to_test: :building
+    ],
+    reason: "Accept the use case: accepted by itself once all its issues are done"
   )
 end

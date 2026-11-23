@@ -63,7 +63,8 @@ defmodule RelaDSL.Atlas do
         "links" => [%{"child", "child_subject", "parent_subject", "relation", "field",
                       "states" => %{child_state => value}, "stale" => "drop" | "keep",
                       "current" => nil | %{"child" => field, "parent" => field}}],
-        "counts" => [%{"child", "child_subject", "parent_subject", "relation", "all", "open"}],
+        "counts" => [%{"child", "child_subject", "parent_subject", "relation", "all", "open"}
+                     and, when given, "done" => [child_state]],
         "tallies" => [%{"parent_subject", "relation", "all", "readers"}]}
 
   `flows` (the subflows) give each child's subject.
@@ -98,6 +99,7 @@ defmodule RelaDSL.Atlas do
       "counts" =>
         for n <- composition.counts do
           Map.merge(common.(n), %{"all" => to_string(n.all), "open" => to_string(n.open)})
+          |> Map.merge(if n[:done], do: %{"done" => Enum.map(n.done, &to_string/1)}, else: %{})
         end,
       "tallies" =>
         for t <- composition.tallies do

@@ -2,9 +2,11 @@ defmodule AtlasFlow.Composition.Counts do
   @moduledoc """
   A count of the model's composition (`AtlasFlow.Model.composition/0`, version 1): the
   parent's `all` (how many children relate to it by `relation`) and `open` (how many of
-  them have no run of the child subflow that completed). Pure, and always worked out
-  again from the children as they are now, so a deleted, moved or added child, or a hint
-  that was lost, is counted right on the next look; nothing is counted up or down.
+  them have no run of the child subflow that completed; when the count names `done`
+  states, that completed in one of them: a child that ended otherwise is still open).
+  Pure, and always worked out again from the children as they are now, so a deleted,
+  moved or added child, or a hint that was lost, is counted right on the next look;
+  nothing is counted up or down.
 
   A child without a run yet is open: it has not finished.
   """
@@ -25,7 +27,9 @@ defmodule AtlasFlow.Composition.Counts do
     open =
       Enum.count(children, fn child ->
         run = runs[child["key"]]
-        not (run != nil and run["flow"] == count["child"] and run["status"] == "completed")
+
+        not (run != nil and run["flow"] == count["child"] and run["status"] == "completed" and
+               (count["done"] == nil or run["state"] in count["done"]))
       end)
 
     %{count["all"] => length(children), count["open"] => open}
