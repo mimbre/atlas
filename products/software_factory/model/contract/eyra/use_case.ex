@@ -117,7 +117,6 @@ defmodule Model.UseCase do
     parent: true
   )
 
-
   # Plan: Use case → Issues.
   subflow :break_down_use_case, label: "Plan", subject: :use_case do
     run_as("system:sf-flow")
