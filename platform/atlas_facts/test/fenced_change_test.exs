@@ -78,9 +78,9 @@ defmodule AtlasFacts.FencedChangeTest do
 
   defp stored(rela), do: FakeRela.facts(rela)[@key]
 
-  # Another writer changes `values` behind the sender's back, so its version is stale.
-  defp meanwhile(rela, version, values) do
-    FakeRela.poke(rela, @key, values)
+  # Another writer changes `values` meanwhile, so the sender's version is stale.
+  defp meanwhile(version, values) do
+    assert {"stored", _} = send_fact(%{"op" => "change", "key" => @key, "values" => values})
     assert %{"fact" => %{"version" => current}} = read(@key)
     assert current != version
   end
@@ -89,7 +89,7 @@ defmodule AtlasFacts.FencedChangeTest do
     rela: rela,
     version: version
   } do
-    meanwhile(rela, version, %{"done" => true})
+    meanwhile(version, %{"done" => true})
 
     assert {"stored", _} = send_fact(fenced_change(version))
 
@@ -100,7 +100,7 @@ defmodule AtlasFacts.FencedChangeTest do
     rela: rela,
     version: version
   } do
-    meanwhile(rela, version, %{"lease_id" => "L-2"})
+    meanwhile(version, %{"lease_id" => "L-2"})
     before = stored(rela)
 
     assert {"refused", %{"reasons" => [_ | _]}} = send_fact(fenced_change(version))
@@ -110,7 +110,7 @@ defmodule AtlasFacts.FencedChangeTest do
   end
 
   test "3. refused when another write changed x", %{rela: rela, version: version} do
-    meanwhile(rela, version, %{"x" => 5})
+    meanwhile(version, %{"x" => 5})
     before = stored(rela)
 
     assert {"refused", %{"reasons" => [_ | _]}} = send_fact(fenced_change(version))
@@ -123,7 +123,7 @@ defmodule AtlasFacts.FencedChangeTest do
     rela: rela,
     version: version
   } do
-    meanwhile(rela, version, %{"done" => true})
+    meanwhile(version, %{"done" => true})
     first = Envelope.new("fact", "widget")
     assert {"stored", _} = send_fact(first, fenced_change(version))
     after_first = stored(rela)

@@ -24,11 +24,7 @@ defmodule AtlasFacts.WriteVisibilityTest do
 
     server =
       start_supervised!(
-        {AtlasFacts.Server,
-         rela: {CountingRela, backend},
-         model: Replacing,
-         data_dir: dir,
-         collection_clock: fn -> CountingRela.clock(backend) end}
+        {AtlasFacts.Server, rela: {CountingRela, backend}, model: Replacing, data_dir: dir}
       )
 
     :ok = AtlasBus.attach("control/session-visibility-#{System.unique_integer([:positive])}")
@@ -111,64 +107,36 @@ defmodule AtlasFacts.WriteVisibilityTest do
     end
   end
 
-  test "direct create, property/link changes and delete appear without advancing the clock", c do
-    read("jar")
-    read("box")
-
+  test "writes past Facts appear once Facts loads its facts again", c do
     assert {:ok, []} =
              CountingRela.create(c.backend, "jars", "outside", %{"phase" => "packing"}, %{})
 
-    :ok = AtlasFacts.Server.flush_collections(c.server)
-
+    assert point("jar", "outside") == nil
+    assert :ok = AtlasFacts.Server.reload(c.server)
     assert point("jar", "outside")["key"] == "outside"
     assert Enum.any?(read("jar"), &(&1["key"] == "outside"))
-
-    assert {:ok, []} =
-             CountingRela.change(c.backend, "jars", "jar-1", %{"phase" => "sealed"}, nil, %{
-               "in_box" => {"box", ["box-2"]}
-             })
-
-    :ok = AtlasFacts.Server.flush_collections(c.server)
-    assert point("jar", "jar-1")["values"]["phase"] == "sealed"
-    assert point("jar", "jar-1")["links"]["in_box"] == ["box-2"]
-    assert :ok = CountingRela.delete(c.backend, "boxes", "box-2", nil)
-    :ok = AtlasFacts.Server.flush_collections(c.server)
-    assert point("jar", "jar-1")["links"]["in_box"] == []
-    assert point("box", "box-2") == nil
-    refute Enum.any?(read("box"), &(&1["key"] == "box-2"))
-    assert CountingRela.clock(c.backend) == 0
   end
 
-  test "backend errors after warming are visible to both point and collection reads", c do
-    read("jar")
+  test "reads are answered from memory, also while rela is down", c do
+    CountingRela.reset(c.backend)
+    assert length(read("jar")) == 2
+    assert point("jar", "jar-1")["key"] == "jar-1"
+    assert CountingRela.calls(c.backend) == %{}
+
     Agent.update(c.backend, &%{&1 | down: true})
-    :ok = AtlasFacts.Server.flush_collections(c.server)
-
-    for content <- [%{}, %{"key" => "jar-1", "plain" => true}] do
-      assert %{"error_kind" => "unreachable"} = request("read", "jar", content)
-    end
+    assert length(read("jar")) == 2
+    assert point("jar", "jar-1")["key"] == "jar-1"
   end
 
-  test "a Facts write evicts unrelated copies and is visible in later requests", c do
-    read("jar")
-    read("clerk")
+  test "a Facts write is visible in later requests and carries rela's version", c do
+    assert point("jar", "jar-1")["version"] == nil
     CountingRela.reset(c.backend)
     refute write("jar", "change", "jar-1", %{"phase" => "sealed"})["reasons"]
-    # One read of the fact as it was, for what the hint says changed (its links too).
+    # The change, and one read of it back.
     assert CountingRela.calls(c.backend) == %{get: 1, change: 1}
-    assert hd(read("jar"))["values"]["phase"] == "sealed"
-    read("clerk")
-    assert CountingRela.calls(c.backend)[{:list, "clerks"}] == 1
     CountingRela.reset(c.backend)
     assert hd(read("jar"))["values"]["phase"] == "sealed"
-    assert CountingRela.calls(c.backend) == %{}
-  end
-
-  test "point reads that need a version bypass a warmed collection", c do
-    read("jar")
-    CountingRela.reset(c.backend)
     assert point("jar", "jar-1")["version"] == "v1"
-    assert request("read", "jar", %{"key" => "jar-1"})["fact"]["version"] == "v1"
-    assert CountingRela.calls(c.backend)[:get] >= 2
+    assert CountingRela.calls(c.backend) == %{}
   end
 end

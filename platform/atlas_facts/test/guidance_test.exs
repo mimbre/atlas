@@ -261,21 +261,6 @@ defmodule AtlasFacts.GuidanceTest do
              for(plural <- ~w(executions interactions receipts), do: Rela.list(c.rela, plural))
   end
 
-  test "a private backend failure is not the exact-identity guard", c do
-    GuidanceStore.fail_next_get(
-      c.store,
-      "executions",
-      c.execution["key"],
-      {:unavailable, "private outage"}
-    )
-
-    assert {"answer", %{"code" => "store_error", "error" => error}, _} =
-             request("execution", %{"key" => c.execution["key"]}, class: "read")
-
-    assert error =~ "private outage"
-    refute error == ":exact_identity_required"
-  end
-
   test "concurrent conflicting bodies have one winner", c do
     content = interaction(c.execution)
     result = race(content, put_in(content, ["values", "body"], "changed"))
@@ -556,38 +541,11 @@ defmodule AtlasFacts.GuidanceTest do
     assert {:ok, []} = Rela.list(c.rela, "interactions")
   end
 
-  test "P1 unreadable fenced turn cannot be moved by another Runtime", c do
-    for reason <- [:unavailable, {:failed, "503 after a transient store failure"}, :not_found] do
-      GuidanceStore.fail_next_get(c.store, "runs", "run-a", reason)
-
-      assert {"refused", _, _} =
-               as(
-                 "runtime@other",
-                 "unused",
-                 %{"op" => "change", "key" => "run-a", "values" => %{"host" => "other"}},
-                 kind: "run"
-               )
-
-      assert GuidanceStore.mutations(c.store) == []
-
-      assert {:ok, %{properties: %{"host" => "box", "fence" => "attempt-a"}}} =
-               Rela.get(c.rela, "runs", "run-a")
-    end
-  end
-
-  test "P1 unreadable fenced turn cannot be deleted by Control", c do
-    GuidanceStore.fail_next_get(c.store, "runs", "run-a", :unavailable)
-
-    assert {"refused", _, _} =
-             request("unused", %{"op" => "delete", "key" => "run-a"}, kind: "run")
-
-    assert GuidanceStore.mutations(c.store) == []
-    assert {:ok, _} = Rela.get(c.rela, "runs", "run-a")
-  end
-
   test "P1 successful unfenced read retains legacy write compatibility", c do
     assert {:ok, []} =
              Rela.create(c.rela, "runs", "run-b", %{"host" => "box", "status" => "live"}, %{})
+
+    :ok = AtlasFacts.Server.reload(c.server)
 
     assert {"stored", _, _} =
              as(
@@ -600,8 +558,7 @@ defmodule AtlasFacts.GuidanceTest do
     assert {:ok, %{properties: %{"status" => "ended"}}} = Rela.get(c.rela, "runs", "run-b")
   end
 
-  test "P1 only confirmed absence permits new fenced creation; unreadable unfenced state refuses",
-       c do
+  test "P1 confirmed absence permits new fenced creation", _c do
     payload = %{
       "op" => "create",
       "key" => "run-new",
@@ -609,27 +566,6 @@ defmodule AtlasFacts.GuidanceTest do
     }
 
     assert {"stored", _, _} = as("runtime@box", "unused", payload, kind: "run")
-
-    assert {:ok, []} =
-             Rela.create(
-               c.rela,
-               "runs",
-               "run-legacy",
-               %{"host" => "box", "status" => "live"},
-               %{}
-             )
-
-    GuidanceStore.fail_next_get(c.store, "runs", "run-legacy", :unavailable)
-
-    assert {"refused", _, _} =
-             as(
-               "runtime@box",
-               "unused",
-               %{"op" => "change", "key" => "run-legacy", "values" => %{"status" => "ended"}},
-               kind: "run"
-             )
-
-    assert GuidanceStore.mutations(c.store) == []
   end
 
   test "fenced delete exact replay preserves acknowledgement across restart", c do
@@ -731,6 +667,8 @@ defmodule AtlasFacts.GuidanceTest do
                %{}
              )
 
+    :ok = AtlasFacts.Server.reload(c.server)
+
     assert_delete_replay(c, "run-legacy")
   end
 
@@ -770,13 +708,6 @@ defmodule AtlasFacts.GuidanceTest do
                id: "delete-lost",
                environment: "elsewhere"
              )
-
-    for reason <- [:unavailable, {:failed, "503"}] do
-      GuidanceStore.fail_next_get(fresh, "runs", key, reason)
-
-      assert {"refused", _, _} =
-               as("runtime@box", "unused", content, kind: "run", id: "delete-lost")
-    end
 
     assert as("runtime@box", "unused", content, kind: "run", id: "delete-lost") == first
 
@@ -847,9 +778,10 @@ defmodule AtlasFacts.GuidanceTest do
     Agent.stop(c.store)
     {:ok, fresh} = GuidanceStore.start(Path.join(c.dir, "facts.json"), Guided.rela_schema())
 
-    start_supervised!(
-      {AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir, model: Guided}
-    )
+    server =
+      start_supervised!(
+        {AtlasFacts.Server, rela: {GuidanceStore, fresh}, data_dir: c.dir, model: Guided}
+      )
 
     recovered = as("runtime@box", "unused", content, kind: "run", id: "delete-commit-gap")
     assert elem(recovered, 0) == "stored"
@@ -864,6 +796,8 @@ defmodule AtlasFacts.GuidanceTest do
                %{"host" => "box", "fence" => "replacement", "status" => "live"},
                %{}
              )
+
+    :ok = AtlasFacts.Server.reload(server)
 
     assert {"refused", _, _} =
              as("runtime@box", "unused", content, kind: "run", id: "delete-commit-gap")

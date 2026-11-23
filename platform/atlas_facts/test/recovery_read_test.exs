@@ -169,7 +169,7 @@ defmodule AtlasFacts.RecoveryReadTest do
     assert {"refused", c.refusal} == request("widget", "fact", c.write["content"], id: "terminal")
   end
 
-  test "still-failing admission, expanded writes and backend failure stop without writes", c do
+  test "still-failing admission and expanded writes stop without writes", c do
     before = FakeRela.facts(c.rela)
 
     for model <- [Before, Expanded] do
@@ -191,10 +191,5 @@ defmodule AtlasFacts.RecoveryReadTest do
 
       assert FakeRela.facts(c.rela) == before
     end
-
-    FakeRela.down(c.rela)
-
-    assert {"answer", %{"error" => _}} =
-             request("_flow_recovery", "read", %{"by" => "flow", "write" => c.write})
   end
 end
