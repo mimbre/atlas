@@ -76,14 +76,14 @@ defmodule Model.RunPresentationTest do
       "links" => %{"assignment" => ["AS-UC-Atlas-01"]}
     }
 
-    ended = [run("test_and_accept_use_case", "completed", "accepted")]
+    ended = [run("accept_use_case", "completed", "accepted")]
     a = present("use_case", assignment("UC-Atlas-01", %{}, []), use_case, ended)
 
     assert %{
              "reopened" => true,
              "actionable" => false,
              "owner" => [],
-             "flow" => "test_and_accept_use_case"
+             "flow" => "accept_use_case"
            } =
              a["presentation"]
 
@@ -116,7 +116,7 @@ defmodule Model.RunPresentationTest do
         "use_case",
         assignment("UC-Atlas-01", %{"flow_state" => "to_test", "expected" => "Test it"}, ["melle"]),
         use_case,
-        [run("test_and_accept_use_case", "active", "to_test")]
+        [run("accept_use_case", "active", "to_test")]
       )
 
     answers =
@@ -133,7 +133,7 @@ defmodule Model.RunPresentationTest do
 
     # What it writes is what the decider's Accept writes: the run goes to accepted.
     assert values == %{"verdict" => "accept"}
-    build = subflow("test_and_accept_use_case")
+    build = subflow("accept_use_case")
     assert build.next("to_test", Map.merge(use_case["values"], values), nil) == {:to, "accepted"}
 
     # Outside that state, Accept sets the link alone.
@@ -144,7 +144,7 @@ defmodule Model.RunPresentationTest do
           "coordinator"
         ]),
         use_case,
-        [run("test_and_accept_use_case", "active", "building")]
+        [run("accept_use_case", "active", "building")]
       )
 
     answers =

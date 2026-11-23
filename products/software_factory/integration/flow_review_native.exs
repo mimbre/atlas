@@ -83,7 +83,7 @@ try do
   %{config: config, flows: flows, refusal: nil} = AtlasFlow.Model.load(Model.AtlasEyra, :test)
   # Slice 8 selects their pull request too (flow_delivery_native.exs).
   assert Enum.sort(Map.keys(config["selection"])) ==
-           ~w(decide design_and_accept follow_through issue pr_review pr_test pull_request test_and_accept_scene test_and_accept_use_case to_do)
+           ~w(accept_scene accept_use_case break_down_scene break_down_use_case decide design_and_accept follow_through issue pr_review pr_test pull_request to_do)
 
   # Each reconcile runs in a fresh Flow process: Flow keeps nothing, only Facts does.
   reconcile = fn ->

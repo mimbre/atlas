@@ -759,6 +759,7 @@
           "description"
         ],
         "defaults": {
+          "phase": "break_down",
           "status": "refine"
         },
         "id": {
@@ -776,6 +777,9 @@
         },
         "flux_id": {
           "set_by": "connector"
+        },
+        "phase": {
+          "label": "Phase"
         },
         "status": {
           "label": "Flux group"
@@ -1268,6 +1272,9 @@
         },
         "flux_id": {
           "set_by": "connector"
+        },
+        "phase": {
+          "label": "Phase"
         },
         "status": {
           "label": "Flux group"

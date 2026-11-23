@@ -359,13 +359,10 @@
           }
         ]
       },
-      "test_and_accept_scene": {
+      "break_down_scene": {
         "choices": [],
         "choice_states": [],
-        "migrations": [
-          {"from":"79141c9da4b0fe990b2add3265ce542b546a0a68f9922e0128c502aa5ae1b444","to":"c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 12: selected without its passes; the decider's verdict ends to_test"},
-          {"from":"c29dfcb9a206681c88eaf60343ac2f05841fccb39e86b8b8530373584afa8a8f","to":"95d5d0981bc11f7e9f6544c1f2c06c57d3063d6117d668877e48b84abe78c104","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 8: an agent proposes its use cases; its supervisor accepts them"}
-        ],
+        "migrations": [],
         "subject": "scene",
         "projection": {
           "on": "assignment",
@@ -374,14 +371,47 @@
           "owner_relation": "assigned_to",
           "field": "expected"
         },
-        "admission": [],
+        "admission": {
+          "phase": [
+            "break_down"
+          ]
+        },
+        "imports": [],
+        "reopen": "new_generation",
+        "restart_by": [
+          "owner",
+          "decider"
+        ]
+      },
+      "accept_scene": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [],
+        "subject": "scene",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "phase": [
+            "accept",
+            null
+          ]
+        },
         "imports": [
           {
             "completed": true,
             "state": "accepted"
           },
           {
-            "completed": false,
+            "when": {
+              "phase": [
+                null
+              ]
+            },
             "state": "building"
           }
         ],
@@ -396,7 +426,8 @@
         "choice_states": [],
         "migrations": [
           {"from":"25f57fda40fa0e12d9322c7eb41a9d1829bee934777abe157f5c6a93685e377e","to":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","states":{"accepted":"accepted","design_gate":"design_review","design_review":"design_review","designing":"designing","dropped":"designing","needs_person":"design_review","redesign":"redesign","to_accept":"design_review"},"reason":"Slice 10: selected without its passes, design gate and acceptor; designed by hand"},
-          {"from":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","to":"9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4","states":{"accepted":"accepted","design_review":"accepting","designing":"designing","redesign":"designing"},"reason":"Slice 9: an agent writes its design; its supervisor accepts it"}
+          {"from":"57752d31e8065f37845ac886a1e93b6a24dc18d4a5aaeac20707c3c76e0ce571","to":"9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4","states":{"accepted":"accepted","design_review":"accepting","designing":"designing","redesign":"designing"},"reason":"Slice 9: an agent writes its design; its supervisor accepts it"},
+          {"from":"9432119080804ec9531f365f8c630ebc1482a68825ee3e8dc930725853cd65b4","to":"49179c2eb7302bf8bd0b2ffee7780b36f6efc7c390cc09ddc171d1c417464829","states":{"accepted":"accepted","accepting":"accepting","designing":"designing"},"reason":"Its end hands the use case to its break-down flow (phase: break_down)"}
         ],
         "subject": "use_case",
         "projection": {
@@ -429,13 +460,10 @@
           "decider"
         ]
       },
-      "test_and_accept_use_case": {
+      "break_down_use_case": {
         "choices": [],
         "choice_states": [],
-        "migrations": [
-          {"from":"439466529c0f51d0f91d8ace07c9f5fa6ca2cfb04bfcc4557b6ba57342b2e0f1","to":"d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 11: selected without its passes; the decider's verdict ends to_test"},
-          {"from":"d4222657ad88e5d0310136893bd47f89e9a447874ede4d0c21067622728d1b04","to":"ec6cdede1bc4a90a80e6f4dfae1d390ad1538f9c99ab67f40f7842a23c004cf9","states":{"accepted":"accepted","break_down":"break_down","building":"building","rework":"rework","to_test":"to_test"},"reason":"Slice 7: an agent proposes its issues; its supervisor accepts them"}
-        ],
+        "migrations": [],
         "subject": "use_case",
         "projection": {
           "on": "assignment",
@@ -449,6 +477,39 @@
             "approved",
             "accepted",
             null
+          ],
+          "phase": [
+            "break_down"
+          ]
+        },
+        "imports": [],
+        "reopen": "new_generation",
+        "restart_by": [
+          "owner",
+          "decider"
+        ]
+      },
+      "accept_use_case": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [],
+        "subject": "use_case",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "design_status": [
+            "approved",
+            "accepted",
+            null
+          ],
+          "phase": [
+            "accept",
+            null
           ]
         },
         "imports": [
@@ -458,15 +519,7 @@
           },
           {
             "when": {
-              "design_status": [
-                "approved"
-              ]
-            },
-            "state": "building"
-          },
-          {
-            "when": {
-              "design_status": [
+              "phase": [
                 null
               ]
             },
@@ -607,10 +660,10 @@
             "with": []
           }
         ],
-        "test_and_accept_use_case": [
+        "break_down_use_case": [
           {
             "name": "break_down",
-            "label": "Break down",
+            "label": "Break down use case",
             "states": [
               "break_down",
               "accepting"
@@ -618,10 +671,10 @@
             "with": []
           }
         ],
-        "test_and_accept_scene": [
+        "break_down_scene": [
           {
             "name": "break_down",
-            "label": "Break down",
+            "label": "Break down scene",
             "states": [
               "break_down",
               "accepting"

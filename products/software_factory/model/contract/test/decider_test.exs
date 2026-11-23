@@ -217,9 +217,8 @@ defmodule Model.DeciderTest do
       assert AtlasFlow.Model.owner(decide(env).owner(state)["default"], actors) == decider
     end
 
-    # The use case's build run tests it with the same person (slice 11), and the scene's
-    # run (slice 12).
-    for env <- [:prod, :test], name <- ~w(test_and_accept_use_case test_and_accept_scene) do
+    # The use case's and the scene's acceptance runs test it with the same person.
+    for env <- [:prod, :test], name <- ~w(accept_use_case accept_scene) do
       build = Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == name))
       assert AtlasFlow.Model.owner(build.owner("to_test")["default"], actors) == decider
     end
