@@ -366,7 +366,10 @@ defmodule AtlasRuntime.Work.AfterCheckStopTest do
 
     [attempt] = work!(work.work_id).attempts
     assert attempt.state == :completed and attempt.result.kind == :completed
-    assert DateTime.compare(attempt.timestamps.check_ended_at, boot) != :lt
+    # The server stamps whole milliseconds: a boot in the millisecond `boot` was read in is
+    # stamped that millisecond, earlier than `boot` itself.
+    boot_ms = DateTime.truncate(boot, :millisecond)
+    assert DateTime.compare(attempt.timestamps.check_ended_at, boot_ms) != :lt
     assert attempt.timestamps.ended_at == attempt.timestamps.check_ended_at
     assert DateTime.compare(attempt.timestamps.check_started_at, boot) == :lt
 
