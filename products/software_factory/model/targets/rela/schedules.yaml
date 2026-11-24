@@ -1,0 +1,10 @@
+# rela's scheduler (it runs inside rela-server): its own sync of GitHub's pull requests
+# (scripts/github.lua, IS-Atlas-115). Hand-written, like data-entry.yaml.
+tasks:
+  - name: github-pull
+    script: github.lua
+    every: 2m
+    run_as: integration:github
+    capabilities:
+      http: true
+      secrets: [github_token, github_api]

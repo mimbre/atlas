@@ -9,6 +9,15 @@ types:
       specification: Specification
       design: Design
       development: Development
+  pull_request_checks:
+    values:
+    - pending
+    - success
+    - failure
+    labels:
+      pending: Running
+      success: Passed
+      failure: Failed
   pull_request_state:
     values:
     - open
@@ -80,6 +89,12 @@ entities:
       pr_state:
         type: pull_request_state
         description: 'GitHub: its pull request''s state'
+      pr_checks:
+        type: pull_request_checks
+        description: 'GitHub: the combined check status of its pull request''s head'
+      pr_checks_failure:
+        type: string
+        description: 'GitHub: its pull request''s failing checks, with the failing lines of their logs'
   package:
     label: Package
     plural: packages

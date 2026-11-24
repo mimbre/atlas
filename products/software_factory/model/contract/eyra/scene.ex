@@ -143,7 +143,7 @@ defmodule Model.Scene do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
+          "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
         fields: [:title, :description, :note],
         read_first: true,
         creates: [kind: :use_case, file: "use_cases.json", fields: [:design, :note]],
@@ -330,11 +330,21 @@ defmodule Model.Scene do
     reason: "Design: its use cases carry no design status"
   )
 
+  # Design: its agent asks rela what it offers before it proposes anything that stores,
+  # syncs, schedules or queries data (D-0100); nothing else changed.
+  migrate(:break_down_scene,
+    from: "54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec",
+    to: "f52ee753f148fefc1ae12ce899968a99b9e2cf7671950223340de423aa356ae6",
+    states: :same,
+    preserve_entry: true,
+    reason: "Design: its agent asks rela first (D-0100)"
+  )
+
   # Design: its presentation says its supervisor's pickup starts the work (IS-Atlas-25), no
   # longer that it waits for a machinery; texts only, so a run keeps its state and entry.
   migrate(:break_down_scene,
-    from: "54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec",
-    to: "bcc4b4edb0865f270870136a5138d1ccc15df90101bf267913f0b473ebb8d8f5",
+    from: "f52ee753f148fefc1ae12ce899968a99b9e2cf7671950223340de423aa356ae6",
+    to: "1fa161740e21d0c8055aafd3a24ef417993671d1057e14762aa4064aad1249c0",
     preserve_entry: true,
     states: :same,
     reason: "Design: its supervisor's pickup starts the work; texts only"

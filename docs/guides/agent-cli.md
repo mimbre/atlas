@@ -1,5 +1,7 @@
 # Driving Atlas from an agent
 
+**Ask rela first (D-0100).** Before you propose or build anything that stores, syncs, schedules or queries data, ask the pinned rela what it offers and use that; Atlas builds nothing beside rela. Which rela, and how to ask it: [rela.md](rela.md).
+
 Agents use the same Control as the TUI, from the command line: `atlas help`, `put`, `set`, `delete`, `get`, `list`. Nothing writes rela directly. The same rules, refusals and generated codes apply, and an open TUI shows each change at once. `atlas help` (or `atlas put --help`) lists the kinds, what a create asks, how ids are made, what a kind belongs under and its fields, all from rela's description. Every command takes `--json` and then prints one JSON value: the item, the list, or `{"refused": [...]}`. The exit status is 0 when done, 1 when refused (the reasons also go to stderr) and 2 on an error. Like `atlas`, it works on prod unless given `--env test`.
 
 ```sh

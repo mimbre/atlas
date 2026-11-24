@@ -71,7 +71,7 @@ defmodule Model.Delivery do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Build the issue below in the repository you are given, a Git checkout of its base. Its use case and scene, after it, say why it is to be done. End your answer with what you did and what is left open.",
+          "Build the issue below in the repository you are given, a Git checkout of its base. Its use case and scene, after it, say why it is to be done. Before you build anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. End your answer with what you did and what is left open.",
         fields: [:title, :description],
         parents: [:title, :description],
         records: [kind: "task", relation: "task_of"],
@@ -227,12 +227,22 @@ defmodule Model.Delivery do
     reason: "Build: renamed from Issue → Pull request"
   )
 
+  # Build: its agent asks rela what it offers before it builds anything that stores,
+  # syncs, schedules or queries data (D-0100); nothing else changed.
+  migrate(:issue,
+    from: "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
+    to: "171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147",
+    states: :same,
+    preserve_entry: true,
+    reason: "Build: its agent asks rela first (D-0100)"
+  )
+
   # Build: its presentation says its supervisor's pickup starts the work (IS-Atlas-25), no
   # longer that it waits for a machinery; texts only, so a run keeps its state and entry,
   # also with a task in flight.
   migrate(:issue,
-    from: "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
-    to: "9d8d393006253cea6470c07e6c1fed97d8b074edaf5668476943c3c477ebf2c8",
+    from: "171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147",
+    to: "2a28fe1e3b635961f41113069ad568d8ed2d0c0db3dad37420b3094f14ca0f13",
     preserve_entry: true,
     states: :same,
     reason: "Build: its supervisor's pickup starts the work; texts only"
