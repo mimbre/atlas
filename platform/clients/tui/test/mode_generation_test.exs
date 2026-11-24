@@ -78,7 +78,9 @@ defmodule AtlasTui.ModeGenerationTest do
       "spec" => AtlasTui.Protocol.version(),
       "revision" => "new",
       "initial_to" => "/k/widget",
-      "tabs" => [%{"id" => "widgets", "label" => "Widgets", "to" => "/k/widget"}]
+      "tabs" => [
+        %{"id" => "widgets", "label" => "Widgets", "to" => "/k/widget", "section" => "work"}
+      ]
     }
 
     {model, [_]} = Console.receive(model, shell)

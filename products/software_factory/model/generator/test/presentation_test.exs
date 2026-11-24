@@ -30,9 +30,25 @@ defmodule RelaDSL.PresentationTest do
 
     assert Enum.map(presenters, &{&1["subject"], &1["kind"], &1["flows"]}) == [
              {"box", "card",
-              [%{"name" => "pack", "reopen" => nil, "restart_by" => [], "admission" => []}]},
+              [
+                %{
+                  "name" => "pack",
+                  "reopen" => nil,
+                  "restart_by" => [],
+                  "admission" => [],
+                  "order" => nil
+                }
+              ]},
              {"crate", "crate",
-              [%{"name" => "stack", "reopen" => nil, "restart_by" => [], "admission" => []}]}
+              [
+                %{
+                  "name" => "stack",
+                  "reopen" => nil,
+                  "restart_by" => [],
+                  "admission" => [],
+                  "order" => nil
+                }
+              ]}
            ]
 
     assert RelaDSL.Presentation.owned(presenters) == RelaDSL.Workshop.turn()["items"]

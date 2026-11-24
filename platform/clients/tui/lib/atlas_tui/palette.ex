@@ -15,6 +15,7 @@ defmodule AtlasTui.Palette do
   recognisable.
   `:pending_selected` is `:pending` inside the selection: yellow text cannot reach 4.5:1 on
   the selection background, so there the yellow is the background, under dark text.
+  `:active` (the group shown) looks like `:selected` but is not the selected row.
   """
   @tokens %{
     primary: {66, 114, 239},
@@ -48,7 +49,7 @@ defmodule AtlasTui.Palette do
 
     {fg, bg} =
       case style do
-        :selected -> {:grey1, :primarylight}
+        style when style in [:selected, :active] -> {:grey1, :primarylight}
         :cursor -> {:grey1, :tertiary}
         :header -> {:white, :primaryshade}
         :prod -> {:primaryshade, :white}
@@ -71,7 +72,7 @@ defmodule AtlasTui.Palette do
     weight =
       cond do
         muted?(style) -> "2;"
-        style in [:bold, :selected, :header, :prod] -> "1;"
+        style in [:bold, :selected, :active, :header, :prod] -> "1;"
         true -> ""
       end
 

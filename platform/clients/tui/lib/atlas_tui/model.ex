@@ -42,7 +42,8 @@ defmodule AtlasTui.Model do
             # Whether the page's collapsible sections are open (`sections_toggle`); a new
             # page starts with them folded.
             unfolded: false,
-            # Bounds and page sizes from the last rendered frame, keyed by part number.
+            # Bounds and page sizes from the last rendered frame, keyed by part number
+            # (nil: a page not in parts that is longer than the screen).
             viewports: %{},
             focus: 0,
             # Where typing goes in a multi-line input: `{line, column}`, nil for the end.
@@ -371,7 +372,7 @@ defmodule AtlasTui.Model do
     by = if name == "page_next", do: @scroll_step, else: -@scroll_step
 
     case part(model) do
-      nil -> {%{model | scroll: max((model.scroll || 0) + by, 0)}, []}
+      nil -> {scroll_page(model, by), []}
       part -> {scroll_part(model, part, by), []}
     end
   end
@@ -706,6 +707,19 @@ defmodule AtlasTui.Model do
     do: {put_in(model.values[name], fun.(model.values[name] || "")), []}
 
   defp edit(model, _input, _fun), do: {model, []}
+
+  # A page not in parts moves a screen from the displayed position, as a part does; before
+  # it was drawn longer than the screen, by `by` lines.
+  defp scroll_page(model, by) do
+    case model.viewports[nil] do
+      nil ->
+        %{model | scroll: max((model.scroll || 0) + by, 0)}
+
+      %{start: start, last: last, step: step} ->
+        next = start + if(by > 0, do: step, else: -step)
+        %{model | scroll: next |> max(0) |> min(last)}
+    end
+  end
 
   # Move from the displayed position, with overlap and no accumulated overscroll.
   defp scroll_part(model, part, by) do

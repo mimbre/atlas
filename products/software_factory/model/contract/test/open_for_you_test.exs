@@ -157,12 +157,90 @@ defmodule Model.OpenForYouTest do
     assert to in tos(rows(render({:list, from}, m), "list"))
   end
 
+  test "the numbered issues of a use case are picked up in order: a later one waits", c do
+    m = c.m
+    span = Enum.find(Pages.open_for_you_rule(m).spans, &(&1.subflow == "issue"))
+    list = "list:#{span.subflow}:#{span.span}"
+
+    put("use_case", %{
+      "op" => "create",
+      "key" => "UC-Atlas-01",
+      "values" => %{"title" => "U"},
+      "by" => "ada"
+    })
+
+    # Two numbered (as Plan numbers them) and one without a number (made by hand).
+    for {key, order} <- [{"IS-Atlas-01", 2}, {"IS-Atlas-02", 1}, {"IS-Atlas-03", nil}] do
+      put("issue", %{
+        "op" => "create",
+        "key" => key,
+        "values" => Map.reject(%{"title" => key, "order" => order}, &(elem(&1, 1) == nil)),
+        "links" => %{"in_use_case" => ["UC-Atlas-01"]},
+        "by" => "ada"
+      })
+    end
+
+    Engine.round(c.engine)
+    path = &Pages.path({:item, "issue", &1})
+    open = fn -> Enum.sort(tos(rows(render({:open_for_you, "ada"}, m), list))) end
+    # The first numbered one and the unnumbered one, which never waits.
+    await_any(fn -> open.() == [path.("IS-Atlas-02"), path.("IS-Atlas-03")] end)
+
+    # The later one (order 2) waits for the first: no Pick up, and it says for which.
+    page = render({:item, "issue", "IS-Atlas-01"}, m)
+    assert actions(page) == []
+
+    assert Enum.any?(
+             block(page, "item")["props"]["fields"],
+             &match?(%{"label" => "Waiting for", "value" => "IS-Atlas-02"}, &1)
+           )
+
+    # A pickup of it all the same (an input of the flow) is refused by Flow.
+    [spec] = for {_relation, "assignment", spec} <- Pages.components(m, "issue"), do: spec
+
+    %{"run" => run, "waiting_for" => "IS-Atlas-02"} =
+      read("assignment", %{"key" => Pages.part_key(spec, "IS-Atlas-01"), "presentation" => true})[
+        "fact"
+      ]["presentation"]
+
+    values = %{"run" => run, "request_id" => Envelope.new("fact", "flow_input").id}
+    put(Pages.inputs_kind(m), %{"op" => "pickup", "values" => values, "by" => "ada"})
+
+    await(c.runs, fn ->
+      case get_in(read(c.runs, %{"key" => run})["fact"], ["values", "last_input"]) do
+        last when is_binary(last) -> JSON.decode!(last)["supervision"] == "waiting"
+        _ -> false
+      end
+    end)
+
+    # Reordered by hand: it comes first now, and is the one open for you.
+    put("issue", %{
+      "op" => "change",
+      "key" => "IS-Atlas-01",
+      "values" => %{"order" => 0},
+      "by" => "ada"
+    })
+
+    assert open.() == [path.("IS-Atlas-01"), path.("IS-Atlas-03")]
+
+    assert [{:pick_up, "issue", "IS-Atlas-01", _}] =
+             actions(render({:item, "issue", "IS-Atlas-01"}, m))
+  end
+
   # Until `done?` holds, read again on each hint of `kind` (a write Facts stored); never
   # the clock. `assert_receive` bounds a hint that never comes.
   defp await(kind, done?) do
     unless done?.() do
       assert_receive {:atlas_bus, %Envelope{class: "stored", kind: ^kind}, _}
       await(kind, done?)
+    end
+  end
+
+  # As `await/2`, on a hint of any kind the test listens to.
+  defp await_any(done?) do
+    unless done?.() do
+      assert_receive {:atlas_bus, %Envelope{class: "stored"}, _}
+      await_any(done?)
     end
   end
 end

@@ -19,7 +19,14 @@ defmodule AtlasTui.ConsoleProjectionFixture do
             shell: %{
               "revision" => "fixture",
               "title" => "Atlas Console",
-              "tabs" => [%{"id" => "content", "label" => "Content", "to" => page["path"]}]
+              "tabs" => [
+                %{
+                  "id" => "content",
+                  "label" => "Content",
+                  "to" => page["path"],
+                  "section" => "work"
+                }
+              ]
             }
         }
     }

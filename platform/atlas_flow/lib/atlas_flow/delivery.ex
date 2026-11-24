@@ -10,6 +10,13 @@ defmodule AtlasFlow.Delivery do
   expires: every write it makes is a fenced change carrying `lease_state` (§2.3), so a
   sweep write in between refuses it, and Delivery reads again and answers `lease_lost`.
 
+  **Facts unavailable.** When Facts does not answer the read, or the fenced write is still
+  refused or unanswered after three tries (a deploy that restarts rela, a throttled core),
+  the answer is `:unavailable`, never `lease_lost`: nothing says the lease is lost, and a
+  Runtime that hears `lease_lost` cancels the work or drops its finished result. The
+  router answers it 503, which a Runtime takes as unreachable and sends again; each report
+  is idempotent (2026-11-24: a rela restart made three leases look lost).
+
   **Reports.** Revision 1 is the first report of a lease, then +1 each; the same revision
   with the same report (its digest is `lease_report`) is recorded again; any other is a
   `conflict`. The order is `accepted | refused` → `started` → `ended`, or `accepted` →
@@ -84,13 +91,14 @@ defmodule AtlasFlow.Delivery do
     do: GenServer.call(server, {:scope, client, lease_id, sha256}, :infinity)
 
   @doc """
-  The checks of a `put_blob` before a byte is read, in this order: fence (`:lease_lost`),
-  reference (`:not_referenced`), then `{:ok, room}` (the bytes the lease may still store).
+  The checks of a `put_blob` before a byte is read, in this order: fence (`:lease_lost`, or
+  `:unavailable` when Facts does not answer), reference (`:not_referenced`), then
+  `{:ok, room}` (the bytes the lease may still store).
   """
   def put_check(client, lease_id, sha256, server \\ __MODULE__),
     do: GenServer.call(server, {:put_check, client, lease_id, sha256}, :infinity)
 
-  @doc "The fence again, once the bytes were read and before they are kept: `:ok` or `:lease_lost`."
+  @doc "The fence again, once the bytes were read and before they are kept: `:ok`, `:lease_lost` or `:unavailable`."
   def refence(client, lease_id, server \\ __MODULE__),
     do: GenServer.call(server, {:refence, client, lease_id}, :infinity)
 
@@ -139,7 +147,7 @@ defmodule AtlasFlow.Delivery do
         lease = %{id: lease_id, task_key: task_key, attempt: attempt, runtime: runtime_id}
 
         case Leases.update(task_key, &decide(&1, lease, revision, report, state)) do
-          {:error, _} -> :lease_lost
+          {:error, _} -> :unavailable
           answer -> answer
         end
       end
@@ -444,7 +452,7 @@ defmodule AtlasFlow.Delivery do
         if Leases.fenced?(fact, lease_id, runtime_id), do: :lease_lost, else: {:ok, fact}
 
       {:error, _} ->
-        :lease_lost
+        :unavailable
     end
   end
 

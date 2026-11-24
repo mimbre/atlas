@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Wire.Control.Session do
   @moduledoc "Control page/session and agent wire operations."
   use AtlasBFF.Schema
-  version "0.22.0"
+  version "0.24.0"
 
   models_from(AtlasBFFContract.Models.Presentation)
 
@@ -73,7 +73,7 @@ defmodule AtlasBFFContract.Wire.Control.Session do
           "tabs" => :list,
           "initial_to" => :string
         },
-        optional: %{"active_tab" => :string}
+        optional: %{"active_tab" => :string, "greeting" => :string}
       },
       %{
         name: :error,

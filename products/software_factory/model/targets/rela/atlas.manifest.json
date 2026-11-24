@@ -5,7 +5,7 @@
     "modules/eyra/schema.yaml": "565e37efacb58ec8592ae031477950596b2ea9486e90f8a7f6fde414c7e77662",
     "modules/foundation/audit/schema.yaml": "7b487d3720938d3089cd5841e39cd57bc7560abc83ba5a679d2cedca948de022",
     "modules/foundation/schema.yaml": "fd25a8a6bc27f3fc9eed93e9f6c67a95b01a0afafacf4cbfe604c050fa00759b",
-    "modules/software/schema.yaml": "81a4f099759faf76b03a757ce72d737d7cce67f985b44ae73cdb2fcf3427de75",
+    "modules/software/schema.yaml": "7ceb446a9121f36b4b2465ceb71ea93185bd782c876123c92ba8f5b77f269d73",
     "schema.yaml": "bb229050951035f99de0877acd2fd4676fed384cd32964b16c4c236d30b08f5a"
   },
   "flows": {

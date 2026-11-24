@@ -27,7 +27,8 @@ defmodule AtlasControl.SupervisionTest do
 
   defp span(m \\ @s), do: hd(Pages.open_for_you_rule(m).spans)
 
-  # How Facts presents the work: the run, its subflow, status, state and supervisor.
+  # How Facts presents the work: the run, its subflow, status, state, supervisor and owner
+  # (`manual`: set by hand, not Flow's default).
   defp presented(opts \\ []) do
     s = span()
 
@@ -39,6 +40,7 @@ defmodule AtlasControl.SupervisionTest do
       "state" => Keyword.get(opts, :state, hd(s.states)),
       "supervisor" => Keyword.get(opts, :supervisor, []),
       "owner" => Keyword.get(opts, :owner, []),
+      "manual" => Keyword.get(opts, :manual, false),
       "actionable" => true,
       "expected" => Keyword.get(opts, :expected)
     }
@@ -147,7 +149,9 @@ defmodule AtlasControl.SupervisionTest do
 
     for m <- @models do
       items = [
-        work(m, "W-1", presented()),
+        # Flow's default holder of unpicked work, and an owner set by hand.
+        work(m, "W-1", presented(owner: ["coordinator"])),
+        work(m, "W-9", presented(owner: ["bob"], manual: true)),
         work(m, "W-2", presented(supervisor: ["ada"])),
         work(m, "W-3", presented(state: "done")),
         work(m, "W-4", presented(status: "blocked")),
@@ -166,11 +170,23 @@ defmodule AtlasControl.SupervisionTest do
       assert Enum.map(lists, & &1["id"]) ==
                for(s <- Pages.open_for_you_rule(m).spans, do: "list:#{s.subflow}:#{s.span}")
 
-      assert keys_of(hd(lists)["props"]["rows"]) == ["W-1"], span(m).written_on
+      assert keys_of(hd(lists)["props"]["rows"]) == ["W-1", "W-9"], span(m).written_on
 
-      # The Overview's title says the count; no pair says it again.
-      assert %{"title" => title, "fields" => []} = block(page, "summary")["props"]
-      assert title =~ "1"
+      # No Overview: the tab and the groups count. The span's title says the flow, so a row
+      # does not; Flow's default holder is not shown, an owner set by hand is.
+      refute block(page, "summary")
+      details = Map.new(hd(lists)["props"]["rows"], &{&1["id"], &1["detail"]})
+      assert details == %{"W-1" => "", "W-9" => "bob"}
+    end
+  end
+
+  test "Open for you lists its rows by key, their numbers as numbers" do
+    for m <- @models do
+      items = for key <- ~w(W-100 W-11 W-07 W-9), do: work(m, key, presented())
+      route = {:open_for_you, "ada"}
+      page = Pages.render(route, m, screen_answers(route, m, items))
+      [list | _] = for b <- page.blocks, b["type"] == "list", do: b
+      assert keys_of(list["props"]["rows"]) == ~w(W-07 W-9 W-11 W-100), span(m).written_on
     end
   end
 
@@ -184,9 +200,9 @@ defmodule AtlasControl.SupervisionTest do
       work(m, "W-3", presented(supervisor: ["ada"], expected: "Paint it"))
     ]
 
-    for {screen, all_to, mine} <- [
-          {:open_for_you, "/_open", "W-1"},
-          {:supervised_by_you, "/_supervised", "W-3"}
+    for {screen, all_to, mine, all_detail} <- [
+          {:open_for_you, "/_open", "W-1", ""},
+          {:supervised_by_you, "/_supervised", "W-3", m.start.flows[s.subflow]}
         ] do
       all = {screen, "ada"}
       page = Pages.render(all, m, screen_answers(all, m, items, []))
@@ -203,12 +219,12 @@ defmodule AtlasControl.SupervisionTest do
       # `[` and `]` open the previous and the next group.
       assert Enum.map(page.console_actions, & &1.operation["to"]) == [group["to"], group["to"]]
 
-      # Each row shows its key and, on the whole page, where flows mix, its flow's short name
-      # (never the sentence of what is expected).
-      flow = m.start.flows[s.subflow]
-      assert is_binary(flow)
+      # Each row shows its key; on Supervised by you's whole page, where flows mix in one
+      # list, its flow's short name (never the sentence of what is expected). Open for you
+      # titles each span's list with its flow, so its rows do not repeat it.
+      assert is_binary(m.start.flows[s.subflow])
       rows = for %{"type" => "list"} = b <- page.blocks, row <- b["props"]["rows"], do: row
-      assert [%{"id" => ^mine, "detail" => ^flow}] = rows
+      assert [%{"id" => ^mine, "detail" => ^all_detail}] = rows
 
       # The group's page: the same groups, that one active, and only its span's items.
       group_route = {:group, screen, {s.subflow, s.span}, "ada"}
@@ -226,7 +242,7 @@ defmodule AtlasControl.SupervisionTest do
     end
   end
 
-  test "Supervised by you: the client's, still in a span; its running work counted quietly" do
+  test "Supervised by you: the client's, still in a span; who holds it once it is picked up" do
     for m <- @models do
       items = [
         work(m, "W-1", presented()),
@@ -251,17 +267,17 @@ defmodule AtlasControl.SupervisionTest do
       assert length(rows) == 2
       assert Enum.map(running, & &1["key"]) == ["J-1", "J-2"], span(m).written_on
 
-      # The quiet count of running work: a pair whose value is the count, by the work's kind;
-      # the count of rows is the Overview's title, not a pair.
+      # No Overview: the tab and the groups count.
+      refute block(page, "summary")
       jobs_k = m.kinds[work.kind]
-      fields = block(page, "summary")["props"]["fields"]
-      assert %{"value" => "2"} = Enum.find(fields, &(&1["label"] == jobs_k.plural))
-      refute Enum.any?(fields, &(&1["label"] == Pages.supervised_rule(m).title))
 
       # A row the client's running work is on says that work (its kind), not the flow.
       details = Map.new(list["rows"], &{&1["id"], &1["detail"]})
       assert String.starts_with?(details["W-2"], jobs_k.label)
       refute details["W-5"] =~ jobs_k.label
+
+      # A supervised row says who holds it.
+      assert details["W-2"] =~ "bot"
 
       # Someone else supervises none of these.
       bob = {:supervised_by_you, "bob"}
@@ -348,19 +364,23 @@ defmodule AtlasControl.SupervisionTest do
       mine = item_answers(m, work(m, "W-1", presented(supervisor: ["ada"])), [member("ada")])
       assert :remove_item in tos.(m, mine)
       refute :delete in tos.(m, mine)
-      assert :new in tos.(m, mine)
+      # The span holds the runs of the widget's parts (`with:`): no Create part by hand.
+      refute :new in tos.(m, mine)
 
       # Without a run, nothing removes it: Delete does.
       unrun = item_answers(m, work(m, "W-1", nil), [member("ada")])
       assert :delete in tos.(m, unrun)
 
-      # The span's subflow makes the widget's parts: no Create part by hand.
-      made =
-        update_in(m, [:start, :open_for_you, :spans], fn spans ->
-          for s <- spans, do: %{s | creates: ["part"]}
-        end)
+      spans = fn m, change ->
+        update_in(m, [:start, :open_for_you, :spans], fn spans -> Enum.map(spans, change) end)
+      end
 
-      refute :new in tos.(made, mine)
+      # A span that holds no runs of parts leaves Create part...
+      unheld = spans.(m, &%{&1 | with_subjects: []})
+      assert :new in tos.(unheld, mine)
+
+      # ...unless its subflow makes them.
+      refute :new in tos.(spans.(unheld, &%{&1 | creates: ["part"]}), mine)
     end
   end
 
