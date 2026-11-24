@@ -7,14 +7,19 @@
 -- failing checks and the failing lines of their logs). For every pull request fact that
 -- is not merged or closed yet: its title, state and draft. Only what differs is written.
 --
--- Secrets (.rela/secrets.yaml, written from the rela app's Fly secret by rela-run.sh):
--- github_token; github_api (optional, https://api.github.com by default). Without a token
+-- Secrets (.rela/secrets.yaml, which rela-run.sh writes on Fly): github_api, GitHub's API
+-- (https://api.github.com); github_token, a read-only token (optional: without it GitHub
+-- is read anonymously, which its rate limit allows for a few pulls, and job logs are not
+-- readable, so a failure names its checks only). Without either (a rela on a Mac, a test)
 -- it does nothing.
 
 local token = rela.secrets.github_token
-if token == nil or token == "" then return end
 local api = rela.secrets.github_api
-if api == nil or api == "" then api = "https://api.github.com" end
+if token == "" then token = nil end
+if api == nil or api == "" then
+  if token == nil then return end
+  api = "https://api.github.com"
+end
 
 local FAILED = {failure = true, cancelled = true, timed_out = true, action_required = true,
                 stale = true, startup_failure = true}
@@ -23,19 +28,25 @@ local EXCERPT_LINES = 60
 local EXCERPT_CHARS = 12000
 
 local function get(path)
-  local resp, err = http.get(api .. path, {headers = {
-    Authorization = "Bearer " .. token,
+  local headers = {
     Accept = "application/vnd.github+json",
     ["X-GitHub-Api-Version"] = "2022-11-28",
     ["User-Agent"] = "atlas-rela-sync",
-  }, timeout = 20})
+  }
+  if token then headers.Authorization = "Bearer " .. token end
+  local resp, err = http.get(api .. path, {headers = headers, timeout = 20})
   if not resp then return nil, err.kind .. ": " .. err.message end
   return resp
 end
 
+-- GitHub's rate limit (403, 429) ends this run: the next one tries again.
+local limited = false
+
 local function json(path)
+  if limited then return nil, "rate limited" end
   local resp, err = get(path)
   if not resp then return nil, err end
+  if resp.status_code == 403 or resp.status_code == 429 then limited = true end
   if resp.status_code ~= 200 then return nil, path .. " answered " .. resp.status_code end
   return rela.json.decode(resp.body)
 end
@@ -99,7 +110,7 @@ end
 -- of them. Logger output (`12:00:00.000 [warning] …`) is left out. GitHub answers the log
 -- with a redirect to storage that takes no token.
 local function excerpt(repo, run)
-  if not run.id then return nil end
+  if not run.id or not token then return nil end
   local resp = get("/repos/" .. repo .. "/actions/jobs/" .. run.id .. "/logs")
   if not resp then return nil end
   if resp.status_code == 302 and resp.headers.location then
