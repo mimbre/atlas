@@ -38,7 +38,7 @@ defmodule AtlasTui.ConsoleView do
 
   defp tabs(nil, _active, width), do: [{:dim, fit(" Waiting for Console boot…", width)}]
 
-  # The work tabs, a separator, then the browse tabs, each with its key ("Scenes g s").
+  # The work tabs, a separator, then the browse tabs, each with its key (as "g s").
   defp tabs(shell, active, width) do
     {work, browse} = Enum.split_with(shell["tabs"], &AtlasTui.Console.work?/1)
     separator = if work != [] and browse != [], do: [{:separator, [{:dim, " │"}]}], else: []

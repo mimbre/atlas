@@ -36,14 +36,14 @@ final class ShellViewModelTests: XCTestCase {
 
     func testTabsKeepTheirSectionAndShortcutsFollowBootOrder() {
         let h = Harness()
-        let sent = [Lines.tab("mine", "/"), Lines.tab("scenes", "/k/scene", section: "browse"),
+        let sent = [Lines.tab("mine", "/"), Lines.tab("shelves", "/k/shelf", section: "browse"),
                     Lines.tab("open", "/_open")]
         h.connect(boot: Lines.boot(tabs: sent, initialTo: "/", activeTab: "mine"), start: Lines.page("/"))
 
         let shell = ShellViewModel(h.state)
 
         XCTAssertEqual(shell.tabs.filter { $0.section == "work" }.map(\.id), ["mine", "open"])
-        XCTAssertEqual(shell.tabs.filter { $0.section == "browse" }.map(\.id), ["scenes"])
+        XCTAssertEqual(shell.tabs.filter { $0.section == "browse" }.map(\.id), ["shelves"])
         XCTAssertEqual(shell.tabs.map(\.shortcut), [1, 2, 3])
     }
 

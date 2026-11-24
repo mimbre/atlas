@@ -53,9 +53,9 @@ defmodule AtlasTui.ConsoleTest do
           "section" => "work"
         },
         %{
-          "id" => "scenes",
-          "label" => "Scenes",
-          "to" => "/k/scene",
+          "id" => "shelves",
+          "label" => "Shelves",
+          "to" => "/k/shelf",
           "section" => "browse",
           "key" => "g s"
         }
@@ -302,12 +302,12 @@ defmodule AtlasTui.ConsoleTest do
   end
 
   test "narrow viewport follows active tab and resize preserves shell and content" do
-    {model, [_]} = Console.navigate(ready(), "/k/scene")
-    {model, []} = Console.receive(model, page("/k/scene"))
+    {model, [_]} = Console.navigate(ready(), "/k/shelf")
+    {model, []} = Console.receive(model, page("/k/shelf"))
 
     for width <- [16, 20, 40, 100] do
       text = screen(model, width)
-      assert text =~ "▸ Scenes"
+      assert text =~ "▸ Shelves"
       assert length(String.split(text, "\n")) == 20
       assert Enum.all?(String.split(text, "\n"), &(String.length(&1) <= width))
     end
@@ -319,7 +319,7 @@ defmodule AtlasTui.ConsoleTest do
 
   test "work tabs come first; a separator, then the browse tabs with their keys" do
     [bar] = ready() |> screen(100) |> String.split("\n") |> Enum.filter(&(&1 =~ "Parts"))
-    assert bar =~ ~r/Widgets +Parts +Supervised by you +│ +Scenes g s/
+    assert bar =~ ~r/Widgets +Parts +Supervised by you +│ +Shelves g s/
   end
 
   test "cycling goes round the work tabs only; from a browse tab to the first or the last" do
@@ -327,17 +327,17 @@ defmodule AtlasTui.ConsoleTest do
     {model, []} = Console.receive(model, page("/_supervised"))
     assert {_, [{:send, %{"to" => "/k/widget"}}]} = Console.cycle(model, 1)
 
-    {scenes, [_]} = Console.navigate(ready(), "/k/scene")
-    {scenes, []} = Console.receive(scenes, page("/k/scene"))
-    assert scenes.console.active == "scenes"
-    assert {_, [{:send, %{"to" => "/k/widget"}}]} = Console.cycle(scenes, 1)
-    assert {_, [{:send, %{"to" => "/_supervised"}}]} = Console.cycle(scenes, -1)
+    {shelves, [_]} = Console.navigate(ready(), "/k/shelf")
+    {shelves, []} = Console.receive(shelves, page("/k/shelf"))
+    assert shelves.console.active == "shelves"
+    assert {_, [{:send, %{"to" => "/k/widget"}}]} = Console.cycle(shelves, 1)
+    assert {_, [{:send, %{"to" => "/_supervised"}}]} = Console.cycle(shelves, -1)
   end
 
   test "g then s opens the browse tab; another key or Esc only cancels" do
     projected =
       declared(page(), "browse", [
-        action("scenes", "g s", "open", %{"operation" => %{"name" => "open", "to" => "/k/scene"}}),
+        action("shelves", "g s", "open", %{"operation" => %{"name" => "open", "to" => "/k/shelf"}}),
         action("down", "Down", "move_next")
       ])
 
@@ -346,9 +346,9 @@ defmodule AtlasTui.ConsoleTest do
     assert pending.console.key_prefix == "g"
     assert screen(pending) =~ "g … · Esc to cancel"
 
-    {opened, [{:send, %{"op" => "open", "to" => "/k/scene"}}]} = Model.key(pending, {:char, "s"})
+    {opened, [{:send, %{"op" => "open", "to" => "/k/shelf"}}]} = Model.key(pending, {:char, "s"})
     assert opened.console.key_prefix == ""
-    assert opened.console.active == "scenes"
+    assert opened.console.active == "shelves"
 
     for key <- [:esc, :down, {:char, "x"}] do
       assert Model.key(pending, key) == {model, []}

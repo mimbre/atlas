@@ -8,7 +8,7 @@ defmodule AtlasControl.Shell do
   of the supervision screens (`/_open`, `/_supervised`) when the model's start page has
   it. Without a target, a client opens on the tab the shell names as its `default` (its
   id), when the client may see it; else on the first tab. A tab is in the "work" section
-  (the default: what needs a person) or "browse" (reference); a browse tab may name its
+  (the default: what needs someone) or "browse" (reference); a browse tab may name its
   own key sequence (`key`, as "g s").
   """
 

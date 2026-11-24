@@ -118,13 +118,13 @@ defmodule AtlasControl.ConsoleProjectionTest do
   end
 
   test "a browse tab's key sequence opens it; Tab counts only the work tabs" do
-    browse = %{"id" => "s", "to" => "/k/scene", "label" => "Scenes", "section" => "browse"}
+    browse = %{"id" => "s", "to" => "/k/part", "label" => "Parts", "section" => "browse"}
     tabs = tabs(1) ++ [Map.put(browse, "key", "g s"), Map.put(browse, "id", "x")]
     assert {:ok, page} = AtlasControl.Console.project(native(), tabs)
     assert {:ok, projection} = Console.compile(page)
     assert {:ok, bindings} = Console.bindings(projection, current())
 
-    assert %{"label" => "Scenes", "operation" => %{"name" => "open", "to" => "/k/scene"}} =
+    assert %{"label" => "Parts", "operation" => %{"name" => "open", "to" => "/k/part"}} =
              bindings["g s"]["props"]
 
     refute bindings["Tab"]["props"]["available"]

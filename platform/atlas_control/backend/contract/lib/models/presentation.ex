@@ -138,7 +138,7 @@ defmodule AtlasBFFContract.Models.Presentation do
 
   # Native shell metadata, independent of page blocks and terminal key bindings. `icon`
   # is a semantic name a client may draw as it likes (a Mac app: a symbol); `section` is
-  # what the tab is for: "work" (what needs a person; the tabs a client cycles through) or
+  # what the tab is for: "work" (what needs someone; the tabs a client cycles through) or
   # "browse" (reference, after them); `key`, a browse tab's own key sequence (as "g s"),
   # which the console projection binds to opening it; `groups` are the groups the tab's
   # page declares (`groups` block), so a client can offer them while another tab is shown;

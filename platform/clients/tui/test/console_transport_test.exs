@@ -100,7 +100,7 @@ defmodule AtlasTui.ConsoleTransportTest do
             action("next", "Tab", "tab_next"),
             action("previous", "Shift+Tab", "tab_previous"),
             action("down", "Down", "move_next"),
-            action("scenes", "g s", "open", %{"to" => "/k/scene"}),
+            action("shelves", "g s", "open", %{"to" => "/k/shelf"}),
             action("new", "n", "open", %{"to" => "/k/widget/new"})
           ],
           "markup" => [
@@ -146,9 +146,9 @@ defmodule AtlasTui.ConsoleTransportTest do
         %{"id" => "parts", "label" => "Parts", "to" => "/k/part", "section" => "work"},
         %{"id" => "open", "label" => "Open for you", "to" => "/_open", "section" => "work"},
         %{
-          "id" => "scenes",
-          "label" => "Scenes",
-          "to" => "/k/scene",
+          "id" => "shelves",
+          "label" => "Shelves",
+          "to" => "/k/shelf",
           "section" => "browse",
           "key" => "g s"
         }
@@ -313,15 +313,15 @@ defmodule AtlasTui.ConsoleTransportTest do
     send_message(socket, content("/_open"))
     loaded = see(server, "First widget")
     assert loaded =~ "▸ Open for you"
-    assert loaded =~ "│   Scenes g s"
+    assert loaded =~ "│   Shelves g s"
 
     # g then s opens the browse tab its key names; Tab from there is back to work.
     tmux(server, ["send-keys", "-t", "console", "g"])
     see(server, "g … · Esc to cancel")
     tmux(server, ["send-keys", "-t", "console", "s"])
-    assert %{"op" => "open", "to" => "/k/scene"} = read(socket)
-    send_message(socket, content("/k/scene"))
-    see(server, "▸ Scenes")
+    assert %{"op" => "open", "to" => "/k/shelf"} = read(socket)
+    send_message(socket, content("/k/shelf"))
+    see(server, "▸ Shelves")
     tmux(server, ["send-keys", "-t", "console", "Tab"])
     assert %{"op" => "open", "to" => "/k/widget"} = read(socket)
 

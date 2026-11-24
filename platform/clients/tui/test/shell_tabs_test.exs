@@ -76,7 +76,7 @@ defmodule AtlasTui.ShellTabsTest do
           %{
             "id" => "b",
             "label" => "B",
-            "to" => "/k/scene",
+            "to" => "/k/shelf",
             "section" => "browse",
             "key" => "g s"
           }
