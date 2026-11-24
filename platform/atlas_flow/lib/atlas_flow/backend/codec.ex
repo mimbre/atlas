@@ -44,13 +44,15 @@ defmodule AtlasFlow.Backend.Codec do
   end
 
   @doc """
-  An answer of `AtlasFlow.WorkSource` as `{outcome, fields}`. `:error` for anything that is
-  no outcome of `capability`.
+  An answer of `AtlasFlow.WorkSource` as `{outcome, fields}`. `:unavailable` (Facts did not
+  answer a report or a `put_blob`) as it is: the router answers it 503. `:error` for
+  anything that is no outcome of `capability`.
   """
-  @spec outcome(atom(), term()) :: {atom(), map() | nil} | :error
+  @spec outcome(atom(), term()) :: {atom(), map() | nil} | :unavailable | :error
   def outcome(:poll, {:polled, polled}) when is_map(polled), do: {:polled, polled(polled)}
   def outcome(:report, {:recorded, recorded}), do: {:recorded, recorded(recorded)}
   def outcome(:get_blob, {:blob, blob}), do: {:blob, blob}
+  def outcome(capability, :unavailable) when capability in [:report, :put_blob], do: :unavailable
   def outcome(capability, {:rejected, reason}), do: rejected(capability, reason)
 
   def outcome(capability, name) when is_atom(name) do

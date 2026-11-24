@@ -58,7 +58,6 @@ defmodule Model.ToDo do
 
     primary(:title)
     plural_label("To-Dos")
-    start(key: "t", label: "To-Dos")
     order(:newest)
 
     create(

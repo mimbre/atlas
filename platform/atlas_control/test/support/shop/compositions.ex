@@ -391,6 +391,22 @@ defmodule Shop.ShelledAssigned do
   )
 end
 
+defmodule Shop.ShelledGreeted do
+  @moduledoc "As ShelledAssigned, and a member the client is is greeted by its name."
+  use Shop.Composition, name: "shop-shelled-greeted", concepts: Shop.Base.concepts()
+
+  start_page(assigned: [relation: :checked_by, greeting: "Hello, {name}."])
+
+  shell(
+    title: "Private Console",
+    tabs: [
+      [id: "assigned", label: "Assigned", to: "/", assigned: true],
+      [id: "parts", label: "Parts", to: "/k/part"],
+      [id: "widgets", label: "Widgets", to: "/k/widget"]
+    ]
+  )
+end
+
 defmodule Shop.ShelledCards do
   @moduledoc "The shelled shop with cards."
   use Shop.Composition, name: "shop-shelled-cards", concepts: Shop.Base.concepts() ++ [Shop.Card]

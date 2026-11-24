@@ -572,6 +572,31 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
       assert {:polled, %{lease_lost: [], leases: [%{work: %{work_key: "TK-B-2-1"}}]}} =
                poll(@mini, [lease])
     end
+
+    test "Facts down at boot: no holding is lost meanwhile, and a silent lease still expires once Facts is back",
+         ctx do
+      {task, lease} = started(ctx, "B-1")
+      leases_read = {:block_read, "task", %{"plain" => true}}
+
+      :ok = stop_supervised(Dispatch)
+      :ok = GenServer.call(FakeFacts, leases_read)
+      L.start_dispatch(ctx.clock)
+
+      # The Runtime's running work is not cancelled by a Dispatch that could not read the leases.
+      assert {:polled, %{lease_lost: []}} = poll(@mini, [lease])
+
+      :ok = GenServer.call(FakeFacts, put_elem(leases_read, 0, :allow_read))
+      Dispatch.sweep()
+
+      # Its Runtime gone silent, the lease ends and the task is offered again.
+      L.advance(ctx, 900)
+      Dispatch.sweep()
+      L.advance(ctx, 120)
+      Dispatch.sweep()
+      assert L.values(task)["lease_state"] == "lost"
+      assert {:polled, %{leases: [%{lease_id: fresh}]}} = poll(@mini)
+      assert fresh != lease
+    end
   end
 
   # Once Dispatch holds the task's poll: the task waits in its call, which Dispatch then

@@ -132,7 +132,7 @@ Prod gets the same two apps as test, on a private network of its own (`eyra-atla
 
 | | App | Machine | Data |
 |---|---|---|---|
-| Core | `eyra-atlas` | shared-cpu-1x, 512 MB, ams (`products/software_factory/environments/prod/core.toml`) | volume `core_data` at `/data` (Facts' own: `/data/beam`) |
+| Core | `eyra-atlas` | performance-1x, 2048 MB, ams (`products/software_factory/environments/prod/core.toml`; on shared-cpu-1x it ran throttled after a deploy) | volume `core_data` at `/data` (Facts' own: `/data/beam`) |
 | rela | `eyra-atlas-rela` | performance-1x, 2048 MB, ams (`products/software_factory/environments/prod/rela.toml`) | volume `rela_data` at `/data` (`/data/rela`) |
 
 A merge to master deploys prod (CI job `deploy-prod`, `platform/ops/deploy.sh prod`). It works as test's:

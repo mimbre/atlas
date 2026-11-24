@@ -1119,12 +1119,14 @@ public struct ActionModel: Codable, Sendable, Equatable {
     public var key: String
     public var to: String
     public var submitTo: CallModel?
+    public var page: Bool?
 
-    public init(label: String, key: String, to: String, submitTo: CallModel? = nil) {
+    public init(label: String, key: String, to: String, submitTo: CallModel? = nil, page: Bool? = nil) {
         self.label = label
         self.key = key
         self.to = to
         self.submitTo = submitTo
+        self.page = page
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1132,6 +1134,7 @@ public struct ActionModel: Codable, Sendable, Equatable {
         case key
         case to
         case submitTo = "submit_to"
+        case page
     }
 }
 
@@ -1437,14 +1440,18 @@ public struct ShellTabModel: Codable, Sendable, Equatable {
     public var id: String
     public var label: String
     public var to: String
+    public var section: String
+    public var key: String?
     public var icon: String?
     public var groups: [ShellGroupModel]?
     public var count: Int?
 
-    public init(id: String, label: String, to: String, icon: String? = nil, groups: [ShellGroupModel]? = nil, count: Int? = nil) {
+    public init(id: String, label: String, to: String, section: String, key: String? = nil, icon: String? = nil, groups: [ShellGroupModel]? = nil, count: Int? = nil) {
         self.id = id
         self.label = label
         self.to = to
+        self.section = section
+        self.key = key
         self.icon = icon
         self.groups = groups
         self.count = count
@@ -1454,6 +1461,8 @@ public struct ShellTabModel: Codable, Sendable, Equatable {
         case id
         case label
         case to
+        case section
+        case key
         case icon
         case groups
         case count
@@ -1501,8 +1510,9 @@ public struct ShellModel: Codable, Sendable, Equatable {
     public var tabs: [ShellTabModel]
     public var initialTo: String
     public var activeTab: String?
+    public var greeting: String?
 
-    public init(title: String, env: String, spec: String, revision: String, tabs: [ShellTabModel], initialTo: String, activeTab: String? = nil) {
+    public init(title: String, env: String, spec: String, revision: String, tabs: [ShellTabModel], initialTo: String, activeTab: String? = nil, greeting: String? = nil) {
         self.title = title
         self.env = env
         self.spec = spec
@@ -1510,6 +1520,7 @@ public struct ShellModel: Codable, Sendable, Equatable {
         self.tabs = tabs
         self.initialTo = initialTo
         self.activeTab = activeTab
+        self.greeting = greeting
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1520,6 +1531,7 @@ public struct ShellModel: Codable, Sendable, Equatable {
         case tabs
         case initialTo = "initial_to"
         case activeTab = "active_tab"
+        case greeting
     }
 }
 

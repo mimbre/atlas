@@ -17,6 +17,10 @@ public struct PagePresentation: Sendable, Equatable {
         case item(ItemBlock)
         /// A single choice: its options are chosen by number or click.
         case singleChoice(SingleChoiceBlock)
+        /// A form: its inputs, edited and submitted to its call.
+        case form(FormBlock)
+        /// A confirm: its text, and Confirm (its call) or Cancel.
+        case confirm(ConfirmBlock)
         /// A block of a type this app knows but does not show yet.
         case notShown(type: String)
         /// A block that cannot be shown: unknown or broken.
@@ -70,6 +74,8 @@ public struct PagePresentation: Sendable, Equatable {
             case .list(let list): item = .list(list)
             case .item(let detail): item = .item(detail)
             case .singleChoice(let choice): item = .singleChoice(choice)
+            case .form(let form): item = .form(form)
+            case .confirm(let confirm): item = .confirm(confirm)
             case .fallback(let fallback): item = .fallback(fallback)
             case .consoleAction: return nil  // the Console's actions: ConsoleKit, S5
             case .groups: return nil  // the page's groups: the shell's sidebar (ShellViewModel)

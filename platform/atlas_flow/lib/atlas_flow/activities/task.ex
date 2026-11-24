@@ -62,7 +62,7 @@ defmodule AtlasFlow.Activities.Task do
   JSON list of `{title, description}`, and of the texts the spec's `fields` name. When the
   task completed, Flow reads the file from
   its result commit (`refs/atlas/results/<key>`, through Bases and Code) and makes one fact of that kind per entry,
-  with the spec's `values` too,
+  with the spec's `values` too, and its place in the list, from 1, in the spec's `order` field,
   linked to the subject through the kind's parent relation to it and numbered after the
   facts of that kind there are (the model's `ids`), `by` Flow with the run's supervisor in
   its cause; the agent never writes into Atlas. With no such file, the task ends `stuck`.
@@ -186,9 +186,9 @@ defmodule AtlasFlow.Activities.Task do
 
   defp creates?(%{"kind" => kind, "file" => file} = creates),
     do:
-      Enum.all?(Map.keys(creates), &(&1 in ~w(kind file fields values))) and text?(kind) and
+      Enum.all?(Map.keys(creates), &(&1 in ~w(kind file fields values order))) and text?(kind) and
         text?(file) and texts?(creates["fields"] || []) and
-        is_map(creates["values"] || %{})
+        is_map(creates["values"] || %{}) and (creates["order"] == nil or text?(creates["order"]))
 
   defp creates?(_creates), do: false
 
@@ -1030,8 +1030,8 @@ defmodule AtlasFlow.Activities.Task do
   # for, and the run reconciled once it is there): each with a title, and its description
   # when it has one. The file's blob is read from Code here, on the Engine's path: one
   # small read, once per break-down.
-  # Each entry: its title and description, the texts of the creates' `fields` it has, and
-  # the creates' `values`.
+  # Each entry: its title and description, the texts of the creates' `fields` it has, the
+  # creates' `values`, and its place in the list in the creates' `order` field.
   defp proposal(run, repository, task_key, %{"file" => file} = creates) do
     with {:ok, content} <- result_file(run, repository, task_key, file),
          {:ok, list} <- JSON.decode(content) do
@@ -1044,13 +1044,18 @@ defmodule AtlasFlow.Activities.Task do
                text?(t),
                do: Map.merge(entry(t, e["description"]), more.(e)) do
         [] -> :no_proposal
-        entries -> {:ok, entries}
+        entries -> {:ok, numbered(entries, creates["order"])}
       end
     else
       {:error, _invalid_json} -> :no_proposal
       missing_or_unavailable -> missing_or_unavailable
     end
   end
+
+  defp numbered(entries, nil), do: entries
+
+  defp numbered(entries, field),
+    do: for({e, i} <- Enum.with_index(entries, 1), do: Map.put(e, field, i))
 
   # The content of the file at the top of the repository in the task's result commit:
   # `:no_proposal` when it has no such file, `:unavailable` while its result or Code does

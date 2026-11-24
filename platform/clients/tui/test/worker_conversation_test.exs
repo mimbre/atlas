@@ -107,7 +107,15 @@ defmodule AtlasTui.WorkerConversationTest do
         "revision" => "restored",
         "initial_to" => "/workers",
         "active_tab" => "workers",
-        "tabs" => [%{"id" => "workers", "label" => "Workers", "to" => "/workers"}]
+        "tabs" => [
+          %{
+            "id" => "workers",
+            "label" => "Workers",
+            "to" => "/workers",
+            "section" => "browse",
+            "key" => "g w"
+          }
+        ]
       })
 
     Fixture.receive(model, page)

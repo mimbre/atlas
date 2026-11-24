@@ -10,8 +10,8 @@ defmodule AtlasTui.PageFreshnessTest do
   alias AtlasTui.{ConsoleProjectionFixture, Model, PageCache, Palette, View}
 
   @tabs [
-    %{"id" => "assigned", "label" => "Assigned to you", "to" => "/"},
-    %{"id" => "open", "label" => "Open work", "to" => "/k/part"}
+    %{"id" => "assigned", "label" => "Assigned to you", "to" => "/", "section" => "work"},
+    %{"id" => "open", "label" => "Open for you", "to" => "/_open", "section" => "work"}
   ]
 
   # A list page; a row is `key`, `{key, pending}` or `{key, pending, detail}`.
@@ -48,7 +48,7 @@ defmodule AtlasTui.PageFreshnessTest do
   end
 
   defp assigned(rows, opts), do: list("/", rows, opts)
-  defp open_work(rows, opts), do: list("/k/part", rows, opts)
+  defp open_for_you(rows, opts), do: list("/_open", rows, opts)
 
   defp item(key, opts) do
     %{
@@ -155,7 +155,7 @@ defmodule AtlasTui.PageFreshnessTest do
   test "a tab switch shows the tab's kept page at once, with the selection it was left with" do
     m = start(assigned(~w(W-1 W-2), position: 1))
     {m, []} = press(m, :down)
-    m = go(m, :tab, open_work(~w(W-7), position: 1))
+    m = go(m, :tab, open_for_you(~w(W-7), position: 1))
 
     assert {m, [{:send, %{"op" => "open", "to" => "/"}}]} = press(m, :tab)
     assert m.path == "/"
