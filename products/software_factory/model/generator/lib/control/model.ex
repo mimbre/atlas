@@ -18,7 +18,8 @@ defmodule RelaDSL.Control.Model do
       of a supervisor's running work, nil without `supervised_work`), both nil without
       supervision, the start page's `actions`, and `flows`: each subflow's short name (its
       `label:`) by subflow name, which a person's list row shows for the flow its work is
-      in. Both carry the supervision `relation` and the kind a pickup or hand-over is sent
+      in, and `states`: each subflow's states' short names (`label:`) by state name, which
+      Assigned to you shows as what is to be done. Both carry the supervision `relation` and the kind a pickup or hand-over is sent
       as (`inputs`, the run mapping's inputs);
     * `kinds/0`: every kind, sorted by name, with its names, its id, its fields in the
       order pages show them, the relations that start at it, and what its pages show
@@ -41,7 +42,7 @@ defmodule RelaDSL.Control.Model do
   """
 
   @doc false
-  def body(schema, extension, flow_runtime, subflows, flow_labels) do
+  def body(schema, extension, flow_runtime, subflows, labels) do
     d = merge(schema, extension)
     presenters = RelaDSL.Presentation.presenters(d, flow_runtime)
     kinds = kinds(d, presenters)
@@ -54,7 +55,7 @@ defmodule RelaDSL.Control.Model do
 
       @doc "What a client opens on: what is assigned to it, open work and the start actions."
       def start_page,
-        do: unquote(Macro.escape(start_page(d, flow_runtime, presenters, subflows, flow_labels)))
+        do: unquote(Macro.escape(start_page(d, flow_runtime, presenters, subflows, labels)))
 
       @doc "Every kind, as pages show it, sorted by name."
       def kinds, do: unquote(Macro.escape(kinds))
@@ -408,7 +409,7 @@ defmodule RelaDSL.Control.Model do
 
   # -- The start page ---------------------------------------------------------------------
 
-  defp start_page(d, flow_runtime, presenters, subflows, flow_labels) do
+  defp start_page(d, flow_runtime, presenters, subflows, labels) do
     supervision = get_in(flow_runtime || %{}, ["flow_runtime", "supervision"])
 
     assigned =
@@ -515,7 +516,8 @@ defmodule RelaDSL.Control.Model do
             Enum.sort(d["entities"] || %{}),
           do: %{kind: kind, key: key, label: label}
         ),
-      flows: flow_labels
+      flows: labels.flows,
+      states: labels.states
     }
   end
 

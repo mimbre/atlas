@@ -2501,6 +2501,11 @@
           "name": "submit_to",
           "required": false,
           "type": "call"
+        },
+        {
+          "name": "page",
+          "required": false,
+          "type": "boolean"
         }
       ],
       "name": "action"
@@ -5652,7 +5657,7 @@
       }
     }
   ],
-  "version": "0.23.0",
+  "version": "0.24.0",
   "wire": {
     "block": "{\"id\": \"<id>\", \"type\": \"<block>\", \"props\": {...}}",
     "markup": "{\"kind\": \"<kind>\", \"start\": \"<block id>\", \"end\": \"<block id>\", \"group\": \"<id, on a piece of split markup>\", \"props\": {...}}",

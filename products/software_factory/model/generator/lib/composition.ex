@@ -349,14 +349,30 @@ defmodule RelaDSL.Composition do
     presentations = presentations!(flows, gates, environments, file)
     runtime = RelaDSL.Runtime.Model.body(schema, extension, plain_runtime)
     facts = RelaDSL.Facts.Model.body(schema, extension, plain_runtime, presentations)
-    # Each subflow's short name, which a person's list row shows for the flow its work is in.
+    definitions = RelaDSL.Flow.Subflow.definitions(flows, gates, hd(environments))
+
+    # Each subflow's short name, which a person's list row shows for the flow its work is
+    # in; and each of its states' (`Merge it`), which Assigned to you shows as the to-do.
     flow_labels =
-      for {name, definition} <- RelaDSL.Flow.Subflow.definitions(flows, gates, hd(environments)),
+      for {name, definition} <- definitions,
           is_binary(definition["label"]),
           into: %{},
           do: {name, definition["label"]}
 
-    control = RelaDSL.Control.Model.body(schema, extension, plain_runtime, flows, flow_labels)
+    state_labels =
+      Map.new(definitions, fn {name, definition} ->
+        labels =
+          for {state, %{"label" => label}} <- definition["states"] || %{},
+              is_binary(label),
+              into: %{},
+              do: {state, label}
+
+        {name, labels}
+      end)
+
+    labels = %{flows: flow_labels, states: state_labels}
+
+    control = RelaDSL.Control.Model.body(schema, extension, plain_runtime, flows, labels)
 
     quote do
       unquote(compiled)

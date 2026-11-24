@@ -663,7 +663,8 @@ defmodule AtlasControl.Session do
   # leaves out groups without items, so boot does too. Boot only says those already read
   # (`tab_counts`), so it never waits for Facts (a client gives up on a slow boot); the
   # others are read just after it and come with the next boot. Kept until a hint makes
-  # them stale; all groups, uncounted, while unread. `{shell, missing}`.
+  # them stale. A group whose count is not known yet, or 0, is not sent: a client shows
+  # exactly what boot sends, so an empty group never flashes. `{shell, missing}`.
   defp counted(shell, known) do
     {tabs, missing} =
       Enum.map_reduce(shell["tabs"], [], fn
@@ -671,13 +672,20 @@ defmodule AtlasControl.Session do
           case known do
             %{^to => %{counts: counts}} ->
               groups =
-                for group <- groups, n = counts[group["to"]], do: Map.put(group, "count", n)
+                for group <- groups,
+                    n = counts[group["to"]],
+                    n > 0,
+                    do: Map.put(group, "count", n)
 
               tab = if n = counts[to], do: Map.put(tab, "count", n), else: tab
-              {%{tab | "groups" => groups}, missing}
+
+              tab =
+                if groups == [], do: Map.delete(tab, "groups"), else: %{tab | "groups" => groups}
+
+              {tab, missing}
 
             _ ->
-              {tab, [to | missing]}
+              {Map.delete(tab, "groups"), [to | missing]}
           end
 
         tab, missing ->

@@ -11,8 +11,7 @@ defmodule AtlasControl.Shell do
   (the default: what needs someone) or "browse" (reference); a browse tab may name its
   own key sequence (`key`, as "g s").
 
-  A client that is a fact of a kind the start's assigned relation points at (a person) is
-  greeted (`greeting`), when the model words a greeting: its words with `{name}` the
+  A client that is a fact of a kind the start's assigned relation points at is greeted (`greeting`), when the model words a greeting: its words with `{name}` the
   viewer's name, as Session read it once at boot. An agent or a migration has none.
   """
 

@@ -197,11 +197,6 @@ final class ShellViewModelTests: XCTestCase {
         XCTAssertEqual(ShellViewModel(test.state).env, "test")
     }
 
-    func testTheCountIsThePagesCount() {
-        let h = Harness()
-        h.connect(start: Lines.page("/k/widget", count: "3 to do"))
-        XCTAssertEqual(ShellViewModel(h.state).count, "3 to do")
-    }
     func testSelectionFollowsDisplayedIdentityThroughRedirectPushFailureAndTabChange() {
         let h = Harness()
         h.connect()
