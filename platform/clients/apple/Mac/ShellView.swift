@@ -6,9 +6,11 @@ import SwiftUI
 
 /// The three columns: the tabs boot sent (sidebar), the active tab's index page (middle)
 /// and the page opened from a row (right); the title bar with the title and the
-/// environment; the status bar below.
+/// environment; the status bar below. An action's page (its confirm, form or more
+/// actions) is a sheet over them; the keys of the shown page's actions take them.
 struct ShellView: View {
     let session: Session
+    @State private var keys = ActionKeys()
 
     private func submit(_ call: CallModel, _ values: [String: String]) {
         session.submit(call, values: values)
@@ -19,9 +21,19 @@ struct ShellView: View {
         NavigationSplitView {
             Sidebar(shell: shell, select: session.selectTab, filter: session.filter)
         } content: {
-            Column(page: shell.index, selectedPath: shell.selectedPath, open: session.open, submit: submit)
+            Column(page: shell.index, selectedPath: shell.selectedPath, open: session.open, submit: submit,
+                   act: session.act)
         } detail: {
-            Column(page: shell.opened, selectedPath: shell.selectedPath, open: session.open, submit: submit)
+            Column(page: shell.opened, selectedPath: shell.selectedPath, open: session.open, submit: submit,
+                   act: session.act)
+        }
+        .onAppear { keys.start(session) }
+        .onDisappear { keys.stop() }
+        .sheet(isPresented: Binding(get: { shell.sheet != nil }, set: { if !$0 { session.leave() } })) {
+            if let page = shell.sheet {
+                ActionPageView(page: page, draft: shell.draft, submitting: shell.submitting,
+                               act: session.act, submit: submit, edit: session.edit, leave: session.leave)
+            }
         }
         .navigationTitle(shell.title ?? "")
         .toolbar {
@@ -166,10 +178,11 @@ struct Column: View {
     let selectedPath: String?
     let open: (String) -> Void
     let submit: (CallModel, [String: String]) -> Void
+    let act: (ActionModel) -> Void
 
     var body: some View {
         if let page {
-            PageView(page: page, selectedPath: selectedPath, open: open, submit: submit)
+            PageView(page: page, selectedPath: selectedPath, open: open, submit: submit, act: act)
         } else {
             Color.clear
         }
