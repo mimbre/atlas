@@ -107,7 +107,8 @@ defmodule Model.Issue do
     )
 
     field(:pr_checks_failure, :string,
-      description: "GitHub: its pull request's failing checks, with the failing lines of their logs",
+      description:
+        "GitHub: its pull request's failing checks, with the failing lines of their logs",
       set_by: :connector,
       multiline: true,
       label: "CI failure"
@@ -125,7 +126,7 @@ defmodule Model.Issue do
 
   # After an author or rework pass: is the evidence good enough to review? Named by no
   # state while the passes wait (slice 9); Gates has no evaluator for a smart gate yet.
-  defgate :delivery_evidence,
+  defgate(:delivery_evidence,
     version: 1,
     flavor: :smart,
     purpose: :flow,
@@ -134,10 +135,11 @@ defmodule Model.Issue do
     verdicts: [:review, :rework, :person],
     decide: [pass: :review, changes_required: :rework, uncertain: :person, error: :person],
     policy: [max_rounds: 3, execution_failed: :person]
+  )
 
   # After the review pass: is the work ready to publish as a pull request? Named by no
   # state while the review pass waits (slice 9).
-  defgate :review,
+  defgate(:review,
     version: 1,
     flavor: :smart,
     purpose: :flow,
@@ -146,6 +148,7 @@ defmodule Model.Issue do
     verdicts: [:ready, :rework, :person],
     decide: [pass: :ready, changes_required: :rework, uncertain: :person, error: :person],
     policy: [max_rounds: 3, binds: :fingerprint]
+  )
 
   # How the runs of issue are selected, imported from the issue as it was before the
   # subflow ran, and presented: on its Assignment. The first row that holds gives the

@@ -42,9 +42,11 @@ defmodule AtlasFacts.RelaEventsTest do
     assert %{"fact" => %{"values" => %{"title" => "Synced"}}} =
              send_and_wait("read", "widget", %{"key" => "W-1"})
 
-    # Read again with nothing changed: no hint.
+    # Read again with nothing changed: no hint. The read after it is answered only
+    # once the server has handled the change event.
     send(c.server, {:rela_changed, :all})
-    refute_receive {:atlas_bus, %Envelope{class: "stored"}, _}, 200
+    send_and_wait("read", "widget", %{"key" => "W-1"})
+    refute_received {:atlas_bus, %Envelope{class: "stored"}, _}
   end
 
   test "rela's events become the kinds that changed; a first frame that cannot resume, all" do
