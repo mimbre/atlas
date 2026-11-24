@@ -215,7 +215,7 @@ defmodule AtlasTui.PresentationTest do
 
     rows = View.render(%{m | blocks: [groups | m.blocks], ids: ["groups" | m.ids]}, 60, 40, 5)
     assert View.plain(rows) =~ " All 3 · Build 2 · Design 1"
-    assert Enum.any?(rows, &Enum.member?(&1, {:selected, " Build 2 "}))
+    assert Enum.any?(rows, &Enum.member?(&1, {:active, " Build 2 "}))
     assert View.plain(rows) =~ "W-01"
   end
 
