@@ -8,3 +8,5 @@ products/software_factory/model/targets/rela/.rela/search/
 platform/atlas_*/_build/
 platform/atlas_*/deps/
 platform/atlas_*/tmp/
+# What SwiftPM builds next to any Swift package
+.build/
