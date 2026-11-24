@@ -38,6 +38,12 @@ defmodule Model.Issue do
 
     field(:stage, :issue_stage, description: "Flux: stage")
 
+    field(:order, :integer,
+      description:
+        "Where it is built among the issues of its use case, lowest first; one without comes last. Plan numbers the issues it proposes; change it to reorder",
+      label: "Order"
+    )
+
     field(:flux_ref, :string,
       unique: true,
       description: "Flux's own issue code (ref), e.g. NEXT-240, set by a later Flux sync",
@@ -128,6 +134,8 @@ defmodule Model.Issue do
   # entry. An issue whose pull request already reported its merge is completed history
   # (no entry writes, nothing rerun). Any other issue matches no row and starts in
   # `working`, as a new one does, writing nothing: what it showed and its owner stay.
+  # The issues of one use case are built in order (`order`, IS-Atlas-114): only the first
+  # whose run did not end `done` can be picked up; the others wait for it.
   select(:issue,
     choices: [],
     projection: [
@@ -140,7 +148,8 @@ defmodule Model.Issue do
     admission: [],
     imports: [
       [when: [pr_outcome: [:integrated]], state: :done]
-    ]
+    ],
+    order: [within: :in_use_case, by: :order, done: [:done]]
   )
 
   # The approved migration of its runs, from the digest the base branch recorded

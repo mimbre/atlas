@@ -1462,17 +1462,55 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # How a supervision input to `run` is checked (`AtlasFlow.Runs.Inputs.supervision/4`):
-  # with its subflow's spans, and a holder read from Facts, as a fact of a supervisor's
-  # kind. nil when the model declares no supervision.
+  # How a supervision input to `run` is checked (`AtlasFlow.Runs.Inputs.supervision/5`):
+  # with its subflow's spans, a holder read from Facts, as a fact of a supervisor's kind,
+  # and, when its subflow takes its subjects in order, the one its subject waits for. nil
+  # when the model declares no supervision.
   defp supervision_check(config, run) do
     case config["supervision"] do
       %{} = s ->
         of_run = %{"inputs" => s["inputs"], "spans" => (s["spans"] || %{})[run["flow"]] || []}
-        &AtlasFlow.Runs.Inputs.supervision(&1, run, of_run, fn key -> holder?(s, key) end)
+        order = config["selection"][run["flow"]]["order"]
+
+        &AtlasFlow.Runs.Inputs.supervision(&1, run, of_run, fn key -> holder?(s, key) end, fn ->
+          waiting_for(config, run, order)
+        end)
 
       _ ->
         nil
+    end
+  end
+
+  # The fact the run's subject waits for (`AtlasBus.Order`): the first of those under its
+  # parent that the subflow did not finish, when that is another; nil when it waits for
+  # none, `:unavailable` while Facts does not answer.
+  defp waiting_for(_config, _run, nil), do: nil
+
+  defp waiting_for(config, run, order) do
+    kind = run["subject_kind"]
+    relation = order["within"]
+
+    with %{"fact" => %{} = fact} <-
+           Talk.transition_read(kind, %{"key" => run["subject_key"], "plain" => true}),
+         [parent | _] <- List.wrap(get_in(fact, ["links", relation])),
+         %{"facts" => facts} <-
+           Talk.transition_read(kind, %{"linked" => %{relation => parent}, "plain" => true}),
+         {:ok, runs} <- child_runs(config, run["flow"], kind, facts) do
+      AtlasBus.Order.waiting_for(
+        run["subject_key"],
+        for(
+          f <- facts,
+          do: %{
+            "key" => f["key"],
+            "order" => get_in(f, ["values", order["by"]]),
+            "finished" => AtlasBus.Order.finished?(order, run["flow"], runs[f["key"]])
+          }
+        )
+      )
+    else
+      %{"fact" => nil} -> nil
+      [] -> nil
+      _ -> :unavailable
     end
   end
 

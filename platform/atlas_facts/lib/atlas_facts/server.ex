@@ -995,16 +995,72 @@ defmodule AtlasFacts.Server do
   defp presentation(state, presenters, fact) do
     Enum.reduce_while(presenters, {:ok, nil}, fn presenter, {:ok, nil} ->
       with {:ok, %{} = subject} <- presented_subject(state, presenter, fact),
-           {:ok, runs} <- subject_runs(state, presenter, subject["key"]) do
-        completed? = fn -> subject_completed?(state, presenter["subject"], subject) end
-        view = AtlasFacts.Presentation.view(presenter, fact, subject, runs, completed?)
-        {:halt, {:ok, view}}
+           {:ok, runs} <- subject_runs(state, presenter, subject["key"]),
+           completed? = fn -> subject_completed?(state, presenter["subject"], subject) end,
+           view = AtlasFacts.Presentation.view(presenter, fact, subject, runs, completed?),
+           {:ok, waiting} <- waiting_for(state, presenter, subject, view) do
+        {:halt, {:ok, Map.put(view, "waiting_for", waiting)}}
       else
         {:ok, nil} -> {:cont, {:ok, nil}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
+
+  # What the subject of an active run waits for when its subflow takes its subjects in
+  # order (`AtlasBus.Order`): the key of the first of those under its parent that the
+  # subflow did not finish, when that is another; nil otherwise.
+  defp waiting_for(state, presenter, subject, %{"status" => "active", "flow" => flow}) do
+    order = Enum.find_value(presenter["flows"] || [], &(&1["name"] == flow && &1["order"]))
+    relation = order && order["within"]
+
+    case relation && links_of(subject["raw"], relation) do
+      [parent | _] ->
+        Deps.linked(relation, parent)
+        mapping = state.model.run_mapping()
+        f = mapping["fields"]
+
+        with {:ok, facts} <- collection(state, plural(state, presenter["subject"])),
+             {:ok, runs} <- collection(state, plural(state, mapping["kind"])) do
+          siblings = for s <- facts, parent in links_of(s, relation), do: s
+          keys = MapSet.new(siblings, & &1.key)
+
+          latest =
+            for run <- runs,
+                p = run.properties,
+                p[f["flow"]] == flow,
+                p[f["subject_kind"]] == presenter["subject"],
+                p[f["subject_key"]] in keys,
+                reduce: %{} do
+              acc ->
+                Map.update(acc, p[f["subject_key"]], p, fn held ->
+                  if (p[f["generation"]] || 0) > (held[f["generation"]] || 0), do: p, else: held
+                end)
+            end
+
+          {:ok,
+           AtlasBus.Order.waiting_for(
+             subject["key"],
+             for s <- siblings do
+               Deps.key(presenter["subject"], s.key)
+               p = latest[s.key]
+               run = p && %{"flow" => flow, "status" => p[f["status"]], "state" => p[f["state"]]}
+
+               %{
+                 "key" => s.key,
+                 "order" => s.properties[order["by"]],
+                 "finished" => AtlasBus.Order.finished?(order, flow, run)
+               }
+             end
+           )}
+        end
+
+      _ ->
+        {:ok, nil}
+    end
+  end
+
+  defp waiting_for(_state, _presenter, _subject, _view), do: {:ok, nil}
 
   # The fact the work is on: the fact itself, or the subject whose `on` points at it.
   defp presented_subject(state, presenter, fact) do
