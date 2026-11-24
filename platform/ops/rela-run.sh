@@ -20,9 +20,11 @@ port="${ATLAS_RELA_PORT:-7690}"
 inner=$((port + 1))
 
 # rela's own GitHub sync (scripts/github.lua, run by rela's scheduler) reads GitHub's API
-# and, when the app has the Fly secret GITHUB_TOKEN (read-only), that token as rela
-# secrets: written to the project's .rela/secrets.yaml (only the owner may read it), never
-# printed, and kept from rela's environment. Without a token it reads GitHub anonymously.
+# and, when the app has the Fly secret GITHUB_TOKEN, that token as rela secrets: written
+# to the project's .rela/secrets.yaml (only the owner may read it), never printed, and
+# kept from rela's environment. Closing a pull request closed or removed in Atlas needs
+# the token's Pull requests write permission; without it the close fails visibly (the
+# log, the issue's pr_close_failure). Without a token it reads GitHub anonymously.
 mkdir -p /data/rela/.rela
 (
   umask 077

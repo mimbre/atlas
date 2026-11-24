@@ -30,6 +30,17 @@ defmodule AtlasCode.Service do
     ]
 
   @blob_bytes AtlasCode.blob_bytes()
+  # The identity and date of an update's merge commit (`update/4`): fixed, so the same pull
+  # head and base always give the same commit. Code's publication onto the pull folds it
+  # into the agent's result (`AtlasCode.Effects`), by its message's "Atlas: merge " start.
+  @update_identity [
+    {"GIT_AUTHOR_NAME", "Atlas Code"},
+    {"GIT_AUTHOR_EMAIL", "code@atlas"},
+    {"GIT_AUTHOR_DATE", "1970-01-01T00:00:00Z"},
+    {"GIT_COMMITTER_NAME", "Atlas Code"},
+    {"GIT_COMMITTER_EMAIL", "code@atlas"},
+    {"GIT_COMMITTER_DATE", "1970-01-01T00:00:00Z"}
+  ]
   @git_config [
     "-c",
     "credential.helper=",
@@ -71,9 +82,12 @@ defmodule AtlasCode.Service do
        %{"service" => "atlas-code", "version" => to_string(Application.spec(:atlas_code, :vsn))}}
 
   @doc """
-  `POST /v1/references/resolve`: the revision handle of a branch's current commit, or of a
+  `POST /v1/references/resolve`: the revision handle of a branch's current commit, of a
   subject's result (`refs/atlas/results/<task>`, the commit a Runtime pushed to Code's copy of
-  the repository), which a review then gets as its base.
+  the repository), which a review then gets as its base, or of an update of an open pull
+  (`refs/atlas/updates/<number>/<base>`): `base` merged into the pull's head, a merge commit
+  Code makes in its copy (`update/4`), whose conflicting files hold Git's conflict markers
+  and whose message names them; an agent resolves them on it.
   """
   @spec resolve_reference(settings(), term()) :: response()
   def resolve_reference(settings, request) do
@@ -428,6 +442,24 @@ defmodule AtlasCode.Service do
     end
   end
 
+  defp resolve(settings, repository, "refs/atlas/updates/" <> rest = reference) do
+    with [_, number, base] <- Regex.run(~r{\A([1-9][0-9]*)/(.+)\z}, rest),
+         {:ok, commit} <- update(settings, repository, number, base) do
+      {200,
+       %{
+         "repository" => repository,
+         "reference" => reference,
+         "revision" => put_revision(settings.home, repository, commit)
+       }}
+    else
+      nil ->
+        error(400, "invalid_request", "an update is refs/atlas/updates/<number>/<base>")
+
+      {:failed, status} ->
+        error(503, "provider_unavailable", "git fetch failed with exit status #{status}")
+    end
+  end
+
   defp resolve(settings, repository, reference) do
     case ls_remote(
            read_config(settings, repository),
@@ -454,6 +486,58 @@ defmodule AtlasCode.Service do
 
       _ ->
         error(503, "provider_unavailable", "Git returned an ambiguous reference")
+    end
+  end
+
+  # The update of pull `number` with `base`: both fetched into Code's copy (the pull's head
+  # as `refs/atlas/pulls/<number>`), `base` merged into the head (`git merge-tree`, which
+  # leaves conflict markers in the files that conflict) and committed with both parents,
+  # Code's fixed identity and date, and the conflicting files named in its message: the
+  # same pull and base always give the same commit. Kept under its reference.
+  defp update(settings, repository, number, base) do
+    url = settings.repositories[repository]
+    dir = cache(settings.home, repository, url)
+    pull = "refs/atlas/pulls/" <> number
+    {_, 0} = System.cmd("git", ["init", "--bare", "--quiet", dir], stderr_to_stdout: true)
+
+    args =
+      read_config(settings, repository) ++
+        ["--git-dir", dir, "fetch", "--quiet", "--no-tags", url] ++
+        ["+refs/heads/#{base}:refs/heads/#{base}", "+refs/pull/#{number}/head:#{pull}"]
+
+    # Git output is never returned: it may echo the remote URL or credential prompts.
+    case System.cmd("git", args, env: [{"GIT_TERMINAL_PROMPT", "0"}], stderr_to_stdout: true) do
+      {_, 0} ->
+        git = fn args, env ->
+          System.cmd("git", ["--git-dir", dir | args], env: env, stderr_to_stdout: true)
+        end
+
+        {head, 0} = git.(["rev-parse", "--verify", pull <> "^{commit}"], [])
+        {onto, 0} = git.(["rev-parse", "--verify", "refs/heads/" <> base <> "^{commit}"], [])
+        [head, onto] = [String.trim(head), String.trim(onto)]
+
+        {out, status} =
+          git.(["merge-tree", "--write-tree", "--name-only", "--no-messages", head, onto], [])
+
+        true = status in [0, 1]
+        [tree | conflicts] = String.split(out, "\n", trim: true)
+
+        message =
+          "Atlas: merge #{base} into pull ##{number}" <>
+            if(conflicts == [],
+              do: "",
+              else: "\n\nConflicts:\n" <> Enum.map_join(Enum.uniq(conflicts), "\n", &("\t" <> &1))
+            )
+
+        {commit, 0} =
+          git.(["commit-tree", tree, "-p", head, "-p", onto, "-m", message], @update_identity)
+
+        commit = String.trim(commit)
+        {_, 0} = git.(["update-ref", "refs/atlas/updates/#{number}/#{base}", commit], [])
+        {:ok, commit}
+
+      {_, status} ->
+        {:failed, status}
     end
   end
 

@@ -217,7 +217,74 @@ defmodule Model.IssueRunsTest do
     assert FakeFacts.get("issue", @key)["values"]["pr_checks"] == "pending"
     assert FakeFacts.get("issue", @key)["values"]["pr_url"] == @url
 
+    # Green, but GitHub has not said yet whether it merges: not its supervisor's yet.
     sync(%{"pr_checks" => "success"})
+    assert settle(c)["state"] == "checking"
+
+    sync(%{"pr_checks" => "success", "pr_mergeable" => "clean"})
+    assert until(c, "merging")["state"] == "merging"
+
+    # Red at Merge it (a rerun, a push) takes it back to the CI gate.
+    sync(%{"pr_checks" => "failure", "pr_checks_failure" => @red})
+    assert until(c, "checking")["state"] == "checking"
+  end
+
+  test "conflicting with develop: an update resolves develop merged into it, pushed onto the same pull request; once only",
+       c do
+    published(c)
+
+    # The update's work, ended: its result pushed onto the pull request.
+    update = fn task ->
+      finish(answer: "Resolved the README.")
+
+      FakeCode.put(c.code, @repository, "refs/atlas/results/" <> task, "rev_#{task}", %{
+        "README.md" => "# Atlas!\n"
+      })
+
+      assert until(c, "checking")["state"] == "checking"
+      assert_received {:published, %{"name" => "update", "input" => input}}
+      assert input["pull"] == @url
+      assert input["result"] == "refs/atlas/results/" <> task
+    end
+
+    # Green but conflicting: never its supervisor's; an update first.
+    FakeCode.put(c.code, @repository, "refs/atlas/updates/9/develop", "rev_merge", %{
+      "README.md" => "<<<<<<< ours\n# Atlas\n=======\n# Atlas!\n>>>>>>> theirs\n"
+    })
+
+    sync(%{"pr_checks" => "success", "pr_mergeable" => "conflicting"})
+    assert intent(c)["state"] == "updating"
+    update.(@fix)
+
+    values = FakeFacts.get("issue", @key)["values"]
+    assert values["pr_mergeable"] == "unknown"
+    assert values["pr_updates"] == "one"
+
+    sync(%{"pr_checks" => "success", "pr_mergeable" => "clean"})
+    assert until(c, "merging")["state"] == "merging"
+    assert FakeFacts.get("issue", @key)["values"]["pr_updates"] == "none"
+
+    # develop moved on: conflicting at Merge it takes it away, for a new update.
+    sync(%{"pr_mergeable" => "conflicting"})
+    assert until(c, "checking")["state"] == "checking"
+    sync(%{"pr_mergeable" => "conflicting"})
+    assert intent(c)["state"] == "updating"
+    update.("TK-IS-Atlas-01-4")
+
+    # Still conflicting after its update: its supervisor decides.
+    sync(%{"pr_mergeable" => "conflicting"})
+    failing = until(c, "update_failing")
+    assert failing["pending"]["task"] == nil
+
+    assert c.runner.flows["issue"].owner("update_failing")["default"] == %{
+             "kind" => "person",
+             "config" => "decider"
+           }
+
+    # Updated by hand: mergeable and green goes to its supervisor to merge.
+    sync(%{"pr_mergeable" => "clean", "pr_checks" => "success"})
+    assert until(c, "checking")["state"] == "checking"
+    sync(%{"pr_mergeable" => "clean", "pr_checks" => "success"})
     assert until(c, "merging")["state"] == "merging"
   end
 
@@ -247,7 +314,7 @@ defmodule Model.IssueRunsTest do
     assert failing["pending"]["task"] == nil
 
     # Fixed by hand: green goes to its supervisor to merge.
-    sync(%{"pr_checks" => "success"})
+    sync(%{"pr_checks" => "success", "pr_mergeable" => "clean"})
     assert until(c, "merging")["state"] == "merging"
   end
 
