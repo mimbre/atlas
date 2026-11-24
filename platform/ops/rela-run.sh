@@ -18,9 +18,19 @@ fi
 
 port="${ATLAS_RELA_PORT:-7690}"
 inner=$((port + 1))
+
+# rela's own GitHub sync (scripts/github.lua, run by rela's scheduler) reads its token as a
+# rela secret: the app's Fly secret GITHUB_TOKEN, written to the project's
+# .rela/secrets.yaml (only the owner may read it), never printed, and kept from rela's
+# environment. Without it the sync does nothing.
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  mkdir -p /data/rela/.rela
+  (umask 077 && printf 'github_token: "%s"\n' "$GITHUB_TOKEN" > /data/rela/.rela/secrets.yaml)
+fi
+
 # start-test checks existing SQLite or legacy data before changing its description,
 # including boot after a move. It refuses when that data needs a migration first.
-env -u ATLAS_RELA_TOKEN ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=/app/bin ATLAS_RELA_PORT="$inner" \
+env -u ATLAS_RELA_TOKEN -u GITHUB_TOKEN ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=/app/bin ATLAS_RELA_PORT="$inner" \
   /app/platform/atlas_facts/rela/scripts/start-test.sh &
 rela=$!
 python3 /app/platform/ops/rela-gate.py "$port" "$inner" &
