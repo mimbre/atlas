@@ -146,9 +146,11 @@ defmodule Model.RunPresentationTest do
     building =
       present(
         "scene",
-        assignment("SC-Atlas-01", %{"flow_state" => "building", "expected" => "Build it"}, [
-          "coordinator"
-        ]),
+        assignment(
+          "SC-Atlas-01",
+          %{"flow_state" => "building", "expected" => "Waiting for its use cases"},
+          ["melle"]
+        ),
         scene,
         [run("accept_scene", "active", "building")]
       )

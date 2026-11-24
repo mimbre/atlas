@@ -5,8 +5,8 @@ defmodule Model.Scene do
   pickup point is a subflow of its own; the pipeline is horseshoe-shaped: it starts with
   the scene, its producer's input, and ends with its producer's acceptance.
 
-    * `break_down_scene` **Design** (Scene → Use cases): a person picks it up (its span) and hands it to a machinery:
-      one agent on the supervisor's Runtime reads the scene and a checkout of the
+    * `break_down_scene` **Design** (Scene → Use cases): a person picks it up (its span), and that pickup
+      alone starts its work: one agent on the supervisor's Runtime reads the scene and a checkout of the
       repository and writes the use cases it proposes to a file in its result
       (`creates:`), each with its Design part, designed within the existing architecture
       (the decisions it reads first) and a note where it would need a new architecture
@@ -18,8 +18,10 @@ defmodule Model.Scene do
       producer's note and proposes only what is missing: nothing under the scene is redone.
     * `accept_scene` **Accept** (Accept the scene): waits until every use case under it is accepted
       (`children`, `open_children`: the composition's count of the use cases in the scene,
-      and of those without an accepted `accept_use_case` run), then goes to its producer
-      (the configured decider until a scene records who produced it). Accept ends the
+      and of those without an accepted `accept_use_case` run), then asks its producer (the
+      configured decider until a scene records who produced it). While it waits
+      (`building`) it is its producer's, with no to-do: nothing is built on the scene and
+      nobody has anything to do on it. Accept ends the
       pipeline; Not accepted keeps the producer's note (`note`) and starts a new round of
       `break_down_scene` (`phase: break_down`), which this run waits for
       (`breaking_down`). So does a scene with nothing under it.
@@ -133,7 +135,7 @@ defmodule Model.Scene do
         expected: "Break it down into use cases",
         why: "it is to be broken down",
         instructions:
-          "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery.",
+          "Its supervisor's Runtime runs one agent on it that proposes its use cases; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then.",
         section: [field: :note, heading: "Its producer's note"]
       )
 
@@ -187,12 +189,14 @@ defmodule Model.Scene do
     start(:predicate, when: "entity.phase == 'accept'")
     initial(:building)
 
-    state :building, label: "Build it" do
+    # Nothing is built on the scene itself, and nobody has anything to do on it: it is its
+    # producer's, as Accept is next, and it gives no to-do (no instructions, no answers).
+    state :building, label: "Waiting for its use cases" do
+      owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
+
       present(
-        expected: "Build it",
-        why: "not all under it is accepted",
-        instructions:
-          "Its use cases are designed, broken down and built; Flow hands it to its producer once all of them are accepted."
+        expected: "Waiting for its use cases",
+        why: "not all of its use cases are accepted"
       )
 
       branch(to: :breaking_down, by: :atlas, when: "entity.children == 0")
@@ -330,6 +334,15 @@ defmodule Model.Scene do
     reason: "Design: its use cases carry no design status"
   )
 
+  # Accept: while its use cases are not all accepted, the scene waits with its producer,
+  # with no to-do; it said Build it, assigned to the coordinator. Every run stays where it is.
+  migrate(:accept_scene,
+    from: "0b7d903c06f4bfcc82b632475f3274cb32542868402a7e8959ea5407affe0d10",
+    to: "6665318f148389f993ac80245461a63666bfa50507b6071a2ab3db4e6563b77e",
+    states: :same,
+    reason: "Accept: a scene waiting for its use cases is its producer's, with nothing to do"
+  )
+
   # Design: its agent asks rela what it offers before it proposes anything that stores,
   # syncs, schedules or queries data (D-0100); nothing else changed.
   migrate(:break_down_scene,
@@ -338,5 +351,15 @@ defmodule Model.Scene do
     states: :same,
     preserve_entry: true,
     reason: "Design: its agent asks rela first (D-0100)"
+  )
+
+  # Design: its presentation says its supervisor's pickup starts the work (IS-Atlas-25), no
+  # longer that it waits for a machinery; texts only, so a run keeps its state and entry.
+  migrate(:break_down_scene,
+    from: "f52ee753f148fefc1ae12ce899968a99b9e2cf7671950223340de423aa356ae6",
+    to: "1fa161740e21d0c8055aafd3a24ef417993671d1057e14762aa4064aad1249c0",
+    preserve_entry: true,
+    states: :same,
+    reason: "Design: its supervisor's pickup starts the work; texts only"
   )
 end

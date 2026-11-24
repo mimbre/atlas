@@ -93,7 +93,9 @@ defmodule RelaDSL.Facts.Derived do
 
   @doc """
   The keys of the facts under the fact `key` of `kind`, through a parent relation, that
-  are not completed: `{:ok, keys}`, or the error `lookup["list"]` gave.
+  are not completed: `{:ok, keys}`, or the error `lookup["list"]` gave. A fact of a kind
+  without a completion rule (a task, the record of a flow's work) is never completed, so
+  it is never open either.
   """
   def open_children(d, kind, key, lookup) do
     children =
@@ -101,6 +103,7 @@ defmodule RelaDSL.Facts.Derived do
           spec["parent"] == true and spec["max_outgoing"] == 1,
           kind in to,
           child <- from,
+          rules(d, child) != [],
           do: {relation, child}
 
     Enum.reduce_while(children, {:ok, []}, fn {relation, child}, {:ok, open} ->

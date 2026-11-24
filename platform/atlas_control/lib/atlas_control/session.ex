@@ -209,12 +209,13 @@ defmodule AtlasControl.Session do
       "refused" ->
         reasons = refusal_reasons(content, "Facts refused it")
 
-        if Pages.form?(state.route) do
+        if form_shown?(state, state.route) do
           form = Map.put(state.form, :errors, reasons)
           state = notice(state, "error", "Facts refused it; the form says why.")
           {:noreply, show(%{state | form: form}, state.route, "refused", nil)}
         else
-          # No form to say why: the page says it (`refused`), for a client without a screen.
+          # No form to say why (a confirm page, such as an answer without a note): the
+          # notice and the page (`refused`) say it.
           state = notice(state, "error", "Facts refused: " <> Enum.join(reasons, "; "))
           {:noreply, show(state, state.route, "refused", nil, reasons)}
         end
@@ -1244,13 +1245,23 @@ defmodule AtlasControl.Session do
   # Why nothing was sent: in the form's errors, or, on a page without a form (a confirm),
   # as the page's `refused`, so a client without a screen gets the reasons too.
   defp not_sent(state, route, reasons) do
-    if Pages.form?(route) do
+    if form_shown?(state, route) do
       state = notice(state, "error", "Not sent: the form says why.")
       show(put_in(state.form[:errors], reasons), route, "refused", nil)
     else
       state = notice(state, "error", "Not sent: " <> Enum.join(reasons, "; "))
       show(state, route, "refused", nil, reasons)
     end
+  end
+
+  # Whether the page of `route` has a form to say why, as it was last sent: an answer
+  # without a note is a confirm page, though its route is a form's (`Pages.form?/1`).
+  defp form_shown?(state, route) do
+    Pages.form?(route) and
+      case Recent.get(state.recent, current_path(route)) do
+        %{view: %{"blocks" => blocks}} -> Enum.any?(blocks, &(&1["type"] == "form"))
+        _ -> true
+      end
   end
 
   defp new_fact(state, kind, key, raw, links) do

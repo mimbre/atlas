@@ -198,7 +198,8 @@ defmodule AtlasFacts.Workshops.Accepted do
   @moduledoc """
   Parts go under a widget (a parent relation) and a maker accepts the widget: at most one
   rough part per widget, a widget is accepted only once every part under it is made, an
-  accepted widget takes no new part, and only a connector or a migration stamps one.
+  accepted widget takes no new part, and only a connector or a migration stamps one. A log
+  under a widget (a record, with no completion rule) never keeps it open.
   """
   use AtlasFacts.TestModel,
     description:
@@ -212,9 +213,19 @@ defmodule AtlasFacts.Workshops.Accepted do
             "label" => "Part",
             "properties" => %{"phase" => %{"type" => "phase"}},
             "completion" => %{"by" => "made_by"}
+          },
+          "log" => %{
+            "plural" => "logs",
+            "properties" => %{"title" => %{"type" => "string"}}
           }
         },
         "relations" => %{
+          "log_of" => %{
+            "from" => ["log"],
+            "to" => ["widget"],
+            "max_outgoing" => 1,
+            "parent" => true
+          },
           "of_widget" => %{
             "parent" => true,
             "limit" => %{

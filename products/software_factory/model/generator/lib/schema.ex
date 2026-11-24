@@ -60,8 +60,8 @@ defmodule RelaDSL.Schema do
   to, which a Runtime of the flow's supervisor takes from Flow's work source
   (`AtlasFlow.Activities.Task`). Its result is the run's
   own: Flow never writes it on the subject, so the field is not reset on entry, and only
-  its branches (of the role `atlas-flow`) read it. Nothing is done while the subject is
-  not assigned to a machinery.
+  its branches (of the role `atlas-flow`) read it. Once the flow is picked up, its supervisor's pickup alone starts it; without a supervisor,
+  nothing is done while the subject is not assigned to a machinery.
 
       task :author,
         role: :developer,

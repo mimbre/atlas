@@ -24,10 +24,10 @@ defmodule Model.Package do
       reviewed result, with `bin/check`), `diagnosing` (an investigator, read-only),
       `fresh` (a new author on the original base) and `stronger` (one on
       `deep_coding_max`). Its end leads where the ladder's next step says. Its record is
-      a `task` linked `task_of` the package. It runs only while the package's Assignment
-      is with a machinery (E1); otherwise nothing is done for it. It is offered to a
-      Runtime of its issue's human supervisor (the issue's span `build`, whose `with:`
-      names this subflow), through Flow's work source.
+      a `task` linked `task_of` the package. Its supervisor's pickup (of its issue) starts
+      it; without a supervisor, it runs only while the package's Assignment is with a
+      machinery (E1). It is offered to a Runtime of its issue's human supervisor (the
+      issue's span `build`, whose `with:` names this subflow), through Flow's work source.
     * Every task state presents, so the move into each is what is presented; its owner is
       the subflow's, which keeps a person or a machinery someone linked
       (`preserve_kind`), so the machinery stays while the loop runs.
@@ -38,7 +38,8 @@ defmodule Model.Package do
       configured decider (so the issue's supervisor while the issue is in its span),
       without `preserve_kind`: entering it moves the package from the machinery to the
       supervisor. They set `answer` (one of the question's answers: `fresh`, `stronger`,
-      `abandon`, `retry` or a worded option) and hand the package back to its machinery.
+      `abandon`, `retry` or a worded option); the answer alone moves it on, on its supervisor's
+      Runtime: no hand-back to a machinery.
       `fresh`, and a worded option (a label on the `fresh` branch), go to `fresh`;
       `stronger` to `stronger`; `abandon` to `stuck`; `retry` (held after an abandoned
       task) to the state of the step the held task runs again as, which Flow writes in
@@ -212,7 +213,7 @@ defmodule Model.Package do
         expected: "Author it on the machinery",
         why: "it is ready to be built",
         instructions:
-          "Its machinery builds it on a fresh base of develop and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+          "Its supervisor's Runtime builds it on a fresh base of develop and runs bin/check after the work. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:author,
@@ -235,7 +236,7 @@ defmodule Model.Package do
         expected: "Review it on the machinery",
         why: "its author's work is done",
         instructions:
-          "Its machinery reviews the change set, read-only, on the author's base. Nothing is done while it is not assigned to a machinery."
+          "Its supervisor's Runtime reviews the change set, read-only, on the author's base. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:review,
@@ -257,7 +258,7 @@ defmodule Model.Package do
         expected: "Fix it on the machinery",
         why: "its review or check found a problem",
         instructions:
-          "Its machinery fixes the reviewed change set on the author's base and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+          "Its supervisor's Runtime fixes the reviewed change set on the author's base and runs bin/check after the work. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:fix,
@@ -280,7 +281,7 @@ defmodule Model.Package do
         expected: "Diagnose it on the machinery",
         why: "its fixes did not get it through",
         instructions:
-          "Its machinery finds out why, read-only, from the latest change set. Nothing is done while it is not assigned to a machinery."
+          "Its supervisor's Runtime finds out why, read-only, from the latest change set. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:diagnose,
@@ -302,7 +303,7 @@ defmodule Model.Package do
         expected: "Author it afresh on the machinery",
         why: "the work so far did not get it through",
         instructions:
-          "Its machinery builds it again on the original base and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+          "Its supervisor's Runtime builds it again on the original base and runs bin/check after the work. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:author,
@@ -325,7 +326,7 @@ defmodule Model.Package do
         expected: "Author it on the machinery with the stronger profile",
         why: "the work so far did not get it through",
         instructions:
-          "Its machinery builds it again on the original base with the stronger profile and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+          "Its supervisor's Runtime builds it again on the original base with the stronger profile and runs bin/check after the work. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:author,
@@ -355,10 +356,10 @@ defmodule Model.Package do
       set(answer: :none)
 
       present(
-        expected: "Answer, and hand it back to its machinery",
+        expected: "Answer its question",
         why: "its work was held",
         instructions:
-          "Set its answer to one the question offers, and assign it back to its machinery. Nothing is done while it is not assigned to a machinery."
+          "Set its answer to one the question offers: its work then goes on, on its supervisor's Runtime."
       )
 
       branch to: :fresh, when: @fresh
@@ -379,10 +380,10 @@ defmodule Model.Package do
       set(answer: :none)
 
       present(
-        expected: "Decide, and hand it back to its machinery",
+        expected: "Decide how it goes on",
         why: "its work needs a decision",
         instructions:
-          "Set its answer to one the question offers, and assign it back to its machinery. Nothing is done while it is not assigned to a machinery."
+          "Set its answer to one the question offers: its work then goes on, on its supervisor's Runtime."
       )
 
       branch to: :fresh, when: @fresh
@@ -442,5 +443,18 @@ defmodule Model.Package do
     ],
     reason:
       "The review and fix loop: each task is a ladder step; a run that ended authored or check_failed is stuck"
+  )
+
+  # Its presentation says its supervisor's pickup starts the work (IS-Atlas-25), and held
+  # and awaiting_decision no longer ask to hand it back to its machinery; texts only, so a
+  # run keeps its state and entry, also with a task in flight. Prod and test share both
+  # digests.
+  migrate(:package,
+    from: "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214",
+    to: "cff1c8ec60ecf670246f9a4455dbc5be6ddc6eb75aab5877616fbe629203db9c",
+    preserve_entry: true,
+    states: :same,
+    reason:
+      "Its supervisor's pickup starts the work; held and awaiting_decision ask no hand-back; texts only"
   )
 end

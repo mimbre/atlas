@@ -368,7 +368,7 @@ flows:
     initial: building
     states:
       building:
-        label: Build it
+        label: Waiting for its use cases
         on:
           change:
             - { to: breaking_down, roles: [atlas-flow], when: "entity.children == 0" }
