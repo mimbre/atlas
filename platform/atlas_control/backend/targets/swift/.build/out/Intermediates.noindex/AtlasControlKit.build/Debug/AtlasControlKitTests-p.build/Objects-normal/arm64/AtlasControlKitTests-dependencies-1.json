@@ -12,7 +12,7 @@
   {
     "isFramework" : false,
     "moduleName" : "AtlasControlKit",
-    "modulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Products\/Debug\/AtlasControlKit.swiftmodule\/arm64-apple-macos.swiftmodule"
+    "modulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Products\/Debug\/AtlasControlKit.swiftmodule\/arm64-apple-macos.swiftmodule"
   },
   {
     "isFramework" : true,
@@ -152,7 +152,7 @@
   {
     "isFramework" : true,
     "moduleName" : "Testing",
-    "modulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Intermediates.noindex\/SwiftExplicitPrecompiledModules\/Testing-3EGJKO1MH87VX.swiftmodule"
+    "modulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Intermediates.noindex\/SwiftExplicitPrecompiledModules\/Testing-2JMI8KC4ESFD.swiftmodule"
   },
   {
     "isFramework" : false,
@@ -162,12 +162,12 @@
   {
     "isFramework" : false,
     "moduleName" : "XCTest",
-    "modulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Intermediates.noindex\/SwiftExplicitPrecompiledModules\/XCTest-1GYY5BT06O47L.swiftmodule"
+    "modulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Intermediates.noindex\/SwiftExplicitPrecompiledModules\/XCTest-1Y9NZFKH5MK17.swiftmodule"
   },
   {
     "isFramework" : true,
     "moduleName" : "XCUIAutomation",
-    "modulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Intermediates.noindex\/SwiftExplicitPrecompiledModules\/XCUIAutomation-ETFPT6JERAS2.swiftmodule"
+    "modulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Intermediates.noindex\/SwiftExplicitPrecompiledModules\/XCUIAutomation-2EEHP4EBRT1HO.swiftmodule"
   },
   {
     "isFramework" : false,
@@ -216,448 +216,448 @@
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/Accessibility.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Accessibility-4R0ZNWQJZ5S15WZZH3UV2OOWI.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Accessibility-C7PEYJG6YLDXNVO907GHVAOZE.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "Accessibility"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/AppKit.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/AppKit-5XVWOKPGPRI9A1K2DJP8B5PDF.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/AppKit-B4UTO0XRKKO85ZT42IF9VO5QN.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "AppKit"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/ApplicationServices.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ApplicationServices-6CHMMF5GJWYKH8JO8Z22Z19UL.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ApplicationServices-3JDZ191HY8BW3VCWNM22QG687.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "ApplicationServices"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/CFNetwork.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CFNetwork-2RFHIRYU2TK9B9NEN2MPB8RUA.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CFNetwork-308RB7622EUE9126PEKFW3ZN5.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "CFNetwork"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/cups.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CUPS-1BNGFPOTYP04ZX2350MPTPJFI.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CUPS-3GSNFU2ZKZN9Y1FANJB00397Z.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "CUPS"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/ColorSync.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ColorSync-7Q8G3OH97MQG7ANOSMJT0JOI2.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ColorSync-2P73QI9MRTCMHGOWBD13ZCJP4.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "ColorSync"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/CoreData.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreData-BLU5OGMDGXCWTON7AB9YDN3KJ.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreData-15Z259D55ZVIAIWFVC87A7QEB.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "CoreData"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/CoreFoundation.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreFoundation-EPI7IGR1QW884OHD0L6CFCHZH.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreFoundation-ATOGAGYMV7GU6OLBVJM2M2C8L.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "CoreFoundation"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/CoreGraphics.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreGraphics-EWEH9EONWTYW2IXKW4AYWGP2L.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreGraphics-EDOVYYJ138GWTK4BT6THRWLE6.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "CoreGraphics"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/CoreImage.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreImage-2UWCXPYDUQBGZ2TYFKOWK52J8.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreImage-BL2VKY3405GD8BFATRM93GIZ4.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "CoreImage"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/CoreServices.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreServices-UPOC87J61660WD3084YFJNCV.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreServices-60A6WKYCP35T2WQXTDND7YEV5.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "CoreServices"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/CoreText.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreText-BA5PMSCDJSHPGFUA01LCD0GUY.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreText-ECS7140RZTHURLHF4JB6IUTFK.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "CoreText"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/CoreTransferable.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreTransferable-DY5OM7LOG2DFR2HDC5K7L0BRP.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreTransferable-3H9C0SWHG2IMZXK204LJ6RF6.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "CoreTransferable"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/CoreVideo.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreVideo-CHZBVUS55GS3S3TV5849NC8FX.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/CoreVideo-3FZP5ZUFZZOJGVG0AID1UMCZR.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "CoreVideo"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/Darwin.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Darwin-1UEB4YLV1AVLIRPKREV6BJY8Q.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Darwin-B38PJBTMM8IH3CN7EVBPUVZPU.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "Darwin"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/DataDetection.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/DataDetection-BAQDW74IXIEJMGDTB831TPV0F.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/DataDetection-E4RR3TNSSVBCOIX8Y4ATMKG97.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "DataDetection"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/DeveloperToolsSupport.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/DeveloperToolsSupport-9P6X3AXB8DF6S5BN7SDGK6H4Q.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/DeveloperToolsSupport-3WBVJSOAXEZNGJBV26XE1YE55.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "DeveloperToolsSupport"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/DiskArbitration.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/DiskArbitration-AW1OCQRQIYU7OVE6084UN1AWT.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/DiskArbitration-2F0477M6SQE8QQJJV0ZU7WLTL.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "DiskArbitration"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/dispatch.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Dispatch-CMED4O0RAPC55DYMQT3RRN01.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Dispatch-DWLE5LMEJEM1NE6W8YPBXC9Y7.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "Dispatch"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/Foundation.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Foundation-CA7Z7C0MQ3LW7269JANHSOPU1.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Foundation-D4EUTVPML84QTDZ8KK8Z3QZAN.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "Foundation"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/IOKit.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/IOKit-CF9ZLPZDP7UGO52C7CRN0RQR6.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/IOKit-CU1JRZMK05RB2EXJ7G6VW2YVC.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "IOKit"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/IOSurface.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/IOSurface-84MFJXON89FSQW7QBHG3PK39G.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/IOSurface-A7JP6B6SV3GTMU2J1S7JY3DC6.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "IOSurface"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/ImageIO.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ImageIO-A8QEZXBOQZY9YX6N6UAAOBNPI.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ImageIO-9T3397HCWVVU4BHWYGRJIH8E6.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "ImageIO"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/DarwinBasic.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/MachO-70IRSM6G7T470592EVNAXFKQR.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/MachO-E38WEATD6IBD4RS7W0TYAFZ2Y.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "MachO"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/Metal.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Metal-AZS612AEUI9ENZITOT8TBDAF6.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Metal-5MFAK2PUWJLZWD3L1UIE90B1J.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "Metal"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/OSLog.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/OSLog-19GMHK7W4V5QUQOM1M4SEWY1N.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/OSLog-5XU9HH6TBQ09NBRS6F2TOMEO1.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "OSLog"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/ObjectiveC.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ObjectiveC-4E9C4VLCKYQGM4Z16XA77PYNC.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ObjectiveC-AEW45QMA22RNRBXXTE6DG6IIX.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "ObjectiveC"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/OpenGL.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/OpenGL-AARWND7G3UAYOPIEK4LJHIKAY.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/OpenGL-E4M04M66A4G6OZBS0P27A7O4U.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "OpenGL"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/QuartzCore.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/QuartzCore-ALYKCD7305P46B3X0SNDDYIKN.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/QuartzCore-87SUDDQW7GHX2MQEBR1FY21WY.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "QuartzCore"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/Security.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Security-8XN1BAUDM5KTSSC5IEZ3PYTAF.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Security-6K3AQH6JKTJI2NTYUQIPGBJZB.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "Security"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/Spatial\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Spatial-1ZLN8B0Q6V4LM2FOLZPYON1KJ.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Spatial-DX2NF7BEZUTXPD9Q027X8YPLZ.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "Spatial"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/lib\/swift\/shims\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/SwiftShims-6NNG24XF0W3H4JDERGXI9C3F8.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/SwiftShims-CJYQ7JNRSKT6LXRE2LUH7BPEM.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "SwiftShims"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/SwiftUICore.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/SwiftUICore-2XH3K64OMNNHGXM8Y4L6JD2E6.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/SwiftUICore-D4BY2RO3HLCLVNCVMZB2MW5X2.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "SwiftUICore"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/Symbols.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Symbols-BMFIX1KD060O6T2FO79PSO2PY.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/Symbols-20SR1HZX93XEX4RPAIA761CDB.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "Symbols"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/System\/Library\/Frameworks\/UniformTypeIdentifiers.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/UniformTypeIdentifiers-3DDMPLZ5CYQT0XC27NPGYTASG.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/UniformTypeIdentifiers-1BSRL981UNIAMP3T2YZSRANJM.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "UniformTypeIdentifiers"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/Library\/Frameworks\/XCTest.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Intermediates.noindex\/SwiftExplicitPrecompiledModules\/XCTest-DQ891MG15JYFPDCM3JLGWWG76.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Intermediates.noindex\/SwiftExplicitPrecompiledModules\/XCTest-B4E2Y6OVO4CEO5IUPMQ0Z73WN.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "XCTest"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/Library\/Frameworks\/XCUIAutomation.framework\/Modules\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Intermediates.noindex\/SwiftExplicitPrecompiledModules\/XCUIAutomation-6O0P8ESAZSKN74Y5X3XN2U5EW.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/Intermediates.noindex\/SwiftExplicitPrecompiledModules\/XCUIAutomation-2SZS3GWL0XXE17CCVMRPNUJYR.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "XCUIAutomation"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/xpc.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/XPC-5KTB4M5R91P1RCFJMY23RZB72.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/XPC-7BE7PAHY9D61G8CPGO5VLYMQ9.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "XPC"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/DarwinFoundation1.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_AvailabilityInternal-8O49KWIZNGD4MXJEFG9QS2T3F.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_AvailabilityInternal-DUHTH0G2CUEW99LMW72XI6G5I.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_AvailabilityInternal"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_float-C3ISAXGV7WLDGGUCM2OIA0BX5.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_float-4LRMXSHYELW6JEF3VRFBA4A2.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_Builtin_float"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_intrinsics-BAWLW5FMTH0T8ICGJ0WU2RWZM.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_intrinsics-DC79EENTL6C9EG6G4LZIZAYVT.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_Builtin_intrinsics"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_inttypes-87VZWNMMXTWI14WIM5MVW1K3E.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_inttypes-45FYTIX9IEXMSH1TO9W4IATHX.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_Builtin_inttypes"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_limits-DNW2ZD71NZ55FPQBKENCH74OK.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_limits-F57V4SQHMHLG4ASFFFDRYK0A.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_Builtin_limits"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdarg-7U1BPTWBM775U5ODD12SZJN03.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdarg-9XVU8D0HSY9ZJG8UG1Q339COP.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_Builtin_stdarg"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdatomic-1QMT35ZKIIRKZV2ITVTKDKPWK.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdatomic-9M3VJWHG8F9LET6PC1VBLO8I8.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_Builtin_stdatomic"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdbool-3I5XLESKGMJON7HGGITDQVR33.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdbool-6B4K00CFMKUU7OZW5G4QSM0HO.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_Builtin_stdbool"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stddef-6ZH3N92Q48RBM0DVG4HNYTF69.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stddef-2QALL6IZB2HK86WBPHT974R93.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_Builtin_stddef"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdint-BQWVEKGOB4GP3BGX909N7WNSE.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_stdint-79AEDYZM125E4QTF1UPR4XT4.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_Builtin_stdint"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_tgmath-9AYGOGZOMDD7JB1463JS17D4E.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_Builtin_tgmath-AIO4Z3OT58WALPADR125YQEET.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_Builtin_tgmath"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/DarwinFoundation1.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation1-E7TQG7COT3V2EB29YGQ0GY1XC.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation1-ISGSRPZ0YJKALT5U4GBFBW4G.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_DarwinFoundation1"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/DarwinFoundation2.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation2-8XNO1J6XF41N84C54KFZ6V073.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation2-CHPL39LQSR7KM1EZRBLNQ2RWZ.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_DarwinFoundation2"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/DarwinFoundation3.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation3-5XA3NK569BOSSZGU8YVDBMT3C.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_DarwinFoundation3-AZQFNLEFC3SOME1II6BVK5RS3.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_DarwinFoundation3"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/lib\/swift\/shims\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_SwiftConcurrencyShims-E7W68WWG7VPYX6KXB32E5FJL7.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/_SwiftConcurrencyShims-4PWYVH2O3G8WUWNRLEMN67NWI.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "_SwiftConcurrencyShims"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/launch.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/launch-DM7KEO0TT7MUBQ8PBDBKSACNL.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/launch-398HUTATBB2GHAHFZFCVPYVCD.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "launch"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/libDER\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/libDER-4B8OZ2AEHCGGIDUA5ZRCZKAW7.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/libDER-4923A5YEI96PYRDHGEHMQSCNH.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "libDER"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/libkern.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/libkern-21ADKRPHOS1YPVYYUHJUIOIP6.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/libkern-3PN8FI1LEWFZML95HPZ74SJZ0.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "libkern"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/os.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/os-5MVATRP757J1SLDJB7OOFOR5D.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/os-7FYOYDVQ5HWWP8XD37EYO60KP.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "os"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/os.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/os_object-CAIMVXA33HXSC83XKZX9BSV6M.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/os_object-6HWEMCD9XJ4CLDKI29JKRK1VM.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "os_object"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/os.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/os_workgroup-AONLFHZSWN2QLG0DGLRWHXWV4.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/os_workgroup-7TEUDIU9CUM7RHTNGN9RKHPGU.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "os_workgroup"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ptrauth-3JEXZ0KTBWVHO1NVV8BEHR2JL.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ptrauth-CY4T5PCZ8SY7NN6CF5A9MFNZG.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "ptrauth"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Toolchains\/XcodeDefault.xctoolchain\/usr\/lib\/clang\/21\/include\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ptrcheck-5X81X7V5P7TYCG5ZGD6DP31OX.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/ptrcheck-2N443KMUWBSGDE0M4Z4HX2UYO.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "ptrcheck"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/simd\/module.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/simd-31OOC1C17ILL1OUZQ77VXO7WO.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/simd-30L1EQQL8PBXFW1YD4ZGRF00N.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "simd"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/c_standard_library.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/string_h-EJKOWA8EPFZ77I8G1D0TNTF0B.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/string_h-EWORA4TDK1U094J17PSBNDGNW.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "string_h"
   },
   {
     "clangModuleMapPath" : "\/Applications\/Xcode.app\/Contents\/Developer\/Platforms\/MacOSX.platform\/Developer\/SDKs\/MacOSX.sdk\/usr\/include\/DarwinFoundation2.modulemap",
-    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/NoOpenWork\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/sys_types-UF0NYVCLU0AGMP924IJ718DW.pcm",
+    "clangModulePath" : "\/Users\/melle\/projects\/eyra\/MacPolish\/platform\/atlas_control\/backend\/targets\/swift\/.build\/out\/SDKExplicitPrecompiledModules\/sys_types-7TYZEQRTW3Y378GOXJUKQAP2A.pcm",
     "isBridgingHeaderDependency" : false,
     "isFramework" : false,
     "moduleName" : "sys_types"
