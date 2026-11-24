@@ -606,9 +606,29 @@
           "multiline": true,
           "set_by": "connector"
         },
+        "pr_close_failure": {
+          "label": "Pull request close failure",
+          "set_by": "connector"
+        },
+        "pr_mergeable": {
+          "label": "Mergeable",
+          "set_by": "connector"
+        },
         "pr_state": {
           "label": "Pull request state",
           "set_by": "connector"
+        },
+        "pr_update": {
+          "label": "Update push",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "pr_updates": {
+          "label": "Updates",
+          "set_by": [
+            "flow"
+          ]
         },
         "pr_url": {
           "label": "Pull request",

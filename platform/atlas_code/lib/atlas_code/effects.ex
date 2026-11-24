@@ -85,6 +85,12 @@ defmodule AtlasCode.Effects do
   is opened and its body is not changed. A pull whose head is the result already is done
   without a push; a closed or merged pull is refused `closed`; a branch the result does not
   fast-forward is refused `branch_taken`.
+
+  A result made on an update of the pull (Code's merge of the base into the pull's head,
+  conflicts marked, `AtlasCode.Service`) is folded into one merge commit first: the
+  result's tree on that merge's two parents, "Merge <base> into pull request #<n>", the
+  result's date. The result's ref then names that commit, so a later fix of the result
+  starts from what the pull holds, and no commit with conflict markers reaches the pull.
   """
 
   alias AtlasBus.{Digest, SubjectFingerprint}
@@ -207,6 +213,11 @@ defmodule AtlasCode.Effects do
       true ->
         case s.results.(input["repository"], input["result"]) do
           {:ok, %{"dir" => dir, "commit" => commit}} ->
+            commit =
+              if Map.has_key?(input, "pull"),
+                do: fold(dir, commit, input["result"]),
+                else: commit
+
             if unchanged?(dir, commit, input["base"]),
               do: {:refused, "no_changes", %{"base" => input["base"]}},
               else: {:ok, %{"dir" => dir, "commit" => commit}}
@@ -264,6 +275,44 @@ defmodule AtlasCode.Effects do
       true
     else
       _ -> false
+    end
+  end
+
+  @doc """
+  The commit a result onto a pull publishes, in the Git repository `dir`: a result whose
+  only parent is an update's merge ("Atlas: merge …", two parents) becomes one merge
+  commit, its tree on the merge's parents, the merge's message as "Merge …", Code's
+  identity and the result's date (so the same result always folds the same), and `ref`
+  (the result's) is moved to it. Any other result is itself.
+  """
+  @spec fold(Path.t(), String.t(), String.t()) :: String.t()
+  def fold(dir, commit, ref) do
+    git = &System.cmd("git", ["--git-dir", dir | &1], stderr_to_stdout: true, env: &2)
+
+    with {parents, 0} <- git.(["rev-parse", commit <> "^@"], []),
+         [merge] <- String.split(parents),
+         {info, 0} <- git.(["show", "-s", "--format=%P%n%cI%n%B", merge], []),
+         [merge_parents, _, "Atlas: merge " <> title] <- String.split(info, "\n", parts: 3),
+         [_, _] = two <- String.split(merge_parents),
+         {date, 0} <- git.(["show", "-s", "--format=%cI", commit], []),
+         date = String.trim(date),
+         identity = [
+           {"GIT_AUTHOR_NAME", "Atlas Code"},
+           {"GIT_AUTHOR_EMAIL", "code@atlas"},
+           {"GIT_AUTHOR_DATE", date},
+           {"GIT_COMMITTER_NAME", "Atlas Code"},
+           {"GIT_COMMITTER_EMAIL", "code@atlas"},
+           {"GIT_COMMITTER_DATE", date}
+         ],
+         message = "Merge " <> String.trim(title) <> "\n\nIts conflicts resolved by its agent.",
+         parent_args = Enum.flat_map(two, &["-p", &1]),
+         {made, 0} <-
+           git.(["commit-tree", commit <> "^{tree}" | parent_args] ++ ["-m", message], identity),
+         made = String.trim(made),
+         {_, 0} <- git.(["update-ref", ref, made], []) do
+      made
+    else
+      _ -> commit
     end
   end
 
