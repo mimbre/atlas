@@ -22,11 +22,11 @@ final class ContractTests: XCTestCase {
     }
 
     func test_version() {
-        XCTAssertEqual(Contract.version, "0.23.0")
+        XCTAssertEqual(Contract.version, "0.24.0")
     }
 
     func test_block_list_decodes_and_round_trips() throws {
-        for text in [##"{"id":"b1","props":{"rows":[{"label":"label 1","to":"to 1"}]},"type":"list"}"##, ##"{"id":"b1","props":{"actions":[{"key":"key 1","label":"label 1","submit_to":{"endpoint":"endpoint 1","params":{"k":"params 1"}},"to":"to 1"}],"empty":"empty 1","rows":[{"detail":"detail 1","id":"id 1","key":"key 1","label":"label 1","links":[{"key":"key 1","label":"label 1","url":"url 1"}],"pending":true,"to":"to 1"}],"title":"title 1"},"type":"list"}"##] {
+        for text in [##"{"id":"b1","props":{"rows":[{"label":"label 1","to":"to 1"}]},"type":"list"}"##, ##"{"id":"b1","props":{"actions":[{"key":"key 1","label":"label 1","page":true,"submit_to":{"endpoint":"endpoint 1","params":{"k":"params 1"}},"to":"to 1"}],"empty":"empty 1","rows":[{"detail":"detail 1","id":"id 1","key":"key 1","label":"label 1","links":[{"key":"key 1","label":"label 1","url":"url 1"}],"pending":true,"to":"to 1"}],"title":"title 1"},"type":"list"}"##] {
             let block = try decode(Block.self, text)
             guard case .list = block.content else { return XCTFail("list fell back: \(block.content)") }
             XCTAssertEqual(block.type, "list")
@@ -68,7 +68,7 @@ final class ContractTests: XCTestCase {
     }
 
     func test_block_item_decodes_and_round_trips() throws {
-        for text in [##"{"id":"b1","props":{"fields":[{"label":"label 1"}],"title":"title 1"},"type":"item"}"##, ##"{"id":"b1","props":{"actions":[{"key":"key 1","label":"label 1","submit_to":{"endpoint":"endpoint 1","params":{"k":"params 1"}},"to":"to 1"}],"fields":[{"label":"label 1","origin":{"by":"by 1","cause":"cause 1","since":"since 1"},"value":"value 1"}],"links":[{"key":"key 1","label":"label 1","url":"url 1"}],"title":"title 1"},"type":"item"}"##] {
+        for text in [##"{"id":"b1","props":{"fields":[{"label":"label 1"}],"title":"title 1"},"type":"item"}"##, ##"{"id":"b1","props":{"actions":[{"key":"key 1","label":"label 1","page":true,"submit_to":{"endpoint":"endpoint 1","params":{"k":"params 1"}},"to":"to 1"}],"fields":[{"label":"label 1","origin":{"by":"by 1","cause":"cause 1","since":"since 1"},"value":"value 1"}],"links":[{"key":"key 1","label":"label 1","url":"url 1"}],"title":"title 1"},"type":"item"}"##] {
             let block = try decode(Block.self, text)
             guard case .item = block.content else { return XCTFail("item fell back: \(block.content)") }
             XCTAssertEqual(block.type, "item")

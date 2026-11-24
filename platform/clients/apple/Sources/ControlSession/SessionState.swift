@@ -183,8 +183,6 @@ public struct SessionState: Sendable, Equatable {
     public private(set) var notice: NoticeMessage?
     public private(set) var lastUpdate: Update?
     public private(set) var lastHint: Update?
-    /// What waits for the user, in the model's words (`count` of the last page shown).
-    public private(set) var count: String?
     /// The last count of each tab and group, by its `to`, as boot or a page's `groups` said
     /// it, whichever came last: what the sidebar shows under every tab, also before it is
     /// opened.
@@ -572,7 +570,6 @@ public struct SessionState: Sendable, Equatable {
         let update = Update(reason: reason, at: page.at, position: page.position, path: page.path)
         lastUpdate = update
         if reason == .hint { lastHint = update }
-        count = page.count
         for block in page.blocks {
             if case .groups(let groups) = block.content {
                 for group in groups.groups { groupCounts[group.to] = group.count }

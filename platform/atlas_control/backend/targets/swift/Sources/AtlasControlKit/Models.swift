@@ -1119,12 +1119,14 @@ public struct ActionModel: Codable, Sendable, Equatable {
     public var key: String
     public var to: String
     public var submitTo: CallModel?
+    public var page: Bool?
 
-    public init(label: String, key: String, to: String, submitTo: CallModel? = nil) {
+    public init(label: String, key: String, to: String, submitTo: CallModel? = nil, page: Bool? = nil) {
         self.label = label
         self.key = key
         self.to = to
         self.submitTo = submitTo
+        self.page = page
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1132,6 +1134,7 @@ public struct ActionModel: Codable, Sendable, Equatable {
         case key
         case to
         case submitTo = "submit_to"
+        case page
     }
 }
 

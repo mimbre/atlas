@@ -178,7 +178,13 @@ defmodule RelaDSL.Description do
   @doc "A relation: Rela's `label:`, `description:`, `from:`, `to:`, `max_outgoing:`, `inverse:` and Atlas's rules."
   defmacro relation(name, opts), do: item(:relation, name, opts)
 
-  @doc "How the runs of `subflow` are selected and imported from the facts."
+  @doc """
+  How the runs of `subflow` are selected and imported from the facts. `order: [within:
+  relation, by: field, done: [state]]` picks its numbered subjects up one at a time: of
+  those under one parent through `within`, only the first by the number `by`
+  (`AtlasBus.Order`) that is not completed and whose run did not complete in a `done`
+  state. A subject without a number never waits.
+  """
   defmacro select(subflow, opts), do: item(:select, subflow, opts)
 
   @doc "An approved migration of the runs of `subflow`: `from:` digest, `to:` digest, `states:` (a map, or `:same`)."

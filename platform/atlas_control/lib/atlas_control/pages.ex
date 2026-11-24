@@ -872,9 +872,9 @@ defmodule AtlasControl.Pages do
   end
 
   # One calm row of what is assigned: the fact's key, the fact, who it is with (`owner?`, on
-  # Open work), why it is to be reviewed (the rule's label), the flow its work is in (its
-  # short name, never the long sentence of what is expected), whether it is blocked, and
-  # its deadline (late first).
+  # Open work), why it is to be reviewed (the rule's label), what is to be done (its
+  # state's short name, `Merge it`; on Open work the flow its work is in; never the long
+  # sentence of what is expected), whether it is blocked, and its deadline (late first).
   defp calm_row(m, relation, {from, fact, link}, owner? \\ false) do
     link_k = kind(m, link_kind(m, relation))
 
@@ -882,7 +882,7 @@ defmodule AtlasControl.Pages do
       [
         owner? && owner_text(link, relation),
         get_in(fact, ["review", "label"]),
-        flow_name(m, fact, link),
+        if(owner?, do: flow_name(m, fact, link), else: todo_name(m, fact, link)),
         shown(fact, link, "status") == "blocked" && "blocked",
         late_detail(link_k, link)
       ]
@@ -975,12 +975,33 @@ defmodule AtlasControl.Pages do
     end
   end
 
+  # The short name of the state the work is in (the model's `label:` of the subflow's
+  # state, `Merge it`), while something is expected of its owner: what is to be done, as
+  # Assigned to you says it; the flow's short name when the state has none.
+  defp todo_name(m, fact, link) do
+    if expected(fact, link) do
+      Enum.find_value([link, fact], fn written ->
+        presentation = written["presentation"] || %{}
+        get_in(m.start, [:states, presentation["flow"], presentation["state"]])
+      end) || flow_name(m, fact, link)
+    end
+  end
+
   # The start page's ways to the kinds kept off it: an action that opens the kind's list.
   defp start_actions(m, except \\ nil) do
-    for a <- m.start.actions,
-        a.kind != except,
-        do: Blocks.action(label: a.label, key: a.key, to: path({:list, a.kind}))
+    page_actions(
+      for a <- m.start.actions,
+          a.kind != except,
+          do: Blocks.action(label: a.label, key: a.key, to: path({:list, a.kind}))
+    )
   end
+
+  @doc """
+  `actions` as the page's rather than their block's (`page`, contract 0.24.0): what is
+  done with the page's subject (create one, the fact's next step and More…, a way to
+  another list), which a client shows with the page's title, not under the block.
+  """
+  def page_actions(actions), do: Enum.map(actions, &Map.put(&1, "page", true))
 
   # The operations a kind offers by hand (`AtlasControl.Model` `actions/3`, no fact).
   defp by_hand?(m, kind, op), do: op in m.module.actions(kind, nil, nil)
@@ -1217,8 +1238,9 @@ defmodule AtlasControl.Pages do
   The rows of Open for you among the answers to `reads({:open_for_you, by})`, per span in
   the declared order: `[{span, [{kind, fact, work}]}]`, `work` the fact the work on `fact`
   is written on (`span_work/3`). A fact is open for you while its work is presented by the
-  span's subflow, active, in one of the span's states, without a human supervisor, and
-  the fact is not completed.
+  span's subflow, active, in one of the span's states, without a human supervisor, waiting
+  for no other (its flow takes its subjects in order, Facts' `waiting_for`), and the fact
+  is not completed.
   """
   def open_for_you_facts(m, answers) do
     {rows, _lookups} = span_reads(m)
@@ -1232,6 +1254,7 @@ defmodule AtlasControl.Pages do
             p["status"] == "active",
             p["state"] in s.states,
             supervisors(work) == [],
+            p["waiting_for"] == nil,
             not completed?(fact),
             do: item
 
@@ -1302,7 +1325,7 @@ defmodule AtlasControl.Pages do
   Why the client cannot pick up `run` on the fact now, from fresh reads of the page; nil
   when it can: someone at the TUI who may supervise, or an agent that assists someone
   (who becomes the supervisor), the run still the one that presents the fact, active, in
-  a span, and without a supervisor.
+  a span, without a supervisor, and waiting for no other.
   """
   def pick_up_problem(m, {:pick_up, kind, _key, run}, [%{"fact" => %{} = fact} | rest], form) do
     p = work_presentation(m, kind, fact, item_parts(m, kind, rest))
@@ -1319,6 +1342,9 @@ defmodule AtlasControl.Pages do
 
       supervisor(p) != [] ->
         "The flow is supervised already."
+
+      is_binary(p["waiting_for"]) ->
+        "It waits for #{p["waiting_for"]}, which is picked up first."
 
       true ->
         nil
@@ -1520,7 +1546,7 @@ defmodule AtlasControl.Pages do
 
     offered =
       for {verb, may?} <- [
-            pick_up: supervising? and supervisor == [],
+            pick_up: supervising? and supervisor == [] and p["waiting_for"] == nil,
             hand_over:
               supervising? and form[:by] in supervisor and
                 Enum.any?(candidates, &(&1["key"] != form[:by])),
@@ -1560,6 +1586,13 @@ defmodule AtlasControl.Pages do
       _ -> []
     end
   end
+
+  # What the work waits for, when its flow takes its subjects in order and another is
+  # first (Facts' `waiting_for`): no Pick up until that one is done.
+  defp waiting_pair(%{"waiting_for" => key}) when is_binary(key),
+    do: [Blocks.pair(label: "Waiting for", value: key)]
+
+  defp waiting_pair(_p), do: []
 
   # Open for you, calm: its groups and one list per span, titled with the span's flow; on a
   # group's page (`active`, `{subflow, span}`) only that span's list.
@@ -1945,14 +1978,16 @@ defmodule AtlasControl.Pages do
             linked(m, kind, fact) ++
             Enum.flat_map(parts, fn {part_kind, _k, part, _made} -> linked(m, part_kind, part) end) ++
             supervisor_pair(m, kind, work) ++
+            waiting_pair(work) ++
             copy(answer["copy"])
 
-        # The flow's next step, and one More… for everything else (`offered/6`).
+        # The flow's next step, and one More… for everything else (`offered/6`): the
+        # page's actions, which a client shows with the page's title.
         item =
           Blocks.item(
             title: "#{k.label} #{key}: #{label(k, fact)}",
             fields: fields,
-            actions: next ++ more_action(kind, key, more),
+            actions: page_actions(next ++ more_action(kind, key, more)),
             links: links(k, fact)
           )
 
@@ -2003,7 +2038,7 @@ defmodule AtlasControl.Pages do
           # of the fact the state names, the facts under it); the fact itself in full, with
           # why it came to them and how; then what it refers to.
           content =
-            decide_blocks(todo, kind, key) ++
+            decide_blocks(todo, kind, key, next) ++
               for({id, {_title, list}} <- judged, do: {id, list}) ++
               [{"item", update_in(item, ["props", "fields"], &(&1 ++ todo_pairs(todo)))}] ++
               lists
@@ -2572,8 +2607,10 @@ defmodule AtlasControl.Pages do
             rows: rows,
             empty: "No #{String.downcase(k.plural)} yet.",
             actions:
-              if(creates?, do: [action(:create, k, path({:new, kind}))], else: []) ++
-                if(start?, do: start_actions(m, kind), else: [])
+              page_actions(
+                if(creates?, do: [action(:create, k, path({:new, kind}))], else: []) ++
+                  if(start?, do: start_actions(m, kind), else: [])
+              )
           )
 
         back = if first?, do: nil, else: "/"
@@ -2585,16 +2622,22 @@ defmodule AtlasControl.Pages do
   end
 
   # The view model of a page. A block without an id of its own is named by its type; a
-  # page holds at most one such block of each type.
+  # page holds at most one such block of each type. A list's title that only repeats the
+  # page's is not sent: the page's title says it.
   defp page(title, back, content, markup \\ []) do
     content =
       Enum.map(content, fn
-        {id, block} -> {id, block}
-        block -> {block["type"], block}
+        {id, block} -> {id, untitled(block, title)}
+        block -> {block["type"], untitled(block, title)}
       end)
 
     Map.merge(%{title: title, back: back}, Blocks.view_model(content, markup))
   end
+
+  defp untitled(%{"type" => "list", "props" => %{"title" => title} = props} = block, title),
+    do: %{block | "props" => Map.delete(props, "title")}
+
+  defp untitled(block, _title), do: block
 
   # A relation a route names that the model does not have: nothing to set or show.
   defp missing_relation(relation),
@@ -2783,9 +2826,14 @@ defmodule AtlasControl.Pages do
 
   # A Create in each related list a fact of the kind may be made by hand in: not under a
   # relation marked to add nothing, nor an association (no create key), nor of a kind a
-  # flow on `kind` makes (a span's `creates`).
+  # flow on `kind` makes: what its tasks create (a span's `creates`) and the subjects of
+  # the runs its span holds (`with_subjects`).
   defp create_actions(m, kind, key) do
-    made = for s <- spans(m), s.subject == kind, made <- s[:creates] || [], do: made
+    made =
+      for s <- spans(m),
+          s.subject == kind,
+          made <- (s[:creates] || []) ++ (s[:with_subjects] || []),
+          do: made
 
     for {{relation, from, r}, create_key} <-
           Enum.zip(child_relations(m, kind), create_keys(m, kind)),
@@ -3014,12 +3062,21 @@ defmodule AtlasControl.Pages do
         fields: todo_pairs(todo) ++ section_pairs(todo)
       )
 
-  # Where its owner decides: one line, the to-do and the keys of its answers, with what
-  # is judged of the fact itself under it: the section the state names, the choice.
-  defp decide_blocks(todo, kind, key) do
+  # Where its owner decides: one line, the to-do and the keys of its answers and of the
+  # page's other next steps (`next`: Retry, Pick up, the restart), with what is judged of
+  # the fact itself under it: the section the state names, the choice.
+  defp decide_blocks(todo, kind, key, next) do
+    answered = ["0" | Enum.map(todo.answers, & &1.key)]
+
+    steps =
+      for action <- next,
+          action["key"] not in answered,
+          do: "   #{action["key"]} #{action["label"]}"
+
     line =
       Blocks.item(
-        title: "#{todo.title}: #{todo.expected}   #{todo.words.answers}: #{answer_keys(todo)}",
+        title:
+          "#{todo.title}: #{todo.expected}   #{todo.words.answers}: #{answer_keys(todo)}#{steps}",
         fields: section_pairs(todo)
       )
 

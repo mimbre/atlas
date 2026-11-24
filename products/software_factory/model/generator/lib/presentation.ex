@@ -9,7 +9,7 @@ defmodule RelaDSL.Presentation do
     * the fields it is written in: `field` (what is expected), `state_field`,
       `handover_field` (a deferred handover), `deadline_field`, and `owner_relation`;
     * `flows`: the selected subflows whose runs present it, in name order, each with its
-      `reopen` and `admission`;
+      `reopen`, `admission` and `order` (its subjects picked up one at a time; nil when not);
     * `states`: what each state of those subflows shows its owner (`expected`, `why`,
       `todo`).
 
@@ -47,7 +47,8 @@ defmodule RelaDSL.Presentation do
             "name" => name,
             "reopen" => s["reopen"],
             "restart_by" => s["restart_by"] || [],
-            "admission" => s["admission"] || %{}
+            "admission" => s["admission"] || %{},
+            "order" => s["order"]
           }
         )
       )

@@ -168,7 +168,8 @@ defmodule AtlasTui.ConsoleTest do
     assert title_bar(greeted("Ada Longname"), 50) ==
              " Atlas Console · test · Ada L · 3 assigned to you"
 
-    assert title_bar(greeted("Ada"), 40) == " Atlas Console · test · 3 assigned to you"
+    # The bar without the greeting is 41 cells: at that width the greeting has no room.
+    assert title_bar(greeted("Ada"), 41) == " Atlas Console · test · 3 assigned to you"
 
     # The greeting never makes the bar longer than the width, or than it was without it.
     for width <- [20, 44, 46, 50, 80] do

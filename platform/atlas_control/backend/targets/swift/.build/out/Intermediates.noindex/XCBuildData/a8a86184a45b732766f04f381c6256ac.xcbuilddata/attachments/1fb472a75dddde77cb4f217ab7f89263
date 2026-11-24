@@ -1,4 +1,0 @@
-module AtlasControlKit {
-header "AtlasControlKit-Swift.h"
-export *
-}

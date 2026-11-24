@@ -27,7 +27,10 @@ defmodule AtlasFacts.Presentation do
       work runs again only on an explicit restart (`reopen: "explicit"`) still admits the
       subject, and the subject is not completed: reopened work, nobody's until then;
     * `actionable`: there is something to do: a state is presented and what Flow wrote
-      agrees with it. A completed run is never actionable, whatever is still written.
+      agrees with it. A completed run is never actionable, whatever is still written;
+    * `waiting_for` (added by the server, which reads the subject's siblings): the key of
+      the fact its active run waits for when its subflow takes its subjects in order
+      (`AtlasBus.Order`), nil otherwise.
   """
 
   @doc "The presenters whose work is written on facts of `kind`."

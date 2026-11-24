@@ -6,7 +6,9 @@ import SwiftUI
 
 /// The three columns: the tabs boot sent (sidebar), the active tab's index page (middle)
 /// and the page opened from a row (right); the title bar with the title, the shell's
-/// greeting (when it has one) as its subtitle, and the environment; the status bar below. An action's page (its confirm, form or more
+/// greeting (when it has one) as its subtitle, the environment and the index page's own
+/// actions (`PageActions.ofPage`); the status bar below. The opened page shows its own
+/// actions next to its title, at its top. An action's page (its confirm, form or more
 /// actions) is a sheet over them; the keys of the shown page's actions take them.
 struct ShellView: View {
     let session: Session
@@ -21,11 +23,13 @@ struct ShellView: View {
         NavigationSplitView {
             Sidebar(shell: shell, select: session.selectTab, filter: session.filter)
         } content: {
-            Column(page: shell.index, selectedPath: shell.selectedPath, open: session.open, submit: submit,
-                   act: session.act)
+            // Room for a row's key, title (two lines) and to-do side by side.
+            Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
+                   submit: submit, act: session.act)
+                .navigationSplitViewColumnWidth(min: 420, ideal: 560)
         } detail: {
-            Column(page: shell.opened, selectedPath: shell.selectedPath, open: session.open, submit: submit,
-                   act: session.act)
+            Column(page: shell.opened, header: true, selectedPath: shell.selectedPath, open: session.open,
+                   submit: submit, act: session.act)
         }
         .onAppear { keys.start(session) }
         .onDisappear { keys.stop() }
@@ -40,6 +44,11 @@ struct ShellView: View {
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 EnvironmentBadge(env: shell.env, production: shell.isProduction)
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                if let index = shell.index {
+                    ActionButtons(actions: PageActions.ofPage(index), act: session.act)
+                }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -66,11 +75,10 @@ extension View {
     }
 }
 
-/// The tabs, in boot's order, each with its icon and count, with the count (what waits for
-/// the user) as the section's header; under every tab with groups, its groups with their
-/// counts (as a mail app's folders), folded by the tab's chevron (the fold is kept per
-/// tab), so any group can be chosen from anywhere. It scrolls, so it holds boot's limit
-/// of 64.
+/// The tabs, in boot's order, each with its icon and count, under its section's heading;
+/// under every tab with groups, its groups with their counts (as a mail app's folders),
+/// folded by the tab's chevron (the fold is kept per tab), so any group can be chosen
+/// from anywhere. It scrolls, so it holds boot's limit of 64.
 ///
 /// The rows are one flat list, each the same kind of view: a `DisclosureGroup` per tab
 /// (an outline) drew rows of the old outline over the new one when boot changed the
@@ -128,11 +136,8 @@ struct Sidebar: View {
     /// icons (all but the selected row's).
     var body: some View {
         List(selection: choice) {
-            Section {
+            Section("Work") {
                 rowViews(rows("work"))
-            } header: {
-                // The model's count of what waits, next to the heading.
-                if let count = shell.count { Text("Work · \(count)") } else { Text("Work") }
             }
             Section("Browse") {
                 rowViews(rows("browse"))
@@ -185,9 +190,12 @@ struct Sidebar: View {
         switch icon {
         case "inbox": "tray"
         case "watching": "eye"
+        case "machines": "cpu"
+        case "agents": "person.2"
+        case "checklist": "checklist"
+        case "history": "clock.arrow.circlepath"
         case "mine": "person.crop.circle"
         case "stack": "rectangle.stack"
-        case "machines": "cpu"
         default: "circle"
         }
     }
@@ -196,6 +204,7 @@ struct Sidebar: View {
 /// A column's page, or nothing yet.
 struct Column: View {
     let page: PageMessage?
+    let header: Bool
     let selectedPath: String?
     let open: (String) -> Void
     let submit: (CallModel, [String: String]) -> Void
@@ -203,7 +212,8 @@ struct Column: View {
 
     var body: some View {
         if let page {
-            PageView(page: page, selectedPath: selectedPath, open: open, submit: submit, act: act)
+            PageView(page: page, header: header, selectedPath: selectedPath, open: open, submit: submit,
+                     act: act)
         } else {
             Color.clear
         }
