@@ -10,18 +10,19 @@
 -- every pull request fact that is not merged or closed yet: its title, state and draft.
 -- Only what differs is written.
 --
--- rela → GitHub: an open pull request of an issue closed in Atlas (gate_result close) is
--- closed on GitHub with a comment; so is an open pull request Code opened for an issue
--- (its branch atlas/TK-<issue>-<n>) that is no longer in Atlas (removed). A close GitHub
--- refuses is logged and, for an issue still there, written to pr_close_failure; the next
+-- rela → GitHub: an open pull request of an issue closed in Atlas (gate_result close, an
+-- explicit record in this rela's own data) is closed on GitHub with a comment. A pull is
+-- never closed because its issue is missing: a test rela reads the same repositories with
+-- other data. A close GitHub refuses is logged and written to pr_close_failure; the next
 -- run tries again.
 --
 -- Secrets (.rela/secrets.yaml, which rela-run.sh writes on Fly): github_api, GitHub's API
 -- (https://api.github.com); github_token, a token that reads pull requests, checks and job
--- logs, and writes pull requests to close them (optional: without it GitHub is read
--- anonymously, which its rate limit allows for a few pulls, job logs are not readable, so
--- a failure names its checks only, and nothing is closed). Without either (a rela on a
--- Mac, a test) it does nothing.
+-- logs (optional: without it GitHub is read anonymously, which its rate limit allows for
+-- a few pulls, and job logs are not readable, so a failure names its checks only);
+-- github_write, "true" only in the environment allowed to write to GitHub (prod): without
+-- it nothing is closed. Without github_api or github_token (a rela on a Mac, a test) it
+-- does nothing.
 
 local token = rela.secrets.github_token
 local api = rela.secrets.github_api
@@ -63,6 +64,9 @@ end
 
 -- A write to GitHub: nil, or why it failed.
 local function send(method, path, body)
+  -- Only an environment whose rela is told to (github_write: "true", prod only) writes to
+  -- GitHub: a test rela reads the same repositories and must never close their pulls.
+  if rela.secrets.github_write ~= "true" then return "github_write is not set: nothing is written to GitHub" end
   if not token then return "no github_token: nothing is written to GitHub" end
   local resp, err = http.request({
     url = api .. path,
@@ -221,14 +225,10 @@ local function write(id, before, after)
 end
 
 local DONE = {merged = true, closed = true}
-local repos = {}
-local listed = {}
 
 for _, issue in ipairs(rela.list_entities("issue")) do
   local p = issue.properties
   local repo, number = slug(p.pr_url)
-  listed[issue.id] = true
-  if repo then repos[repo] = true end
   if repo and not DONE[p.pr_state] then
     local pull, err = json("/repos/" .. repo .. "/pulls/" .. number)
     if pull then
@@ -263,25 +263,6 @@ for _, issue in ipairs(rela.list_entities("issue")) do
       write(issue.id, p, after)
     else
       print("github sync: " .. issue.id .. ": " .. tostring(err))
-    end
-  end
-end
-
--- Removed in Atlas: an open pull request Code opened for an issue (its branch
--- atlas/TK-<issue>-<n>, the task that made it) that rela no longer holds is closed.
-for repo in pairs(repos) do
-  local pulls, err = json("/repos/" .. repo .. "/pulls?state=open&per_page=100")
-  if not pulls then print("github sync: " .. repo .. ": " .. tostring(err)) end
-  for _, pull in ipairs(pulls or {}) do
-    local id = pull.head and type(pull.head.ref) == "string" and
-               pull.head.ref:match("^atlas/TK%-(IS%-.+)%-%d+$")
-    if id and not listed[id] then
-      local ok, held = pcall(rela.get_entity, id)
-      if ok and held == nil then
-        local failed = close(repo, pull.number, "Closed by Atlas: its issue " .. id ..
-                             " was removed there.")
-        if failed then print("github sync: removed " .. id .. ": close: " .. failed) end
-      end
     end
   end
 end

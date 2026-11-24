@@ -527,7 +527,7 @@
                   "label": "Accept"
                 }
               ],
-              "instructions": "Read the issues under it, which its agent proposed; change, delete or add any, then accept them. They can then be picked up and built."
+              "instructions": "Read the issues under it, which its agent proposed; change any, or remove one (Remove, under More… on its page), then accept them. They can then be picked up and built."
             },
             "why": "its agent's break-down is done"
           },

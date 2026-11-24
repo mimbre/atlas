@@ -116,6 +116,7 @@ defmodule AtlasFlow.FakeFacts do
        position: 0,
        busy: MapSet.new(),
        blocked_reads: MapSet.new(),
+       reads_before_block: %{},
        refused_writes: MapSet.new(),
        reserved: MapSet.new(),
        busy_after_write: MapSet.new(),
@@ -175,8 +176,18 @@ defmodule AtlasFlow.FakeFacts do
   def handle_call({:block_read, kind, content}, _from, s),
     do: {:reply, :ok, %{s | blocked_reads: MapSet.put(s.blocked_reads, {kind, content})}}
 
-  def handle_call({:allow_read, kind, content}, _from, s),
-    do: {:reply, :ok, %{s | blocked_reads: MapSet.delete(s.blocked_reads, {kind, content})}}
+  def handle_call({:allow_read, kind, content}, _from, s) do
+    s = %{s | reads_before_block: Map.delete(s.reads_before_block, {kind, content})}
+    {:reply, :ok, %{s | blocked_reads: MapSet.delete(s.blocked_reads, {kind, content})}}
+  end
+
+  # The next `n` reads with exactly this content are answered, every later one is blocked
+  # (as `{:block_read, …}`), until `{:allow_read, …}`. How "this read answered, the same
+  # read a step later failed" is staged.
+  def handle_call({:block_read_after, kind, content, n}, _from, s) do
+    s = %{s | blocked_reads: MapSet.put(s.blocked_reads, {kind, content})}
+    {:reply, :ok, put_in(s.reads_before_block[{kind, content}], n)}
+  end
 
   # Once, around the next write of this fact from `sender`: `fun` changes the fact as
   # another writer's write would (a new version), `:before` Facts handles that write or
@@ -229,10 +240,16 @@ defmodule AtlasFlow.FakeFacts do
           %{"facts" => for({{^kind, _}, fact} <- s.facts, do: fact)}
       end
 
-    answer =
-      if MapSet.member?(s.blocked_reads, {e.kind, content}),
-        do: %{"error" => "Facts did not answer"},
-        else: answer
+    {answer, s} =
+      case s.reads_before_block[{e.kind, content}] do
+        n when is_integer(n) and n > 0 ->
+          {answer, put_in(s.reads_before_block[{e.kind, content}], n - 1)}
+
+        _ ->
+          if MapSet.member?(s.blocked_reads, {e.kind, content}),
+            do: {%{"error" => "Facts did not answer"}, s},
+            else: {answer, s}
+      end
 
     s =
       case content do

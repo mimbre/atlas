@@ -269,7 +269,7 @@ defmodule AtlasFlow.Activities.Task do
     with true <- is_binary(relation) || :other,
          {:ok, %{} = holder} <- holder(owner, projection, subject),
          [key] when is_binary(key) <- List.wrap(get_in(holder, ["links", relation])) do
-      case Talk.transition_read(spec["machinery"], %{"key" => key, "plain" => true}) do
+      case Talk.read(spec["machinery"], %{"key" => key, "plain" => true}) do
         %{"fact" => %{}} -> {:machinery, key}
         %{"fact" => nil} -> :other
         _ -> :unavailable
@@ -283,7 +283,7 @@ defmodule AtlasFlow.Activities.Task do
   defp holder(owner, %{"on" => on}, subject) when is_binary(on) do
     case {(owner || %{})["via"], List.wrap(get_in(subject, ["links", on]))} do
       {kind, [key]} when is_binary(kind) and is_binary(key) ->
-        case Talk.transition_read(kind, %{"key" => key, "plain" => true}) do
+        case Talk.read(kind, %{"key" => key, "plain" => true}) do
           %{"fact" => fact} -> {:ok, fact}
           _ -> :unavailable
         end
@@ -303,7 +303,7 @@ defmodule AtlasFlow.Activities.Task do
     subject = run["subject_key"]
     records = spec["records"]
 
-    case Talk.transition_read(records["kind"], %{
+    case Talk.read(records["kind"], %{
            "linked" => %{records["relation"] => subject},
            "plain" => true
          }) do
@@ -489,7 +489,7 @@ defmodule AtlasFlow.Activities.Task do
   # standing decisions and those the subject is based on, as its `read_first` gives them.
   defp read_first(%{"read_first" => true}, subject, %{read_first: read_first})
        when is_function(read_first, 2) do
-    case read_first.(subject, &Talk.transition_read/2) do
+    case read_first.(subject, &Talk.read/2) do
       text when is_binary(text) and text != "" -> "\n\n## Read these first\n\n" <> text
       _ -> ""
     end
@@ -510,7 +510,7 @@ defmodule AtlasFlow.Activities.Task do
 
     with {to, key} <- parent,
          %{"fact" => %{} = found} <-
-           Talk.transition_read(to, %{"key" => key, "plain" => true}) do
+           Talk.read(to, %{"key" => key, "plain" => true}) do
       values = found["values"] || %{}
 
       sections =
@@ -727,7 +727,7 @@ defmodule AtlasFlow.Activities.Task do
     servable(intent, repository(spec) || (run["pending"]["ladder"] || %{})["repository"])
     key = intent["key"]
 
-    case Talk.transition_read(spec["records"]["kind"], %{"key" => key, "plain" => true}) do
+    case Talk.read(spec["records"]["kind"], %{"key" => key, "plain" => true}) do
       %{"fact" => %{} = fact} ->
         case Translate.outcome(fact, spec["check"] != nil) do
           # Ended: its result is the task's own, taken as always; an answer that came
@@ -997,7 +997,7 @@ defmodule AtlasFlow.Activities.Task do
 
     with [_ | _] = entries <- Ladder.follow_ups(answer),
          %{"fact" => %{} = subject} <-
-           Talk.transition_read(run["subject_kind"], %{
+           Talk.read(run["subject_kind"], %{
              "key" => run["subject_key"],
              "plain" => true
            }),
@@ -1032,7 +1032,7 @@ defmodule AtlasFlow.Activities.Task do
   defp make(kind, entries, relation, under, intent, tag, what, run, ctx) do
     with %{"prefix" => prefix, "digits" => digits} = ids <- (ctx[:ids] || %{})[kind],
          %{"facts" => facts} when is_list(facts) <-
-           Talk.transition_read(kind, %{"plain" => true}) do
+           Talk.read(kind, %{"plain" => true}) do
       first = HandOver.next_number(%{"prefix" => prefix}, Enum.map(facts, & &1["key"]))
       supervisor = run["supervised_by"]
       by = if is_binary(supervisor), do: "For #{supervisor}: ", else: ""
@@ -1259,7 +1259,7 @@ defmodule AtlasFlow.Activities.Task do
   defp facts(spec, run) do
     records = spec["records"]
 
-    case Talk.transition_read(records["kind"], %{
+    case Talk.read(records["kind"], %{
            "linked" => %{records["relation"] => run["subject_key"]},
            "plain" => true
          }) do

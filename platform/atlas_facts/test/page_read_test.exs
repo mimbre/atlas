@@ -167,7 +167,7 @@ defmodule AtlasFacts.PageReadTest do
 
     for content <- [
           %{"reads" => [["box", %{}]], "linked" => %{}},
-          %{"reads" => [["box", %{"consistency" => "transition"}]]},
+          %{"reads" => [["box", %{"unknown" => true}]]},
           %{"reads" => [["box"]]},
           %{"reads" => [["nothing", %{}]]},
           %{"reads" => []},

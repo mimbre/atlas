@@ -71,7 +71,7 @@ try do
   put = fn kind, content -> assert {:stored, _} = Talk.put(kind, content) end
 
   read = fn kind, key ->
-    %{"fact" => fact} = Talk.transition_read(kind, %{"key" => key, "presentation" => true})
+    %{"fact" => fact} = Talk.read(kind, %{"key" => key, "presentation" => true})
     fact
   end
 
@@ -127,7 +127,7 @@ try do
 
   raw_runs = fn key ->
     mapping = Model.AtlasEyra.run_mapping()
-    %{"facts" => runs} = Talk.transition_read(mapping["kind"], %{})
+    %{"facts" => runs} = Talk.read(mapping["kind"], %{})
     Enum.filter(runs, &(get_in(&1, ["values", mapping["fields"]["subject_key"]]) == key))
   end
 

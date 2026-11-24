@@ -17,14 +17,14 @@ defmodule FlowGateFacts do
   end
 
   def fetch(_, kind, nil) do
-    case Talk.transition_read(kind, %{}) do
+    case Talk.read(kind, %{}) do
       %{"facts" => facts} -> {:ok, facts}
       other -> {:error, inspect(other)}
     end
   end
 
   def fetch(_, kind, key) do
-    case Talk.transition_read(kind, %{"key" => key}) do
+    case Talk.read(kind, %{"key" => key}) do
       %{"fact" => fact} -> {:ok, fact}
       other -> {:error, inspect(other)}
     end
