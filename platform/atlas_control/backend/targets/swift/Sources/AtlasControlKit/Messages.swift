@@ -604,15 +604,17 @@ public struct WorkerOutputUnsubscribeErrorMessage: Codable, Sendable, Equatable 
 public struct BootShellMessage: Codable, Sendable, Equatable {
     public var activeTab: String?
     public var env: String
+    public var greeting: String?
     public var initialTo: String
     public var revision: String
     public var spec: String
     public var tabs: [ShellTabModel]
     public var title: String
 
-    public init(activeTab: String? = nil, env: String, initialTo: String, revision: String, spec: String, tabs: [ShellTabModel], title: String) {
+    public init(activeTab: String? = nil, env: String, greeting: String? = nil, initialTo: String, revision: String, spec: String, tabs: [ShellTabModel], title: String) {
         self.activeTab = activeTab
         self.env = env
+        self.greeting = greeting
         self.initialTo = initialTo
         self.revision = revision
         self.spec = spec
@@ -623,6 +625,7 @@ public struct BootShellMessage: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case activeTab = "active_tab"
         case env
+        case greeting
         case initialTo = "initial_to"
         case revision
         case spec

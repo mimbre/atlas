@@ -194,6 +194,7 @@
   "start": {
     "assigned": {
       "count": "{count} yours",
+      "greeting": "Good day, {name}.",
       "relation": "held_by",
       "title": "Yours"
     }

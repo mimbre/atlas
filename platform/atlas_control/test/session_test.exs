@@ -2293,4 +2293,48 @@ defmodule AtlasControl.SessionTest do
       assert %{"/_open" => {0, []}, "/_supervised" => {1, [1]}} = counts.()
     end
   end
+
+  describe "the shell greets a person by name (UC-Atlas-46)" do
+    # The page for `/` without the parts that say when or why it was sent.
+    defp home(socket) do
+      put(socket, %{"op" => "open", "to" => "/"})
+      assert %{"path" => "/"} = page = next(socket, "page")
+      Map.drop(page, ["position", "reason", "hint"])
+    end
+
+    defp greeted_shop(model) do
+      port = gateway(model)
+      FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"checked_by" => ["ada"]})
+      FakeStore.put("ada", %{"name" => "Ada"}, "member")
+      Application.put_env(:atlas_control, :tui_user, "ada")
+      on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+      port
+    end
+
+    defp booted(socket) do
+      put(socket, %{"op" => "boot"})
+      next(socket, "boot")
+    end
+
+    test "a TUI person's boot carries the greeting with its name; an agent's does not" do
+      port = greeted_shop(Shop.ShelledGreeted)
+      tui = hello_as(port, "tui")
+      assert %{"greeting" => "Hello, Ada.", "initial_to" => "/"} = booted(tui)
+
+      agent = hello_as(port, "agent")
+      refute Map.has_key?(booted(agent), "greeting")
+
+      # The shell is built at boot: a renamed person sees the new name at the next one.
+      FakeStore.put("ada", %{"name" => "Ada B"}, "member")
+      assert %{"greeting" => "Hello, Ada B."} = booted(hello_as(port, "tui"))
+    end
+
+    test "the page for / is the same as without a greeting" do
+      greeted = home(hello_as(greeted_shop(Shop.ShelledGreeted), "tui"))
+      plain = home(hello_as(greeted_shop(Shop.ShelledAssigned), "tui"))
+      assert greeted == plain
+      assert Enum.any?(greeted["blocks"], &(&1["id"] == "list"))
+      refute JSON.encode!(greeted) =~ "Hello"
+    end
+  end
 end

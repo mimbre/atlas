@@ -73,7 +73,7 @@ defmodule AtlasBFFContract.Wire.Control.Session do
           "tabs" => :list,
           "initial_to" => :string
         },
-        optional: %{"active_tab" => :string}
+        optional: %{"active_tab" => :string, "greeting" => :string}
       },
       %{
         name: :error,

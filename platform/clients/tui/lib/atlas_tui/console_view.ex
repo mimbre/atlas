@@ -10,6 +10,17 @@ defmodule AtlasTui.ConsoleView do
     # The environment segment keeps a cell either side, so it reads as a badge.
     suffix = " · #{model.env} "
     title = String.slice(title, 0, max(width - String.length(suffix) - 1, 0))
+    # The shell's greeting (the viewer's name) follows the environment, before the count:
+    # "Atlas Console · prod · <name> · 3 assigned to you". It is cut to the room the rest
+    # of the bar leaves, and left out when there is none.
+    room = width - String.length(" #{title}" <> suffix <> "· " <> count) - 1
+
+    greeting =
+      if shell && shell["greeting"],
+        do: String.slice(shell["greeting"], 0, max(room, 0)),
+        else: ""
+
+    count = if greeting == "", do: String.trim_leading(count), else: "· " <> greeting <> count
     # Keep environment and stale state readable even in a narrow viewport.
     {title, stale} =
       if stale != "" && width < String.length(title <> suffix <> stale) + 1,
@@ -20,7 +31,7 @@ defmodule AtlasTui.ConsoleView do
     bar = [
       {:header, " #{title} ·"},
       {if(model.env == "prod", do: :prod, else: :header), " #{model.env} "},
-      {:header, String.trim_leading(count)},
+      {:header, count},
       {:pending, stale}
     ]
 

@@ -490,10 +490,12 @@ defmodule AtlasTui.Console do
         text?(message["title"], 128) and text?(message["revision"], 128) and
         is_list(tabs) and length(tabs) in 1..64 and Enum.all?(tabs, &valid_tab?/1) and
         distinct?(tabs, "id") and distinct?(tabs, "to") and path?(message["initial_to"]) and
-        (is_nil(message["active_tab"]) or Enum.any?(tabs, &(&1["id"] == message["active_tab"])))
+        (is_nil(message["active_tab"]) or Enum.any?(tabs, &(&1["id"] == message["active_tab"]))) and
+        (is_nil(message["greeting"]) or text?(message["greeting"], 1_024))
 
     if valid,
-      do: {:ok, Map.take(message, ~w(title env spec revision tabs initial_to active_tab))},
+      do:
+        {:ok, Map.take(message, ~w(title env spec revision tabs initial_to active_tab greeting))},
       else: {:error, "Invalid Console boot response"}
   end
 

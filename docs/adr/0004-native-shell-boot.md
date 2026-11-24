@@ -10,7 +10,12 @@ unsupported, never as successful shell data.
 
 Send `{"op":"boot","to":"/k/scene"}` (`to` is optional). Success returns `op: boot`,
 `title`, `env`, `spec`, `revision`, ordered `tabs` (stable `id`, `label`, `to`),
-`initial_to` and optional `active_tab`. No page blocks or terminal keys are returned.
+`initial_to` and optional `active_tab` and `greeting`. No page blocks or terminal keys
+are returned. `greeting` (UC-Atlas-46) is the start's `assigned` `greeting:` words with
+`{name}` the viewer's name (its fact's label, read once at boot), only for a client of a
+kind the assigned relation points at; it is part of the revision, so a renamed person
+sees the new name at the next boot. The TUI shows it in its title bar, after the
+environment.
 Request/reply models and wire selectors use the existing DSL and transport.
 
 The selected description's `shell` owns title and ordered index tabs. Composition

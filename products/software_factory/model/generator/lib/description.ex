@@ -41,7 +41,9 @@ defmodule RelaDSL.Description do
   (`for`, the supervisor's kind) and the field that holds how it ended (`ended`, empty
   while it runs). It needs `supervision:`, and is given once, where those relations are.
   `start_page` takes `assigned:`, `open:`, and, with supervision, `open_for_you:` and
-  `supervised_by_you:` (each `title:`, `count:`, `empty:`).
+  `supervised_by_you:` (each `title:`, `count:`, `empty:`). `assigned:` also takes
+  `greeting:`, the text a client greets its viewer with, `{name}` its name (the way
+  `count:` has `{count}`); Control fills it in for a viewer the relation points at.
   `shell` takes `title:`, `tabs:` (each `id:`, `label:`, `to:`, `assigned:`, and `icon:`, a
   semantic name a client may draw the tab with) and `default:`, the id of the tab a client
   opens on without a target (else the first).
