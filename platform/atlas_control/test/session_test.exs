@@ -2258,7 +2258,7 @@ defmodule AtlasControl.SessionTest do
                Enum.find(page["blocks"], &(&1["id"] == "list"))["props"]["rows"]
     end
 
-    test "boot's tabs with groups carry their counts, read again when a hint makes them stale" do
+    test "boot's tabs with groups carry their counts from the next boot on, read again when a hint makes them stale" do
       port = supervised_shop([])
       tui = hello_as(port, "tui")
       put(tui, %{"op" => "open", "to" => "/_supervised"})
@@ -2272,6 +2272,8 @@ defmodule AtlasControl.SessionTest do
             do: {tab["to"], {tab["count"], Enum.map(tab["groups"], & &1["count"])}}
       end
 
+      # Boot never waits for the counts: the first has none, they are read just after it.
+      assert %{"/_open" => {nil, [nil]}, "/_supervised" => {nil, [nil]}} = counts.()
       assert %{"/_open" => {1, [1]}, "/_supervised" => {0, [0]}} = counts.()
 
       # Flow sets the run's supervisor: the work moves from Open for you to Supervised by you.
@@ -2285,6 +2287,7 @@ defmodule AtlasControl.SessionTest do
       )
 
       assert %{"path" => "/_supervised", "reason" => "hint"} = next(tui, "page", @arrives)
+      assert %{"/_open" => {nil, [nil]}, "/_supervised" => {nil, [nil]}} = counts.()
       assert %{"/_open" => {0, [0]}, "/_supervised" => {1, [1]}} = counts.()
     end
   end

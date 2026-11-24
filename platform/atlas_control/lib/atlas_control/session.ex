@@ -93,8 +93,10 @@ defmodule AtlasControl.Session do
        count: %{text: nil, set: nil},
        # The counts of the tabs with groups, for boot: by the tab's `to`, its page's groups'
        # counts (`%{to => count}`, All's under the tab's own `to`) and what they were read
-       # from (`set`); dropped when a hint makes them stale.
+       # from (`set`); dropped when a hint makes them stale. `counting`: a read of the
+       # missing ones is on its way (`count_later/2`).
        tab_counts: %{},
+       counting: false,
        cause: nil,
        # The pages sent lately, by path, with what each depended on.
        recent: Recent.new(),
@@ -289,6 +291,9 @@ defmodule AtlasControl.Session do
   end
 
   def handle_info({:settle_timeout, _ref}, state), do: {:noreply, state}
+
+  def handle_info({:count_tabs, tos}, state),
+    do: {:noreply, Enum.reduce(tos, %{state | counting: false}, &count_tabs(&2, &1))}
 
   def handle_info({:resend, id}, state) do
     case state.pending[id] do
@@ -557,9 +562,9 @@ defmodule AtlasControl.Session do
            &route(&1, candidate)
          ) do
       {:ok, shell} ->
-        {shell, candidate} = counted(shell, listen(candidate))
+        {shell, missing} = counted(shell, state.tab_counts)
         send_client(state, Map.put(shell, "op", "boot"))
-        {:noreply, candidate}
+        {:noreply, candidate |> listen() |> count_later(missing)}
 
       {:error, why} ->
         send_client(state, %{"op" => "boot", "error" => why})
@@ -649,33 +654,45 @@ defmodule AtlasControl.Session do
     do: {:noreply, notice(state, "error", "Unknown op #{inspect(op)}")}
 
   # Boot's tabs with groups carry their counts, so a client shows them before the tab is
-  # opened: the tab's All, each group its own, from the tab's page (`groups` block). Read
-  # once and kept (`tab_counts`) until a hint makes them stale; none while unreadable.
-  defp counted(shell, state) do
-    {tabs, state} =
-      Enum.map_reduce(shell["tabs"], state, fn
-        %{"groups" => [_ | _] = groups} = tab, state ->
-          {counts, state} = tab_counts(state, tab["to"])
+  # opened: the tab's All, each group its own, from the tab's page (`groups` block). Boot
+  # only says those already read (`tab_counts`), so it never waits for Facts (a client
+  # gives up on a slow boot); the others are read just after it and come with the next
+  # boot. Kept until a hint makes them stale; none while unreadable. `{shell, missing}`.
+  defp counted(shell, known) do
+    {tabs, missing} =
+      Enum.map_reduce(shell["tabs"], [], fn
+        %{"groups" => [_ | _] = groups, "to" => to} = tab, missing ->
+          case known do
+            %{^to => %{counts: counts}} ->
+              groups =
+                for group <- groups do
+                  if n = counts[group["to"]], do: Map.put(group, "count", n), else: group
+                end
 
-          groups =
-            for group <- groups do
-              if n = counts[group["to"]], do: Map.put(group, "count", n), else: group
-            end
+              tab = if n = counts[to], do: Map.put(tab, "count", n), else: tab
+              {%{tab | "groups" => groups}, missing}
 
-          tab = if n = counts[tab["to"]], do: Map.put(tab, "count", n), else: tab
-          {%{tab | "groups" => groups}, state}
+            _ ->
+              {tab, [to | missing]}
+          end
 
-        tab, state ->
-          {tab, state}
+        tab, missing ->
+          {tab, missing}
       end)
 
-    {%{shell | "tabs" => tabs}, state}
+    {%{shell | "tabs" => tabs}, missing}
   end
 
-  defp tab_counts(%{tab_counts: %{} = known} = state, to) when is_map_key(known, to),
-    do: {known[to].counts, state}
+  # Read the counts boot did not have, once the boot is answered (one read at a time).
+  defp count_later(state, []), do: state
+  defp count_later(%{counting: true} = state, _tos), do: state
 
-  defp tab_counts(state, to) do
+  defp count_later(state, tos) do
+    send(self(), {:count_tabs, tos})
+    %{state | counting: true}
+  end
+
+  defp count_tabs(state, to) do
     {page, _answers, set} = page(state, to |> route(state) |> start(state), %{})
 
     counts =
@@ -685,8 +702,8 @@ defmodule AtlasControl.Session do
           do: {group_to, n}
 
     if counts == %{},
-      do: {counts, state},
-      else: {counts, put_in(state.tab_counts[to], %{counts: counts, set: set})}
+      do: state,
+      else: put_in(state.tab_counts[to], %{counts: counts, set: set})
   end
 
   defp bye(state, text) do
