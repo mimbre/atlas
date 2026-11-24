@@ -204,8 +204,8 @@ final class ShellViewModelTests: XCTestCase {
 
         h.session.open("/k/widget/requested")
         XCTAssertEqual(h.connection.take(), [.open(OpenRequest(to: "/k/widget/requested"))])
-        // Pending intent must not pretend that another item is already displayed.
-        XCTAssertEqual(ShellViewModel(h.state).selectedPath, "/k/widget")
+        // The clicked row stays selected while its page is on its way (no flicker).
+        XCTAssertEqual(ShellViewModel(h.state).selectedPath, "/k/widget/requested")
         h.connection.receive(Lines.page("/k/widget/redirected"))
         XCTAssertEqual(ShellViewModel(h.state).selectedPath, "/k/widget/redirected")
 
