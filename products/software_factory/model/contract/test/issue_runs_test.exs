@@ -317,14 +317,15 @@ defmodule Model.IssueRunsTest do
     answer(test)
   end
 
-  # Reconciles until the run holds a task's intent, and returns it.
+  # Reconciles until the run holds a task's intent, and returns it; between tries it waits
+  # for Flow's next reconcile request, as Code's answers and Facts' writes arrive.
   defp intent(c, rounds \\ 50) do
     run = reconcile(c)
 
     cond do
       run["pending"]["task"] != nil -> run
       rounds == 0 -> flunk("no task in #{run["state"]}")
-      true -> Process.sleep(10) && intent(c, rounds - 1)
+      true -> next_reconcile() && intent(c, rounds - 1)
     end
   end
 
@@ -335,7 +336,16 @@ defmodule Model.IssueRunsTest do
     cond do
       run["state"] == state and run["pending"]["writes"] == [] -> run
       rounds == 0 -> flunk("run in #{run["state"]}, not #{state}")
-      true -> Process.sleep(10) && until(c, state, rounds - 1)
+      true -> next_reconcile() && until(c, state, rounds - 1)
+    end
+  end
+
+  defp next_reconcile do
+    receive do
+      {:reconcile, "issue", @key} -> true
+      {:"$gen_cast", {:reconcile, "issue", @key}} -> true
+    after
+      30_000 -> flunk("no reconcile of #{@key}")
     end
   end
 
