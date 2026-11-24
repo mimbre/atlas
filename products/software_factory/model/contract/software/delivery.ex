@@ -15,15 +15,20 @@ defmodule Model.Delivery do
   on the author's, is what Code publishes. Then Code opens a pull request from the
   latest result, the review and the fix in its body (the effect `publish`,
   `AtlasCode.Effects`), and the issue waits for its CI (`checking`): rela's GitHub sync
-  writes the pull's check status (`pr_checks`) and what failed (`pr_checks_failure`).
-  Passed, it waits for its supervisor to merge it on GitHub (`merging`): the GitHub
-  connector copies the pull's state, and merged is done. Failed, a fix task works on the
-  latest result with what failed (`ci_fixing`, its `findings:` that field), and Code
-  pushes its result onto the same pull request (`ci_pushing`, `onto: :pr_url`), whose CI
-  is waited for again; at most two such fixes (`ci_fixes`), then its supervisor decides
-  (`ci_failing`). A result without changes against develop opens no pull request: Code
-  refuses it (`no_changes`) and the issue goes to its supervisor (`unchanged`). No second
-  review; its supervisor decides. No package.
+  writes the pull's check status (`pr_checks`), what failed (`pr_checks_failure`) and
+  whether it merges into develop (`pr_mergeable`). Passed and mergeable, it waits for its
+  supervisor to merge it on GitHub (`merging`): the GitHub connector copies the pull's
+  state, and merged is done. Its supervisor gets it only while it is mergeable and green:
+  conflicting or not green meanwhile takes it back to `checking`. Failed, a fix task
+  works on the latest result with what failed (`ci_fixing`, its `findings:` that field),
+  and Code pushes its result onto the same pull request (`ci_pushing`, `onto: :pr_url`),
+  whose CI is waited for again; at most two such fixes (`ci_fixes`), then its supervisor
+  decides (`ci_failing`). Conflicting with develop, an update task resolves develop merged
+  into its pull request (`updating`, its base `update: :pr_url`) and Code pushes it onto
+  the same pull request (`update_pushing`); one update per conflict (`pr_updates`), then
+  its supervisor decides (`update_failing`). A result without changes against develop
+  opens no pull request: Code refuses it (`no_changes`) and the issue goes to its
+  supervisor (`unchanged`). No second review; its supervisor decides. No package.
 
   Every task reads the issue's title and description, and those of its use case and its
   scene (`parents:`): why it is to be done.
@@ -69,6 +74,9 @@ defmodule Model.Delivery do
         :ci_fixing_again,
         :ci_pushing,
         :ci_failing,
+        :updating,
+        :update_pushing,
+        :update_failing,
         :merging,
         :unchanged
       ],
@@ -194,23 +202,35 @@ defmodule Model.Delivery do
       )
     end
 
-    # The CI gate: rela's GitHub sync writes its pull request's check status (`pr_checks`)
-    # and, when it failed, what failed (`pr_checks_failure`). Entering it sets the status
-    # running, so a status of the head before the last push is never taken for this one.
-    # Red leads to a fix of what failed, pushed onto the same pull request, at most twice
-    # (`ci_fixes`); still red, its supervisor decides. Merged meanwhile is done.
+    # The CI gate: rela's GitHub sync writes its pull request's check status (`pr_checks`),
+    # what failed (`pr_checks_failure`) and whether it merges into develop
+    # (`pr_mergeable`). Entering it sets both unknown, so a status of the head before the
+    # last push is never taken for this one. Conflicting leads to an update with develop,
+    # once (`pr_updates`); red to a fix of what failed, pushed onto the same pull request,
+    # at most twice (`ci_fixes`); still conflicting or red, its supervisor decides. Its
+    # supervisor is asked to merge it only when it is green and mergeable. Merged meanwhile
+    # is done.
     state :checking, label: "Waiting for CI" do
-      set pr_checks: :pending
+      set pr_checks: :pending, pr_mergeable: :unknown
 
       present(
         expected: "Wait for its CI",
         why: "its pull request is open",
         instructions:
-          "GitHub runs the checks of its pull request; nothing is asked of anyone meanwhile. Passed, its supervisor merges it; failed, an agent fixes what failed on its machinery, at most twice."
+          "GitHub runs the checks of its pull request; nothing is asked of anyone meanwhile. Passed and mergeable, its supervisor merges it; conflicting with develop, an agent updates it; failed, an agent fixes what failed on its machinery, at most twice."
       )
 
       branch to: :done, when: "entity.pr_state == 'merged'"
-      branch to: :merging, when: "entity.pr_checks == 'success'"
+
+      branch to: :update_failing,
+             when:
+               "(entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind') and entity.pr_updates == 'one'"
+
+      branch to: :updating,
+             when: "entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind'"
+
+      branch to: :merging,
+             when: "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean'"
 
       branch to: :ci_failing,
              when: "entity.pr_checks == 'failure' and entity.ci_fixes == 'two'"
@@ -219,6 +239,83 @@ defmodule Model.Delivery do
              when: "entity.pr_checks == 'failure' and entity.ci_fixes == 'one'"
 
       branch to: :ci_fixing, when: "entity.pr_checks == 'failure'"
+    end
+
+    # Its pull request conflicts with develop: an agent resolves develop merged into it
+    # (Code's merge of develop into the pull request's head, with the conflicts marked),
+    # keeping its intent, and Code pushes the result onto the same pull request
+    # (`update_pushing`), whose CI is waited for again. One update per conflict.
+    state :updating, label: "Updating it with develop" do
+      set pr_updates: :one
+
+      present(
+        expected: "Update it with develop on the machinery",
+        why: "its pull request conflicts with develop",
+        instructions:
+          "Its machinery runs an agent on develop merged into its pull request, which resolves the conflicts; Code then pushes the update onto its pull request. Nothing is done while it is not assigned to a machinery."
+      )
+
+      task(:fix,
+        role: :developer,
+        profile: :deep_coding,
+        cost_class: :standard,
+        input: [repository: "github.com/mimbre/atlas", base: "develop", update: :pr_url],
+        instructions:
+          "Update the pull request of the issue below with develop, in the repository you are given: a Git checkout of develop merged into its pull request. Its last commit only adds the base's dependencies; under it (HEAD~1) is the merge: its first parent is the pull request's head, its second develop, and its message lists the files that conflict, which hold Git's conflict markers. Resolve every conflict keeping the pull request's intent and develop's changes alike; leave no conflict marker. Generated targets (products/software_factory/model/targets) are never merged by hand: take develop's and regenerate them with mix model.gen (in products/software_factory). Where the pull request's model change has a migrate(…) of a run digest, chain it from develop's current digests, as mix model.gen --check names them. Run bin/check. End your answer with what you resolved and what is left open.",
+        fields: [:title, :description],
+        parents: [:title, :description],
+        records: [kind: "task", relation: "task_of"],
+        machinery: "machinery",
+        on: [
+          completed: :update_pushing,
+          check_failed: :update_pushing,
+          stuck: :update_failing,
+          abandoned: :update_failing
+        ]
+      )
+    end
+
+    # Code pushes the update, on top of the pull request's head, to its branch
+    # (`onto: :pr_url`): the same pull request, whose CI is waited for again.
+    state :update_pushing, label: "Pushing its update" do
+      present(
+        expected: "Let Code push its update",
+        why: "its update with develop is done",
+        instructions:
+          "Code pushes the update onto the branch of its pull request on GitHub; nothing is asked of anyone meanwhile."
+      )
+
+      effect(:push,
+        contract: 1,
+        name: "update",
+        service: "code",
+        operation: "publish",
+        field: :pr_update,
+        fingerprint: [fields: ["title"], relations: []],
+        payload: ["title", "description"],
+        input: [repository: "github.com/mimbre/atlas", base: "develop", onto: :pr_url],
+        on: [done: :checking, no_changes: :update_failing, refused: :update_failing]
+      )
+    end
+
+    # Its pull request still conflicts with develop after its update, or the update could
+    # not be made or pushed: its supervisor decides. They update it by hand (green and
+    # mergeable is theirs to merge) or close it; merged is done.
+    state :update_failing, label: "Conflicts with develop" do
+      owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
+      set gate_result: :none
+
+      present(
+        expected: "Decide what to do with it",
+        why: "its pull request conflicts with develop, and its agent's update did not resolve it",
+        instructions:
+          "Its agent could not update its pull request with develop: the update ended without a result, Code could not push it (its branch moved meanwhile), or it still conflicts. Update it by hand (once it is green and mergeable it is yours to merge), or close it.",
+        answers: [[key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]]
+      )
+
+      branch to: :done, when: "entity.gate_result == 'close'"
+      branch to: :done, when: "entity.pr_state == 'merged'"
+      branch to: :checking, when: "entity.pr_mergeable == 'clean'"
     end
 
     # A fix of its failing CI, on its latest result (as the review's fix): what failed, the
@@ -326,20 +423,33 @@ defmodule Model.Delivery do
 
       branch to: :done, when: "entity.gate_result == 'close'"
       branch to: :done, when: "entity.pr_state == 'merged'"
-      branch to: :merging, when: "entity.pr_checks == 'success'"
+
+      branch to: :merging,
+             when: "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean'"
     end
 
+    # Its supervisor is asked to merge it only while it is green and mergeable: conflicting
+    # or not green meanwhile (develop moved, a push, a rerun), it goes back to the CI gate,
+    # which updates or fixes it. Reaching it ends a round: a later conflict or red gets
+    # its update and fixes again.
     state :merging, label: "Merge it" do
       owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
+      set pr_updates: :none, ci_fixes: :none
 
       present(
         expected: "Review and merge its pull request",
         why: "its agent's work is done",
         instructions:
-          "Its CI passed. Open its pull request, read its review's verdict and findings and its fix's answer in its body, and merge it on GitHub; the issue is done once GitHub says it is merged."
+          "Its CI passed and it merges into develop. Open its pull request, read its review's verdict and findings and its fix's answer in its body, and merge it on GitHub; the issue is done once GitHub says it is merged."
       )
 
       branch to: :done, when: "entity.pr_state == 'merged'"
+
+      branch to: :checking,
+             when: "entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind'"
+
+      branch to: :checking,
+             when: "entity.pr_checks == 'failure' or entity.pr_checks == 'pending'"
     end
 
     # Its agent changed nothing (author's and fix's result alike): Code opened no pull
@@ -409,5 +519,33 @@ defmodule Model.Delivery do
       working: :working
     ],
     reason: "The CI gate: CI is waited for before the merge, and red is fixed at most twice"
+  )
+
+  # Mergeable and green only (IS-Atlas-22): its supervisor is asked to merge it only while
+  # its pull request merges into develop and its CI passed; conflicting, an agent updates
+  # it with develop once, and Merge it gives it back to the CI gate when it conflicts or
+  # is not green. States are added, none renamed or removed, so a live run keeps its
+  # state, entry, task and timers; one in `merging` leaves it once the sync says it
+  # conflicts or is not green.
+  migrate(:issue,
+    from: "6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce",
+    to: "67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66",
+    preserve_entry: true,
+    states: [
+      checking: :checking,
+      ci_failing: :ci_failing,
+      ci_fixing: :ci_fixing,
+      ci_fixing_again: :ci_fixing_again,
+      ci_pushing: :ci_pushing,
+      done: :done,
+      fixing: :fixing,
+      merging: :merging,
+      publishing: :publishing,
+      reviewing: :reviewing,
+      stuck: :stuck,
+      unchanged: :unchanged,
+      working: :working
+    ],
+    reason: "Mergeable and green only: a conflict with develop is updated by an agent"
   )
 end
