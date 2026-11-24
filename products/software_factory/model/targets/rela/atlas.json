@@ -573,6 +573,18 @@
         ]
       },
       "properties": {
+        "ci_fixes": {
+          "label": "CI fixes",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "ci_push": {
+          "label": "CI fix push",
+          "set_by": [
+            "flow"
+          ]
+        },
         "description": {
           "multiline": true
         },

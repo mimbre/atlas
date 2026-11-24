@@ -1008,6 +1008,300 @@
         }
       ],
       "states": {
+        "checking": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "done",
+              "when": "entity.pr_state == 'merged'"
+            },
+            {
+              "roles": [],
+              "to": "merging",
+              "when": "entity.pr_checks == 'success'"
+            },
+            {
+              "roles": [],
+              "to": "ci_failing",
+              "when": "entity.pr_checks == 'failure' and entity.ci_fixes == 'two'"
+            },
+            {
+              "roles": [],
+              "to": "ci_fixing_again",
+              "when": "entity.pr_checks == 'failure' and entity.ci_fixes == 'one'"
+            },
+            {
+              "roles": [],
+              "to": "ci_fixing",
+              "when": "entity.pr_checks == 'failure'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Waiting for CI",
+          "present": {
+            "expected": "Wait for its CI",
+            "todo": {
+              "instructions": "GitHub runs the checks of its pull request; nothing is asked of anyone meanwhile. Passed, its supervisor merges it; failed, an agent fixes what failed on its machinery, at most twice."
+            },
+            "why": "its pull request is open"
+          },
+          "set": [
+            {
+              "field": "pr_checks",
+              "value": "pending"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "ci_failing": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "done",
+              "when": "entity.gate_result == 'close'"
+            },
+            {
+              "roles": [],
+              "to": "done",
+              "when": "entity.pr_state == 'merged'"
+            },
+            {
+              "roles": [],
+              "to": "merging",
+              "when": "entity.pr_checks == 'success'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "CI still fails",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Decide what to do with it",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "gate_result": "close"
+                    }
+                  },
+                  "key": "c",
+                  "label": "Close it"
+                }
+              ],
+              "instructions": "Its agents could not make its CI pass. Fix its pull request by hand (once its CI passes it is yours to merge), or close it.",
+              "section": {
+                "field": "pr_checks_failure",
+                "label": "What fails"
+              }
+            },
+            "why": "the CI of its pull request still fails after two fixes"
+          },
+          "set": [
+            {
+              "field": "gate_result",
+              "value": "none"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "ci_fixing": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "ci_pushing",
+              "when": "entity.task_result == 'completed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "ci_pushing",
+              "when": "entity.task_result == 'check_failed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'stuck'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'abandoned'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Fixing its CI",
+          "present": {
+            "expected": "Fix its CI on the machinery",
+            "todo": {
+              "instructions": "Its machinery runs an agent on its result with what failed in its CI; Code then pushes its fix onto its pull request. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "the CI of its pull request failed"
+          },
+          "set": [
+            {
+              "field": "ci_fixes",
+              "value": "one"
+            }
+          ],
+          "spec": {
+            "cost_class": "standard",
+            "field": "task_result",
+            "fields": ["title", "description"],
+            "findings": "pr_checks_failure",
+            "input": {
+              "repository": "github.com/mimbre/atlas",
+              "result": "latest"
+            },
+            "instructions": "Fix the failing CI of the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the issue's change so far is the commit under it (git show HEAD~1). What failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
+            "kind": "fix",
+            "machinery": "machinery",
+            "parents": ["title", "description"],
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "developer"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
+        "ci_fixing_again": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "ci_pushing",
+              "when": "entity.task_result == 'completed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "ci_pushing",
+              "when": "entity.task_result == 'check_failed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'stuck'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.task_result == 'abandoned'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Fixing its CI again",
+          "present": {
+            "expected": "Fix its CI on the machinery",
+            "todo": {
+              "instructions": "Its machinery runs an agent on its result with what failed in its CI, the last time; Code then pushes its fix onto its pull request. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "the CI of its pull request failed after its fix"
+          },
+          "set": [
+            {
+              "field": "ci_fixes",
+              "value": "two"
+            }
+          ],
+          "spec": {
+            "cost_class": "standard",
+            "field": "task_result",
+            "fields": ["title", "description"],
+            "findings": "pr_checks_failure",
+            "input": {
+              "repository": "github.com/mimbre/atlas",
+              "result": "latest"
+            },
+            "instructions": "Fix the failing CI of the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the issue's change so far is the commit under it (git show HEAD~1). What failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
+            "kind": "fix",
+            "machinery": "machinery",
+            "parents": ["title", "description"],
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "developer"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
+        "ci_pushing": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "checking",
+              "when": "entity.ci_push == 'done'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "ci_failing",
+              "when": "entity.ci_push == 'no_changes'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "stuck",
+              "when": "entity.ci_push == 'refused'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "effect",
+          "label": "Pushing its CI fix",
+          "present": {
+            "expected": "Let Code push its CI fix",
+            "todo": {
+              "instructions": "Code pushes the fix onto the branch of its pull request on GitHub; nothing is asked of anyone meanwhile."
+            },
+            "why": "its CI fix is done"
+          },
+          "set": [
+            {
+              "field": "ci_push",
+              "value": "none"
+            }
+          ],
+          "spec": {
+            "action": "push",
+            "contract": 1,
+            "field": "ci_push",
+            "fingerprint": {
+              "fields": ["title"],
+              "relations": []
+            },
+            "input": {
+              "base": "develop",
+              "onto": "pr_url",
+              "repository": "github.com/mimbre/atlas"
+            },
+            "name": "push",
+            "operation": "publish",
+            "payload": ["title", "description"],
+            "service": "code"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
         "done": {
           "awaits": [],
           "branches": [],
@@ -1099,7 +1393,7 @@
           "present": {
             "expected": "Review and merge its pull request",
             "todo": {
-              "instructions": "Open its pull request, read its review's verdict and findings and its fix's answer in its body, and merge it on GitHub; the issue is done once GitHub says it is merged."
+              "instructions": "Its CI passed. Open its pull request, read its review's verdict and findings and its fix's answer in its body, and merge it on GitHub; the issue is done once GitHub says it is merged."
             },
             "why": "its agent's work is done"
           },
@@ -1112,7 +1406,7 @@
           "branches": [
             {
               "roles": ["atlas-flow"],
-              "to": "merging",
+              "to": "checking",
               "when": "entity.publication == 'done'"
             },
             {
@@ -1138,6 +1432,10 @@
             "why": "its agent's work is done"
           },
           "set": [
+            {
+              "field": "ci_fixes",
+              "value": "none"
+            },
             {
               "field": "publication",
               "value": "none"
@@ -2825,6 +3123,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "026d5a42d58602d1f40637768520d2a2014d0109dab66a04f0d15f96c1e68dac",
+  "rela_flows_sha256": "9f6b405886c2f875754765a944a2ad46178f0fe1155709ecc5fcedfd65eb79e2",
   "writer": "system:atlas-flow"
 }

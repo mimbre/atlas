@@ -3,8 +3,9 @@ defmodule Model.Issue do
   The issue kind, its gates, selection and migration policy. Model.Delivery declares
   its `issue` subflow: an agent builds it on its supervisor's Runtime, a second agent
   reviews it, one fix follows changes required, Code opens its pull request (`pr_url`),
-  and its supervisor merges it; merged (`pr_state`, as the GitHub connector copies it)
-  is done.
+  its CI is waited for (`pr_checks` and `pr_checks_failure`, as rela's GitHub sync writes
+  them; red is fixed at most twice, `ci_fixes`), and its supervisor merges it; merged
+  (`pr_state`, as the GitHub connector copies it) is done.
 
   `pass_result`, `gate_result`, `effect_result` and `pr_outcome` stay on the kind with
   what earlier flows wrote; no flow writes them now. The gates stay defined, for when
@@ -107,10 +108,27 @@ defmodule Model.Issue do
     )
 
     field(:pr_checks_failure, :string,
-      description: "GitHub: its pull request's failing checks, with the failing lines of their logs",
+      description:
+        "GitHub: its pull request's failing checks, with the failing lines of their logs",
       set_by: :connector,
       multiline: true,
       label: "CI failure"
+    )
+
+    # The CI gate's count: its run sets it entering each fix of its failing CI, so the
+    # third red goes to its supervisor.
+    field(:ci_fixes, :string,
+      description:
+        "Flow: how many fixes of its pull request's failing CI its run made (none, one, two)",
+      set_by: [:flow],
+      label: "CI fixes"
+    )
+
+    field(:ci_push, :string,
+      description:
+        "Flow: how pushing a fix of its failing CI onto its pull request ended (done, no_changes, refused)",
+      set_by: [:flow],
+      label: "CI fix push"
     )
 
     connector(

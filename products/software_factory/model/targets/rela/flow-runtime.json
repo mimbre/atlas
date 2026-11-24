@@ -141,7 +141,8 @@
           {"from":"f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda","to":"6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","working":"working"},"reason":"The review's follow-ups become new issues under its use case; same states"},
           {"from":"6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c","to":"21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","working":"working"},"reason":"A result without changes goes to its supervisor, not to a pull request; one state more"},
           {"from":"21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20","to":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Issue → Pull request: its label is its signature"},
-          {"from":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","to":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Build: renamed from Issue → Pull request"}
+          {"from":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","to":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Build: renamed from Issue → Pull request"},
+          {"from":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","to":"d27ffdee4e94542a80dfb17e8b45d64a2e139f4265baa46c849b8e3c727bb7a3","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"The CI gate: CI is waited for before the merge, and red is fixed at most twice"}
         ],
         "subject": "issue",
         "projection": {
@@ -615,6 +616,11 @@
               "reviewing",
               "fixing",
               "publishing",
+              "checking",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
+              "ci_failing",
               "merging",
               "unchanged"
             ],

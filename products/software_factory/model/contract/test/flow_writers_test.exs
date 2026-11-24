@@ -128,4 +128,10 @@ defmodule Model.FlowWritersTest do
              "#{kind}.#{field} from #{sender}"
     end
   end
+
+  test "6. the issue's CI gate fences the CI status itself: Flow may set the connector's pr_checks" do
+    entry = %{"pr_checks" => "pending", "ci_fixes" => "one"}
+    change = {"issue", %{"op" => "change", "key" => "IS-1", "values" => entry, "links" => %{}}}
+    assert check(change, as("flow")) == :ok
+  end
 end
