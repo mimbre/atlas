@@ -78,4 +78,13 @@ Designing the Runtime as a backend that any client (Flow, CLI, TUI, scripts) can
   - that Control is the one interface for clients. The Runtime's backend is called by clients directly.
 - ADR 0001's paths were amended to `platform/atlas_control/backend/…` with Control's rename.
 
+## Amendment, 2026-11-24: rela syncs outside systems itself (IS-Atlas-115)
+
+Decision (Melle): an outside system's facts are synced by rela, not by an Atlas connector. rela's scheduler runs a Lua sync connector inside rela-server (`products/software_factory/model/targets/rela/schedules.yaml`, `scripts/github.lua`), and that connector writes facts in rela directly.
+
+- **Facts is no longer rela's only writer.** It is still the only rela client in Atlas: every other system reaches facts through Facts. Inside rela, rela's own sync connectors also write.
+- **Facts follows rela's change feed.** `AtlasFacts.Rela.Events` follows rela's `GET /api/v1/_events`. For each `entity:changed` of a kind the model names as written past Facts (`written_past_facts/0`: a kind with a field `set_by` a connector), Facts reads that kind again. It updates its copy (`AtlasFacts.Cache.refresh/2`) and hints every fact that differs as stored, by `rela`, at a position of its own. So Flow and Control learn of it as they learn of any write. A feed that cannot resume makes Facts read all of those kinds again.
+- **rela's edge passes the feed on.** `platform/ops/rela-gate.py` streams `text/event-stream` and gives the feed rela's own origin, after checking the core's credential.
+- Earlier, Facts' GitHub connector copied GitHub's pull requests. It stays until rela's sync demonstrably covers everything it did, and is then removed (IS-Atlas-118).
+
 <sub>Written by an AI agent (omp · claude-opus-5-5, RuntimeBffDesigner).</sub>

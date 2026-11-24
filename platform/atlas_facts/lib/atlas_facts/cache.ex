@@ -9,8 +9,9 @@ defmodule AtlasFacts.Cache do
   its version. A fact loaded from a list has no version (rela lists none) until Facts
   writes it. When the read-back fails, an accepted write is put here as Facts sent it.
 
-  Facts is the only writer: a write to rela past Facts is not seen until `load/2` runs
-  again (a restart).
+  Facts is not the only writer: rela's own sync connectors write too. Facts hears of
+  those through rela's change feed (`AtlasFacts.Rela.Events`) and reads that kind again
+  (`refresh/2`); a kind no feed names is not seen until `load/2` runs again (a restart).
   """
   @behaviour AtlasFacts.Rela
 
@@ -56,6 +57,31 @@ defmodule AtlasFacts.Cache do
       :ok
     end
   end
+
+  @doc """
+  Read `plural` from rela again and put here what differs from the copy: what another
+  writer changed in rela. Answers `{:ok, [{key, before, after}]}`, nil for a fact that was
+  not there (before) or is gone (after). A fact that did not change keeps its version.
+  """
+  def refresh({__MODULE__, c}, plural) do
+    with {:ok, facts} <- Rela.list(c.backend, plural) do
+      {:ok, held} = list(c, plural)
+      held = Map.new(held, &{&1.key, &1})
+      read = Map.new(facts, &{&1.key, &1})
+
+      changed =
+        for {key, fact} <- read, not same?(held[key], fact), do: {key, held[key], fact}
+
+      gone = for {key, fact} <- held, not Map.has_key?(read, key), do: {key, fact, nil}
+
+      for {_key, _before, fact} <- changed, do: put(c, plural, fact)
+      for {key, _before, nil} <- gone, do: :ets.delete(c.table, {plural, key})
+      {:ok, changed ++ gone}
+    end
+  end
+
+  defp same?(nil, _fact), do: false
+  defp same?(held, fact), do: held.properties == fact.properties and held.links == fact.links
 
   # The kinds each relation points from and to: `%{relation => {[plural], [plural]}}`.
   defp relation_kinds(description) do
