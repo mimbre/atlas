@@ -98,18 +98,22 @@ struct Sidebar: View {
         }
     }
 
+    /// Stale tabs are dimmed row by row: dimming the sidebar `List` itself drops the tab
+    /// icons (all but the selected row's).
     var body: some View {
         List(selection: choice) {
             Section {
                 ForEach(rows) { row in
-                    rowView(row).badge(row.count.map { Text("\($0)") }).tag(row.id)
+                    rowView(row)
+                        .opacity(shell.stale ? 0.6 : 1)
+                        .badge(row.count.map { Text("\($0)") })
+                        .tag(row.id)
                 }
             } header: {
                 if let count = shell.count { Text(count) }
             }
         }
         .listStyle(.sidebar)
-        .opacity(shell.stale ? 0.6 : 1)
         .navigationSplitViewColumnWidth(min: 160, ideal: 220)
     }
 
