@@ -34,7 +34,7 @@ defmodule Model.DescriptionTest do
     for {path, body} <- files, do: assert(body == committed(path), path)
   end
 
-  test "nothing else in the project's generated folders, and only data-entry.yaml is hand-written" do
+  test "nothing else in the project's generated folders, and only data-entry.yaml and schedules.yaml are hand-written" do
     generated = Enum.map(files(), &elem(&1, 0))
 
     on_disk =
@@ -48,9 +48,10 @@ defmodule Model.DescriptionTest do
     assert Path.wildcard(Path.join(@rela, "*.{yaml,json}"))
            |> Enum.map(&Path.basename/1)
            |> Enum.sort() ==
-             Enum.sort([
-               "data-entry.yaml" | Enum.filter(generated, &(not String.contains?(&1, "/")))
-             ])
+             Enum.sort(
+               ["data-entry.yaml", "schedules.yaml"] ++
+                 Enum.filter(generated, &(not String.contains?(&1, "/")))
+             )
   end
 
   test "the manifest names every input that is packaged, and none that is gone" do

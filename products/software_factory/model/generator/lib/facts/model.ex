@@ -90,8 +90,23 @@ defmodule RelaDSL.Facts.Model do
 
       def connector(_kind), do: nil
 
+      @doc """
+      The kinds an outside sync writes in rela, past Facts (rela's own sync connectors):
+      those with a field set by a connector. Facts reads them again when rela says they
+      changed (`AtlasFacts.Rela.Events`).
+      """
+      def written_past_facts, do: unquote(written_past_facts(d))
+
       defp __facts__, do: unquote(Macro.escape(d))
     end
+  end
+
+  defp written_past_facts(d) do
+    for {kind, spec} <- Enum.sort(d["entities"] || %{}),
+        Enum.any?(spec["properties"] || %{}, fn {_name, p} ->
+          "connector" in List.wrap(p["set_by"])
+        end),
+        do: kind
   end
 
   @doc """

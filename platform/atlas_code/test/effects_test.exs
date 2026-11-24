@@ -151,6 +151,72 @@ defmodule AtlasCode.EffectsTest do
     assert %{"status" => "refused", "reason" => "unknown_result"} = call(s, "submit", unknown)
   end
 
+  test "a result onto an open pull is pushed to its branch, never forced; done with its address",
+       c do
+    # The pull Code opened from the author's result; the CI fix's result sits on it.
+    published = FakeGitHub.commit(c.gh, "published", ["base"])
+    fixed = FakeGitHub.commit(c.gh, "ci fix", ["published"])
+    FakeGitHub.branch(c.gh, "atlas/TK-JB-1-1", published)
+    FakeGitHub.put_pull(c.gh, 9, %{"head" => published, "head_ref" => "atlas/TK-JB-1-1"})
+    url = "https://github.com/o/r/pull/9"
+    ref = "refs/atlas/results/TK-JB-1-5"
+
+    results = fn
+      "github.com/o/r", ^ref ->
+        {:ok, %{"dir" => "/cache.git", "commit" => fixed}}
+
+      "github.com/o/r", "refs/atlas/results/TK-JB-1-6" ->
+        {:ok, %{"dir" => "/cache.git", "commit" => c.revision}}
+
+      _, _ ->
+        :error
+    end
+
+    s =
+      Effects.new(
+        dir: c.dir,
+        github: {FakeGitHub, FakeGitHub.config(c.gh)},
+        repositories: ["o/r"],
+        results: results
+      )
+
+    r =
+      request(nil, %{
+        "id" => String.duplicate("e", 64),
+        "name" => "push",
+        "subject" => "JB-1",
+        "operation" => "publish",
+        "fingerprint_definition" => %{"fields" => ["title"], "relations" => []},
+        "payload" => %{"title" => "Fix the README"},
+        "input" => %{
+          "repository" => "github.com/o/r",
+          "base" => "main",
+          "result" => ref,
+          "pull" => url
+        }
+      })
+      |> Map.drop(["target", "approved"])
+
+    assert %{"status" => "done", "reference" => ^url, "outputs" => %{"url" => ^url}} =
+             first = call(s, "submit", r)
+
+    assert FakeGitHub.get_pull(c.gh, 9)["head"] == fixed
+    assert call(s, "lookup", r) == first
+    File.rm!(Path.join([c.dir, "effects", r["id"] <> ".json"]))
+    assert call(s, "submit", r) == first
+    assert [{:push, "atlas/TK-JB-1-1", ^fixed}] = FakeGitHub.writes(c.gh)
+
+    # A result that is not on the pull's head is never forced onto it.
+    other = %{
+      r
+      | "id" => String.duplicate("f", 64),
+        "input" => %{r["input"] | "result" => "refs/atlas/results/TK-JB-1-6"}
+    }
+
+    assert %{"status" => "refused", "reason" => "branch_taken"} = call(s, "submit", other)
+    assert FakeGitHub.get_pull(c.gh, 9)["head"] == fixed
+  end
+
   test "a result without changes against its base opens no pull", c do
     repo = Path.join(c.dir, "repo")
     git = fn args -> System.cmd("git", ["-C", repo | args]) |> elem(0) |> String.trim() end

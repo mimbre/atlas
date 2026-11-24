@@ -22,7 +22,7 @@ defmodule AtlasCode.Effects.GitHub do
   @type config :: map()
   @type error :: {:error, :unavailable | {:refused, String.t()}}
 
-  @doc "The pull: `state` (`open`, `closed`), `merged`, `head`, `base` (a branch), `mergeable` (nil while GitHub works it out) and `merge_commit`."
+  @doc "The pull: `state` (`open`, `closed`), `merged`, `head` (its commit), `head_ref` (its branch), `base` (a branch), `mergeable` (nil while GitHub works it out) and `merge_commit`."
   @callback pull(config, slug :: String.t(), number :: pos_integer()) :: {:ok, map()} | error
 
   @doc "How `head` compares to `base` (a branch or commit): `ahead_by`, `behind_by`."
@@ -57,8 +57,9 @@ defmodule AtlasCode.Effects.GitHub do
               {:ok, String.t() | nil} | error
 
   @doc """
-  Push `commit`, from the Git repository `dir`, to the new branch `branch`. One already at
-  `commit` is pushed; `:branch_taken`: the branch is at another commit.
+  Push `commit`, from the Git repository `dir`, to the branch `branch`, never forced: a new
+  branch, one already at `commit`, or one `commit` fast-forwards is pushed; `:branch_taken`:
+  the branch is at a commit `commit` is not on.
   """
   @callback push(config, String.t(), dir :: Path.t(), commit :: String.t(), branch :: String.t()) ::
               :ok | {:error, :branch_taken} | error
@@ -79,6 +80,7 @@ defmodule AtlasCode.Effects.GitHub do
          "state" => p["state"],
          "merged" => p["merged"] == true,
          "head" => get_in(p, ["head", "sha"]),
+         "head_ref" => get_in(p, ["head", "ref"]),
          "base" => get_in(p, ["base", "ref"]),
          "mergeable" => p["mergeable"],
          "merge_commit" => p["merge_commit_sha"]

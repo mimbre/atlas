@@ -37,12 +37,61 @@ flows:
       publishing:
         label: Opening its pull request
         outputs:
-          - set: { properties: { publication: none } }
+          - set: { properties: { ci_fixes: none, publication: none } }
         on:
           change:
-            - { to: merging, roles: [atlas-flow], when: "entity.publication == 'done'" }
+            - { to: checking, roles: [atlas-flow], when: "entity.publication == 'done'" }
             - { to: unchanged, roles: [atlas-flow], when: "entity.publication == 'no_changes'" }
             - { to: stuck, roles: [atlas-flow], when: "entity.publication == 'refused'" }
+      checking:
+        label: Waiting for CI
+        outputs:
+          - set: { properties: { pr_checks: pending } }
+        on:
+          change:
+            - { to: done, when: "entity.pr_state == 'merged'" }
+            - { to: merging, when: "entity.pr_checks == 'success'" }
+            - { to: ci_failing, when: "entity.pr_checks == 'failure' and entity.ci_fixes == 'two'" }
+            - { to: ci_fixing_again, when: "entity.pr_checks == 'failure' and entity.ci_fixes == 'one'" }
+            - { to: ci_fixing, when: "entity.pr_checks == 'failure'" }
+      ci_fixing:
+        label: Fixing its CI
+        outputs:
+          - set: { properties: { ci_fixes: one } }
+        on:
+          change:
+            - { to: ci_pushing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
+            - { to: ci_pushing, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+      ci_fixing_again:
+        label: Fixing its CI again
+        outputs:
+          - set: { properties: { ci_fixes: two } }
+        on:
+          change:
+            - { to: ci_pushing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
+            - { to: ci_pushing, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+      ci_pushing:
+        label: Pushing its CI fix
+        outputs:
+          - set: { properties: { ci_push: none } }
+        on:
+          change:
+            - { to: checking, roles: [atlas-flow], when: "entity.ci_push == 'done'" }
+            - { to: ci_failing, roles: [atlas-flow], when: "entity.ci_push == 'no_changes'" }
+            - { to: stuck, roles: [atlas-flow], when: "entity.ci_push == 'refused'" }
+      ci_failing:
+        label: CI still fails
+        outputs:
+          - set: { properties: { gate_result: none } }
+        on:
+          change:
+            - { to: done, when: "entity.gate_result == 'close'" }
+            - { to: done, when: "entity.pr_state == 'merged'" }
+            - { to: merging, when: "entity.pr_checks == 'success'" }
       merging:
         label: Merge it
         on:
