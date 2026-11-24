@@ -143,7 +143,8 @@
           {"from":"21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20","to":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Issue → Pull request: its label is its signature"},
           {"from":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","to":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Build: renamed from Issue → Pull request"},
           {"from":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","to":"171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"preserve_entry":true,"reason":"Build: its agent asks rela first (D-0100)"},
-          {"from":"171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147","to":"2a28fe1e3b635961f41113069ad568d8ed2d0c0db3dad37420b3094f14ca0f13","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Build: its supervisor's pickup starts the work; texts only"}
+          {"from":"171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147","to":"6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"The CI gate: CI is waited for before the merge, and red is fixed at most twice"},
+          {"from":"6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce","to":"189cd9e972e3590077ecf152048044c8a2e6ce3b0e133c109049e4383e556876","preserve_entry":true,"states":{"checking":"checking","ci_failing":"ci_failing","ci_fixing":"ci_fixing","ci_fixing_again":"ci_fixing_again","ci_pushing":"ci_pushing","done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Build: its supervisor's pickup starts the work; texts only"}
         ],
         "subject": "issue",
         "projection": {
@@ -622,6 +623,11 @@
               "reviewing",
               "fixing",
               "publishing",
+              "checking",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
+              "ci_failing",
               "merging",
               "unchanged"
             ],

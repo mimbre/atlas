@@ -95,6 +95,12 @@ entities:
       pr_checks_failure:
         type: string
         description: 'GitHub: its pull request''s failing checks, with the failing lines of their logs'
+      ci_fixes:
+        type: string
+        description: 'Flow: how many fixes of its pull request''s failing CI its run made (none, one, two)'
+      ci_push:
+        type: string
+        description: 'Flow: how pushing a fix of its failing CI onto its pull request ended (done, no_changes, refused)'
   package:
     label: Package
     plural: packages

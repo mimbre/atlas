@@ -577,7 +577,7 @@
     },
     "issue": {
       "prod": {
-        "digest": "2a28fe1e3b635961f41113069ad568d8ed2d0c0db3dad37420b3094f14ca0f13",
+        "digest": "189cd9e972e3590077ecf152048044c8a2e6ce3b0e133c109049e4383e556876",
         "history": [
           {
             "digest": "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
@@ -606,8 +606,13 @@
             ]
           },
           {
-            "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
+            "digest": "189cd9e972e3590077ecf152048044c8a2e6ce3b0e133c109049e4383e556876",
             "states": [
+              "checking",
+              "ci_failing",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
               "done",
               "fixing",
               "merging",
@@ -619,7 +624,7 @@
             ]
           },
           {
-            "digest": "2a28fe1e3b635961f41113069ad568d8ed2d0c0db3dad37420b3094f14ca0f13",
+            "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
             "states": [
               "done",
               "fixing",
@@ -640,6 +645,24 @@
               "publishing",
               "reviewing",
               "stuck",
+              "working"
+            ]
+          },
+          {
+            "digest": "6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce",
+            "states": [
+              "checking",
+              "ci_failing",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "reviewing",
+              "stuck",
+              "unchanged",
               "working"
             ]
           },
@@ -692,6 +715,11 @@
           }
         ],
         "states": [
+          "checking",
+          "ci_failing",
+          "ci_fixing",
+          "ci_fixing_again",
+          "ci_pushing",
           "done",
           "fixing",
           "merging",
@@ -703,7 +731,7 @@
         ]
       },
       "test": {
-        "digest": "2a28fe1e3b635961f41113069ad568d8ed2d0c0db3dad37420b3094f14ca0f13",
+        "digest": "189cd9e972e3590077ecf152048044c8a2e6ce3b0e133c109049e4383e556876",
         "history": [
           {
             "digest": "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
@@ -732,8 +760,13 @@
             ]
           },
           {
-            "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
+            "digest": "189cd9e972e3590077ecf152048044c8a2e6ce3b0e133c109049e4383e556876",
             "states": [
+              "checking",
+              "ci_failing",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
               "done",
               "fixing",
               "merging",
@@ -745,7 +778,7 @@
             ]
           },
           {
-            "digest": "2a28fe1e3b635961f41113069ad568d8ed2d0c0db3dad37420b3094f14ca0f13",
+            "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
             "states": [
               "done",
               "fixing",
@@ -766,6 +799,24 @@
               "publishing",
               "reviewing",
               "stuck",
+              "working"
+            ]
+          },
+          {
+            "digest": "6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce",
+            "states": [
+              "checking",
+              "ci_failing",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "reviewing",
+              "stuck",
+              "unchanged",
               "working"
             ]
           },
@@ -818,6 +869,11 @@
           }
         ],
         "states": [
+          "checking",
+          "ci_failing",
+          "ci_fixing",
+          "ci_fixing_again",
+          "ci_pushing",
           "done",
           "fixing",
           "merging",
