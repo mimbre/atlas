@@ -56,6 +56,8 @@ defmodule AtlasFlow.Activities.Task do
   result in the run (its verdict also on its task fact), where a publication reads them; a
   verdict of changes required ends it `changes_required` for the run. A fix's instructions
   end with that review's findings, and its answer joins its result, for the publication.
+  A fix whose spec names a field of the subject, `findings`, ends with that field's text
+  instead (what failed in the result's CI, say), not the review's.
 
   **A proposal (slice 7).** A spec's `creates` (`%{"kind", "file"}`) asks its agent, after
   the instructions, to write what it proposes to that file at the top of the repository: a
@@ -179,6 +181,7 @@ defmodule AtlasFlow.Activities.Task do
       creates?(spec["creates"]) and writes?(spec["writes"]) and
       not (spec["creates"] != nil and spec["writes"] != nil) and
       (spec["follow_ups"] == nil or text?(spec["follow_ups"])) and
+      (spec["findings"] == nil or (spec["kind"] == "fix" and text?(spec["findings"]))) and
       records?(spec["records"]) and text?(spec["machinery"])
   end
 
@@ -538,7 +541,7 @@ defmodule AtlasFlow.Activities.Task do
   # A task that is no ladder's starts from its spec's base reference; a subject's review or fix
   # from the run's latest result (`refs/atlas/results/<key>`), with the review's answer
   # format or the findings of the review before it.
-  defp work(run, spec, _subject, _ctx) do
+  defp work(run, spec, subject, _ctx) do
     input = spec["input"]
 
     {reference, sections} =
@@ -549,7 +552,7 @@ defmodule AtlasFlow.Activities.Task do
         %{"result" => "latest"} ->
           tasks = run["pending"]["tasks"] || []
           key = Translate.latest_result(tasks)
-          {key && Translate.result_ref(key), result_sections(spec["kind"], tasks)}
+          {key && Translate.result_ref(key), result_sections(spec, tasks, subject)}
       end
 
     with true <- is_binary(reference),
@@ -557,7 +560,12 @@ defmodule AtlasFlow.Activities.Task do
          do: {:ok, %{base: base, change_set: nil, sections: sections, loop: nil, ladder: nil}}
   end
 
-  defp result_sections("fix", tasks) do
+  # A fix's spec naming `findings` fixes what that field of the subject says; any other
+  # fixes the latest review's findings.
+  defp result_sections(%{"kind" => "fix", "findings" => field}, _tasks, subject),
+    do: ["\n\n## What to fix\n\n" <> to_string((subject["values"] || %{})[field])]
+
+  defp result_sections(%{"kind" => "fix"}, tasks, _subject) do
     findings = (Translate.latest_review(tasks) || %{})["findings"] || []
 
     [
@@ -566,7 +574,7 @@ defmodule AtlasFlow.Activities.Task do
     ]
   end
 
-  defp result_sections(kind, _tasks), do: Ladder.sections(kind, %{}, [])
+  defp result_sections(%{"kind" => kind}, _tasks, _subject), do: Ladder.sections(kind, %{}, [])
 
   defp ci_fix(run, ladder, %{"kind" => "fix"} = spec, ctx) do
     with {:ok, views} <- views(spec, run, nil, nil),

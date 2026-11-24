@@ -185,6 +185,170 @@ defmodule Model.IssueRunsTest do
            )
   end
 
+  @url "https://github.com/mimbre/atlas/pull/9"
+  @red "unit: test/readme_test.exs:3\n    Assertion with == failed: the typo is back"
+
+  test "red CI leads to a fix of what failed, pushed onto the same pull request; green is merging",
+       c do
+    publishing = published(c)
+    assert publishing["state"] == "checking"
+    assert FakeFacts.get("issue", @key)["values"]["pr_url"] == @url
+    assert FakeFacts.get("issue", @key)["values"]["pr_checks"] == "pending"
+
+    # rela's GitHub sync: the checks of its head failed.
+    sync(%{"pr_checks" => "failure", "pr_checks_failure" => @red})
+    assert intent(c)["state"] == "ci_fixing"
+
+    # The fix works on the latest result with what failed, not the review's findings.
+    {_, work} = leased = lease!()
+    assert work.instructions =~ "## What to fix\n\n" <> @red
+    refute work.instructions =~ "Name it better."
+    finish(lease: leased, answer: "Fixed the README test.")
+
+    # Code pushes its result onto the pull request it opened: the same url.
+    assert until(c, "checking")["pending"]["tasks"] |> Enum.map(& &1["task_kind"]) ==
+             ~w(author review fix)
+
+    assert_received {:published, %{"name" => "push", "input" => input}}
+    assert input["pull"] == @url
+    assert input["result"] == "refs/atlas/results/TK-IS-Atlas-01-3"
+
+    # Entering it again fences the red of the head before the push.
+    assert FakeFacts.get("issue", @key)["values"]["pr_checks"] == "pending"
+    assert FakeFacts.get("issue", @key)["values"]["pr_url"] == @url
+
+    sync(%{"pr_checks" => "success"})
+    assert until(c, "merging")["state"] == "merging"
+  end
+
+  test "still red after two CI fixes: its supervisor decides, with what failed", c do
+    published(c)
+
+    for {state, task} <- [ci_fixing: @fix, ci_fixing_again: "TK-IS-Atlas-01-4"] do
+      sync(%{"pr_checks" => "failure", "pr_checks_failure" => @red})
+      assert intent(c)["state"] == to_string(state)
+      finish(answer: "Tried.")
+
+      FakeCode.put(c.code, @repository, "refs/atlas/results/" <> task, "rev_#{task}", %{
+        "README.md" => "# Atlas\n"
+      })
+
+      assert until(c, "checking")["state"] == "checking"
+    end
+
+    sync(%{"pr_checks" => "failure", "pr_checks_failure" => @red})
+    failing = until(c, "ci_failing")
+
+    assert c.runner.flows["issue"].owner("ci_failing")["default"] == %{
+             "kind" => "person",
+             "config" => "decider"
+           }
+
+    assert failing["pending"]["task"] == nil
+
+    # Fixed by hand: green goes to its supervisor to merge.
+    sync(%{"pr_checks" => "success"})
+    assert until(c, "merging")["state"] == "merging"
+  end
+
+  # The issue built, its review approving it, and Code's pull request opened (Code
+  # answering every publication done, on @url): the run as it waits for CI.
+  defp published(c) do
+    code_answers()
+    FakeFacts.put("person", %{"key" => "someone"})
+    issue()
+    reconcile(c)
+    assert_receive {:reconcile, "issue", @key}, 2_000
+    supervise(c, "ada")
+    assert %{"key" => @author} = reconcile(c)["pending"]["task"]
+    finish(answer: "Done.")
+
+    FakeCode.put(c.code, @repository, "refs/atlas/results/" <> @author, "rev_2", %{
+      "README.md" => "# Atlas\n\nChanged.\n"
+    })
+
+    assert intent(c)["state"] == "reviewing"
+    finish(answer: verdict("approved", ["Name it better."], []))
+    until(c, "checking")
+  end
+
+  # rela's GitHub sync writing the issue's pull request fields.
+  defp sync(values) do
+    fact = FakeFacts.get("issue", @key)
+
+    FakeFacts.put(
+      "issue",
+      Map.merge(fact, %{
+        "values" => Map.merge(fact["values"], values),
+        "version" => (fact["version"] || 1) + 1
+      })
+    )
+  end
+
+  # Code's effect receiver on the Bus: every request done, on @url; each one sent to the test.
+  defp code_answers do
+    test = self()
+
+    spawn_link(fn ->
+      :ok = AtlasBus.attach("code/effects")
+      send(test, :attached)
+      answer(test)
+    end)
+
+    assert_receive :attached
+  end
+
+  defp answer(test) do
+    receive do
+      {:atlas_bus, %AtlasBus.Envelope{class: "request"} = e, %{"request" => r} = body} ->
+        send(test, {:published, r})
+
+        AtlasBus.send(AtlasBus.Envelope.reply(e, "answer"), %{
+          "version" => 1,
+          "id" => r["id"],
+          "digest" => body["digest"],
+          "fingerprint" => r["fingerprint"],
+          "status" => "done",
+          "reference" => @url,
+          "outputs" => %{"url" => @url}
+        })
+    end
+
+    answer(test)
+  end
+
+  # Reconciles until the run holds a task's intent, and returns it; between tries it waits
+  # for Flow's next reconcile request, as Code's answers and Facts' writes arrive.
+  defp intent(c, rounds \\ 50) do
+    run = reconcile(c)
+
+    cond do
+      run["pending"]["task"] != nil -> run
+      rounds == 0 -> flunk("no task in #{run["state"]}")
+      true -> next_reconcile() && intent(c, rounds - 1)
+    end
+  end
+
+  # Reconciles until the run is in `state`, as Code's answers and Facts' writes arrive.
+  defp until(c, state, rounds \\ 50) do
+    run = reconcile(c)
+
+    cond do
+      run["state"] == state and run["pending"]["writes"] == [] -> run
+      rounds == 0 -> flunk("run in #{run["state"]}, not #{state}")
+      true -> next_reconcile() && until(c, state, rounds - 1)
+    end
+  end
+
+  defp next_reconcile do
+    receive do
+      {:reconcile, "issue", @key} -> true
+      {:"$gen_cast", {:reconcile, "issue", @key}} -> true
+    after
+      30_000 -> flunk("no reconcile of #{@key}")
+    end
+  end
+
   defp issue do
     FakeFacts.put("scene", %{"key" => "SC-Atlas-01", "values" => %{"title" => "Newcomers"}})
 
