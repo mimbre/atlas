@@ -43,8 +43,15 @@ public final class Session {
     /// Show one group of the tab's page (a `groups` block's `to`) in the middle column.
     public func filter(_ to: String) { handle(.filter(to: to)) }
 
-    /// Open a page Control named: a row's or an action's `to`.
+    /// Open a page Control named: a row's `to`.
     public func open(_ to: String) { handle(.open(to: to)) }
+
+    /// Take an action a block declares: submit its `submit_to`, or open its page (a
+    /// confirm, a form, more actions) over the page it was taken on.
+    public func act(_ action: ActionModel) { handle(.act(action)) }
+
+    /// Leave the page shown over the columns (Cancel): back to where it says.
+    public func leave() { handle(.leave) }
 
     /// Submit a call a block of the page declares, with the values it asks for.
     public func submit(_ call: CallModel, values: [String: String] = [:]) {
