@@ -30,6 +30,9 @@ public struct ShellViewModel: Sendable, Equatable {
 
     /// The shell's title; nil before the first boot.
     public var title: String?
+    /// The shell's greeting of the viewer by name, in the model's words (Control sends it
+    /// only to a person); nil when the shell has none.
+    public var greeting: String?
     /// The environment: the shell's, else the one the app was started for.
     public var env: String
     /// Production wears the inverted badge, as in the TUI.
@@ -64,6 +67,7 @@ public struct ShellViewModel: Sendable, Equatable {
     public init(_ state: SessionState) {
         let shell = state.shell
         title = shell?.title
+        greeting = shell?.greeting.flatMap { $0.isEmpty ? nil : $0 }
         env = shell?.env ?? state.settings.env
         isProduction = env == "prod"
         tabs = (shell?.tabs ?? []).enumerated().map { offset, tab in

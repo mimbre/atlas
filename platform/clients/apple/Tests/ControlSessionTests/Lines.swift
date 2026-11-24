@@ -21,12 +21,13 @@ enum Lines {
 
     static var tabs: [[String: Any]] { [tab("widgets", "/k/widget"), tab("parts", "/k/part")] }
 
-    static func boot(tabs: [[String: Any]] = Lines.tabs, initialTo: String = "/k/widget", activeTab: String? = "widgets", env: String = "test", title: String = "Console") -> Data {
+    static func boot(tabs: [[String: Any]] = Lines.tabs, initialTo: String = "/k/widget", activeTab: String? = "widgets", env: String = "test", title: String = "Console", greeting: String? = nil) -> Data {
         var object: [String: Any] = [
             "op": "boot", "env": env, "spec": Contract.version, "revision": "r1",
             "title": title, "tabs": tabs, "initial_to": initialTo,
         ]
         if let activeTab { object["active_tab"] = activeTab }
+        if let greeting { object["greeting"] = greeting }
         return json(object)
     }
 

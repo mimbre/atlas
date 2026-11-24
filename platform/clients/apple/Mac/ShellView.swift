@@ -5,8 +5,8 @@ import ControlSession
 import SwiftUI
 
 /// The three columns: the tabs boot sent (sidebar), the active tab's index page (middle)
-/// and the page opened from a row (right); the title bar with the title and the
-/// environment; the status bar below. An action's page (its confirm, form or more
+/// and the page opened from a row (right); the title bar with the title, the shell's
+/// greeting (when it has one) as its subtitle, and the environment; the status bar below. An action's page (its confirm, form or more
 /// actions) is a sheet over them; the keys of the shown page's actions take them.
 struct ShellView: View {
     let session: Session
@@ -36,6 +36,7 @@ struct ShellView: View {
             }
         }
         .navigationTitle(shell.title ?? "")
+        .greeting(shell.greeting)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 EnvironmentBadge(env: shell.env, production: shell.isProduction)
@@ -48,6 +49,19 @@ struct ShellView: View {
             if case .ended(let ending) = session.state.connection {
                 EndedView(ending: ending)
             }
+        }
+    }
+}
+
+extension View {
+    /// The shell's greeting as the window's subtitle, only when the shell has one: a shell
+    /// without a greeting keeps the title bar as it was.
+    @ViewBuilder
+    fileprivate func greeting(_ text: String?) -> some View {
+        if let text {
+            navigationSubtitle(text)
+        } else {
+            self
         }
     }
 }
