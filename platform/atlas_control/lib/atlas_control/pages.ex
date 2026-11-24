@@ -3389,7 +3389,7 @@ defmodule AtlasControl.Pages do
 
   @doc """
   What stays open outside Atlas for the fact: the address of the copy its kind's connector
-  reads (`connector.address`, say a pull request), while the fact holds one and the
+  reads (`connector.address`), while the fact holds one and the
   connector has not read it as ended (a value of `connector.until`). `[{label, address}]`,
   the address field's label; none without a connector. Atlas closes nothing outside, so
   Remove and Retry say it stays open, and where.

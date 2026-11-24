@@ -1074,7 +1074,7 @@ defmodule AtlasControl.Session do
   # Remove (IS-Atlas-09, IS-Atlas-30): read again and checked as the page checks it; then
   # the work Flow made for the fact, each with what is under it first, is deleted, one
   # Delete at a time, each waited for; last the fact itself, as Delete deletes it, which
-  # ends its run (IS-Atlas-16). What stays open outside Atlas (its pull request) is said
+  # ends its run (IS-Atlas-16). What stays open outside Atlas (its connector's address) is said
   # once it is stored: Atlas closes nothing there.
   defp submit({:remove_item, kind, key, _run} = route, _raw, state) do
     state = %{state | route: route, cause: nil}
