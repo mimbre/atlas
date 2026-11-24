@@ -96,23 +96,36 @@ public struct ActionButtons: View {
 }
 
 /// A page's title with the page's actions (`PageActions.ofPage`) beside it, at the top of
-/// the page, above its blocks.
+/// the page, above its blocks; in a column too narrow for both on one line, the actions
+/// go under the title, wrapping as they need.
 struct PageHeader: View {
     let title: String
     let actions: [ActionModel]
     let act: (ActionModel) -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: Prism.Spacing.s13) {
-            Text(title).prism(Prism.Typography.title6).lineLimit(2)
-                .accessibilityAddTraits(.isHeader)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: Prism.Spacing.s10) {
-                ActionButtons(actions: actions, act: act)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: Prism.Spacing.s13) {
+                heading.fixedSize()
+                Spacer(minLength: 0)
+                HStack(spacing: Prism.Spacing.s10) {
+                    ActionButtons(actions: actions, act: act)
+                }
+                .fixedSize()
             }
-            .fixedSize()
-            .textSelection(.disabled)
+            VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+                heading.lineLimit(2)
+                FlowLayout(spacing: Prism.Spacing.s10) {
+                    ActionButtons(actions: actions, act: act)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .textSelection(.disabled)
+    }
+
+    private var heading: some View {
+        Text(title).prism(Prism.Typography.title6).accessibilityAddTraits(.isHeader)
     }
 }
 

@@ -496,7 +496,8 @@ defmodule RelaDSL.Description.Subflows do
               else: []
             ) ++
             restart_by(o, projection, flows, at) ++
-            verification(schema, kind, o[:verification], at)
+            verification(schema, kind, o[:verification], at) ++
+            order(schema, kind, states, o[:order], at)
       end
     end)
   end
@@ -562,6 +563,35 @@ defmodule RelaDSL.Description.Subflows do
           []
       end
     end)
+  end
+
+  # Its subjects are picked up one at a time: `within` leads from the subject to one
+  # parent, `by` is a number field of the subject and `done` names states of the subflow.
+  defp order(_schema, _kind, _states, nil, _at), do: []
+
+  defp order(schema, kind, states, o, at) do
+    report = fn message -> [at.(problem(:order, [kind], "order: " <> message))] end
+    within = Keyword.keyword?(o) && o[:within] && relation(schema, o[:within])
+
+    by =
+      Keyword.keyword?(o) && get_in(schema, ["entities", kind, "properties", to_string(o[:by])])
+
+    cond do
+      not Keyword.keyword?(o) or Keyword.keys(o) -- [:within, :by, :done] != [] ->
+        report.("must be [within: relation, by: field, done: [state]]")
+
+      not (is_map(within) and from?(schema, o[:within], kind) and within["max_outgoing"] == 1) ->
+        report.("within #{o[:within]} does not lead from #{kind} to one parent")
+
+      not (by && by["type"] == "integer") ->
+        report.("by #{o[:by]} is not a number field of #{kind}")
+
+      Enum.any?(o[:done] || [], &(to_string(&1) not in states)) ->
+        report.("done #{inspect(o[:done])} names a state the subflow does not have")
+
+      true ->
+        []
+    end
   end
 
   # The verdict kind whose relations clear the subject's field.

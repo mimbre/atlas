@@ -1238,8 +1238,9 @@ defmodule AtlasControl.Pages do
   The rows of Open for you among the answers to `reads({:open_for_you, by})`, per span in
   the declared order: `[{span, [{kind, fact, work}]}]`, `work` the fact the work on `fact`
   is written on (`span_work/3`). A fact is open for you while its work is presented by the
-  span's subflow, active, in one of the span's states, without a human supervisor, and
-  the fact is not completed.
+  span's subflow, active, in one of the span's states, without a human supervisor, waiting
+  for no other (its flow takes its subjects in order, Facts' `waiting_for`), and the fact
+  is not completed.
   """
   def open_for_you_facts(m, answers) do
     {rows, _lookups} = span_reads(m)
@@ -1253,6 +1254,7 @@ defmodule AtlasControl.Pages do
             p["status"] == "active",
             p["state"] in s.states,
             supervisors(work) == [],
+            p["waiting_for"] == nil,
             not completed?(fact),
             do: item
 
@@ -1323,7 +1325,7 @@ defmodule AtlasControl.Pages do
   Why the client cannot pick up `run` on the fact now, from fresh reads of the page; nil
   when it can: someone at the TUI who may supervise, or an agent that assists someone
   (who becomes the supervisor), the run still the one that presents the fact, active, in
-  a span, and without a supervisor.
+  a span, without a supervisor, and waiting for no other.
   """
   def pick_up_problem(m, {:pick_up, kind, _key, run}, [%{"fact" => %{} = fact} | rest], form) do
     p = work_presentation(m, kind, fact, item_parts(m, kind, rest))
@@ -1340,6 +1342,9 @@ defmodule AtlasControl.Pages do
 
       supervisor(p) != [] ->
         "The flow is supervised already."
+
+      is_binary(p["waiting_for"]) ->
+        "It waits for #{p["waiting_for"]}, which is picked up first."
 
       true ->
         nil
@@ -1541,7 +1546,7 @@ defmodule AtlasControl.Pages do
 
     offered =
       for {verb, may?} <- [
-            pick_up: supervising? and supervisor == [],
+            pick_up: supervising? and supervisor == [] and p["waiting_for"] == nil,
             hand_over:
               supervising? and form[:by] in supervisor and
                 Enum.any?(candidates, &(&1["key"] != form[:by])),
@@ -1581,6 +1586,13 @@ defmodule AtlasControl.Pages do
       _ -> []
     end
   end
+
+  # What the work waits for, when its flow takes its subjects in order and another is
+  # first (Facts' `waiting_for`): no Pick up until that one is done.
+  defp waiting_pair(%{"waiting_for" => key}) when is_binary(key),
+    do: [Blocks.pair(label: "Waiting for", value: key)]
+
+  defp waiting_pair(_p), do: []
 
   # Open for you, calm: its groups and one list per span, titled with the span's flow; on a
   # group's page (`active`, `{subflow, span}`) only that span's list.
@@ -1966,6 +1978,7 @@ defmodule AtlasControl.Pages do
             linked(m, kind, fact) ++
             Enum.flat_map(parts, fn {part_kind, _k, part, _made} -> linked(m, part_kind, part) end) ++
             supervisor_pair(m, kind, work) ++
+            waiting_pair(work) ++
             copy(answer["copy"])
 
         # The flow's next step, and one More… for everything else (`offered/6`): the

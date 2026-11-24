@@ -23,8 +23,10 @@ struct ShellView: View {
         NavigationSplitView {
             Sidebar(shell: shell, select: session.selectTab, filter: session.filter)
         } content: {
+            // Room for a row's key, title (two lines) and to-do side by side.
             Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
                    submit: submit, act: session.act)
+                .navigationSplitViewColumnWidth(min: 420, ideal: 560)
         } detail: {
             Column(page: shell.opened, header: true, selectedPath: shell.selectedPath, open: session.open,
                    submit: submit, act: session.act)

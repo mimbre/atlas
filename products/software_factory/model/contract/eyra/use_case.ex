@@ -7,7 +7,8 @@ defmodule Model.UseCase do
       flow) and hands it to a machinery: one agent on the supervisor's Runtime reads the
       use case (its description and Design part), its scene and a checkout of the
       repository, and writes the issues it proposes to a file in its result (`creates:`).
-      Flow, the only writer, makes them under the use case, and "Accept it" (`accepting`)
+      Flow, the only writer, makes them under the use case, numbered in the order proposed
+      (`order`: they are built in that order), and "Accept it" (`accepting`)
       goes to the supervisor, who changes, removes or adds any by hand and accepts the
       break-down. Its run ends there and hands the use case on (`phase: accept`).
     * `accept_use_case` "Accept the use case": accepts it by itself once all its issues
@@ -142,7 +143,7 @@ defmodule Model.UseCase do
           "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is a vertical slice: it works end to end and can be shown working. The first is the thinnest happy path (a walking skeleton); each later one builds on the ones before it, in the order given. Propose as few issues as possible: split a slice further only when it is too big for one reviewable pull request, what one agent builds and reviews in one go. Never split by layer (model, contract, Control, client): each issue cuts through all the layers it needs. When its scene names its phase, respect it: in Explore, usually only the happy-path slice; edge cases come later as follow-ups.",
         fields: [:title, :description, :design],
         parents: [:title, :description],
-        creates: [kind: :issue, file: "issues.json"],
+        creates: [kind: :issue, file: "issues.json", order: :order],
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
@@ -287,5 +288,14 @@ defmodule Model.UseCase do
     to: "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
     states: :same,
     reason: "Plan: its agent proposes vertical slices"
+  )
+
+  # Plan: the issues it proposes are numbered in the order proposed (`order`), which is
+  # the order they are built in; nothing else changed.
+  migrate(:break_down_use_case,
+    from: "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
+    to: "2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695",
+    states: :same,
+    reason: "Plan: the issues it proposes are numbered, in the order they are built"
   )
 end
