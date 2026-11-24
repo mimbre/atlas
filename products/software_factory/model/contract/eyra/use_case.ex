@@ -4,7 +4,7 @@ defmodule Model.UseCase do
   with its Design part by the scene's break-down (Design: Scene → Use cases). Its two flows:
 
     * `break_down_use_case` **Plan** (Use case → Issues): a person picks it up (its span, the whole
-      flow) and hands it to a machinery: one agent on the supervisor's Runtime reads the
+      flow), and that pickup alone starts its work: one agent on the supervisor's Runtime reads the
       use case (its description and Design part), its scene and a checkout of the
       repository, and writes the issues it proposes to a file in its result (`creates:`).
       Flow, the only writer, makes them under the use case, numbered in the order proposed
@@ -132,7 +132,7 @@ defmodule Model.UseCase do
         expected: "Break it down into issues",
         why: "nothing is under it yet",
         instructions:
-          "Its machinery runs one agent on it that proposes its issues; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
+          "Its supervisor's Runtime runs one agent on it that proposes its issues; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:plan,
@@ -317,5 +317,15 @@ defmodule Model.UseCase do
     to: "a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f",
     states: :same,
     reason: "Plan: its accept step says what its page offers"
+  )
+
+  # Plan: its presentation says its supervisor's pickup starts the work (IS-Atlas-25), no
+  # longer that it waits for a machinery; texts only, so a run keeps its state and entry.
+  migrate(:break_down_use_case,
+    from: "a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f",
+    to: "c7a2c365f29940f90596ff37f008a52feeb6ea984a6efcfa3078e04fa532a843",
+    preserve_entry: true,
+    states: :same,
+    reason: "Plan: its supervisor's pickup starts the work; texts only"
   )
 end

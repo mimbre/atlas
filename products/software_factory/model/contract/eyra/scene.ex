@@ -5,8 +5,8 @@ defmodule Model.Scene do
   pickup point is a subflow of its own; the pipeline is horseshoe-shaped: it starts with
   the scene, its producer's input, and ends with its producer's acceptance.
 
-    * `break_down_scene` **Design** (Scene → Use cases): a person picks it up (its span) and hands it to a machinery:
-      one agent on the supervisor's Runtime reads the scene and a checkout of the
+    * `break_down_scene` **Design** (Scene → Use cases): a person picks it up (its span), and that pickup
+      alone starts its work: one agent on the supervisor's Runtime reads the scene and a checkout of the
       repository and writes the use cases it proposes to a file in its result
       (`creates:`), each with its Design part, designed within the existing architecture
       (the decisions it reads first) and a note where it would need a new architecture
@@ -133,7 +133,7 @@ defmodule Model.Scene do
         expected: "Break it down into use cases",
         why: "it is to be broken down",
         instructions:
-          "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery.",
+          "Its supervisor's Runtime runs one agent on it that proposes its use cases; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then.",
         section: [field: :note, heading: "Its producer's note"]
       )
 
@@ -338,5 +338,15 @@ defmodule Model.Scene do
     states: :same,
     preserve_entry: true,
     reason: "Design: its agent asks rela first (D-0100)"
+  )
+
+  # Design: its presentation says its supervisor's pickup starts the work (IS-Atlas-25), no
+  # longer that it waits for a machinery; texts only, so a run keeps its state and entry.
+  migrate(:break_down_scene,
+    from: "f52ee753f148fefc1ae12ce899968a99b9e2cf7671950223340de423aa356ae6",
+    to: "1fa161740e21d0c8055aafd3a24ef417993671d1057e14762aa4064aad1249c0",
+    preserve_entry: true,
+    states: :same,
+    reason: "Design: its supervisor's pickup starts the work; texts only"
   )
 end
