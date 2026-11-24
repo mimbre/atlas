@@ -18,6 +18,17 @@ types:
       pending: Running
       success: Passed
       failure: Failed
+  pull_request_mergeable:
+    values:
+    - unknown
+    - clean
+    - behind
+    - conflicting
+    labels:
+      unknown: Not known yet
+      clean: Mergeable
+      behind: Behind its base
+      conflicting: Conflicts
   pull_request_state:
     values:
     - open
@@ -101,6 +112,18 @@ entities:
       ci_push:
         type: string
         description: 'Flow: how pushing a fix of its failing CI onto its pull request ended (done, no_changes, refused)'
+      pr_mergeable:
+        type: pull_request_mergeable
+        description: 'GitHub: whether its pull request merges into its base (mergeable, mergeable_state)'
+      pr_updates:
+        type: string
+        description: 'Flow: how many updates with develop its run made since its pull request was last mergeable (none, one)'
+      pr_update:
+        type: string
+        description: 'Flow: how pushing its update with develop onto its pull request ended (done, no_changes, refused)'
+      pr_close_failure:
+        type: string
+        description: 'GitHub: why closing its open pull request failed after it was closed in Atlas'
   package:
     label: Package
     plural: packages

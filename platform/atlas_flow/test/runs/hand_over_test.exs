@@ -391,7 +391,7 @@ defmodule AtlasFlow.Runs.HandOverTest do
   test "the To-Dos Facts cannot list now decide nothing: the hand-over waits", c do
     before = supervised(c)
     hand_over(c, 11, "ada", "bea")
-    list = %{"plain" => true, "consistency" => "transition"}
+    list = %{"plain" => true}
     :ok = GenServer.call(FakeFacts, {:block_read, "memo", list})
 
     assert {:error, _} = reconcile(c)

@@ -82,6 +82,7 @@ defmodule RelaDSL.Description.Subflows do
     findings =
       case s.mechanism do
         {:task, %{findings: name}} when is_atom(name) and name != nil -> [to_string(name)]
+        {:task, %{input: input}} when is_list(input) -> update_field(input)
         _ -> []
       end
 
@@ -96,6 +97,13 @@ defmodule RelaDSL.Description.Subflows do
               "names #{kind}.#{name}, which the composition does not describe"
             )
           )
+  end
+
+  defp update_field(input) do
+    case Keyword.keyword?(input) && input[:update] do
+      name when is_atom(name) and name not in [nil, false] -> [to_string(name)]
+      _ -> []
+    end
   end
 
   defp roles(s, acl, here) do

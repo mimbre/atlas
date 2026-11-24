@@ -20,21 +20,26 @@ port="${ATLAS_RELA_PORT:-7690}"
 inner=$((port + 1))
 
 # rela's own GitHub sync (scripts/github.lua, run by rela's scheduler) reads GitHub's API
-# and, when the app has the Fly secret GITHUB_TOKEN (read-only), that token as rela
-# secrets: written to the project's .rela/secrets.yaml (only the owner may read it), never
-# printed, and kept from rela's environment. Without a token it reads GitHub anonymously.
+# and, when the app has the Fly secret GITHUB_TOKEN, that token as rela secrets: written
+# to the project's .rela/secrets.yaml (only the owner may read it), never printed, and
+# kept from rela's environment. Only the app with the Fly secret GITHUB_WRITE=true (prod's
+# rela, never test's: both read the same repositories) writes to GitHub: closing the pull
+# of an issue closed in Atlas, which also needs the token's Pull requests write permission;
+# a refused close is logged and written to the issue's pr_close_failure. Without a token
+# it reads GitHub anonymously.
 mkdir -p /data/rela/.rela
 (
   umask 077
   {
     echo 'github_api: "https://api.github.com"'
     if [ -n "${GITHUB_TOKEN:-}" ]; then printf 'github_token: "%s"\n' "$GITHUB_TOKEN"; fi
+    if [ "${GITHUB_WRITE:-}" = "true" ]; then echo 'github_write: "true"'; fi
   } > /data/rela/.rela/secrets.yaml
 )
 
 # start-test checks existing SQLite or legacy data before changing its description,
 # including boot after a move. It refuses when that data needs a migration first.
-env -u ATLAS_RELA_TOKEN -u GITHUB_TOKEN ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=/app/bin ATLAS_RELA_PORT="$inner" \
+env -u ATLAS_RELA_TOKEN -u GITHUB_TOKEN -u GITHUB_WRITE ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=/app/bin ATLAS_RELA_PORT="$inner" \
   /app/platform/atlas_facts/rela/scripts/start-test.sh &
 rela=$!
 python3 /app/platform/ops/rela-gate.py "$port" "$inner" &

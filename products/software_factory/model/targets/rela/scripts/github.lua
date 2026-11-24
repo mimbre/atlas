@@ -1,17 +1,33 @@
--- GitHub → rela, one way (IS-Atlas-115): rela's own sync of pull requests, run by rela's
--- scheduler (schedules.yaml) as integration:github. Hand-written, like data-entry.yaml.
+-- GitHub ↔ rela (IS-Atlas-115, IS-Atlas-22): rela's own sync of pull requests, run by
+-- rela's scheduler (schedules.yaml) as integration:github. Hand-written, like
+-- data-entry.yaml.
 --
--- For every issue with a pull request (pr_url) that is not merged or closed yet, it reads
--- the pull, and while it is open the combined check status of its head: pr_state,
--- pr_checks (pending, success, failure) and, when CI failed, pr_checks_failure (the
--- failing checks and the failing lines of their logs). For every pull request fact that
--- is not merged or closed yet: its title, state and draft. Only what differs is written.
+-- For every issue with a pull request (pr_url) that is not merged yet, it reads the pull,
+-- and while it is open the combined check status of its head and whether it merges into
+-- its base: pr_state, pr_checks (pending, success, failure), when CI failed
+-- pr_checks_failure (the failing checks and the failing lines of their logs), and
+-- pr_mergeable (clean, behind, conflicting, or unknown while GitHub works it out). For
+-- every pull request fact that is not merged yet: its title, state and draft. Only what
+-- differs is written.
+--
+-- Merged is final. Closed is not: a closed pull can be reopened. A pull recorded closed is
+-- read again when GitHub lists it among its repository's open pulls (one list per
+-- repository and run), so a reopened pull's state, mergeability and checks are synced
+-- again. The pull of an issue closed in Atlas (gate_result close) is left closed.
+--
+-- rela → GitHub: an open pull request of an issue closed in Atlas (gate_result close, an
+-- explicit record in this rela's own data) is closed on GitHub with a comment. A pull is
+-- never closed because its issue is missing: a test rela reads the same repositories with
+-- other data. A close GitHub refuses is logged and written to pr_close_failure; the next
+-- run tries again.
 --
 -- Secrets (.rela/secrets.yaml, which rela-run.sh writes on Fly): github_api, GitHub's API
--- (https://api.github.com); github_token, a read-only token (optional: without it GitHub
--- is read anonymously, which its rate limit allows for a few pulls, and job logs are not
--- readable, so a failure names its checks only). Without either (a rela on a Mac, a test)
--- it does nothing.
+-- (https://api.github.com); github_token, a token that reads pull requests, checks and job
+-- logs (optional: without it GitHub is read anonymously, which its rate limit allows for
+-- a few pulls, and job logs are not readable, so a failure names its checks only);
+-- github_write, "true" only in the environment allowed to write to GitHub (prod): without
+-- it nothing is closed. Without github_api or github_token (a rela on a Mac, a test) it
+-- does nothing.
 
 local token = rela.secrets.github_token
 local api = rela.secrets.github_api
@@ -49,6 +65,49 @@ local function json(path)
   if resp.status_code == 403 or resp.status_code == 429 then limited = true end
   if resp.status_code ~= 200 then return nil, path .. " answered " .. resp.status_code end
   return rela.json.decode(resp.body)
+end
+
+-- A write to GitHub: nil, or why it failed.
+local function send(method, path, body)
+  -- Only an environment whose rela is told to (github_write: "true", prod only) writes to
+  -- GitHub: a test rela reads the same repositories and must never close their pulls.
+  if rela.secrets.github_write ~= "true" then return "github_write is not set: nothing is written to GitHub" end
+  if not token then return "no github_token: nothing is written to GitHub" end
+  local resp, err = http.request({
+    url = api .. path,
+    method = method,
+    headers = {
+      Accept = "application/vnd.github+json",
+      ["Content-Type"] = "application/json",
+      ["X-GitHub-Api-Version"] = "2022-11-28",
+      ["User-Agent"] = "atlas-rela-sync",
+      Authorization = "Bearer " .. token,
+    },
+    body = rela.json.encode(body),
+    timeout = 20,
+  })
+  if not resp then return err.kind .. ": " .. err.message end
+  if resp.status_code < 200 or resp.status_code > 299 then
+    return method .. " " .. path .. " answered " .. resp.status_code
+  end
+  return nil
+end
+
+-- Closes the pull, then says why in a comment: nil, or why the close failed.
+local function close(repo, number, why)
+  local err = send("PATCH", "/repos/" .. repo .. "/pulls/" .. number, {state = "closed"})
+  if err then return err end
+  local err2 = send("POST", "/repos/" .. repo .. "/issues/" .. number .. "/comments", {body = why})
+  if err2 then print("github sync: closed " .. repo .. "#" .. number .. ", no comment: " .. err2) end
+  return nil
+end
+
+-- Whether the pull merges into its base, from GitHub's mergeable and mergeable_state.
+local function mergeable(pull)
+  if pull.mergeable == false or pull.mergeable_state == "dirty" then return "conflicting" end
+  if pull.mergeable_state == "behind" then return "behind" end
+  if pull.mergeable == true then return "clean" end
+  return "unknown"
 end
 
 -- "https://github.com/<owner>/<repo>/pull/<n>" → "<owner>/<repo>", "<n>"
@@ -170,17 +229,57 @@ local function write(id, before, after)
   if any then rela.update_entity(id, changed) end
 end
 
-local DONE = {merged = true, closed = true}
+-- Pulls recorded closed that GitHub lists open again: repository → set of open numbers,
+-- read once per run. A repository whose list GitHub does not give has none this run.
+local open_pulls = {}
+
+local function reopened(repo, number)
+  if open_pulls[repo] == nil then
+    local numbers = {}
+    local page = 1
+    while true do
+      local pulls, err = json("/repos/" .. repo .. "/pulls?state=open&per_page=100&page=" .. page)
+      if not pulls then
+        print("github sync: " .. repo .. ": open pulls: " .. tostring(err))
+        break
+      end
+      for _, pull in ipairs(pulls) do numbers[tostring(pull.number)] = true end
+      if #pulls < 100 then break end
+      page = page + 1
+    end
+    open_pulls[repo] = numbers
+  end
+  return open_pulls[repo][number] == true
+end
+
+-- Whether a pull recorded in this state (merged, closed, open or not read yet) is read.
+local function read(state, repo, number)
+  if state == "merged" then return false end
+  if state == "closed" then return reopened(repo, number) end
+  return true
+end
 
 for _, issue in ipairs(rela.list_entities("issue")) do
   local p = issue.properties
   local repo, number = slug(p.pr_url)
-  if repo and not DONE[p.pr_state] then
+  if repo and not (p.pr_state == "closed" and p.gate_result == "close") and read(p.pr_state, repo, number) then
     local pull, err = json("/repos/" .. repo .. "/pulls/" .. number)
     if pull then
       local after = {pr_state = pull_state(pull)}
-      if after.pr_state == "open" and pull.head and pull.head.sha then
+      if after.pr_state == "open" and p.gate_result == "close" then
+        -- Closed in Atlas: its pull request is closed on GitHub too.
+        local failed = close(repo, number, "Closed by Atlas: its issue " .. issue.id ..
+                             " was closed there.")
+        if failed then
+          print("github sync: " .. issue.id .. ": close: " .. failed)
+          after.pr_close_failure = failed
+        else
+          after.pr_state = "closed"
+          after.pr_close_failure = EMPTY
+        end
+      elseif after.pr_state == "open" and pull.head and pull.head.sha then
         local sha = pull.head.sha
+        after.pr_mergeable = mergeable(pull)
         local state, failed = checks(repo, sha)
         if state then
           after.pr_checks = state
@@ -204,7 +303,7 @@ end
 for _, pr in ipairs(rela.list_entities("pull_request")) do
   local p = pr.properties
   local repo, number = slug(p.url)
-  if repo and not DONE[p.state] then
+  if repo and read(p.state, repo, number) then
     local pull = json("/repos/" .. repo .. "/pulls/" .. number)
     if pull then
       write(pr.id, p, {title = pull.title, state = pull_state(pull), draft = pull.draft == true})

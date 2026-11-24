@@ -46,14 +46,44 @@ flows:
       checking:
         label: Waiting for CI
         outputs:
-          - set: { properties: { pr_checks: pending } }
+          - set: { properties: { pr_checks: pending, pr_mergeable: unknown } }
         on:
           change:
             - { to: done, when: "entity.pr_state == 'merged'" }
-            - { to: merging, when: "entity.pr_checks == 'success'" }
+            - { to: update_failing, when: "(entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind') and entity.pr_updates == 'one'" }
+            - { to: updating, when: "entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind'" }
+            - { to: merging, when: "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean'" }
             - { to: ci_failing, when: "entity.pr_checks == 'failure' and entity.ci_fixes == 'two'" }
             - { to: ci_fixing_again, when: "entity.pr_checks == 'failure' and entity.ci_fixes == 'one'" }
             - { to: ci_fixing, when: "entity.pr_checks == 'failure'" }
+      updating:
+        label: Updating it with develop
+        outputs:
+          - set: { properties: { pr_updates: one } }
+        on:
+          change:
+            - { to: update_pushing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
+            - { to: update_pushing, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
+            - { to: update_failing, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
+            - { to: update_failing, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+      update_pushing:
+        label: Pushing its update
+        outputs:
+          - set: { properties: { pr_update: none } }
+        on:
+          change:
+            - { to: checking, roles: [atlas-flow], when: "entity.pr_update == 'done'" }
+            - { to: update_failing, roles: [atlas-flow], when: "entity.pr_update == 'no_changes'" }
+            - { to: update_failing, roles: [atlas-flow], when: "entity.pr_update == 'refused'" }
+      update_failing:
+        label: Conflicts with develop
+        outputs:
+          - set: { properties: { gate_result: none } }
+        on:
+          change:
+            - { to: done, when: "entity.gate_result == 'close'" }
+            - { to: done, when: "entity.pr_state == 'merged'" }
+            - { to: checking, when: "entity.pr_mergeable == 'clean'" }
       ci_fixing:
         label: Fixing its CI
         outputs:
@@ -91,12 +121,16 @@ flows:
           change:
             - { to: done, when: "entity.gate_result == 'close'" }
             - { to: done, when: "entity.pr_state == 'merged'" }
-            - { to: merging, when: "entity.pr_checks == 'success'" }
+            - { to: merging, when: "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean'" }
       merging:
         label: Merge it
+        outputs:
+          - set: { properties: { pr_updates: none, ci_fixes: none } }
         on:
           change:
             - { to: done, when: "entity.pr_state == 'merged'" }
+            - { to: checking, when: "entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind'" }
+            - { to: checking, when: "entity.pr_checks == 'failure' or entity.pr_checks == 'pending'" }
       unchanged:
         label: Nothing to merge
         outputs:

@@ -143,7 +143,8 @@
           {"from":"21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20","to":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Issue → Pull request: its label is its signature"},
           {"from":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","to":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Build: renamed from Issue → Pull request"},
           {"from":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","to":"171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"preserve_entry":true,"reason":"Build: its agent asks rela first (D-0100)"},
-          {"from":"171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147","to":"6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"The CI gate: CI is waited for before the merge, and red is fixed at most twice"}
+          {"from":"171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147","to":"6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"The CI gate: CI is waited for before the merge, and red is fixed at most twice"},
+          {"from":"6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce","to":"67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66","preserve_entry":true,"states":{"checking":"checking","ci_failing":"ci_failing","ci_fixing":"ci_fixing","ci_fixing_again":"ci_fixing_again","ci_pushing":"ci_pushing","done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Mergeable and green only: a conflict with develop is updated by an agent"}
         ],
         "subject": "issue",
         "projection": {
@@ -449,7 +450,8 @@
           {"from":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","to":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: renamed from Use case → Issues"},
           {"from":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","to":"258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its agent proposes vertical slices"},
           {"from":"258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670","to":"2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: the issues it proposes are numbered, in the order they are built"},
-          {"from":"2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695","to":"aa7fce1ce687d65c90d380759e927a68c067ec70a5f4fc2cd5648f966f17d949","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"preserve_entry":true,"reason":"Plan: its agent asks rela first (D-0100)"}
+          {"from":"2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695","to":"aa7fce1ce687d65c90d380759e927a68c067ec70a5f4fc2cd5648f966f17d949","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"preserve_entry":true,"reason":"Plan: its agent asks rela first (D-0100)"},
+          {"from":"aa7fce1ce687d65c90d380759e927a68c067ec70a5f4fc2cd5648f966f17d949","to":"a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its accept step says what its page offers"}
         ],
         "subject": "use_case",
         "projection": {
@@ -625,6 +627,9 @@
               "ci_fixing_again",
               "ci_pushing",
               "ci_failing",
+              "updating",
+              "update_pushing",
+              "update_failing",
               "merging",
               "unchanged"
             ],

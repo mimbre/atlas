@@ -1412,7 +1412,8 @@ defmodule RelaDSL.Schema do
   latest result of the review → fix loop (`AtlasFlow.Ladder`), but only for a review or
   diagnose, which read it, and a fix, which writes on it; or `[repository: name, result:
   :latest]`, the run's latest result as a base of that repository, only for a review or a
-  fix.
+  fix; or `[repository: name, base: ref, update: field]`, `ref` merged into the open pull
+  request whose address the subject's `field` holds, only for a fix.
   `:input_result_kind` when another kind starts from it (an author starts from a base);
   `:input_access` when the access is not its kind's.
   """
@@ -1420,6 +1421,8 @@ defmodule RelaDSL.Schema do
           nil | :input_shape | :input_url | :input_result_kind | :input_access
   def input_problem(kind, input) do
     cond do
+      update_input?(input) and kind != :fix -> :input_result_kind
+      update_input?(input) -> input_problem(Keyword.delete(input, :update))
       base_result_input?(input) and kind not in [:review, :fix] -> :input_result_kind
       base_result_input?(input) -> input_problem(repository: input[:repository], base: "latest")
       not result_input?(input) -> input_problem(input)
@@ -1428,6 +1431,12 @@ defmodule RelaDSL.Schema do
       true -> nil
     end
   end
+
+  defp update_input?(input),
+    do:
+      is_list(input) and Keyword.keyword?(input) and
+        Enum.sort(Keyword.keys(input)) == [:base, :repository, :update] and
+        is_atom(input[:update]) and input[:update] != nil
 
   defp result_input?(input),
     do:
