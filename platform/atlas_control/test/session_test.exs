@@ -1290,6 +1290,17 @@ defmodule AtlasControl.SessionTest do
     put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/answer/a", "values" => %{}})
     assert %{"reason" => "refused"} = next(tui, "page")
     assert FakeStore.sent() == sent
+
+    # Accept has no note: its page is a confirm, with no form to say why Facts refused it.
+    # The notice and the page say it.
+    holder.("ada")
+    FakeStore.refuse(List.last(sent)["key"], "W-1 has R-1 open")
+    put(tui, %{"op" => "open", "to" => "/k/widget/W-1/answer/a"})
+    assert %{"blocks" => [%{"type" => "confirm"}]} = next(tui, "page")
+    put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/answer/a", "values" => %{}})
+    assert %{"tone" => "pending"} = next(tui, "notice")
+    assert %{"tone" => "error", "text" => "Facts refused: W-1 has R-1 open"} = next(tui, "notice")
+    assert %{"reason" => "refused", "refused" => ["W-1 has R-1 open"]} = next(tui, "page")
   end
 
   test "setting a relation an answer of the presented state sets writes that answer's values" do
