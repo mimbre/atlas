@@ -39,6 +39,8 @@ defmodule AtlasTui.Console do
             viewport: {100, 30},
             action_error: nil,
             key_buffer: "",
+            # The first key of a two-key sequence ("g" of "g s") waiting for its second.
+            key_prefix: "",
             generation: 0
 
   @history_limit 100
@@ -296,21 +298,39 @@ defmodule AtlasTui.Console do
       Model.form(model) != nil or Model.step_form(model) != nil or
         model.ask != nil or model.plan != nil or Model.confirm(model) != nil
 
+  # Tab and Shift+Tab go round the work tabs; from a browse tab, to the first or last.
+  # A page under no tab counts as the first.
   def cycle(model, step) do
     console = model.console
 
     if console.shell && !console.stale && model.connected && console.phase == :ready &&
          !console.restoring &&
          !draft?(model) do
-      tabs = console.shell["tabs"]
-      index = Enum.find_index(tabs, &(&1["id"] == console.active)) || 0
-      target = Enum.at(tabs, Integer.mod(index + step, length(tabs)))["to"]
-      {model, effects} = navigate(afresh(model), target)
-      reopen(model, effects, target, model.console.selections[target], %{})
+      tabs = Enum.filter(console.shell["tabs"], &work?/1)
+      index = Enum.find_index(tabs, &(&1["id"] == console.active))
+      browse? = console.active != nil and index == nil
+
+      target =
+        cond do
+          tabs == [] -> nil
+          browse? and step > 0 -> List.first(tabs)
+          browse? -> List.last(tabs)
+          true -> Enum.at(tabs, Integer.mod((index || 0) + step, length(tabs)))
+        end
+
+      if target do
+        {model, effects} = navigate(afresh(model), target["to"])
+        reopen(model, effects, target["to"], model.console.selections[target["to"]], %{})
+      else
+        {model, []}
+      end
     else
       {model, []}
     end
   end
+
+  @doc "Whether `tab` is a work tab; a tab without a section is one."
+  def work?(tab), do: tab["section"] in [nil, "work"]
 
   def navigate(model, target) do
     model = WorkerConversation.capture(model)
@@ -470,10 +490,12 @@ defmodule AtlasTui.Console do
         text?(message["title"], 128) and text?(message["revision"], 128) and
         is_list(tabs) and length(tabs) in 1..64 and Enum.all?(tabs, &valid_tab?/1) and
         distinct?(tabs, "id") and distinct?(tabs, "to") and path?(message["initial_to"]) and
-        (is_nil(message["active_tab"]) or Enum.any?(tabs, &(&1["id"] == message["active_tab"])))
+        (is_nil(message["active_tab"]) or Enum.any?(tabs, &(&1["id"] == message["active_tab"]))) and
+        (is_nil(message["greeting"]) or text?(message["greeting"], 1_024))
 
     if valid,
-      do: {:ok, Map.take(message, ~w(title env spec revision tabs initial_to active_tab))},
+      do:
+        {:ok, Map.take(message, ~w(title env spec revision tabs initial_to active_tab greeting))},
       else: {:error, "Invalid Console boot response"}
   end
 
@@ -482,8 +504,10 @@ defmodule AtlasTui.Console do
   # supervision screens (Open for you, Supervised by you; M3b P4).
   @tab_pages [:home, :list, :workers, :open_for_you, :supervised_by_you]
 
-  defp valid_tab?(%{"id" => id, "label" => label, "to" => to}) do
+  defp valid_tab?(%{"id" => id, "label" => label, "to" => to} = tab) do
     text?(id, 64) and text?(label, 128) and path?(to) and
+      tab["section"] in [nil, "work", "browse"] and
+      (is_nil(tab["key"]) or AtlasBFFContract.Console.key?(tab["key"])) and
       case Blocks.match(to) do
         {:ok, page, _} -> page in @tab_pages
         _ -> false

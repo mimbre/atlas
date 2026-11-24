@@ -8,6 +8,8 @@ public struct ShellViewModel: Sendable, Equatable {
         public var id: String
         public var label: String
         public var to: String
+        /// Where the sidebar lists it: "work" (what waits for the user) or "browse".
+        public var section: String
         /// Its icon, a semantic name boot gives (the app draws it as a symbol).
         public var icon: String?
         public var shortcut: Int?
@@ -37,14 +39,22 @@ public struct ShellViewModel: Sendable, Equatable {
     /// The tabs may be out of date (not booted on this connection, or the last boot failed).
     public var stale: Bool
     public var bootFailure: SessionState.BootFailure?
-    /// What waits for the user, in the model's words: the sidebar section's header.
-    public var count: String?
     /// The middle column: the active tab's index page, or one of its groups.
     public var index: PageMessage?
-    /// The right column: the page opened from a row.
+    /// The right column: the page opened from a row (under an action's page, the page the
+    /// action was taken on).
     public var opened: PageMessage?
+    /// The page of the action being taken (its confirm, form or more actions), shown over
+    /// the columns; nil while it is on its way.
+    public var sheet: PageMessage?
+    /// What the user typed into the sheet's form.
+    public var draft: [String: String]
+    /// A submit waits for Control's reply.
+    public var submitting: Bool
 
-    /// Actual displayed identity, never the pending open request.
+    /// The row selected: the page asked for in the right column while it is on its way (the
+    /// clicked row stays selected while its page loads, as the sidebar's group does), else
+    /// the page displayed.
     public var selectedPath: String?
     /// The group the middle column shows, or was asked to show (chosen in the sidebar, its
     /// page still on the way), when it is one rather than its tab's page: the sidebar
@@ -57,7 +67,7 @@ public struct ShellViewModel: Sendable, Equatable {
         env = shell?.env ?? state.settings.env
         isProduction = env == "prod"
         tabs = (shell?.tabs ?? []).enumerated().map { offset, tab in
-            Tab(id: tab.id, label: tab.label, to: tab.to, icon: tab.icon,
+            Tab(id: tab.id, label: tab.label, to: tab.to, section: tab.section, icon: tab.icon,
                 shortcut: offset < 9 ? offset + 1 : nil, count: state.groupCounts[tab.to],
                 groups: (tab.groups ?? []).map {
                     Group(label: $0.label, count: state.groupCounts[$0.to], to: $0.to)
@@ -66,10 +76,24 @@ public struct ShellViewModel: Sendable, Equatable {
         activeTab = state.activeTab
         stale = state.shellStale && shell != nil
         bootFailure = state.bootFailure
-        count = state.count
         index = state.index
-        opened = state.opened
-        selectedPath = state.pageOnScreen?.path
+        // An action's page, once it is on screen, and any page that asks (a form or a
+        // confirm) go over the columns; under it, the page the action was taken on.
+        let page = state.opened
+        if let page, let action = state.action, page.path != action.from?.path {
+            opened = action.from
+            sheet = page
+        } else if let page, SessionState.asks(page) {
+            opened = nil
+            sheet = page
+        } else {
+            opened = page
+            sheet = nil
+        }
+        draft = state.draft
+        submitting = state.submitting
+        let asked = state.expectedColumn == .opened ? state.expected : nil
+        selectedPath = asked ?? (opened ?? index)?.path
         let middle = state.expectedColumn == .index ? state.expected ?? index?.path : index?.path
         activeGroup = middle.flatMap { path in tabs.lazy.flatMap(\.groups).first { $0.to == path }?.to }
     }

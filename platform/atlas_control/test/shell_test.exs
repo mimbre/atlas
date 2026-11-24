@@ -51,7 +51,7 @@ defmodule AtlasControl.ShellTest do
     send_message(
       s,
       Map.merge(
-        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.22.0"),
+        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.24.0"),
         overrides
       )
     )
@@ -60,7 +60,7 @@ defmodule AtlasControl.ShellTest do
   defp connected(port) do
     s = socket(port)
     hello(s)
-    assert %{"op" => "welcome", "spec" => "0.22.0"} = receive_message(s)
+    assert %{"op" => "welcome", "spec" => "0.24.0"} = receive_message(s)
     assert %{"op" => "page"} = receive_message(s)
     s
   end
@@ -109,6 +109,37 @@ defmodule AtlasControl.ShellTest do
     # The environment cannot add the same tab again.
     duplicate = description(Shop.ShelledAssigned, %{"tabs" => [root]})
     assert {:error, _} = Shell.boot(duplicate, nil)
+  end
+
+  test "a member is greeted by its name; an agent, or a model without a greeting, is not" do
+    d = description(Shop.ShelledGreeted)
+    assert d.start.assigned.greeting == "Hello, {name}."
+
+    assert {:ok, greeted} = Shell.boot(d, "member", nil, nil, "Ada")
+    assert greeted["greeting"] == "Hello, Ada."
+
+    assert {:reply, %{effect: :complete}} =
+             Protocol.classify(:boot, Map.put(greeted, "op", "boot"))
+
+    # The greeting is part of the shell's revision: another name, another shell.
+    assert {:ok, renamed} = Shell.boot(d, "member", nil, nil, "Ada B")
+    assert renamed["greeting"] == "Hello, Ada B."
+    refute renamed["revision"] == greeted["revision"]
+
+    # A name of more than one line is greeted on one.
+    assert {:ok, %{"greeting" => "Hello, Ada B."}} = Shell.boot(d, "member", nil, nil, "Ada\nB")
+
+    # An agent or a migration (no fact of a kind the relation points at), or no name.
+    for {by_kind, name} <- [{nil, "agent"}, {nil, nil}, {"member", nil}, {"member", " "}] do
+      assert {:ok, shell} = Shell.boot(d, by_kind, nil, nil, name)
+      refute Map.has_key?(shell, "greeting"), inspect({by_kind, name})
+    end
+
+    # Without the model's words there is none, and the shell is as it was.
+    plain = description(Shop.ShelledAssigned)
+    assert {:ok, shell} = Shell.boot(plain, "member", nil, nil, "Ada")
+    refute Map.has_key?(shell, "greeting")
+    assert {:ok, shell} == Shell.boot(plain, "member")
   end
 
   test "removed indexes and unknown targets fall back; detail links remain" do

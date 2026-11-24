@@ -38,6 +38,11 @@ defmodule AtlasFlow.Backend.Router do
   per Runtime (4), past which a blob request waits for one to end. One open poll per
   Runtime is Dispatch's: a second poll answers the first at once.
 
+  **Unavailable.** A report or `put_blob` that Facts could not answer (the source's
+  `:unavailable`, `AtlasFlow.Delivery`) is 503 `unavailable`. The contract names no such
+  answer, so the Runtime's client takes it as unreachable and the puller sends the same
+  request again; never `lease-lost`, which makes a Runtime drop the work.
+
   Options (`init/1`): `source` (the work source module, `AtlasFlow.WorkSource`),
   `source_opts` (its servers), `limits` (the limits server; none: no limits),
   `poll_max_bytes`, `report_max_bytes`, `blob_max_bytes`, and `sleep` (how a delayed
@@ -297,6 +302,9 @@ defmodule AtlasFlow.Backend.Router do
         json(conn, status, fields || %{})
     end
   end
+
+  defp answer(conn, _capability, :unavailable),
+    do: json(conn, 503, Codec.problem(503, "unavailable"))
 
   defp answer(_conn, capability, :error),
     do: raise(ArgumentError, "the work source answered no outcome of #{capability}")

@@ -1,0 +1,11 @@
+Target dependency graph (4 targets)
+Target 'AllIncludingTests' in project 'Aggregate'
+➜ Explicit dependency on target 'AtlasControlKitTests-product' in project 'AtlasControlKit'
+➜ Dependency on target 'AtlasControlKitTests-product' in project 'AtlasControlKit' via transitive dependency through 'AtlasControlKitTests-test-runner'
+➜ Explicit dependency on target 'AtlasControlKit-product' in project 'AtlasControlKit'
+➜ Explicit dependency on target 'AtlasControlKit' in project 'AtlasControlKit'
+Target 'AtlasControlKit-product' in project 'AtlasControlKit'
+➜ Explicit dependency on target 'AtlasControlKit' in project 'AtlasControlKit'
+Target 'AtlasControlKitTests-product' in project 'AtlasControlKit'
+➜ Explicit dependency on target 'AtlasControlKit' in project 'AtlasControlKit'
+Target 'AtlasControlKit' in project 'AtlasControlKit' (no dependencies)

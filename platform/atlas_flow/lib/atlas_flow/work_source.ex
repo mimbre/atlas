@@ -9,9 +9,9 @@ defmodule AtlasFlow.WorkSource do
   | Capability   | Outcomes                                                           |
   |--------------|--------------------------------------------------------------------|
   | `poll/2`     | `{:polled, %{leases, cancel, lease_lost, timing}}`, `{:rejected, :invalid}` |
-  | `report/2`   | `{:recorded, %{missing}}`, `:lease_lost`, `{:rejected, :conflict \\| :invalid}` |
+  | `report/2`   | `{:recorded, %{missing}}`, `:lease_lost`, `{:rejected, :conflict \\| :invalid}`, `:unavailable` |
   | `get_blob/2` | `{:blob, %{sha256, size, content}}`, `:not_found`, `{:rejected, :invalid}` |
-  | `put_blob/2` | `:stored`, `:lease_lost`, `:too_large`, `:not_referenced`, `{:rejected, :digest_mismatch \\| :invalid}` |
+  | `put_blob/2` | `:stored`, `:lease_lost`, `:too_large`, `:not_referenced`, `{:rejected, :digest_mismatch \\| :invalid}`, `:unavailable` |
 
   `poll` goes to `AtlasFlow.Dispatch`, the only granter; `report` and the result upload to
   `AtlasFlow.Delivery`. A blob's bytes stream in the caller's process: `get_blob` streams
@@ -24,6 +24,9 @@ defmodule AtlasFlow.WorkSource do
 
   `get_blob` has no `lease_lost`: a fenced lease, another Runtime's lease and a name the
   lease's input does not name all answer `not_found` (rev 4, R1).
+
+  `:unavailable` is no outcome of the contract: Facts did not answer (`AtlasFlow.Delivery`).
+  The router answers it 503, which a Runtime takes as unreachable and sends again.
 
   `opts`: `dispatch`, `delivery`, `results` and `bases` (their servers; the defaults are
   the named processes).
@@ -103,7 +106,10 @@ defmodule AtlasFlow.WorkSource do
         Results.put(sha, size, fenced(content, client, lease_id, delivery, fence), room, results)
 
       outcome =
-        if Process.delete(fence) == :lease_lost, do: :lease_lost, else: outcome
+        case Process.delete(fence) do
+          nil -> outcome
+          lost_or_unavailable -> lost_or_unavailable
+        end
 
       Delivery.put_done(client, lease_id, outcome, delivery)
       outcome
@@ -129,8 +135,9 @@ defmodule AtlasFlow.WorkSource do
     end
   end
 
-  # After the last byte, before the store keeps them: the fence again. A lease lost while
-  # the bytes streamed adds one byte past them, so the store keeps nothing.
+  # After the last byte, before the store keeps them: the fence again. A lease lost (or a
+  # Facts that does not answer) while the bytes streamed adds one byte past them, so the
+  # store keeps nothing.
   defp fenced(content, client, lease_id, delivery, fence) do
     tail =
       Stream.flat_map([:refence], fn :refence ->
@@ -138,8 +145,8 @@ defmodule AtlasFlow.WorkSource do
           :ok ->
             []
 
-          _lost ->
-            Process.put(fence, :lease_lost)
+          lost_or_unavailable ->
+            Process.put(fence, lost_or_unavailable)
             [<<0>>]
         end
       end)

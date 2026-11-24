@@ -7,7 +7,12 @@ defmodule AtlasControl.Shell do
   A tab opens `/` (what is assigned, `assigned: true`), a kind's list, the workers, or one
   of the supervision screens (`/_open`, `/_supervised`) when the model's start page has
   it. Without a target, a client opens on the tab the shell names as its `default` (its
-  id), when the client may see it; else on the first tab.
+  id), when the client may see it; else on the first tab. A tab is in the "work" section
+  (the default: what needs someone) or "browse" (reference); a browse tab may name its
+  own key sequence (`key`, as "g s").
+
+  A client that is a fact of a kind the start's assigned relation points at is greeted (`greeting`), when the model words a greeting: its words with `{name}` the
+  viewer's name, as Session read it once at boot. An agent or a migration has none.
   """
 
   alias AtlasControl.Pages
@@ -16,8 +21,11 @@ defmodule AtlasControl.Shell do
   # The supervision screens (M3b P4): index routes, as `/` and a kind's list are.
   @screens [:open_for_you, :supervised_by_you]
 
-  @doc "Build a fresh shell; the optional target selects content without opening a page."
-  def boot(m, by_kind, target \\ nil, resolve \\ nil) do
+  @doc """
+  Build a fresh shell; the optional target selects content without opening a page.
+  `name` is the viewer's name (its fact's label), which a greeting fills in.
+  """
+  def boot(m, by_kind, target \\ nil, resolve \\ nil, name \\ nil) do
     with {:ok, title, configured, default} <- configuration(m),
          true <- is_nil(target) or text?(target, 2_048),
          true <- Enum.all?(configured, &valid_tab?(&1, m)),
@@ -35,6 +43,8 @@ defmodule AtlasControl.Shell do
             id: tab["id"],
             label: tab["label"],
             to: tab["to"],
+            section: tab["section"] || "work",
+            key: tab["key"],
             icon: tab["icon"],
             groups: groups(m, tab["to"])
           )
@@ -53,16 +63,30 @@ defmodule AtlasControl.Shell do
 
           env = AtlasBus.environment()
           spec = Blocks.version()
+          greeting = greeting(m, by_kind, name)
 
           # Navigation and request target do not change the revision. Configuration,
-          # actor-visible tab set, environment and contract version do.
+          # actor-visible tab set, environment, contract version and greeting do.
           revision =
             [
               title,
               env,
               spec,
-              Enum.map(tabs, &[&1["id"], &1["label"], &1["to"], &1["icon"], &1["groups"]])
+              Enum.map(
+                tabs,
+                &[
+                  &1["id"],
+                  &1["label"],
+                  &1["to"],
+                  &1["section"],
+                  &1["key"],
+                  &1["icon"],
+                  &1["groups"]
+                ]
+              )
             ]
+            # A shell without a greeting keeps the revision it had before there were any.
+            |> Kernel.++(List.wrap(greeting))
             |> JSON.encode!()
             |> then(&:crypto.hash(:sha256, &1))
             |> Base.encode16(case: :lower)
@@ -75,13 +99,31 @@ defmodule AtlasControl.Shell do
              revision: revision,
              tabs: tabs,
              initial_to: initial,
-             active_tab: active && active["id"]
+             active_tab: active && active["id"],
+             greeting: greeting
            )}
         end
       end
     else
       {:error, _} = error -> error
       _ -> {:error, "Invalid shell configuration or target"}
+    end
+  end
+
+  # The model's greeting with the viewer's name, for a viewer the start's assigned
+  # relation points at; nil without either. The name stays on one line, as a client
+  # draws it (a control character would make it refuse the whole shell).
+  defp greeting(m, by_kind, name) do
+    with %{} = rule <- Pages.assigned_rule(m),
+         words when is_binary(words) <- Map.get(rule, :greeting),
+         true <- text?(name, 512),
+         name = String.replace(name, ~r/[\x00-\x1f\x7f]+/, " "),
+         true <- Pages.assigned_start?(m, by_kind),
+         text = String.replace(words, "{name}", name),
+         true <- text?(text, 1_024) do
+      text
+    else
+      _ -> nil
     end
   end
 
@@ -103,8 +145,11 @@ defmodule AtlasControl.Shell do
 
   defp valid_tab?(%{"id" => id, "label" => label, "to" => to} = tab, m) do
     text?(id, 64) and text?(label, 128) and text?(to, 2_048) and
-      Map.keys(tab) -- ["id", "label", "to", "assigned", "icon"] == [] and
+      Map.keys(tab) -- ["id", "label", "to", "assigned", "icon", "section", "key"] == [] and
       (is_nil(tab["icon"]) or text?(tab["icon"], 64)) and
+      Map.get(tab, "section", "work") in ["work", "browse"] and
+      (is_nil(tab["key"]) or
+         (tab["section"] == "browse" and AtlasBFFContract.Console.sequence?(tab["key"]))) and
       Map.get(tab, "assigned", false) in [true, false] and
       case Pages.route(if(is_binary(to), do: to, else: "")) do
         :home -> tab["assigned"] == true and Pages.assigned_rule(m) != nil

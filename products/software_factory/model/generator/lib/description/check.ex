@@ -317,7 +317,7 @@ defmodule RelaDSL.Description.Check do
             else: []
 
         {ps ++
-           keys(tab, ~w(id label to assigned icon), at) ++
+           keys(tab, ~w(id label to assigned icon section key), at) ++
            texts ++
            if(is_boolean(Map.get(tab, "assigned", false)),
              do: [],
@@ -326,6 +326,18 @@ defmodule RelaDSL.Description.Check do
            if(is_nil(tab["icon"]) or (text?(tab["icon"]) and byte_size(tab["icon"]) <= 64),
              do: [],
              else: p(at, :tab_icon, [], "shell.tabs.icon: expected a name of at most 64 bytes")
+           ) ++
+           if(Map.get(tab, "section", "work") in ["work", "browse"],
+             do: [],
+             else: p(at, :tab_section, [], "shell.tabs.section: expected work or browse")
+           ) ++
+           if(
+             is_nil(tab["key"]) or
+               (tab["section"] == "browse" and is_binary(tab["key"]) and
+                  String.match?(tab["key"], ~r/^[[:graph:]] [[:graph:]]$/u)),
+             do: [],
+             else:
+               p(at, :tab_key, [], "shell.tabs.key: a browse tab's two-key sequence, as \"g s\"")
            ) ++
            destination ++ twice, MapSet.put(ids, tab["id"]), MapSet.put(targets, target)}
       end)
@@ -345,8 +357,9 @@ defmodule RelaDSL.Description.Check do
       end) ++
       case is_map(start) && start["assigned"] do
         spec when is_map(spec) ->
-          keys(spec, ~w(relation title count empty), path ++ ["assigned"]) ++
-            if(spec["relation"], do: relation(ctx, spec["relation"], path), else: [])
+          keys(spec, ~w(relation title count empty greeting), path ++ ["assigned"]) ++
+            if(spec["relation"], do: relation(ctx, spec["relation"], path), else: []) ++
+            greeting(spec["greeting"], path ++ ["assigned", "greeting"])
 
         _ ->
           []
@@ -358,6 +371,15 @@ defmodule RelaDSL.Description.Check do
   end
 
   defp start(_ctx), do: []
+
+  # The words a client greets the viewer with (`{name}`: the viewer's name), when given.
+  defp greeting(nil, _path), do: []
+
+  defp greeting(text, path) do
+    if is_binary(text) and String.trim(text) != "",
+      do: [],
+      else: p(path, :greeting_text, [], "#{Enum.join(path, ".")}: expected text")
+  end
 
   defp types(ctx) do
     for {name, spec} <- ctx.x["types"] || %{}, at = ["types", name] do

@@ -15,8 +15,8 @@ enum Lines {
         return json(object)
     }
 
-    static func tab(_ id: String, _ to: String) -> [String: Any] {
-        ["id": id, "label": "Label \(id)", "to": to]
+    static func tab(_ id: String, _ to: String, section: String = "work") -> [String: Any] {
+        ["id": id, "label": "Label \(id)", "to": to, "section": section]
     }
 
     static var tabs: [[String: Any]] { [tab("widgets", "/k/widget"), tab("parts", "/k/part")] }
@@ -53,13 +53,12 @@ enum Lines {
         ]
     }
 
-    static func page(_ path: String, reason: String = "open", position: Int? = nil, blocks: [[String: Any]]? = nil, title: String = "Page", count: String? = nil, at: String = "12:00:00") -> Data {
+    static func page(_ path: String, reason: String = "open", position: Int? = nil, blocks: [[String: Any]]? = nil, title: String = "Page", at: String = "12:00:00") -> Data {
         var object: [String: Any] = [
             "op": "page", "path": path, "reason": reason, "title": title, "at": at,
             "blocks": blocks ?? [list([row("W-01", to: "/k/widget/W-01")])], "markup": [],
         ]
         object["position"] = position.map { $0 as Any } ?? NSNull()
-        if let count { object["count"] = count }
         return json(object)
     }
 

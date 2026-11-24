@@ -144,7 +144,9 @@ defmodule AtlasTui.LegendTest do
   defp model(page \\ page()) do
     shell = %{
       "title" => "Atlas Console",
-      "tabs" => [%{"id" => "widgets", "label" => "Widgets", "to" => "/k/widget"}],
+      "tabs" => [
+        %{"id" => "widgets", "label" => "Widgets", "to" => "/k/widget", "section" => "work"}
+      ],
       "revision" => "shell1"
     }
 

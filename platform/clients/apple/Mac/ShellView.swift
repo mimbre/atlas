@@ -5,10 +5,14 @@ import ControlSession
 import SwiftUI
 
 /// The three columns: the tabs boot sent (sidebar), the active tab's index page (middle)
-/// and the page opened from a row (right); the title bar with the title and the
-/// environment; the status bar below.
+/// and the page opened from a row (right); the title bar with the title, the environment
+/// and the index page's own actions (`PageActions.ofPage`); the status bar below. The
+/// opened page shows its own actions next to its title, at its top. An action's page
+/// (its confirm, form or more actions) is a sheet over them; the keys of the shown page's
+/// actions take them.
 struct ShellView: View {
     let session: Session
+    @State private var keys = ActionKeys()
 
     private func submit(_ call: CallModel, _ values: [String: String]) {
         session.submit(call, values: values)
@@ -19,14 +23,31 @@ struct ShellView: View {
         NavigationSplitView {
             Sidebar(shell: shell, select: session.selectTab, filter: session.filter)
         } content: {
-            Column(page: shell.index, selectedPath: shell.selectedPath, open: session.open, submit: submit)
+            // Room for a row's key, title (two lines) and to-do side by side.
+            Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
+                   submit: submit, act: session.act)
+                .navigationSplitViewColumnWidth(min: 420, ideal: 560)
         } detail: {
-            Column(page: shell.opened, selectedPath: shell.selectedPath, open: session.open, submit: submit)
+            Column(page: shell.opened, header: true, selectedPath: shell.selectedPath, open: session.open,
+                   submit: submit, act: session.act)
+        }
+        .onAppear { keys.start(session) }
+        .onDisappear { keys.stop() }
+        .sheet(isPresented: Binding(get: { shell.sheet != nil }, set: { if !$0 { session.leave() } })) {
+            if let page = shell.sheet {
+                ActionPageView(page: page, draft: shell.draft, submitting: shell.submitting,
+                               act: session.act, submit: submit, edit: session.edit, leave: session.leave)
+            }
         }
         .navigationTitle(shell.title ?? "")
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 EnvironmentBadge(env: shell.env, production: shell.isProduction)
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                if let index = shell.index {
+                    ActionButtons(actions: PageActions.ofPage(index), act: session.act)
+                }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -40,11 +61,10 @@ struct ShellView: View {
     }
 }
 
-/// The tabs, in boot's order, each with its icon and count, with the count (what waits for
-/// the user) as the section's header; under every tab with groups, its groups with their
-/// counts (as a mail app's folders), folded by the tab's chevron (the fold is kept per
-/// tab), so any group can be chosen from anywhere. It scrolls, so it holds boot's limit
-/// of 64.
+/// The tabs, in boot's order, each with its icon and count, under its section's heading;
+/// under every tab with groups, its groups with their counts (as a mail app's folders),
+/// folded by the tab's chevron (the fold is kept per tab), so any group can be chosen
+/// from anywhere. It scrolls, so it holds boot's limit of 64.
 ///
 /// The rows are one flat list, each the same kind of view: a `DisclosureGroup` per tab
 /// (an outline) drew rows of the old outline over the new one when boot changed the
@@ -85,9 +105,9 @@ struct Sidebar: View {
             })
     }
 
-    private var rows: [Row] {
+    private func rows(_ section: String) -> [Row] {
         let foldedIds = Set(folded.split(separator: "\n").map(String.init))
-        return shell.tabs.flatMap { tab -> [Row] in
+        return shell.tabs.filter { $0.section == section }.flatMap { tab -> [Row] in
             let open = !foldedIds.contains(tab.id)
             let row = Row(id: .tab(tab.id), label: tab.label, count: tab.count, icon: Self.symbol(tab.icon),
                           open: tab.groups.isEmpty ? nil : open)
@@ -102,19 +122,24 @@ struct Sidebar: View {
     /// icons (all but the selected row's).
     var body: some View {
         List(selection: choice) {
-            Section {
-                ForEach(rows) { row in
-                    rowView(row)
-                        .opacity(shell.stale ? 0.6 : 1)
-                        .badge(row.count.map { Text("\($0)") })
-                        .tag(row.id)
-                }
-            } header: {
-                if let count = shell.count { Text(count) }
+            Section("Work") {
+                rowViews(rows("work"))
+            }
+            Section("Browse") {
+                rowViews(rows("browse"))
             }
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 160, ideal: 220)
+    }
+
+    private func rowViews(_ rows: [Row]) -> some View {
+        ForEach(rows) { row in
+            rowView(row)
+                .opacity(shell.stale ? 0.6 : 1)
+                .badge(row.count.map { Text("\($0)") })
+                .tag(row.id)
+        }
     }
 
     /// A tab: its fold's chevron (a blank of the same width without groups), icon and
@@ -151,10 +176,12 @@ struct Sidebar: View {
         switch icon {
         case "inbox": "tray"
         case "watching": "eye"
+        case "machines": "cpu"
+        case "agents": "person.2"
+        case "checklist": "checklist"
+        case "history": "clock.arrow.circlepath"
         case "mine": "person.crop.circle"
         case "stack": "rectangle.stack"
-        case "checklist": "checklist"
-        case "machines": "cpu"
         default: "circle"
         }
     }
@@ -163,13 +190,16 @@ struct Sidebar: View {
 /// A column's page, or nothing yet.
 struct Column: View {
     let page: PageMessage?
+    let header: Bool
     let selectedPath: String?
     let open: (String) -> Void
     let submit: (CallModel, [String: String]) -> Void
+    let act: (ActionModel) -> Void
 
     var body: some View {
         if let page {
-            PageView(page: page, selectedPath: selectedPath, open: open, submit: submit)
+            PageView(page: page, header: header, selectedPath: selectedPath, open: open, submit: submit,
+                     act: act)
         } else {
             Color.clear
         }

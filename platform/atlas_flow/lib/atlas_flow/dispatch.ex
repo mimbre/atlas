@@ -43,7 +43,11 @@ defmodule AtlasFlow.Dispatch do
   `task_attempt` (F10). A `cancel_requested` write is not: the lease's work goes on until
   its Runtime ends it.
 
-  **Boot.** Every live lease on a task fact counts as renewed at boot (§5.3 item 5).
+  **Boot.** Every live lease on a task fact counts as renewed at boot (§5.3 item 5). When
+  Facts does not answer that read (a deploy that restarts rela with the core), every sweep
+  reads again until it does; until then a poll loses no holding, since Dispatch cannot tell
+  a live one from a lost one. Otherwise each Runtime would cancel its running work, and the
+  leases on the task facts would never be swept: their tasks leased forever.
 
   Options of `start_link/1`: `name` (default `AtlasFlow.Dispatch`), `model` (default the
   configured one), `clock`, `delivery` (the server fences are cast to, default
@@ -152,7 +156,8 @@ defmodule AtlasFlow.Dispatch do
       ready: %{},
       leases: %{},
       parked: %{},
-      polls: %{}
+      polls: %{},
+      booted: false
     }
 
     {:ok, state, {:continue, :boot}}
@@ -171,7 +176,7 @@ defmodule AtlasFlow.Dispatch do
       when is_binary(runtime_id) and is_binary(holder) do
     case poll_input(input, runtime_id) do
       {:ok, offer, holdings} ->
-        state = sweep_now(state)
+        state = state |> boot_leases() |> sweep_now()
         state = put_in(state.polls[runtime_id], now(state))
         {renewed, lost, state} = renew(state, runtime_id, holdings)
         cancel = for id <- renewed, state.leases[id].cancel, do: id
@@ -193,7 +198,8 @@ defmodule AtlasFlow.Dispatch do
   def handle_call({:poll, _client, _input}, _from, state),
     do: {:reply, {:rejected, :invalid}, state}
 
-  def handle_call(:sweep, _from, state), do: {:reply, :ok, state |> sweep_now() |> serve_parked()}
+  def handle_call(:sweep, _from, state),
+    do: {:reply, :ok, state |> boot_leases() |> sweep_now() |> serve_parked()}
 
   def handle_call(:resync, _from, state),
     do: {:reply, :ok, state |> resync_ready() |> serve_parked()}
@@ -217,7 +223,7 @@ defmodule AtlasFlow.Dispatch do
   @impl true
   def handle_info(:tick, state) do
     every(state, :sweep_ms, :tick)
-    {:noreply, state |> sweep_now() |> serve_parked()}
+    {:noreply, state |> boot_leases() |> sweep_now() |> serve_parked()}
   end
 
   def handle_info(:resync_tick, state) do
@@ -257,7 +263,8 @@ defmodule AtlasFlow.Dispatch do
 
   defp timing(state), do: %{lease_ttl: state.ttl, poll_max: state.poll_max}
 
-  # Holdings this Runtime holds a live lease of are renewed; every other is lost to it.
+  # Holdings this Runtime holds a live lease of are renewed; every other is lost to it, once
+  # Dispatch has read the leases (before that, an unknown holding is neither).
   defp renew(state, runtime_id, holdings) do
     expires = DateTime.add(now(state), state.ttl, :second)
 
@@ -266,6 +273,9 @@ defmodule AtlasFlow.Dispatch do
         case leases[id] do
           %{runtime: ^runtime_id, state: s} = lease when s != :expired ->
             {[id | ok], lost, Map.put(leases, id, %{lease | expires_at: expires})}
+
+          nil when not state.booted ->
+            {ok, lost, leases}
 
           _ ->
             {ok, [id | lost], leases}
@@ -623,7 +633,10 @@ defmodule AtlasFlow.Dispatch do
     end
   end
 
-  # Every live lease on a task fact counts as renewed now (§5.3 item 5).
+  # Every live lease on a task fact counts as renewed now (§5.3 item 5); read once, at boot,
+  # and again at each sweep while Facts did not answer it.
+  defp boot_leases(%{booted: true} = state), do: state
+
   defp boot_leases(state) do
     case Leases.all() do
       {:ok, facts} ->
@@ -659,7 +672,7 @@ defmodule AtlasFlow.Dispatch do
              }}
           end
 
-        %{state | leases: Map.merge(leases, state.leases)}
+        %{state | leases: Map.merge(leases, state.leases), booted: true}
 
       {:error, why} ->
         Logger.warning("flow dispatch could not read the leases: #{inspect(why)}")

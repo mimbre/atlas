@@ -18,15 +18,28 @@ defmodule AtlasBFFContract.Console do
   def named_keys, do: @tokens
   def operations, do: @local ++ ~w(open open_url agent_ask invoke) ++ @worker
 
-  def key?(key) when is_binary(key),
-    do:
-      key in @tokens or
-        (String.valid?(key) and
-           (String.match?(key, ~r/^[0-9]{2,6}$/) or
-              (String.length(key) == 1 and String.printable?(key) and
-                 not String.match?(key, ~r/[\x00-\x1f\x7f]/))))
+  # A named token, a digit sequence, one printable character, or a sequence of two of
+  # them separated by a space ("g s": press g, then s).
+  def key?(key) when is_binary(key) do
+    case String.split(key, " ") do
+      [first, second] ->
+        char?(first) and char?(second)
+
+      _ ->
+        key in @tokens or (String.valid?(key) and String.match?(key, ~r/^[0-9]{2,6}$/)) or
+          char?(key)
+    end
+  end
 
   def key?(_), do: false
+
+  @doc "Whether `key` is a sequence of two characters (\"g s\")."
+  def sequence?(key), do: key?(key) and match?([_, _], String.split(key, " "))
+
+  defp char?(key),
+    do:
+      String.valid?(key) and String.length(key) == 1 and String.printable?(key) and
+        not String.match?(key, ~r/[\x00-\x1f\x7f ]/)
 
   def operation?(%{"name" => "invoke", "call" => call} = op) when map_size(op) == 2 do
     with %{"endpoint" => endpoint} <- call,
