@@ -79,6 +79,7 @@ atlas-ops status --env test    # what runs, and which build
 - [docs/runtime-architecture.md](docs/runtime-architecture.md): Runtime and Code, their boundaries and contracts.
 - [docs/guides/development.md](docs/guides/development.md): the rules the tests enforce, and how the end-to-end test works.
 - [docs/guides/agent-cli.md](docs/guides/agent-cli.md): driving Atlas from an agent on the command line.
+- [docs/guides/rela.md](docs/guides/rela.md): ask rela first (D-0100): Atlas builds nothing beside rela; which rela it runs and how to ask it what it offers.
 - [docs/guides/](docs/guides/): the environments and how to try each use case.
 - [docs/contracts/](docs/contracts/): the interfaces between components.
 - [docs/adr/](docs/adr/): decisions, one short record each.
