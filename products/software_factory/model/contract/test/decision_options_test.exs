@@ -306,7 +306,9 @@ defmodule Model.DecisionOptionsTest do
       "markup" => page.markup
     }
 
-    assert {:ok, projected} = AtlasControl.Console.project(message, 3)
+    assert {:ok, projected} =
+             AtlasControl.Console.project(message, Model.AtlasEyra.shell(%{})["tabs"])
+
     assert {:ok, projection} = AtlasBFFContract.Console.compile(projected)
 
     [choice] = for %{"type" => "single_choice", "props" => p} <- projected["blocks"], do: p

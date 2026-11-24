@@ -7,7 +7,9 @@ defmodule AtlasControl.Shell do
   A tab opens `/` (what is assigned, `assigned: true`), a kind's list, the workers, or one
   of the supervision screens (`/_open`, `/_supervised`) when the model's start page has
   it. Without a target, a client opens on the tab the shell names as its `default` (its
-  id), when the client may see it; else on the first tab.
+  id), when the client may see it; else on the first tab. A tab is in the "work" section
+  (the default: what needs a person) or "browse" (reference); a browse tab may name its
+  own key sequence (`key`, as "g s").
   """
 
   alias AtlasControl.Pages
@@ -35,6 +37,8 @@ defmodule AtlasControl.Shell do
             id: tab["id"],
             label: tab["label"],
             to: tab["to"],
+            section: tab["section"] || "work",
+            key: tab["key"],
             icon: tab["icon"],
             groups: groups(m, tab["to"])
           )
@@ -61,7 +65,18 @@ defmodule AtlasControl.Shell do
               title,
               env,
               spec,
-              Enum.map(tabs, &[&1["id"], &1["label"], &1["to"], &1["icon"], &1["groups"]])
+              Enum.map(
+                tabs,
+                &[
+                  &1["id"],
+                  &1["label"],
+                  &1["to"],
+                  &1["section"],
+                  &1["key"],
+                  &1["icon"],
+                  &1["groups"]
+                ]
+              )
             ]
             |> JSON.encode!()
             |> then(&:crypto.hash(:sha256, &1))
@@ -103,8 +118,11 @@ defmodule AtlasControl.Shell do
 
   defp valid_tab?(%{"id" => id, "label" => label, "to" => to} = tab, m) do
     text?(id, 64) and text?(label, 128) and text?(to, 2_048) and
-      Map.keys(tab) -- ["id", "label", "to", "assigned", "icon"] == [] and
+      Map.keys(tab) -- ["id", "label", "to", "assigned", "icon", "section", "key"] == [] and
       (is_nil(tab["icon"]) or text?(tab["icon"], 64)) and
+      Map.get(tab, "section", "work") in ["work", "browse"] and
+      (is_nil(tab["key"]) or
+         (tab["section"] == "browse" and AtlasBFFContract.Console.sequence?(tab["key"]))) and
       Map.get(tab, "assigned", false) in [true, false] and
       case Pages.route(if(is_binary(to), do: to, else: "")) do
         :home -> tab["assigned"] == true and Pages.assigned_rule(m) != nil

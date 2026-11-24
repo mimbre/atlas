@@ -8,6 +8,8 @@ public struct ShellViewModel: Sendable, Equatable {
         public var id: String
         public var label: String
         public var to: String
+        /// Where the sidebar lists it: "work" (what waits for the user) or "browse".
+        public var section: String
         /// Its icon, a semantic name boot gives (the app draws it as a symbol).
         public var icon: String?
         public var shortcut: Int?
@@ -57,7 +59,7 @@ public struct ShellViewModel: Sendable, Equatable {
         env = shell?.env ?? state.settings.env
         isProduction = env == "prod"
         tabs = (shell?.tabs ?? []).enumerated().map { offset, tab in
-            Tab(id: tab.id, label: tab.label, to: tab.to, icon: tab.icon,
+            Tab(id: tab.id, label: tab.label, to: tab.to, section: tab.section, icon: tab.icon,
                 shortcut: offset < 9 ? offset + 1 : nil, count: state.groupCounts[tab.to],
                 groups: (tab.groups ?? []).map {
                     Group(label: $0.label, count: state.groupCounts[$0.to], to: $0.to)

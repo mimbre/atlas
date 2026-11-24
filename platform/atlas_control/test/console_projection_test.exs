@@ -2,6 +2,9 @@ defmodule AtlasControl.ConsoleProjectionTest do
   use ExUnit.Case, async: true
   alias AtlasBFFContract.Console
 
+  # `n` work tabs, as boot sends them.
+  defp tabs(n), do: for(i <- 1..n, do: %{"id" => "t#{i}", "to" => "/t#{i}", "section" => "work"})
+
   defp native do
     %{
       "path" => "/k/widget",
@@ -58,7 +61,7 @@ defmodule AtlasControl.ConsoleProjectionTest do
     }
 
     page = put_in(native(), ["blocks", Access.at(0), "props", "rows"], [])
-    assert {:ok, projected} = AtlasControl.Console.project(page, 1, [declaration])
+    assert {:ok, projected} = AtlasControl.Console.project(page, tabs(1), [declaration])
     assert {:ok, projection} = Console.compile(projected)
     action = Enum.find(projection.actions, &(&1["props"]["label"] == declaration.label))
     assert action["props"]["operation"] == declaration.operation
@@ -67,7 +70,7 @@ defmodule AtlasControl.ConsoleProjectionTest do
     assert {:error, :unavailable_binding} = Console.capture(projection, "o", current())
 
     enabled = %{declaration | available: true, reason: nil}
-    assert {:ok, projected} = AtlasControl.Console.project(page, 1, [enabled])
+    assert {:ok, projected} = AtlasControl.Console.project(page, tabs(1), [enabled])
     assert {:ok, projection} = Console.compile(projected)
     assert {:ok, event} = Console.capture(projection, "o", current())
     assert {:ok, action} = Console.resolve(projection, event, current())
@@ -91,12 +94,12 @@ defmodule AtlasControl.ConsoleProjectionTest do
           }
         ] do
       assert {:error, _} =
-               AtlasControl.Console.project(page, 1, [%{enabled | operation: operation}])
+               AtlasControl.Console.project(page, tabs(1), [%{enabled | operation: operation}])
     end
   end
 
   test "bindings and legend consume the same scoped action objects" do
-    assert {:ok, page} = AtlasControl.Console.project(native(), 2)
+    assert {:ok, page} = AtlasControl.Console.project(native(), tabs(2))
     assert {:ok, projection} = Console.compile(page)
     assert {:ok, bindings} = Console.bindings(projection, current())
     action = bindings["o"]
@@ -112,6 +115,20 @@ defmodule AtlasControl.ConsoleProjectionTest do
              &(&1["props"]["scope"]["context"] == "form" and
                  &1["props"]["operation"]["name"] == "submit")
            )
+  end
+
+  test "a browse tab's key sequence opens it; Tab counts only the work tabs" do
+    browse = %{"id" => "s", "to" => "/k/scene", "label" => "Scenes", "section" => "browse"}
+    tabs = tabs(1) ++ [Map.put(browse, "key", "g s"), Map.put(browse, "id", "x")]
+    assert {:ok, page} = AtlasControl.Console.project(native(), tabs)
+    assert {:ok, projection} = Console.compile(page)
+    assert {:ok, bindings} = Console.bindings(projection, current())
+
+    assert %{"label" => "Scenes", "operation" => %{"name" => "open", "to" => "/k/scene"}} =
+             bindings["g s"]["props"]
+
+    refute bindings["Tab"]["props"]["available"]
+    assert Console.sequence?("g s") and not Console.sequence?("g")
   end
 
   # A recommended choice is offered under two keys that submit the same call (`0` and `1`).
@@ -147,7 +164,7 @@ defmodule AtlasControl.ConsoleProjectionTest do
       "markup" => []
     }
 
-    assert {:ok, projected} = AtlasControl.Console.project(page, 1)
+    assert {:ok, projected} = AtlasControl.Console.project(page, tabs(1))
     assert {:ok, projection} = Console.compile(projected)
     at = %{path: "/k/widget/W", context: "browse", generation: 1, on: "item", row: nil}
 
@@ -165,7 +182,7 @@ defmodule AtlasControl.ConsoleProjectionTest do
   end
 
   test "captured actions are denied after any page context row or generation change" do
-    {:ok, page} = AtlasControl.Console.project(native(), 2)
+    {:ok, page} = AtlasControl.Console.project(native(), tabs(2))
     {:ok, p} = Console.compile(page)
     {:ok, event} = Console.capture(p, "o", current())
 
@@ -178,14 +195,14 @@ defmodule AtlasControl.ConsoleProjectionTest do
       assert {:error, :stale_or_unavailable_action} = Console.resolve(p, event, changed)
     end
 
-    {:ok, refreshed} = AtlasControl.Console.project(native(), 2)
+    {:ok, refreshed} = AtlasControl.Console.project(native(), tabs(2))
     {:ok, next} = Console.compile(refreshed)
     assert {:error, :stale_or_unavailable_action} = Console.resolve(next, event, current())
     assert {:error, :unavailable_binding} = Console.capture(p, "F999", current())
   end
 
   test "unknown operations tokens scopes duplicate bindings and malformed legends fail closed" do
-    {:ok, page} = AtlasControl.Console.project(native(), 2)
+    {:ok, page} = AtlasControl.Console.project(native(), tabs(2))
     first = Enum.find_index(page["blocks"], &(&1["type"] == "console_action"))
 
     for {field, value} <- [
@@ -259,7 +276,7 @@ defmodule AtlasControl.ConsoleProjectionTest do
   end
 
   test "complete panes expose browse-only focus bindings without replacing tab navigation" do
-    {:ok, page} = AtlasControl.Console.project(panes(), 2)
+    {:ok, page} = AtlasControl.Console.project(panes(), tabs(2))
     {:ok, projection} = Console.compile(page)
     {:ok, bindings} = Console.bindings(projection, current())
     assert bindings["["]["props"]["operation"]["name"] == "part_previous"
@@ -280,7 +297,7 @@ defmodule AtlasControl.ConsoleProjectionTest do
     whole = %{content | "end" => "items"}
 
     for markup <- [[], [whole], [content], [whole, content, references]] do
-      {:ok, projected} = AtlasControl.Console.project(%{page | "markup" => markup}, 2)
+      {:ok, projected} = AtlasControl.Console.project(%{page | "markup" => markup}, tabs(2))
       {:ok, projection} = Console.compile(projected)
       {:ok, bindings} = Console.bindings(projection, current())
       refute Map.has_key?(bindings, "[")
@@ -294,7 +311,7 @@ defmodule AtlasControl.ConsoleProjectionTest do
         %{"key" => "]", "label" => "Open", "to" => "/k/widget/one"}
       ])
 
-    {:ok, projected} = AtlasControl.Console.project(page, 2)
+    {:ok, projected} = AtlasControl.Console.project(page, tabs(2))
     {:ok, projection} = Console.compile(projected)
     {:ok, bindings} = Console.bindings(projection, current())
     assert bindings["]"]["props"]["operation"] == %{"name" => "open", "to" => "/k/widget/one"}
@@ -315,12 +332,12 @@ defmodule AtlasControl.ConsoleProjectionTest do
       )
 
     assert {:error, "Console projection exceeds action limit"} =
-             AtlasControl.Console.project(page, 2)
+             AtlasControl.Console.project(page, tabs(2))
   end
 
   test "five tabs: the console projects tab navigation, as with two" do
-    for tabs <- [2, 5] do
-      assert {:ok, page} = AtlasControl.Console.project(native(), tabs)
+    for n <- [2, 5] do
+      assert {:ok, page} = AtlasControl.Console.project(native(), tabs(n))
 
       names =
         for %{"type" => "console_action", "props" => p} <- page["blocks"],

@@ -12,7 +12,9 @@
   "control": {
     "host": "127.0.0.1",
     "port": 7593,
-    "tabs": [{ "id": "workers", "label": "Workers", "to": "/workers", "icon": "machines" }],
+    "tabs": [
+      { "id": "workers", "label": "Workers", "to": "/workers", "section": "browse", "key": "g w", "icon": "machines" }
+    ],
     "workers": {
       "read": { "actors": ["melle"] },
       "submit": { "actors": ["melle"] }

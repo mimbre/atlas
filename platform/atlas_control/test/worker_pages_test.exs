@@ -87,7 +87,7 @@ defmodule AtlasControl.WorkerPagesTest do
         "blocks" => page.blocks,
         "markup" => page.markup
       },
-      1,
+      [%{"section" => "work"}],
       page.console_actions
     )
   end
@@ -236,7 +236,7 @@ defmodule AtlasControl.WorkerPagesTest do
                  "blocks" => page.blocks,
                  "markup" => page.markup
                },
-               1,
+               [%{"section" => "work"}],
                page.console_actions
              )
 

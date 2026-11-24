@@ -49,6 +49,7 @@ defmodule AtlasTui.Interactions do
         generation: model.console.generation + 1,
         action_error: error,
         key_buffer: "",
+        key_prefix: "",
         legend: if(projection && page["path"] == model.path, do: model.console.legend, else: nil)
     }
 
@@ -143,6 +144,17 @@ defmodule AtlasTui.Interactions do
     end
   end
 
+  # A pending sequence's second key completes it ("g" then "s" is "g s"); any other
+  # key, Esc included, only cancels it.
+  def key(%{console: %{key_prefix: prefix}} = model, key) when prefix != "" do
+    model = put_in(model.console.key_prefix, "")
+
+    case key do
+      {:char, char} -> dispatch(model, capture(model, {:char, prefix <> " " <> char}))
+      _ -> {model, []}
+    end
+  end
+
   def key(model, key) do
     sequences? =
       context(model) == "browse" and
@@ -165,9 +177,26 @@ defmodule AtlasTui.Interactions do
         {put_in(model.console.key_buffer, ""), []}
 
       _ ->
-        direct_key(put_in(model.console.key_buffer, ""), key)
+        model = put_in(model.console.key_buffer, "")
+
+        if prefix?(model, key),
+          do: {put_in(model.console.key_prefix, elem(key, 1)), []},
+          else: direct_key(model, key)
     end
   end
+
+  # Whether `key` starts an action's two-key sequence; a single-key action on the
+  # same character keeps it.
+  defp prefix?(model, {:char, char}) do
+    if context(model) == "browse" do
+      keys = Enum.flat_map(active(model), & &1["props"]["keys"])
+      char not in keys and Enum.any?(keys, &String.starts_with?(&1, char <> " "))
+    else
+      false
+    end
+  end
+
+  defp prefix?(_model, _key), do: false
 
   defp direct_key(model, key) do
     case capture(model, key) do

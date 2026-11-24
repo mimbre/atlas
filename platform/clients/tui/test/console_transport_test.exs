@@ -100,6 +100,7 @@ defmodule AtlasTui.ConsoleTransportTest do
             action("next", "Tab", "tab_next"),
             action("previous", "Shift+Tab", "tab_previous"),
             action("down", "Down", "move_next"),
+            action("scenes", "g s", "open", %{"to" => "/k/scene"}),
             action("new", "n", "open", %{"to" => "/k/widget/new"})
           ],
           "markup" => [
@@ -141,9 +142,16 @@ defmodule AtlasTui.ConsoleTransportTest do
       "revision" => "fixture",
       "initial_to" => target,
       "tabs" => [
-        %{"id" => "widgets", "label" => "Widgets", "to" => "/k/widget"},
-        %{"id" => "parts", "label" => "Parts", "to" => "/k/part"},
-        %{"id" => "work", "label" => "Open work", "to" => "/k/work"}
+        %{"id" => "widgets", "label" => "Widgets", "to" => "/k/widget", "section" => "work"},
+        %{"id" => "parts", "label" => "Parts", "to" => "/k/part", "section" => "work"},
+        %{"id" => "open", "label" => "Open for you", "to" => "/_open", "section" => "work"},
+        %{
+          "id" => "scenes",
+          "label" => "Scenes",
+          "to" => "/k/scene",
+          "section" => "browse",
+          "key" => "g s"
+        }
       ]
     }
   end
@@ -208,12 +216,12 @@ defmodule AtlasTui.ConsoleTransportTest do
     tmux(server, ["send-keys", "-t", "console", "Down"])
     see(server, "› W2")
     tmux(server, ["send-keys", "-t", "console", "BTab"])
-    assert %{"op" => "open", "to" => "/k/work"} = read(socket)
-    send_message(socket, content("/k/work"))
+    assert %{"op" => "open", "to" => "/_open"} = read(socket)
+    send_message(socket, content("/_open"))
     see(server, "First widget")
-    see(server, "▸ Open work")
+    see(server, "▸ Open for you")
     tmux(server, ["resize-window", "-t", "console", "-x", "20", "-y", "24"])
-    narrow = see(server, "▸ Open work")
+    narrow = see(server, "▸ Open for you")
     assert narrow =~ "‹"
     tmux(server, ["resize-window", "-t", "console", "-x", "90", "-y", "24"])
     tmux(server, ["send-keys", "-t", "console", "Tab"])
@@ -288,23 +296,34 @@ defmodule AtlasTui.ConsoleTransportTest do
     refute pending =~ "First widget"
 
     tmux(server, ["send-keys", "-t", "console", "Tab"])
-    see(server, "▸ Open work")
+    see(server, "▸ Open for you")
     tmux(server, ["send-keys", "-t", "console", "Tab"])
     see(server, "▸ Widgets")
     tmux(server, ["send-keys", "-t", "console", "BTab"])
-    see(server, "▸ Open work")
+    see(server, "▸ Open for you")
     # The server has not answered: no intermediate opens are queued.
     assert {:error, :timeout} = :gen_tcp.recv(socket, 0, 100)
     send_message(socket, Map.put(content("/k/widget"), "reason", "hint"))
     send_message(socket, content("/k/part"))
-    assert %{"op" => "open", "to" => "/k/work"} = read(socket)
+    assert %{"op" => "open", "to" => "/_open"} = read(socket)
     superseded = see(server, "Loading")
-    assert superseded =~ "▸ Open work"
+    assert superseded =~ "▸ Open for you"
     refute superseded =~ "First widget"
     send_message(socket, Map.put(content("/k/part"), "reason", "reconcile"))
-    send_message(socket, content("/k/work"))
+    send_message(socket, content("/_open"))
     loaded = see(server, "First widget")
-    assert loaded =~ "▸ Open work"
+    assert loaded =~ "▸ Open for you"
+    assert loaded =~ "│   Scenes g s"
+
+    # g then s opens the browse tab its key names; Tab from there is back to work.
+    tmux(server, ["send-keys", "-t", "console", "g"])
+    see(server, "g … · Esc to cancel")
+    tmux(server, ["send-keys", "-t", "console", "s"])
+    assert %{"op" => "open", "to" => "/k/scene"} = read(socket)
+    send_message(socket, content("/k/scene"))
+    see(server, "▸ Scenes")
+    tmux(server, ["send-keys", "-t", "console", "Tab"])
+    assert %{"op" => "open", "to" => "/k/widget"} = read(socket)
 
     if folder = System.get_env("ATLAS_CONSOLE_PROOF") do
       File.mkdir_p!(folder)

@@ -38,25 +38,25 @@ defmodule AtlasTui.ConsoleView do
 
   defp tabs(nil, _active, width), do: [{:dim, fit(" Waiting for Console boot…", width)}]
 
+  # The work tabs, a separator, then the browse tabs, each with its key ("Scenes g s").
   defp tabs(shell, active, width) do
-    tabs = shell["tabs"]
+    {work, browse} = Enum.split_with(shell["tabs"], &AtlasTui.Console.work?/1)
+    separator = if work != [] and browse != [], do: [{:separator, [{:dim, " │"}]}], else: []
 
-    segments =
-      Enum.map(tabs, fn tab ->
-        if tab["id"] == active,
-          do: {:selected, " ▸ #{tab["label"]} "},
-          else: {:dim, "   #{tab["label"]} "}
-      end)
+    groups =
+      Enum.map(work, &{&1["id"], tab(&1, active)}) ++
+        separator ++ Enum.map(browse, &{&1["id"], tab(&1, active)})
 
-    index = Enum.find_index(tabs, &(&1["id"] == active)) || 0
+    segments = Enum.flat_map(groups, &elem(&1, 1))
+    index = Enum.find_index(groups, &(elem(&1, 0) == active)) || 0
 
-    before =
-      segments
-      |> Enum.take(index)
-      |> Enum.reduce(0, fn {_, text}, n -> n + String.length(text) end)
+    size = fn segments ->
+      Enum.reduce(segments, 0, fn {_, text}, n -> n + String.length(text) end)
+    end
 
-    active_size = segments |> Enum.at(index) |> elem(1) |> String.length()
-    total = Enum.reduce(segments, 0, fn {_, text}, n -> n + String.length(text) end)
+    before = groups |> Enum.take(index) |> Enum.map(&size.(elem(&1, 1))) |> Enum.sum()
+    active_size = groups |> Enum.at(index) |> elem(1) |> size.()
+    total = size.(segments)
     # Scroll a continuous viewport to the active tab. Both overflow markers are
     # presentation only and never become navigation destinations.
     offset = max(min(before - max(div(width - active_size, 2), 0), total - width), 0)
@@ -70,8 +70,19 @@ defmodule AtlasTui.ConsoleView do
     shown = slice(segments, offset, available)
     prefix = if left == 1, do: [{:dim, "‹"}], else: []
     suffix = if right == 1, do: [{:dim, "›"}], else: []
-    used = Enum.reduce(shown, 0, fn {_, text}, n -> n + String.length(text) end)
+    used = size.(shown)
     prefix ++ shown ++ [{:dim, String.duplicate(" ", max(available - used, 0))}] ++ suffix
+  end
+
+  defp tab(tab, active) do
+    selected = tab["id"] == active
+
+    label =
+      if selected, do: {:selected, " ▸ #{tab["label"]} "}, else: {:dim, "   #{tab["label"]} "}
+
+    hint_style = if selected, do: {:selected, :muted}, else: :muted
+    hint = if tab["key"], do: [{hint_style, "#{tab["key"]} "}], else: []
+    [label | hint]
   end
 
   defp slice(_segments, _offset, 0), do: []

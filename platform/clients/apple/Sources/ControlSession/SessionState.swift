@@ -606,7 +606,7 @@ public struct SessionState: Sendable, Equatable {
         guard (1...tabLimit).contains(shell.tabs.count) else { return .tabCount }
         for (index, tab) in shell.tabs.enumerated() {
             guard text(tab.id, limit: 64), text(tab.label, limit: 128), path(tab.to),
-                  let page = Page.match(tab.to)?.page, tabPages.contains(page)
+                  ["work", "browse"].contains(tab.section), let page = Page.match(tab.to)?.page, tabPages.contains(page)
             else { return .tab(index: index) }
         }
         guard Set(shell.tabs.map(\.id)).count == shell.tabs.count,

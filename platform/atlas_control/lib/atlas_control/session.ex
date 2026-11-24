@@ -649,8 +649,9 @@ defmodule AtlasControl.Session do
     do: {:noreply, notice(state, "error", "Unknown op #{inspect(op)}")}
 
   # Boot's tabs with groups carry their counts, so a client shows them before the tab is
-  # opened: the tab's All, each group its own, from the tab's page (`groups` block). Read
-  # once and kept (`tab_counts`) until a hint makes them stale; none while unreadable.
+  # opened: the tab's All, each group its own, from the tab's page (`groups` block), which
+  # leaves out groups without items, so boot does too. Read once and kept (`tab_counts`)
+  # until a hint makes them stale; all groups, uncounted, while unreadable.
   defp counted(shell, state) do
     {tabs, state} =
       Enum.map_reduce(shell["tabs"], state, fn
@@ -658,9 +659,14 @@ defmodule AtlasControl.Session do
           {counts, state} = tab_counts(state, tab["to"])
 
           groups =
-            for group <- groups do
-              if n = counts[group["to"]], do: Map.put(group, "count", n), else: group
-            end
+            if counts == %{},
+              do: groups,
+              else:
+                for(
+                  group <- groups,
+                  n = counts[group["to"]],
+                  do: Map.put(group, "count", n)
+                )
 
           tab = if n = counts[tab["to"]], do: Map.put(tab, "count", n), else: tab
           {%{tab | "groups" => groups}, state}
@@ -1647,8 +1653,7 @@ defmodule AtlasControl.Session do
     projected =
       if state.surface == "console" do
         with {:ok, shell} <- AtlasControl.Shell.boot(state.model, state.by_kind),
-             {:ok, page} <-
-               AtlasControl.Console.project(message, length(shell["tabs"]), console_actions),
+             {:ok, page} <- AtlasControl.Console.project(message, shell["tabs"], console_actions),
              do: {:ok, page}
       else
         {:ok, message}

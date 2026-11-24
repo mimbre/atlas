@@ -261,7 +261,7 @@ defmodule AtlasControl.SessionTest do
   test "a client sees the top list at once", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
-    assert %{"env" => "test", "spec" => "0.22.0"} = next(c, "welcome")
+    assert %{"env" => "test", "spec" => "0.23.0"} = next(c, "welcome")
     assert %{"path" => "/", "title" => "Widgets", "reason" => "open"} = page = next(c, "page")
     assert rows(page) == ["One"]
   end
@@ -2258,7 +2258,7 @@ defmodule AtlasControl.SessionTest do
                Enum.find(page["blocks"], &(&1["id"] == "list"))["props"]["rows"]
     end
 
-    test "boot's tabs with groups carry their counts, read again when a hint makes them stale" do
+    test "boot's tabs carry their counts and only groups with items, read again when stale" do
       port = supervised_shop([])
       tui = hello_as(port, "tui")
       put(tui, %{"op" => "open", "to" => "/_supervised"})
@@ -2267,12 +2267,14 @@ defmodule AtlasControl.SessionTest do
       counts = fn ->
         put(tui, %{"op" => "boot"})
 
-        for %{"groups" => [_ | _]} = tab <- next(tui, "boot")["tabs"],
+        for tab <- next(tui, "boot")["tabs"],
+            tab["to"] in ["/_open", "/_supervised"],
             into: %{},
-            do: {tab["to"], {tab["count"], Enum.map(tab["groups"], & &1["count"])}}
+            do: {tab["to"], {tab["count"], Enum.map(tab["groups"] || [], & &1["count"])}}
       end
 
-      assert %{"/_open" => {1, [1]}, "/_supervised" => {0, [0]}} = counts.()
+      # A group without items is left out.
+      assert %{"/_open" => {1, [1]}, "/_supervised" => {0, []}} = counts.()
 
       # Flow sets the run's supervisor: the work moves from Open for you to Supervised by you.
       present_run(["ada"])
@@ -2285,7 +2287,7 @@ defmodule AtlasControl.SessionTest do
       )
 
       assert %{"path" => "/_supervised", "reason" => "hint"} = next(tui, "page", @arrives)
-      assert %{"/_open" => {0, [0]}, "/_supervised" => {1, [1]}} = counts.()
+      assert %{"/_open" => {0, []}, "/_supervised" => {1, [1]}} = counts.()
     end
   end
 end
