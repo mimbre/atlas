@@ -991,8 +991,25 @@ defmodule AtlasControl.Pages do
   # `newest_first` lists a kind newest first (by key, which counts up).
   defp sort_facts(facts, k) do
     direction = if k && k.newest_first, do: :desc, else: :asc
-    Enum.sort_by(facts, & &1["key"], direction)
+    Enum.sort_by(facts, &key_order(&1["key"]), direction)
   end
+
+  # How keys sort wherever rows go by key: their numbers as numbers, so IS-Atlas-100 comes
+  # after IS-Atlas-99, not between IS-Atlas-07 and IS-Atlas-11. Equal numbers (07, 7) go
+  # by the key itself.
+  defp key_order(key) when is_binary(key) do
+    parts =
+      for part <- Regex.split(~r/\d+/, key, include_captures: true, trim: true) do
+        case Integer.parse(part) do
+          {n, ""} -> n
+          _ -> part
+        end
+      end
+
+    {parts, key}
+  end
+
+  defp key_order(key), do: {[], key}
 
   # Supervision (work acquisition decision 2026-11-17, §5.6–5.8; M3b P4)
 
@@ -1090,16 +1107,21 @@ defmodule AtlasControl.Pages do
       facts = (written[on] || %{})["facts"] || []
 
       if on == s.subject do
-        {s, for(work <- facts, do: {s.subject, work, work})}
+        {s, Enum.sort_by(for(work <- facts, do: {s.subject, work, work}), &item_key/1)}
       else
         owners = for {_, owner} = o <- owner_kinds(m, [on]), owner == s.subject, do: o
         whose = by_component(owners, List.duplicate(subjects[s.subject], length(owners)))
 
         {s,
-         for(work <- facts, {kind, subject} <- [whose[work["key"]]], do: {kind, subject, work})}
+         Enum.sort_by(
+           for(work <- facts, {kind, subject} <- [whose[work["key"]]], do: {kind, subject, work}),
+           &item_key/1
+         )}
       end
     end
   end
+
+  defp item_key({_kind, fact, _work}), do: key_order(fact["key"])
 
   # How Facts presents the work on a fact of `kind`, on its page: on the component among
   # its `parts` (`item_parts/3`) that a span's work is written on, else on the fact itself.
@@ -1483,7 +1505,7 @@ defmodule AtlasControl.Pages do
       required: true,
       choices:
         for(
-          p <- Enum.sort_by(others, & &1["key"]),
+          p <- Enum.sort_by(others, &key_order(&1["key"])),
           do: Blocks.choice(value: p["key"], label: "#{p["key"]}: #{label(candidate_k, p)}")
         )
     )
@@ -2639,7 +2661,7 @@ defmodule AtlasControl.Pages do
       choices:
         [Blocks.choice(value: "", label: "— none")] ++
           for(
-            fact <- Enum.sort_by(facts, & &1["key"]),
+            fact <- Enum.sort_by(facts, &key_order(&1["key"])),
             do: Blocks.choice(value: fact["key"], label: fact["key"])
           )
     )
@@ -3219,7 +3241,7 @@ defmodule AtlasControl.Pages do
       end
 
       rows =
-        for key <- Enum.sort(keys), to = kind_of.(key), to != nil do
+        for key <- Enum.sort_by(keys, &key_order/1), to = kind_of.(key), to != nil do
           Blocks.row(id: key, label: singular(m, to), to: path({:item, to, key}))
         end
 
@@ -3372,7 +3394,7 @@ defmodule AtlasControl.Pages do
 
       facts =
         case answer do
-          %{"facts" => facts} -> Enum.sort_by(facts, & &1["key"])
+          %{"facts" => facts} -> Enum.sort_by(facts, &key_order(&1["key"]))
           _ -> []
         end
 
