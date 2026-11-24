@@ -523,7 +523,7 @@ defmodule AtlasCode.Service do
         [tree | conflicts] = String.split(out, "\n", trim: true)
 
         message =
-          "Atlas: merge #{base} into pull request ##{number}" <>
+          "Atlas: merge #{base} into pull ##{number}" <>
             if(conflicts == [],
               do: "",
               else: "\n\nConflicts:\n" <> Enum.map_join(Enum.uniq(conflicts), "\n", &("\t" <> &1))

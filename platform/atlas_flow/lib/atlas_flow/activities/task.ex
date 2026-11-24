@@ -62,8 +62,8 @@ defmodule AtlasFlow.Activities.Task do
   **An update of an open pull.** A fix may name `input: %{"repository",
   "base", "update" => field}`, `field` the subject's field holding the web address of a
   pull the service opened: its base is `refs/atlas/updates/<number>/<base>`, which Code
-  resolves to `base` merged into that pull's head, conflicts marked in the files
-  (`AtlasCode.Service`). Not ready while that field holds no pull's address.
+  resolves to `base` merged into that pull's head, conflicts marked in the files. Not
+  ready while that field holds no pull's address.
 
   **A proposal (slice 7).** A spec's `creates` (`%{"kind", "file"}`) asks its agent, after
   the instructions, to write what it proposes to that file at the top of the repository: a

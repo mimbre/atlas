@@ -88,7 +88,7 @@ defmodule AtlasCode.Effects do
 
   A result made on an update of the pull (Code's merge of the base into the pull's head,
   conflicts marked, `AtlasCode.Service`) is folded into one merge commit first: the
-  result's tree on that merge's two parents, "Merge <base> into pull request #<n>", the
+  result's tree on that merge's two parents, "Merge <base> into pull #<n>", the
   result's date. The result's ref then names that commit, so a later fix of the result
   starts from what the pull holds, and no commit with conflict markers reaches the pull.
   """

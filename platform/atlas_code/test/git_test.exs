@@ -156,7 +156,7 @@ defmodule AtlasCode.GitTest do
     assert readme =~ "<<<<<<<" and readme =~ "pull" and readme =~ "develop"
 
     assert git_in(cache, ["log", "-1", "--format=%B", merge], "") =~
-             ~r/\AAtlas: merge develop into pull request #7\n\nConflicts:\n\tREADME.md/
+             ~r/\AAtlas: merge develop into pull #7\n\nConflicts:\n\tREADME.md/
 
     # Its agent resolves it; the Runtime pushes its result on the merge.
     blob = cache |> git_in(["hash-object", "-w", "--stdin"], "both\n") |> String.trim()
@@ -181,7 +181,7 @@ defmodule AtlasCode.GitTest do
     assert git_in(code, ["show", folded <> ":README.md"], "") == "both\n"
 
     assert git_in(code, ["log", "-1", "--format=%s", folded], "") =~
-             "Merge develop into pull request #7"
+             "Merge develop into pull #7"
 
     assert git_in(code, ["rev-parse", ref], "") == folded <> "\n"
     assert AtlasCode.Effects.fold(code, folded, ref) == folded
