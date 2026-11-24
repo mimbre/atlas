@@ -103,7 +103,8 @@ ts set --accept-dns=false --accept-routes=false --ssh=false --hostname="$hostnam
 "$app/release/bin/atlas" start &
 core_pid=$!
 ready=""
-for _ in {1..100}; do
+# Control listens once Facts has loaded rela; on prod that alone takes ~8 s, so allow ~90 s.
+for _ in {1..600}; do
   kill -0 "$daemon_pid" 2>/dev/null || fail "owned tailscaled exited"
   kill -0 "$core_pid" 2>/dev/null || fail "core exited before Control listened"
   if python3 -c 'import socket,sys; s=socket.create_connection(("localhost",int(sys.argv[1])),.1); s.close()' "$control_port" 2>/dev/null; then
