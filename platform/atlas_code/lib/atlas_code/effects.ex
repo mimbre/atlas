@@ -77,6 +77,14 @@ defmodule AtlasCode.Effects do
   changes against `base` (its tree is that of the commit it shares with Code's copy of
   `base`: what the pull would show) is refused `no_changes` when it is accepted, and
   nothing is pushed or opened.
+
+  **Onto an open pull.** An `input` that names a `pull` (its web address, in that same
+  repository; otherwise refused `invalid_pull`) puts the result on that pull instead: Code
+  reads the pull and pushes the commit to its branch (`head_ref`), never forced, so a result
+  made on top of the pull's head fast-forwards it. Done with that pull's address; nothing
+  is opened and its body is not changed. A pull whose head is the result already is done
+  without a push; a closed or merged pull is refused `closed`; a branch the result does not
+  fast-forward is refused `branch_taken`.
   """
 
   alias AtlasBus.{Digest, SubjectFingerprint}
@@ -192,6 +200,9 @@ defmodule AtlasCode.Effects do
 
       slug(r) not in s.repositories ->
         {:refused, "repository_not_allowed", %{"repository" => input["repository"]}}
+
+      Map.has_key?(input, "pull") and not onto_repository?(input["pull"], slug(r)) ->
+        {:refused, "invalid_pull", %{"pull" => input["pull"]}}
 
       true ->
         case s.results.(input["repository"], input["result"]) do
@@ -309,6 +320,41 @@ defmodule AtlasCode.Effects do
 
   defp uncertain_merge?(record),
     do: Map.get(record, "merge_attempted", record["phase"] == "merging") == true
+
+  # A publication onto an existing pull: the result pushed to that pull's branch, never
+  # forced. It is done once the pull's head is the result: a repeat after the push pushes
+  # nothing.
+  defp step(
+         s,
+         _file,
+         %{"request" => %{"operation" => "publish", "input" => %{"pull" => url}} = r} = record
+       ) do
+    {module, config} = s.github
+    slug = slug(r)
+
+    with {:ok, pull} <- module.pull(config, slug, pull_number(url)) do
+      cond do
+        pull["head"] == record["commit"] ->
+          {:outcome, published(url)}
+
+        pull["merged"] == true or pull["state"] != "open" ->
+          {:outcome, refused("closed", %{"pull" => url})}
+
+        true ->
+          case module.push(config, slug, record["dir"], record["commit"], pull["head_ref"]) do
+            :ok ->
+              {:outcome, published(url)}
+
+            {:error, :branch_taken} ->
+              {:outcome, refused("branch_taken", %{"branch" => pull["head_ref"]})}
+
+            other ->
+              other
+          end
+      end
+    end
+    |> unavailable(record["phase"])
+  end
 
   # A publication: the branch's pull when there is one (an earlier attempt opened it),
   # else the result pushed to the branch and its pull opened.
@@ -562,9 +608,18 @@ defmodule AtlasCode.Effects do
     owner <> "/" <> repo
   end
 
-  defp number(%{"target" => target}) do
-    [_, _, _, number] = Regex.run(@address, target)
+  defp number(%{"target" => target}), do: pull_number(target)
+
+  defp pull_number(url) do
+    [_, _, _, number] = Regex.run(@address, url)
     String.to_integer(number)
+  end
+
+  defp onto_repository?(url, slug) do
+    case is_binary(url) && Regex.run(@address, url) do
+      [_, owner, repo, _] -> owner <> "/" <> repo == slug
+      _ -> false
+    end
   end
 
   defp save(file, record) do

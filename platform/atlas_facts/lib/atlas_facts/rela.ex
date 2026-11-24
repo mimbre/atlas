@@ -1,7 +1,8 @@
 defmodule AtlasFacts.Rela do
   @moduledoc """
   What Facts needs from rela: the description and create, read, update and delete of
-  facts by kind. rela is CRUD only (Melle: "crud only, no events"); Facts adds the rest.
+  facts by kind; Facts adds the rest. What others write in rela (rela's own sync
+  connectors) Facts hears of through rela's change feed (`AtlasFacts.Rela.Events`).
 
   A store is `{module, config}`; the module implements these callbacks.
   """
