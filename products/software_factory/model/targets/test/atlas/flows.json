@@ -139,13 +139,18 @@
           ],
           "creates": [],
           "final": false,
-          "label": "Build it",
-          "present": {
-            "expected": "Build it",
-            "todo": {
-              "instructions": "Its use cases are designed, broken down and built; Flow hands it to its producer once all of them are accepted."
+          "label": "Waiting for its use cases",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
             },
-            "why": "not all under it is accepted"
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Waiting for its use cases",
+            "why": "not all of its use cases are accepted"
           },
           "set": [],
           "timers": [],
@@ -3334,6 +3339,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "e81fb38150517899822558aea299fa01435227d6b20c0c2717f16d8411a8e3b1",
+  "rela_flows_sha256": "43401ff748ca1a91cb86692e6797dac566fbd8e1993379b234b6aa1bc5363c66",
   "writer": "system:atlas-flow"
 }
