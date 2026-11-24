@@ -253,10 +253,10 @@ struct RowLabel: View {
                     .lineLimit(1).frame(width: 100, alignment: .leading)
             }
             Text(row.label).prism(Prism.Typography.tableRow).foregroundStyle(.primary).lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
             if let detail = row.detail {
                 Text(detail).prism(Prism.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
-                    .frame(width: 160, alignment: .leading)
+                    .frame(width: 110, alignment: .leading)
             }
             if row.pending == true {
                 Text("⋯ being processed").prism(Prism.Typography.captionSmall)

@@ -52,7 +52,9 @@ public struct ShellViewModel: Sendable, Equatable {
     /// A submit waits for Control's reply.
     public var submitting: Bool
 
-    /// Actual displayed identity, never the pending open request.
+    /// The row selected: the page asked for in the right column while it is on its way (the
+    /// clicked row stays selected while its page loads, as the sidebar's group does), else
+    /// the page displayed.
     public var selectedPath: String?
     /// The group the middle column shows, or was asked to show (chosen in the sidebar, its
     /// page still on the way), when it is one rather than its tab's page: the sidebar
@@ -90,7 +92,8 @@ public struct ShellViewModel: Sendable, Equatable {
         }
         draft = state.draft
         submitting = state.submitting
-        selectedPath = (opened ?? index)?.path
+        let asked = state.expectedColumn == .opened ? state.expected : nil
+        selectedPath = asked ?? (opened ?? index)?.path
         let middle = state.expectedColumn == .index ? state.expected ?? index?.path : index?.path
         activeGroup = middle.flatMap { path in tabs.lazy.flatMap(\.groups).first { $0.to == path }?.to }
     }
