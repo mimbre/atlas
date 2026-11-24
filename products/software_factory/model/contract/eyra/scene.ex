@@ -336,6 +336,7 @@ defmodule Model.Scene do
     from: "54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec",
     to: "f52ee753f148fefc1ae12ce899968a99b9e2cf7671950223340de423aa356ae6",
     states: :same,
+    preserve_entry: true,
     reason: "Design: its agent asks rela first (D-0100)"
   )
 end

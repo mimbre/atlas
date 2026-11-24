@@ -233,6 +233,7 @@ defmodule Model.Delivery do
     from: "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
     to: "171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147",
     states: :same,
+    preserve_entry: true,
     reason: "Build: its agent asks rela first (D-0100)"
   )
 end

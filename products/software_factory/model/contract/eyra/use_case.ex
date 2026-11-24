@@ -305,6 +305,7 @@ defmodule Model.UseCase do
     from: "2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695",
     to: "aa7fce1ce687d65c90d380759e927a68c067ec70a5f4fc2cd5648f966f17d949",
     states: :same,
+    preserve_entry: true,
     reason: "Plan: its agent asks rela first (D-0100)"
   )
 end
