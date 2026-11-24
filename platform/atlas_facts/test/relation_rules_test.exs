@@ -83,6 +83,10 @@ defmodule AtlasFacts.RelationRulesTest do
   test "a fact is accepted only once all under it is completed; then it takes nothing new" do
     part("P-2", "fine", "W-1")
     part("P-1", "rough", "W-1")
+    # A record under it has no completion rule: it never keeps the widget open.
+    assert {"stored", nil} =
+             put("log", "create", "L-1", %{"title" => "Made"}, links: %{"log_of" => ["W-1"]})
+
     accept = fn -> put("widget", "change", "W-1", %{}, links: %{"accepted_by" => ["M-1"]}) end
 
     assert {"refused", ["W-1 has P-1, P-2 open"]} = accept.()
