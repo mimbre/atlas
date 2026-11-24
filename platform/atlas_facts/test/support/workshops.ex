@@ -72,6 +72,19 @@ defmodule AtlasFacts.Workshops do
         })
   end
 
+  defmodule Synced do
+    @moduledoc "A widget has a field an outside sync sets: rela's sync writes it, past Facts."
+    use AtlasFacts.TestModel,
+      description:
+        Description.with(%{
+          "entities" => %{
+            "widget" => %{
+              "properties" => %{"outside" => %{"type" => "string", "set_by" => ["connector"]}}
+            }
+          }
+        })
+  end
+
   defmodule Phased do
     @moduledoc "How far a widget is, from the phase of its parts."
     use AtlasFacts.TestModel,

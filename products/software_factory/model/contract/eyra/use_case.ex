@@ -141,7 +141,7 @@ defmodule Model.UseCase do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Each issue is a vertical slice: it works end to end and can be shown working. The first is the thinnest happy path (a walking skeleton); each later one builds on the ones before it, in the order given. Propose as few issues as possible: split a slice further only when it is too big for one reviewable pull request, what one agent builds and reviews in one go. Never split by layer (model, contract, Control, client): each issue cuts through all the layers it needs. When its scene names its phase, respect it: in Explore, usually only the happy-path slice; edge cases come later as follow-ups.",
+          "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each issue is a vertical slice: it works end to end and can be shown working. The first is the thinnest happy path (a walking skeleton); each later one builds on the ones before it, in the order given. Propose as few issues as possible: split a slice further only when it is too big for one reviewable pull request, what one agent builds and reviews in one go. Never split by layer (model, contract, Control, client): each issue cuts through all the layers it needs. When its scene names its phase, respect it: in Explore, usually only the happy-path slice; edge cases come later as follow-ups.",
         fields: [:title, :description, :design],
         parents: [:title, :description],
         creates: [kind: :issue, file: "issues.json", order: :order],
@@ -300,11 +300,21 @@ defmodule Model.UseCase do
     reason: "Plan: the issues it proposes are numbered, in the order they are built"
   )
 
+  # Plan: its agent asks rela what it offers before it proposes anything that stores,
+  # syncs, schedules or queries data (D-0100); nothing else changed.
+  migrate(:break_down_use_case,
+    from: "2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695",
+    to: "aa7fce1ce687d65c90d380759e927a68c067ec70a5f4fc2cd5648f966f17d949",
+    states: :same,
+    preserve_entry: true,
+    reason: "Plan: its agent asks rela first (D-0100)"
+  )
+
   # Plan: "Accept it" says what the page offers (change, Remove), not delete or add; nothing
   # else changed.
   migrate(:break_down_use_case,
-    from: "2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695",
-    to: "3223bcb62252b0cbedd827da3ae8f28bd24049b270a9c2dabe448bfcfa565536",
+    from: "aa7fce1ce687d65c90d380759e927a68c067ec70a5f4fc2cd5648f966f17d949",
+    to: "a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f",
     states: :same,
     reason: "Plan: its accept step says what its page offers"
   )

@@ -115,6 +115,9 @@ def package(root, dest):
     if (Path(root) / 'atlas.manifest.json').exists():
         provenance = verify(root)
         files = sorted(set(files + list(provenance['inputs']) + ['atlas.json', 'atlas.manifest.json']))
+    # rela's scheduler and its scripts (hand-written, like data-entry.yaml): rela's own syncs.
+    files += [name for name in ['schedules.yaml'] if (Path(root) / name).is_file()]
+    files += sorted(str(p.relative_to(root)) for p in (Path(root) / 'scripts').glob('*.lua'))
     # Read/validate the entire closure before touching the destination.
     content = {name: (Path(root) / name).read_bytes() for name in files}
     for name, data in content.items():

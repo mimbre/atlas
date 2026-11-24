@@ -79,7 +79,14 @@ defmodule RelaDSL.Description.Subflows do
 
     written = for {name, _} <- s.set, do: to_string(name)
 
-    for name <- Enum.uniq(read ++ written ++ Enum.map(s.awaits, &to_string/1)),
+    findings =
+      case s.mechanism do
+        {:task, %{findings: name}} when is_atom(name) and name != nil -> [to_string(name)]
+        _ -> []
+      end
+
+    for name <-
+          Enum.uniq(read ++ written ++ findings ++ Enum.map(s.awaits, &to_string/1)),
         not field?(schema, kind, name),
         do:
           here.(
