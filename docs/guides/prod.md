@@ -354,7 +354,9 @@ Preserve both `rela/` and `beam/`, including Facts' provenance and answered-fact
 
 Runtime is the standalone service (`platform/atlas_runtime/host/README.md`), started
 explicitly with `atlas-runtime service start`. It is an independent process: it never
-starts Atlas core services, and stopping or restarting the core does not stop it.
+starts Atlas core services, and stopping or restarting the core does not stop it. On a
+dedicated Mac, launchd starts it at login with its Bus link and the tunnel to Fly; see
+"Start at login (macOS)" in that README for installing it and rehearsing a reboot.
 
 Its only link to the core is the optional `server.json` in its Runtime home, read once when
 the service starts (`AtlasRuntime.Integrations.AtlasServer.Lifecycle`). Without that file

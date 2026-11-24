@@ -849,6 +849,60 @@ Use `eval "AtlasCode.Server.run()"`, not `bin/atlas_code start`: Code's applicat
 
 Run one Code process per Code home; a second start, or `mix atlas_code.migrate`, is refused while `service.owner/` names a live owner. Stop Code with SIGTERM (`kill PID`): it stops serving, then releases the home. Ctrl-C, a crash, SIGKILL or power loss leaves `service.owner/` behind; the next start recovers it itself when `ps` shows the recorded PID gone, keeps the `service.owner.ended-OWNER` tombstone, logs the old owner ID and PID, and starts, so a process supervisor such as launchd can restart Code. While that PID is running (including a PID since reused by another process) or `ps` cannot tell, start is refused as before and prints the owner's ID; once you have checked that the owner has stopped, recover with `ATLAS_CODE_HOME=/abs/code-home mix atlas_code.unlock --owner OWNER` (same check), or, for a reused PID, rename `service.owner` to `service.owner.ended-OWNER` by hand. `mix atlas_code.migrate` never recovers automatically. Atlas itself does not restart Code. The Runtime home's `code.json` keeps pointing at that port and `runtime.token`. Existing homes, saved turns and the daemon are reused unchanged; the wrapper moves or overwrites nothing. Rebuild the binary only after its daemon is stopped.
 
+### Start at login (macOS)
+
+On a dedicated Mac, launchd starts the Runtime with its Bus link at login. The files are in [`macos/`](macos): `start.sh` (fetches the Bus token, writes `server.token` and `server.json`, waits for the Bus port, runs `atlas-runtime service start`), `secret.sh` (one secret from Infisical, with credentials from the login keychain) and `fly-proxy.sh` (the private Bus tunnel to a Fly app). `install.sh` copies them to `~/.config/atlas-runtime/` and writes their launch agents: `com.mimbre.atlas-runtime` (runs `start.sh` once at login) and, when configured, `com.mimbre.atlas-fly-proxy` (keeps `fly-proxy.sh` running). Logs: `~/Library/Logs/atlas-runtime-start.log` and `~/Library/Logs/atlas-fly-proxy.log`.
+
+Everything machine-specific is in `~/.config/atlas-runtime/machine.json`, outside the repository; the scripts read it each time they run. See [`macos/machine.example.json`](macos/machine.example.json):
+
+| Key | Meaning |
+| --- | --- |
+| `machine`, `environment`, `workers` | written into `server.json` (see [Optional Atlas Server lifecycle reporting](#optional-atlas-server-lifecycle-reporting)) |
+| `runtime_home` | the Runtime home (`ATLAS_RUNTIME_HOME`); set the same value in `~/.zshenv` |
+| `path` | `PATH` for the service and its workers: `atlas-runtime`, the asdf shims (Elixir), `codex`/`claude` |
+| `bus.host`, `bus.port` | the Bus listener in `server.json`; `start.sh` waits up to 60 s for it |
+| `fly_proxy.app`, `fly_proxy.remote_port` | optional: tunnel `127.0.0.1:bus.port` to that port of that Fly app; leave out when the Bus is reachable directly |
+| `infisical.domain`, `.project_id`, `.env`, `.path` | where this machine's secrets are: `ATLAS_BUS_LINK_TOKEN` (this machine's token) and, with `fly_proxy`, `FLY_API_TOKEN` |
+
+**Install on a new Mac.** Log in as the user that runs the Runtime, then:
+
+1. Install Go, the asdf Erlang/Elixir of the checkout, `codex`/`claude`, the Infisical CLI and, for the tunnel, flyctl. Clone Atlas into its persistent place and build `~/.local/bin/atlas-runtime` [as above](#install).
+2. Create the Runtime home and put `export ATLAS_RUNTIME_HOME=/abs/runtime-home` in `~/.zshenv`.
+3. In Infisical, give this machine its own universal-auth identity that can read only its folder (`infisical.path`), and store its secrets there.
+4. Put the identity's credentials in the login keychain, under the machine name (each command prompts for the value, so it does not end up in the shell history):
+
+   ```sh
+   security add-generic-password -a MACHINE -s atlas-infisical-client-id -w
+   security add-generic-password -a MACHINE -s atlas-infisical-client-secret -w
+   ```
+
+5. Write `~/.config/atlas-runtime/machine.json` (mode 600) from the example, then:
+
+   ```sh
+   platform/atlas_runtime/host/macos/install.sh --dry-run   # checks machine.json, tools and keychain items; shows what would change
+   platform/atlas_runtime/host/macos/install.sh
+   ```
+
+`install.sh` is idempotent: identical files are left alone, and an agent is (re)loaded only when its plist changed or it is not loaded. Loading the Runtime agent runs `start.sh`, which starts the service, or does nothing when it is already running; it never stops a running Runtime. Reloading the tunnel agent drops the Bus link for a moment; the Runtime links again by itself. A changed `start.sh` takes effect at its next run.
+
+**Update.** After updating the checkout: wait until `atlas-runtime service status` shows no busy slot, `atlas-runtime service stop`, rebuild the binary, run `install.sh` again, and start with `launchctl kickstart gui/$UID/com.mimbre.atlas-runtime` (the same path as at login).
+
+**What survives a reboot.** Launch agents run only in a logged-in session, and `secret.sh` can read the keychain only there. So the Mac must log in by itself: System Settings → Users & Groups → *Automatically log in as* this user (not available with FileVault on), with the login keychain's password equal to the login password, so that the login unlocks it. Then, after a reboot: the tunnel agent starts and is restarted every 10 s until it holds; `start.sh` retries the token for 5 minutes (the network or keychain may not be ready yet), writes `server.json`, waits for the Bus port and starts the service; `server.token` is deleted again once the service has read it. Turns running at the moment of the reboot do not continue, and their Server turns keep their lease until it runs out. Not managed here: sleep and power settings (for a server, `sudo pmset -a sleep 0` and `sudo pmset -a autorestart 1`), and the Code service.
+
+**Rehearse a reboot.** Only when no slot is busy:
+
+```sh
+atlas-runtime service status           # every slot "busy": false
+atlas-runtime service stop
+sudo shutdown -r now
+# after the Mac is back, without logging in by hand:
+tail ~/Library/Logs/atlas-fly-proxy.log ~/Library/Logs/atlas-runtime-start.log
+launchctl print gui/$UID/com.mimbre.atlas-runtime | grep 'last exit code'   # 0
+atlas-runtime service status           # new incarnation, slots idle
+```
+
+Then start one turn of a listed worker and check that it shows up on the Server with a confirmed `server.report`. To exercise only `start.sh` without rebooting (not the auto-login and keychain), stop the service and run `launchctl kickstart gui/$UID/com.mimbre.atlas-runtime`.
+
 ## Model-free native sandbox verification
 
 On macOS with Seatbelt and the official Codex CLI installed, run from `platform/atlas_runtime` with `ATLAS_RUNTIME_EXECUTABLE` pointing at a built `atlas-runtime`:
