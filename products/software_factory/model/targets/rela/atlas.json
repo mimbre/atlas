@@ -582,6 +582,9 @@
         "flux_ref": {
           "set_by": "connector"
         },
+        "order": {
+          "label": "Order"
+        },
         "pr_state": {
           "label": "Pull request state",
           "set_by": "connector"
