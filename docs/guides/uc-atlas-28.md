@@ -33,7 +33,7 @@ A session that is not a person (an agent on the command line, a migration) opens
   - `title`: "Assigned to you";
   - `count`: "{count} assigned to you", for the header;
   - `empty`: what fills it.
-  - A kind's `start: {key, label}` puts its key on the start page. The scenes have `s Scenes`, and the agent's requests keep `w What the agent did`.
+  - A kind's `start: {key, label}` puts its key on the start page. Atlas uses none: Scenes, Agents, To-Dos and What the agent did are Browse tabs (`g s`, `g a`, `g t`, `g d`).
   - Every word comes from there, so naming these things (d-0022) is a change to `products/software_factory/model/targets/rela/atlas.json` only. No noun is in code.
 - **Control:**
   - For a session whose user is a fact of a kind `assigned_to` points at (a person at the TUI), `/` is what points at it: its Assignments, one kind (IS-Atlas-78).

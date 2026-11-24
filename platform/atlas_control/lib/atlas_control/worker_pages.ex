@@ -212,7 +212,7 @@ defmodule AtlasControl.WorkerPages do
       Blocks.item(
         title: about["title"] || "Worker #{identity["worker"]}",
         fields: fields(pairs),
-        actions: actions
+        actions: AtlasControl.Pages.page_actions(actions)
       )
 
     newer =

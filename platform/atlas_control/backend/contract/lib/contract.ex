@@ -45,7 +45,9 @@ defmodule AtlasBFFContract.Contract do
   # 0.23.0: each shell tab names its `section` ("work" or "browse"); a browse tab may have
   # its own `key`, a two-key sequence ("g s"), which a console action opens it with. A
   # client cycles through the work tabs only. Older clients refuse sequence keys.
-  version "0.23.0"
+  # 0.24.0: an action may be the page's rather than its block's (`page`): a client shows it
+  # with the page's title (the window's toolbar, an item page's header), not under the block.
+  version "0.24.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

@@ -4,7 +4,7 @@ This guide grows with the use case, one section per issue. In the end the operat
 
 ## IS-Atlas-17: the agents, each with what is assigned to it
 
-The agents are one key away from the start page: `a Agents`, as `w What the agent did` is. Each row counts the Assignments that point at the agent: what is assigned to it.
+The agents are a Browse tab, `g a Agents`, as `g d What the agent did` is. Each row counts the Assignments that point at the agent: what is assigned to it.
 
 It is all description (`products/software_factory/model/targets/rela/atlas.json`, kind `agent`):
 

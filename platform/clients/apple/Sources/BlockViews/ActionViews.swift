@@ -3,6 +3,8 @@ import SwiftUI
 
 /// The actions a page's blocks declare, as Control sends them: what a key or a button
 /// takes. The app decides nothing about an action; its order, label and key are Control's.
+/// An action Control marks `page` is the page's (what is done with its subject) and shows
+/// with the page's title; any other is its block's and shows under the block.
 public enum PageActions {
     /// Every action of the page's `item` and `list` blocks, in block order.
     public static func all(_ page: PageMessage) -> [ActionModel] {
@@ -13,6 +15,16 @@ public enum PageActions {
             default: []
             }
         }
+    }
+
+    /// The page's own actions (`page`), in block order.
+    public static func ofPage(_ page: PageMessage) -> [ActionModel] {
+        all(page).filter { $0.page == true }
+    }
+
+    /// A block's own actions: those that are not the page's.
+    public static func ofBlock(_ actions: [ActionModel]?) -> [ActionModel] {
+        (actions ?? []).filter { $0.page != true }
     }
 
     /// The page's first action with this key.
@@ -40,18 +52,33 @@ struct ActionsView: View {
     let act: (ActionModel) -> Void
 
     var body: some View {
-        let shown = PageActions.buttons(actions)
-        if !shown.isEmpty {
+        if !PageActions.buttons(actions).isEmpty {
             FlowLayout(spacing: Prism.Spacing.s10) {
-                ForEach(Array(shown.enumerated()), id: \.offset) { offset, action in
-                    if offset == 0 {
-                        button(action).buttonStyle(.borderedProminent)
-                    } else {
-                        button(action).buttonStyle(.bordered)
-                    }
-                }
+                ActionButtons(actions: actions, act: act)
             }
             .textSelection(.disabled)
+        }
+    }
+}
+
+/// The buttons of `actions` (`PageActions.buttons`), side by side in whatever lays them
+/// out (a row, a toolbar): the first prominent, each with its key.
+public struct ActionButtons: View {
+    let actions: [ActionModel]
+    let act: (ActionModel) -> Void
+
+    public init(actions: [ActionModel], act: @escaping (ActionModel) -> Void) {
+        self.actions = actions
+        self.act = act
+    }
+
+    public var body: some View {
+        ForEach(Array(PageActions.buttons(actions).enumerated()), id: \.offset) { offset, action in
+            if offset == 0 {
+                button(action).buttonStyle(.borderedProminent)
+            } else {
+                button(action).buttonStyle(.bordered)
+            }
         }
     }
 
@@ -65,6 +92,27 @@ struct ActionsView: View {
             }
         }
         .help("\(action.label) (key \(action.key))")
+    }
+}
+
+/// A page's title with the page's actions (`PageActions.ofPage`) beside it, at the top of
+/// the page, above its blocks.
+struct PageHeader: View {
+    let title: String
+    let actions: [ActionModel]
+    let act: (ActionModel) -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Prism.Spacing.s13) {
+            Text(title).prism(Prism.Typography.title6).lineLimit(2)
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: Prism.Spacing.s10) {
+                ActionButtons(actions: actions, act: act)
+            }
+            .fixedSize()
+            .textSelection(.disabled)
+        }
     }
 }
 
@@ -157,7 +205,7 @@ public struct ActionPageView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
             if !asks {
-                Text(page.title).prism(Prism.Typography.title7)
+                PageHeader(title: page.title, actions: PageActions.ofPage(page), act: act)
             }
             ForEach(refused, id: \.self) { reason in
                 Label(reason, systemImage: "exclamationmark.triangle")
