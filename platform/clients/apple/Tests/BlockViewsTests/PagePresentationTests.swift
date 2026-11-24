@@ -92,6 +92,37 @@ final class PagePresentationTests: XCTestCase {
         XCTAssertEqual(summary.rows[0].to, "/workers/example")
     }
 
+    private func action(_ label: String, _ key: String, _ to: String, page: Bool? = nil) -> JSONValue {
+        var object: [String: JSONValue] = ["label": .string(label), "key": .string(key), "to": .string(to)]
+        if let page { object["page"] = .bool(page) }
+        return .object(object)
+    }
+
+    func testThePagesActionsAreSplitFromItsBlocksAndEveryKeyStillWorks() throws {
+        let widget = try page([
+            block("list", ["rows": .array([]), "actions": .array([
+                action("Add a part", "a", "/k/widget/W-01/add_part"),
+                action("New widget", "n", "/k/widget/new", page: true),
+            ])], id: "parts"),
+            block("item", ["title": .string("W-01"), "fields": .array([]), "actions": .array([
+                action("Pick up", "p", "/k/widget/W-01/pick_up", page: true),
+                action("More…", "m", "/k/widget/W-01/more", page: true),
+                action("Note", "o", "/k/widget/W-01/note", page: false),
+            ])], id: "item"),
+        ])
+        let entries = PagePresentation(widget).entries
+        guard case .list(let list) = entries[0].item, case .item(let item) = entries[1].item
+        else { return XCTFail("not a list and an item") }
+
+        // The page's, in block order, shown with its title; the rest stay under their block.
+        XCTAssertEqual(PageActions.ofPage(widget).map(\.label), ["New widget", "Pick up", "More…"])
+        XCTAssertEqual(PageActions.ofBlock(list.actions).map(\.label), ["Add a part"])
+        XCTAssertEqual(PageActions.ofBlock(item.actions).map(\.label), ["Note"])
+        // A key takes its action wherever its button shows.
+        XCTAssertEqual(PageActions.action(key: "n", on: widget)?.label, "New widget")
+        XCTAssertEqual(PageActions.action(key: "a", on: widget)?.label, "Add a part")
+    }
+
     func testWorkerPayloadShapeShowsAllFourItemsInOrder() throws {
         let page = try JSONDecoder().decode(PageMessage.self, from: Data(workerPage.utf8))
         let presentation = PagePresentation(page)
@@ -249,7 +280,7 @@ final class PagePresentationTests: XCTestCase {
         XCTAssertEqual(presentation.entries.map(\.id), ["#0"])
     }
 
-    func testCurrentContractConfirmationWithoutAnOfferRemainsAKnownFallback() throws {
+    func testAConfirmationWithoutAnOfferIsShownWithOnlyItsText() throws {
         // Control can explain an unavailable restart without offering an action. In the
         // current contract confirm_label and confirm_to are optional, cancel_to is not.
         let confirm = block("confirm", [
@@ -262,7 +293,7 @@ final class PagePresentationTests: XCTestCase {
         }
         XCTAssertNil(value.confirmLabel)
         XCTAssertNil(value.confirmTo)
-        XCTAssertEqual(PagePresentation(page).entries.map(\.item), [.notShown(type: "confirm")])
+        XCTAssertEqual(PagePresentation(page).entries.map(\.item), [.confirm(value)])
     }
 }
 

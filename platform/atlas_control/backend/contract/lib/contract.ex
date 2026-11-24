@@ -42,7 +42,12 @@ defmodule AtlasBFFContract.Contract do
   # each group), so a client shows them before the tab is opened.
   # 0.22.0: a fact's page offers the flow's next step and one More… action, which opens
   # the fact's secondary menu (`/k/:kind/:key/more`) with everything else.
-  version "0.22.0"
+  # 0.23.0: each shell tab names its `section` ("work" or "browse"); a browse tab may have
+  # its own `key`, a two-key sequence ("g s"), which a console action opens it with. A
+  # client cycles through the work tabs only. Older clients refuse sequence keys.
+  # 0.24.0: an action may be the page's rather than its block's (`page`): a client shows it
+  # with the page's title (the window's toolbar, an item page's header), not under the block.
+  version "0.24.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

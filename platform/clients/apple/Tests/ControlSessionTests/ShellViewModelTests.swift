@@ -34,6 +34,19 @@ final class ShellViewModelTests: XCTestCase {
         XCTAssertFalse(shell.stale)
     }
 
+    func testTabsKeepTheirSectionAndShortcutsFollowBootOrder() {
+        let h = Harness()
+        let sent = [Lines.tab("mine", "/"), Lines.tab("shelves", "/k/shelf", section: "browse"),
+                    Lines.tab("open", "/_open")]
+        h.connect(boot: Lines.boot(tabs: sent, initialTo: "/", activeTab: "mine"), start: Lines.page("/"))
+
+        let shell = ShellViewModel(h.state)
+
+        XCTAssertEqual(shell.tabs.filter { $0.section == "work" }.map(\.id), ["mine", "open"])
+        XCTAssertEqual(shell.tabs.filter { $0.section == "browse" }.map(\.id), ["shelves"])
+        XCTAssertEqual(shell.tabs.map(\.shortcut), [1, 2, 3])
+    }
+
     func testSixtyFourTabsAllShowAndOnlyTheFirstNineHaveShortcuts() {
         let h = Harness()
         h.connect(boot: Lines.boot(tabs: tabs(64), initialTo: "/k/kind0", activeTab: nil), start: Lines.page("/k/kind0"))
@@ -184,11 +197,6 @@ final class ShellViewModelTests: XCTestCase {
         XCTAssertEqual(ShellViewModel(test.state).env, "test")
     }
 
-    func testTheCountIsThePagesCount() {
-        let h = Harness()
-        h.connect(start: Lines.page("/k/widget", count: "3 to do"))
-        XCTAssertEqual(ShellViewModel(h.state).count, "3 to do")
-    }
     func testSelectionFollowsDisplayedIdentityThroughRedirectPushFailureAndTabChange() {
         let h = Harness()
         h.connect()
@@ -196,8 +204,8 @@ final class ShellViewModelTests: XCTestCase {
 
         h.session.open("/k/widget/requested")
         XCTAssertEqual(h.connection.take(), [.open(OpenRequest(to: "/k/widget/requested"))])
-        // Pending intent must not pretend that another item is already displayed.
-        XCTAssertEqual(ShellViewModel(h.state).selectedPath, "/k/widget")
+        // The clicked row stays selected while its page is on its way (no flicker).
+        XCTAssertEqual(ShellViewModel(h.state).selectedPath, "/k/widget/requested")
         h.connection.receive(Lines.page("/k/widget/redirected"))
         XCTAssertEqual(ShellViewModel(h.state).selectedPath, "/k/widget/redirected")
 

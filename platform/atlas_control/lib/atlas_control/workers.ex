@@ -83,11 +83,11 @@ defmodule AtlasControl.Workers do
 
   @doc """
   What the Workers page shows, from one read of the turns: `"running"`, the views of the
-  turns whose state is the model's running value (as `worker_overview` returns them),
-  newest activity first; and `"finished"`, the #{@finished} turns that ended most
-  recently, newest end first, each with its exact execution, state, status (as `about/4`
-  says it), why it ended, when, its model and its item. A finished turn without a full execution identity cannot be opened and
-  is left out.
+  turns whose state is the model's running value and whose lease has not run out (as
+  `worker_overview` returns them), newest activity first; and `"finished"`, the #{@finished}
+  turns that ended most recently, newest end first, each with its exact execution, state,
+  status (as `about/4` says it), why it ended, when, its model and its item. A finished turn
+  without a full execution identity cannot be opened and is left out.
   """
   def board(m, actor, read) do
     with :ok <- authorize(m, actor, "read", read),
@@ -120,8 +120,17 @@ defmodule AtlasControl.Workers do
 
   defp running(m, actor, n, turns, read) do
     # Each row is an exact execution. Never choose an arbitrary current turn
-    # when two running facts claim the same worker.
-    running = Enum.filter(turns, &(get_in(&1, ["values", n["state"]]) == n["running"]))
+    # when two running facts claim the same worker. A turn whose lease ran out is not
+    # running: its Runtime no longer renews it, and its end may never have been stored
+    # (the Runtime's mirror is best effort; an outage at the end loses that write).
+    # Listing it would show its worker twice once the worker runs its next turn.
+    now = DateTime.utc_now()
+
+    running =
+      Enum.filter(
+        turns,
+        &(get_in(&1, ["values", n["state"]]) == n["running"] and leased?(n, &1, now))
+      )
 
     if length(running) > 100 do
       {:error, "overview_too_large"}
@@ -142,6 +151,13 @@ defmodule AtlasControl.Workers do
         {:ok, rows} -> {:ok, Enum.reverse(rows)}
         error -> error
       end
+    end
+  end
+
+  defp leased?(n, turn, now) do
+    case DateTime.from_iso8601(get_in(turn, ["values", n["lease"]]) || "") do
+      {:ok, until, _} -> DateTime.compare(until, now) == :gt
+      _ -> false
     end
   end
 

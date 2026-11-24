@@ -162,7 +162,14 @@
             },
             "state": "done"
           }
-        ]
+        ],
+        "order": {
+          "within": "in_use_case",
+          "by": "order",
+          "done": [
+            "done"
+          ]
+        }
       },
       "package": {
         "choices": [],
@@ -440,7 +447,8 @@
           {"from":"d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7","to":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Use case → Issues: its agent reads the use case's Design part"},
           {"from":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","to":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: renamed from Use case → Issues"},
           {"from":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","to":"258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its agent proposes vertical slices"},
-          {"from":"258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670","to":"1320f1221de47473b17d5050b931d83b2f79d02adf7c60c73402904230ff0a0b","preserve_entry":true,"states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its supervisor's pickup starts the work; texts only"}
+          {"from":"258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670","to":"2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: the issues it proposes are numbered, in the order they are built"},
+          {"from":"2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695","to":"e3da4cc55654c4b36f542dc5dce35dc3cfd4c936c4edba8f6bc43a8083626f81","preserve_entry":true,"states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its supervisor's pickup starts the work; texts only"}
         ],
         "subject": "use_case",
         "projection": {

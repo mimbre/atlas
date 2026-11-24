@@ -222,7 +222,8 @@ defmodule AtlasControl.Faults do
       end
 
     if offered?() and to do
-      action = Blocks.action(label: "Failures…", key: "!", to: to)
+      [action] =
+        AtlasControl.Pages.page_actions([Blocks.action(label: "Failures…", key: "!", to: to)])
 
       {blocks, _} =
         page.blocks

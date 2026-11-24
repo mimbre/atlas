@@ -49,6 +49,9 @@ entities:
       stage:
         type: issue_stage
         description: 'Flux: stage'
+      order:
+        type: integer
+        description: Where it is built among the numbered issues of its use case, lowest first. Plan numbers the issues it proposes; change it to reorder. One without a number never waits and is never waited for
       flux_ref:
         type: string
         unique: true

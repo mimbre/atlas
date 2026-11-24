@@ -193,7 +193,7 @@ atlas migrate-done-owner --env prod             # writes them through Control, a
 atlas migrate-done-owner --env prod --dry-run   # again: 0 steps
 ```
 
-Afterwards the coordinator's count in the agents list (`g`) is its open work only.
+Afterwards the coordinator's count in the agents list (`a`) is its open work only.
 
 `products/software_factory/e2e/scenarios/uc-atlas-27-done-owner.exs` follows this:
 1. A merged pull request and its issue are left with nobody by Flow.

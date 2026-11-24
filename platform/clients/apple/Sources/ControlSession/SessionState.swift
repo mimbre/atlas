@@ -16,7 +16,9 @@ import Foundation
 /// `open` answers an `open`. A message of a known op that does not decode still answers
 /// what the session waits for, as a failure. Unlike the TUI, only hello's boot that times
 /// out drops the connection: a later one marks the shell stale and is tried again
-/// (Control may be busy reading a page).
+/// (Control may be busy reading a page). An action is taken as the TUI and the agent CLI
+/// take one: its `submit_to` is submitted, else its page is opened, over the page it was
+/// taken on, until Control stores it or the user leaves it.
 public struct SessionState: Sendable, Equatable {
     // MARK: Parts of the state
 
@@ -103,6 +105,12 @@ public struct SessionState: Sendable, Equatable {
     /// The shell `boot` gave, as Control sent it.
     public typealias Shell = BootShellMessage
 
+    /// An action being taken: the opened page it was taken on (nil when taken on the
+    /// index page), shown under the action's pages until the action ends.
+    public struct Action: Sendable, Equatable {
+        public var from: PageMessage?
+    }
+
     /// What the state asks `Session` to do.
     public enum Effect: Sendable, Equatable {
         /// Make a new connection to Control.
@@ -154,7 +162,12 @@ public struct SessionState: Sendable, Equatable {
     public private(set) var activeTab: String?
     /// The tab's index page (middle column) and a page opened from it (right column).
     public private(set) var index: PageMessage?
-    public private(set) var opened: PageMessage?
+    public private(set) var opened: PageMessage? {
+        didSet { if opened == nil { action = nil } }
+    }
+    /// An action taken on a page: its pages (its confirm, form or menu, and the pages
+    /// taken from them) are opened as usual and shown over the page it was taken on.
+    public private(set) var action: Action?
     /// The page asked for and the column it goes to; nil when none is on its way.
     public private(set) var expected: String?
     public private(set) var expectedColumn: Column = .index
@@ -170,8 +183,6 @@ public struct SessionState: Sendable, Equatable {
     public private(set) var notice: NoticeMessage?
     public private(set) var lastUpdate: Update?
     public private(set) var lastHint: Update?
-    /// What waits for the user, in the model's words (`count` of the last page shown).
-    public private(set) var count: String?
     /// The last count of each tab and group, by its `to`, as boot or a page's `groups` said
     /// it, whichever came last: what the sidebar shows under every tab, also before it is
     /// opened.
@@ -190,13 +201,31 @@ public struct SessionState: Sendable, Equatable {
     public var pageOnScreen: PageMessage? { opened ?? index }
 
     /// Whether the page on screen is being edited: it holds a form or a confirm.
-    public var isEditing: Bool {
-        pageOnScreen?.blocks.contains { block in
+    public var isEditing: Bool { pageOnScreen.map(Self.asks) ?? false }
+
+    /// Whether a page asks something: it holds a form or a confirm. Such a page is shown
+    /// over the columns, as an action's pages are.
+    public static func asks(_ page: PageMessage) -> Bool {
+        page.blocks.contains { block in
             switch block.content {
             case .form, .confirm: true
             default: false
             }
-        } ?? false
+        }
+    }
+
+    /// Where leaving a page goes, as the page says: its confirm's or form's `cancel_to`,
+    /// else its `back`.
+    static func cancelTarget(_ page: PageMessage?) -> String? {
+        guard let page else { return nil }
+        for block in page.blocks {
+            switch block.content {
+            case .confirm(let confirm): return confirm.cancelTo
+            case .form(let form): if let to = form.cancelTo { return to }
+            default: continue
+            }
+        }
+        return page.back
     }
 
     var isOver: Bool {
@@ -224,8 +253,16 @@ public struct SessionState: Sendable, Equatable {
         case selectTab(id: String)
         /// The user chose a group of the middle column's page (`groups`): its page goes there.
         case filter(to: String)
-        /// The user opened a page Control named (a row's or an action's `to`).
+        /// The user opened a page Control named (a row's `to`); an action being taken ends.
         case open(to: String)
+        /// The user took an action a block of the page declares: its `submit_to` is
+        /// submitted as it is; else its `to` (a confirm, a form or a menu of more actions)
+        /// is opened over the page it was taken on.
+        case act(ActionModel)
+        /// The user left the page shown over the columns, an action's or one that asks
+        /// (Cancel, Esc): its `cancel_to`, else its `back`, else the page the action was
+        /// taken on, is opened.
+        case leave
         /// The user typed into the page on screen.
         case edit(name: String, value: String)
         /// The user gave a call a block of the page declares (a choice's `answer`), with
@@ -282,7 +319,33 @@ public struct SessionState: Sendable, Equatable {
             return filter(to)
         case .open(let to):
             guard connection == .connected, phase == .ready || phase == .content else { return [] }
+            if let action {
+                opened = action.from
+                self.action = nil
+            }
             return navigate(to, column: .opened)
+        case .act(let model):
+            guard connection == .connected, phase == .ready || phase == .content else { return [] }
+            if let call = model.submitTo { return handle(.submit(call: call, values: [:])) }
+            guard Page.match(model.to) != nil else { return [] }
+            if action == nil { action = Action(from: opened) }
+            return navigate(model.to, column: .opened)
+        case .leave:
+            guard connection == .connected, phase == .ready || phase == .content,
+                  action != nil || (opened.map(Self.asks) ?? false) else { return [] }
+            let from = action?.from
+            // The page shown over the columns, once it is on screen (until then, the page
+            // the action was taken on).
+            let page = opened?.path == from?.path ? nil : opened
+            guard let target = Self.cancelTarget(page) ?? from?.path ?? index?.path else { return [] }
+            draft = [:]
+            if target == index?.path {
+                opened = nil
+                return navigate(target, column: .index)
+            }
+            opened = from
+            action = nil
+            return navigate(target, column: .opened)
         case .edit(let name, let value):
             guard isEditing else { return [] }
             draft[name] = value
@@ -448,6 +511,11 @@ public struct SessionState: Sendable, Equatable {
         }
 
         if reason == .open || reason == .stored || reason == .refused {
+            // Stored: the action is done, and its pages close; the page stored is shown.
+            if reason == .stored, action != nil {
+                action = nil
+                if page.path == index?.path { opened = nil }
+            }
             show(page, reason, in: column(showing: page.path) ?? .opened)
             return []
         }
@@ -496,11 +564,12 @@ public struct SessionState: Sendable, Equatable {
         case .opened:
             if opened?.path != page.path { draft = [:] }
             opened = page
+            // Back on the page the action was taken on: the action is over.
+            if page.path == action?.from?.path { action = nil }
         }
         let update = Update(reason: reason, at: page.at, position: page.position, path: page.path)
         lastUpdate = update
         if reason == .hint { lastHint = update }
-        count = page.count
         for block in page.blocks {
             if case .groups(let groups) = block.content {
                 for group in groups.groups { groupCounts[group.to] = group.count }
@@ -606,7 +675,7 @@ public struct SessionState: Sendable, Equatable {
         guard (1...tabLimit).contains(shell.tabs.count) else { return .tabCount }
         for (index, tab) in shell.tabs.enumerated() {
             guard text(tab.id, limit: 64), text(tab.label, limit: 128), path(tab.to),
-                  let page = Page.match(tab.to)?.page, tabPages.contains(page)
+                  ["work", "browse"].contains(tab.section), let page = Page.match(tab.to)?.page, tabPages.contains(page)
             else { return .tab(index: index) }
         }
         guard Set(shell.tabs.map(\.id)).count == shell.tabs.count,

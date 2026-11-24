@@ -42,7 +42,14 @@ defmodule RelaDSL.Office.Desk do
     actions: [change: [key: "h", label: "Hand to…", with: [:due]]]
   )
 
-  start_page(assigned: [relation: :held_by, title: "Yours", count: "{count} yours"])
+  start_page(
+    assigned: [
+      relation: :held_by,
+      title: "Yours",
+      count: "{count} yours",
+      greeting: "Good day, {name}."
+    ]
+  )
 end
 
 defmodule RelaDSL.Office.Letter do

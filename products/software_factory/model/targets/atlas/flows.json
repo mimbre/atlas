@@ -580,7 +580,8 @@
             "cost_class": "standard",
             "creates": {
               "file": "issues.json",
-              "kind": "issue"
+              "kind": "issue",
+              "order": "order"
             },
             "field": "task_result",
             "fields": ["title", "description", "design"],

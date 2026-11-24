@@ -57,8 +57,9 @@ defmodule AtlasTui.View do
     help = footer_help(model)
     room = max(height - length(header) - 3 - length(help), 1)
     {lines, _long, viewports} = laid_out(model, width, room)
+    {body, viewport} = window(lines, model, room)
+    viewports = if viewport, do: Map.put(viewports, nil, viewport), else: viewports
 
-    body = window(lines, model, room)
     body = body ++ Elixir.List.duplicate([], room - length(body))
 
     footer =
@@ -508,13 +509,13 @@ defmodule AtlasTui.View do
     heading ++ if(rows == [], do: empty, else: content)
   end
 
-  # The page's groups as a filter row, each with its count, the one shown highlighted;
+  # The page's groups as a filter row, each with its count, the one shown highlighted
+  # (`:active`, drawn as the selection but not the selected row the page follows);
   # Control binds the keys that move between them. Wraps where the row is too wide.
   defp block(%AtlasTui.Blocks.Groups{groups: groups}, _at, _model, width, _room) do
     groups
     |> Enum.map(fn group ->
-      {if(group.active, do: :selected, else: :dim),
-       " #{single_line(group.label)} #{group.count} "}
+      {if(group.active, do: :active, else: :dim), " #{single_line(group.label)} #{group.count} "}
     end)
     |> Enum.reduce([], fn {_, text} = segment, lines ->
       case lines do
@@ -889,18 +890,20 @@ defmodule AtlasTui.View do
 
   # A page longer than the screen: the focus of a form, or the selected row of a list,
   # stays in sight until the page is scrolled by hand (a page about one fact starts at
-  # its top); arrows follow the selection again.
+  # its top); arrows follow the selection again. Its bounds are kept as the viewport of
+  # the page not in parts (`nil`), so paging moves on from what is shown.
   defp window(lines, model, room) when length(lines) > room do
     last = length(lines) - room
 
     focus = Enum.find_index(lines, &cursor_line?/1) || Enum.find_index(lines, &selected_line?/1)
     follow = focus != nil and (model.scroll == nil or Model.form(model) != nil)
     start = if follow, do: focus - div(room, 2), else: model.scroll || 0
+    start = start |> min(last) |> max(0)
 
-    Enum.slice(lines, start |> min(last) |> max(0), room)
+    {Enum.slice(lines, start, room), %{start: start, last: last, step: max(room - 1, 1)}}
   end
 
-  defp window(lines, _model, _room), do: lines
+  defp window(lines, _model, _room), do: {lines, nil}
 
   defp console_notice(%Model{console: %{error: error}}) when is_binary(error),
     do: [{:error, " Console: " <> error <> " · retrying boot"}]
@@ -910,6 +913,9 @@ defmodule AtlasTui.View do
 
   defp console_notice(%Model{console: %{key_buffer: buffer}}) when buffer != "",
     do: [{:dim, "Shortcut: #{buffer} · Enter to select · Esc to cancel"}]
+
+  defp console_notice(%Model{console: %{key_prefix: prefix}}) when prefix != "",
+    do: [{:dim, "#{prefix} … · Esc to cancel"}]
 
   defp console_notice(model), do: notice(model)
 

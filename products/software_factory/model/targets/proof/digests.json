@@ -243,10 +243,10 @@
     },
     "break_down_use_case": {
       "prod": {
-        "digest": "1320f1221de47473b17d5050b931d83b2f79d02adf7c60c73402904230ff0a0b",
+        "digest": "e3da4cc55654c4b36f542dc5dce35dc3cfd4c936c4edba8f6bc43a8083626f81",
         "history": [
           {
-            "digest": "1320f1221de47473b17d5050b931d83b2f79d02adf7c60c73402904230ff0a0b",
+            "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
             "states": [
               "accepting",
               "break_down",
@@ -254,7 +254,7 @@
             ]
           },
           {
-            "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
+            "digest": "2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695",
             "states": [
               "accepting",
               "break_down",
@@ -279,6 +279,14 @@
           },
           {
             "digest": "d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
+          {
+            "digest": "e3da4cc55654c4b36f542dc5dce35dc3cfd4c936c4edba8f6bc43a8083626f81",
             "states": [
               "accepting",
               "break_down",
@@ -293,10 +301,10 @@
         ]
       },
       "test": {
-        "digest": "1320f1221de47473b17d5050b931d83b2f79d02adf7c60c73402904230ff0a0b",
+        "digest": "e3da4cc55654c4b36f542dc5dce35dc3cfd4c936c4edba8f6bc43a8083626f81",
         "history": [
           {
-            "digest": "1320f1221de47473b17d5050b931d83b2f79d02adf7c60c73402904230ff0a0b",
+            "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
             "states": [
               "accepting",
               "break_down",
@@ -304,7 +312,7 @@
             ]
           },
           {
-            "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
+            "digest": "2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695",
             "states": [
               "accepting",
               "break_down",
@@ -329,6 +337,14 @@
           },
           {
             "digest": "d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
+          {
+            "digest": "e3da4cc55654c4b36f542dc5dce35dc3cfd4c936c4edba8f6bc43a8083626f81",
             "states": [
               "accepting",
               "break_down",
