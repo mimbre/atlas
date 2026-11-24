@@ -17,6 +17,11 @@ defmodule Model.Issue do
     labels: [specification: "Specification", design: "Design", development: "Development"]
   )
 
+  type(:pull_request_checks,
+    values: [:pending, :success, :failure],
+    labels: [pending: "Running", success: "Passed", failure: "Failed"]
+  )
+
   entity :issue,
     label: "Issue",
     plural: "issues",
@@ -93,6 +98,19 @@ defmodule Model.Issue do
       description: "GitHub: its pull request's state",
       set_by: :connector,
       label: "Pull request state"
+    )
+
+    field(:pr_checks, :pull_request_checks,
+      description: "GitHub: the combined check status of its pull request's head",
+      set_by: :connector,
+      label: "CI"
+    )
+
+    field(:pr_checks_failure, :string,
+      description: "GitHub: its pull request's failing checks, with the failing lines of their logs",
+      set_by: :connector,
+      multiline: true,
+      label: "CI failure"
     )
 
     connector(
