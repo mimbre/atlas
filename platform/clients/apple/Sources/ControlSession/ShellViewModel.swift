@@ -39,8 +39,6 @@ public struct ShellViewModel: Sendable, Equatable {
     /// The tabs may be out of date (not booted on this connection, or the last boot failed).
     public var stale: Bool
     public var bootFailure: SessionState.BootFailure?
-    /// What waits for the user, in the model's words: the sidebar section's header.
-    public var count: String?
     /// The middle column: the active tab's index page, or one of its groups.
     public var index: PageMessage?
     /// The right column: the page opened from a row (under an action's page, the page the
@@ -76,7 +74,6 @@ public struct ShellViewModel: Sendable, Equatable {
         activeTab = state.activeTab
         stale = state.shellStale && shell != nil
         bootFailure = state.bootFailure
-        count = state.count
         index = state.index
         // An action's page, once it is on screen, and any page that asks (a form or a
         // confirm) go over the columns; under it, the page the action was taken on.

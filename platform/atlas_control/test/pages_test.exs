@@ -328,7 +328,12 @@ defmodule AtlasControl.PagesTest do
 
     refute Map.has_key?(list, "actions")
 
-    assert [%{"label" => "More…", "key" => "m", "to" => "/k/widget/W-1/more"}] = item["actions"]
+    # The fact's actions are the page's (a client shows them with its title)...
+    assert [%{"label" => "More…", "key" => "m", "to" => "/k/widget/W-1/more", "page" => true}] =
+             item["actions"]
+
+    # ...the More… menu's are its own block's.
+    refute Enum.any?(more({:item, "widget", "W-1"}, @d, [answer, parts]), & &1["page"])
 
     assert %{"label" => "Create part", "key" => "c", "to" => "/k/part/new/of_widget/W-1"} in more(
              {:item, "widget", "W-1"},
@@ -930,7 +935,10 @@ defmodule AtlasControl.PagesTest do
     assert Pages.reads({:list, "log"}, @counted) == [{"log", %{}}]
 
     %{blocks: [%{"props" => start}]} = render(:home, @counted, [%{"facts" => []}])
-    assert %{"key" => "g", "label" => "Helpers", "to" => "/k/helper"} in start["actions"]
+    # The ways to other lists are the page's actions, not the list's.
+    assert %{"key" => "g", "label" => "Helpers", "to" => "/k/helper", "page" => true} in start[
+             "actions"
+           ]
 
     helpers = %{"facts" => [fact("ada", %{"name" => "Ada"}), fact("bob", %{"name" => "Bob"})]}
 
@@ -1395,9 +1403,10 @@ defmodule AtlasControl.PagesTest do
     page = render_run({:assigned, "ada"}, @carded_start, "open", [cards, widgets])
     list = by_id(page)["list"]
 
-    # The fact, its key, not its card; a completed one is not there; the flow its card is in.
+    # The fact, its key, not its card; a completed one is not there; what is to be done (the
+    # short name of the state its card's flow is in).
     assert [
-             %{"id" => "W-1", "label" => "One", "to" => "/k/widget/W-1", "detail" => "F"}
+             %{"id" => "W-1", "label" => "One", "to" => "/k/widget/W-1", "detail" => "open"}
            ] = list["rows"]
 
     assert Pages.assigned_count(@carded_start, [cards, widgets]) == "1 held"
@@ -1560,12 +1569,13 @@ defmodule AtlasControl.PagesTest do
     # No technical details: those are `atlas get`'s.
     assert Enum.map(page.blocks, & &1["id"]) == ["groups", "list"]
 
-    # Calm rows: each item's key; no since, cause or owner; what is expected, blocked, late.
+    # Calm rows: each item's key; no since, cause or owner; what is to be done (its state's
+    # short name), blocked, late.
     rows = blocks["list"]["rows"]
     assert Enum.map(rows, & &1["to"]) == ~w(/k/widget/W-1 /k/widget/W-2 /k/widget/W-3)
     assert Enum.map(rows, & &1["id"]) == ~w(W-1 W-2 W-3)
     [one, two, three] = Enum.map(rows, & &1["detail"])
-    assert one == "Needs a look · F · blocked"
+    assert one == "Needs a look · open · blocked"
     assert two =~ ~r/^Late · due 2020-01-02 12:00$/
     assert three in [nil, ""]
     refute Enum.any?([one, two], &(&1 =~ ~r/since|cause|ada|C-W-|R-9/))
@@ -1665,7 +1675,8 @@ defmodule AtlasControl.PagesTest do
 
     assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list"]
     list = by_id(page)["list"]
-    assert list["title"] == "All held"
+    # The page's title says it: the list does not repeat it.
+    assert list["title"] == nil
 
     # Late first; each with its key, who holds it, the flow it is in (never the sentence of
     # what is expected), and its time; calm: no since or cause.
@@ -1729,7 +1740,7 @@ defmodule AtlasControl.PagesTest do
     assert Enum.map(page.blocks, & &1["id"]) == ["summary", "list"]
     assert blocks["summary"]["title"] == "Overview"
     assert counts(page) == %{"Open" => "3", "Late" => "1", "Blocked" => "1", "Unassigned" => "1"}
-    assert blocks["list"]["title"] == "All held"
+    assert page.title == "All held" and blocks["list"]["title"] == nil
     assert blocks["list"]["empty"] == "Nothing is held."
     assert blocks["list"]["actions"] in [nil, []]
 
@@ -1992,9 +2003,9 @@ defmodule AtlasControl.PagesTest do
 
     list = by_id(page)["list"]
 
-    # Newest move first; a completed one is not there; the flow it is in.
+    # Newest move first; a completed one is not there; what is to be done in it.
     assert [%{"to" => "/k/part/P-1"}, %{"to" => "/k/widget/W-1"} = older] = list["rows"]
-    assert older["detail"] == "F"
+    assert older["detail"] == "open"
     assert [%{"key" => "s", "label" => "Widgets", "to" => "/k/widget"}] = list["actions"]
     assert Pages.assigned_count(@assigning, answers) == "2 kept by you"
 

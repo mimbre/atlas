@@ -130,8 +130,9 @@ defmodule Model.AtlasEyra do
   supervised_work(kind: :task, of: :task_of, for: :done_for, ended: :result_kind)
 
   # The tabs in Melle's order (2026-11-24): first the work, most urgent first (Assigned to
-  # you, Supervised by you, Open for you), then what one browses (Scenes; the environment
-  # adds Workers), each with its own keys. A client cycles through the work tabs only.
+  # you, Supervised by you, Open for you), then what one browses (Scenes, Agents, To-Dos,
+  # What the agent did; the environment adds Workers), each with its own keys. The start
+  # page holds only what is assigned: no kind has a `start` key (Melle, 2026-11-24). A client cycles through the work tabs only.
   # Assigned to you is also the tab the Console opens on when no target is given; the shell
   # names it (default:), this name is the one place.
   @boot_tab :assigned
@@ -154,7 +155,24 @@ defmodule Model.AtlasEyra do
       icon: :watching
     ],
     [id: :open_for_you, label: "Open for you", to: "/_open", section: :work, icon: :inbox],
-    [id: :scenes, label: "Scenes", to: "/k/scene", section: :browse, key: "g s", icon: :stack]
+    [id: :scenes, label: "Scenes", to: "/k/scene", section: :browse, key: "g s", icon: :stack],
+    [id: :agents, label: "Agents", to: "/k/agent", section: :browse, key: "g a", icon: :agents],
+    [
+      id: :to_dos,
+      label: "To-Dos",
+      to: "/k/to_do",
+      section: :browse,
+      key: "g t",
+      icon: :checklist
+    ],
+    [
+      id: :agent_requests,
+      label: "What the agent did",
+      to: "/k/agent_request",
+      section: :browse,
+      key: "g d",
+      icon: :history
+    ]
   ]
 
   shell(
@@ -187,7 +205,6 @@ defmodule Model.AtlasEyra do
   )
 
   extend_entity(:scene,
-    start: [key: "s", label: "Scenes"],
     create: [id: [prefix: "SC-Atlas-", digits: 2]]
   )
 
@@ -206,14 +223,11 @@ defmodule Model.AtlasEyra do
     ]
   )
 
-  extend_entity(:agent, start: [key: "a", label: "Agents"])
-
   extend_entity(:pull_request,
     connector: [names: [field: :title, relation: :done_in, when: [state: [:merged]]]]
   )
 
   extend_entity(:agent_request,
-    start: [key: "w", label: "What the agent did"],
     create: [id: [prefix: "RQ-Atlas-", digits: 2]]
   )
 
