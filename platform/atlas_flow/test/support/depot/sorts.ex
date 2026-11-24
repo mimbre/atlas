@@ -1209,7 +1209,7 @@ defmodule AtlasFlow.Sorts.Loop.Bench do
 
   @doc "The decision facts Facts holds: none, while Flow writes no decision."
   def decisions do
-    %{"facts" => facts} = AtlasFlow.Talk.transition_read("decision", %{"plain" => true})
+    %{"facts" => facts} = AtlasFlow.Talk.read("decision", %{"plain" => true})
     facts
   end
 

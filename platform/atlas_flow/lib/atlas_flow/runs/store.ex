@@ -84,7 +84,7 @@ defmodule AtlasFlow.Runs.Store do
          true <- recovery_tally?(config, run, write),
          :ok <- recovery_inputs(config["inputs"], run),
          %{"fact" => %{} = subject} <-
-           Talk.transition_read(run["subject_kind"], %{
+           Talk.read(run["subject_kind"], %{
              "key" => run["subject_key"],
              "plain" => true
            }),
@@ -152,7 +152,7 @@ defmodule AtlasFlow.Runs.Store do
   defp recovery_inputs(nil, _run), do: :ok
 
   defp recovery_inputs(c, run) do
-    case Talk.transition_read(c["kind"], %{"plain" => true}) do
+    case Talk.read(c["kind"], %{"plain" => true}) do
       %{"facts" => facts} when is_list(facts) ->
         readable =
           Enum.all?(
@@ -403,7 +403,7 @@ defmodule AtlasFlow.Runs.Store do
 
   # The latest generation of every run of a selected subflow, as Facts holds it.
   defp stored_runs(config) do
-    with %{"facts" => facts} <- Talk.transition_read(config["kind"], %{}),
+    with %{"facts" => facts} <- Talk.read(config["kind"], %{}),
          decoded = Enum.map(facts, &decode(config, &1)),
          true <- Enum.all?(decoded, &match?({:ok, _}, &1)) do
       runs = for {:ok, run} <- decoded, Map.has_key?(config["selection"], run["flow"]), do: run
@@ -422,7 +422,7 @@ defmodule AtlasFlow.Runs.Store do
   defp admitted_subjects(config) do
     Enum.reduce_while(Enum.sort(config["selection"]), {:ok, []}, fn {_name, selection},
                                                                     {:ok, acc} ->
-      case Talk.transition_read(selection["subject"], %{}) do
+      case Talk.read(selection["subject"], %{}) do
         %{"facts" => subjects} ->
           admitted =
             for subject <- Enum.sort_by(subjects, & &1["key"]),
@@ -486,7 +486,7 @@ defmodule AtlasFlow.Runs.Store do
   # A subject with no run known: one is made when the selection admits it, as a scan does.
   defp admitted(config, name, flow, selection, kind, key, now) do
     # Read as a scan reads it (with what Facts derives), so admission is decided alike.
-    case Talk.transition_read(kind, %{"key" => key}) do
+    case Talk.read(kind, %{"key" => key}) do
       %{"fact" => %{} = subject} = answer ->
         subject = Map.put(subject, "position", answer["position"] || subject["position"] || 0)
 
@@ -721,7 +721,7 @@ defmodule AtlasFlow.Runs.Store do
   # lost create acknowledgement finds the same next key, even if that run already ended.
   defp restart_requested(config, _d, run, flow, input, now, remaining) do
     with %{"fact" => %{} = subject} <-
-           Talk.transition_read(run["subject_kind"], %{
+           Talk.read(run["subject_kind"], %{
              "key" => run["subject_key"],
              "plain" => true
            }),
@@ -754,7 +754,7 @@ defmodule AtlasFlow.Runs.Store do
 
   defp look_subject(config, d, run, flow, inputs, cursor?, now, remaining) do
     # Recover prepared writes first, then fetch the subject's current ETag.
-    case Talk.transition_read(run["subject_kind"], %{
+    case Talk.read(run["subject_kind"], %{
            "key" => run["subject_key"],
            "plain" => true
          }) do
@@ -819,7 +819,7 @@ defmodule AtlasFlow.Runs.Store do
   defp reused(config, d, run, flow, now, remaining) do
     selection = config["selection"][run["flow"]]
 
-    case Talk.transition_read(run["subject_kind"], %{"key" => run["subject_key"]}) do
+    case Talk.read(run["subject_kind"], %{"key" => run["subject_key"]}) do
       %{"fact" => %{} = subject} = answer ->
         subject = Map.put(subject, "position", answer["position"] || subject["position"] || 0)
 
@@ -1027,7 +1027,7 @@ defmodule AtlasFlow.Runs.Store do
          :taken <- held(write, code) do
       after_ = write["hand_over"]["number"] + 1
 
-      case Talk.transition_read(write["kind"], %{"plain" => true}) do
+      case Talk.read(write["kind"], %{"plain" => true}) do
         %{"facts" => facts} ->
           {:taken,
            max(after_, HandOver.next_number(config["hand_over"], Enum.map(facts, & &1["key"])))}
@@ -1044,7 +1044,7 @@ defmodule AtlasFlow.Runs.Store do
   defp held(_write, "reserved"), do: :taken
 
   defp held(write, _code) do
-    case Talk.transition_read(write["kind"], %{"key" => write["content"]["key"], "plain" => true}) do
+    case Talk.read(write["kind"], %{"key" => write["content"]["key"], "plain" => true}) do
       %{"fact" => fact} -> HandOver.met(write, fact)
       _ -> :unknown
     end
@@ -1092,7 +1092,7 @@ defmodule AtlasFlow.Runs.Store do
           uniq: true,
           do: {x["relation"], x["parent_subject"]}
 
-    case Talk.transition_read(child["subject_kind"], %{
+    case Talk.read(child["subject_kind"], %{
            "key" => child["subject_key"],
            "plain" => true
          }) do
@@ -1177,7 +1177,7 @@ defmodule AtlasFlow.Runs.Store do
     Enum.reduce_while(tallies, {:ok, %{}}, fn t, {:ok, acc} ->
       facts =
         Enum.reduce_while(t["from"], {:ok, []}, fn kind, {:ok, facts} ->
-          case Talk.transition_read(kind, %{
+          case Talk.read(kind, %{
                  "linked" => %{t["relation"] => subject["key"]},
                  "plain" => true
                }) do
@@ -1342,7 +1342,7 @@ defmodule AtlasFlow.Runs.Store do
         kind = x["child_subject"]
 
         with %{"facts" => facts} <-
-               Talk.transition_read(kind, %{
+               Talk.read(kind, %{
                  "linked" => %{x["relation"] => subject["key"]},
                  "plain" => true
                }),
@@ -1434,7 +1434,7 @@ defmodule AtlasFlow.Runs.Store do
           run["pending"]["verdict"] != nil ->
         verdict = run["pending"]["verdict"]
 
-        case Talk.transition_read(review["kind"], %{"key" => verdict["recorded"], "plain" => true}) do
+        case Talk.read(review["kind"], %{"key" => verdict["recorded"], "plain" => true}) do
           %{"fact" => %{} = fact} ->
             if Enum.any?(review["relations"], &(List.wrap(fact["links"][&1]) != [])) do
               write = %{
@@ -1492,10 +1492,9 @@ defmodule AtlasFlow.Runs.Store do
     relation = order["within"]
 
     with %{"fact" => %{} = fact} <-
-           Talk.transition_read(kind, %{"key" => run["subject_key"], "plain" => true}),
+           Talk.read(kind, %{"key" => run["subject_key"], "plain" => true}),
          [parent | _] <- List.wrap(get_in(fact, ["links", relation])),
-         %{"facts" => facts} <-
-           Talk.transition_read(kind, %{"linked" => %{relation => parent}}),
+         %{"facts" => facts} <- Talk.read(kind, %{"linked" => %{relation => parent}}),
          {:ok, runs} <- child_runs(config, run["flow"], kind, facts) do
       AtlasBus.Order.waiting_for(
         run["subject_key"],
@@ -1530,7 +1529,7 @@ defmodule AtlasFlow.Runs.Store do
 
       spec ->
         fn run, hand_over, from ->
-          case Talk.transition_read(spec["kind"], %{"plain" => true}) do
+          case Talk.read(spec["kind"], %{"plain" => true}) do
             %{"facts" => facts} ->
               number = HandOver.next_number(spec, Enum.map(facts, & &1["key"]))
               {:ok, HandOver.writes(spec, run, hand_over, from, number)}
@@ -1544,7 +1543,7 @@ defmodule AtlasFlow.Runs.Store do
 
   defp holder?(supervision, key) do
     Enum.reduce_while(supervision["holders"], false, fn kind, false ->
-      case Talk.transition_read(kind, %{"key" => key, "plain" => true}) do
+      case Talk.read(kind, %{"key" => key, "plain" => true}) do
         %{"fact" => %{}} -> {:halt, true}
         %{"fact" => nil} -> {:cont, false}
         _ -> {:halt, :unavailable}
@@ -1688,7 +1687,7 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   defp fetch(config, key) do
-    case Talk.transition_read(config["kind"], %{"key" => key, "plain" => true}) do
+    case Talk.read(config["kind"], %{"key" => key, "plain" => true}) do
       %{"fact" => fact} -> {:ok, fact}
       other -> {:error, other}
     end

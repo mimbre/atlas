@@ -149,7 +149,7 @@ try do
     assert :sys.get_state(engine).refusal == nil
 
     read = fn kind, key ->
-      %{"fact" => fact} = Talk.transition_read(kind, %{"key" => key, "plain" => true})
+      %{"fact" => fact} = Talk.read(kind, %{"key" => key, "plain" => true})
       fact
     end
 

@@ -549,8 +549,8 @@ defmodule AtlasFlow.SupervisedOwnerTest do
       assert held("crate", crate) == ["sam"]
     end
 
-    # `Supervision.of/3` answers (its read is a transition read), but the projection's own
-    # plain read of the spanned run's record fails: still an error, never the decider.
+    # `Supervision.of/3` answers, but the projection's own read of the spanned run's record,
+    # the same read a step later, fails: still an error, never the decider.
     test "the spanned run's record unreadable after Supervision answered: an error, nothing written",
          %{box: box, crate: crate} do
       engine = start(Withed)
@@ -561,7 +561,9 @@ defmodule AtlasFlow.SupervisedOwnerTest do
       stop_supervised!(Engine)
 
       key = Run.key("sort", "box", box, 1)
-      :ok = GenServer.call(FakeFacts, {:block_read, "cursor", %{"key" => key, "plain" => true}})
+      record = %{"key" => key, "plain" => true}
+      # Two answers: `Supervision.of/3` here and in the projection; the third read fails.
+      :ok = GenServer.call(FakeFacts, {:block_read_after, "cursor", record, 2})
       sent = length(FakeFacts.sent())
       assert {:supervised, "sam", ^key} = Supervision.of(runner(), "crate", crate)
       assert Projection.project(runner(), "crate", crate) == {:error, :supervision_unavailable}
