@@ -168,6 +168,60 @@ defmodule AtlasFacts.Server do
 
   def handle_info({:atlas_bus, _envelope, _content}, state), do: {:noreply, state}
 
+  # rela's change feed (`AtlasFacts.Rela.Events`): kinds changed in rela, by Facts or by
+  # another writer. Those that others write (the model's `written_past_facts/0`) are read
+  # again; every fact that differs from Facts' copy is hinted as stored, by "rela", at its
+  # own position.
+  def handle_info({:rela_changed, kinds}, %{description: description} = state)
+      when is_map(description) do
+    watched =
+      if function_exported?(state.model, :written_past_facts, 0),
+        do: state.model.written_past_facts(),
+        else: []
+
+    kinds = if kinds == :all, do: watched, else: Enum.filter(kinds, &(&1 in watched))
+
+    for kind <- kinds,
+        plural = get_in(description, ["entities", kind, "plural"]),
+        changed = refreshed(state, kind, plural),
+        {key, before, later} <- changed do
+      entry = Changes.entry(kind, key, seen(before), seen(later))
+
+      about = %{
+        "op" => entry["op"],
+        "key" => key,
+        "by" => "rela",
+        "cause" => "written in rela, past Facts",
+        "changes" => [entry]
+      }
+
+      envelope = Envelope.new("stored", kind)
+      position = Ledger.stored(state.ledger, envelope.id, about)
+      :ok = AtlasBus.send(%{envelope | position: position}, about)
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:rela_changed, _kinds}, state), do: {:noreply, state}
+
+  defp refreshed(state, kind, plural) do
+    case Cache.refresh(state.cache, plural) do
+      {:ok, changed} ->
+        changed
+
+      error ->
+        Logger.warning(
+          "Facts could not read #{kind} again after rela said it changed: #{inspect(error)}"
+        )
+
+        []
+    end
+  end
+
+  defp seen(nil), do: nil
+  defp seen(fact), do: %{values: fact.properties, links: fact.links}
+
   # Maintenance evidence is read from the owning ledger, never ordinary write replay.
   # Only the already configured machine endpoint may ask; the reply grants no write.
   defp dispatch(%Envelope{class: "read", kind: @recovery} = envelope, content, state) do
