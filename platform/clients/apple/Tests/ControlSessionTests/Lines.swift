@@ -15,8 +15,8 @@ enum Lines {
         return json(object)
     }
 
-    static func tab(_ id: String, _ to: String) -> [String: Any] {
-        ["id": id, "label": "Label \(id)", "to": to]
+    static func tab(_ id: String, _ to: String, section: String = "work") -> [String: Any] {
+        ["id": id, "label": "Label \(id)", "to": to, "section": section]
     }
 
     static var tabs: [[String: Any]] { [tab("widgets", "/k/widget"), tab("parts", "/k/part")] }

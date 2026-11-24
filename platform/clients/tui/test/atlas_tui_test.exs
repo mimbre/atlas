@@ -464,6 +464,56 @@ defmodule AtlasTuiTest do
     end
   end
 
+  test "a grouped page longer than the screen follows its selected row to the end" do
+    page = %{
+      "op" => "page",
+      "path" => "/_open/build",
+      "title" => "Open for you · Build",
+      "back" => "/_open",
+      "reason" => "open",
+      "blocks" => [
+        %{
+          "id" => "groups",
+          "type" => "groups",
+          "props" => %{
+            "groups" => [
+              %{"label" => "All", "count" => 49, "to" => "/_open", "active" => false},
+              %{"label" => "Build", "count" => 49, "to" => "/_open/build", "active" => true}
+            ]
+          }
+        },
+        %{
+          "id" => "summary",
+          "type" => "item",
+          "props" => %{"title" => "49 open", "fields" => []}
+        },
+        %{
+          "id" => "list",
+          "type" => "list",
+          "props" => %{
+            "title" => "Build",
+            "rows" =>
+              for(n <- 1..49, do: %{"id" => "W-#{n}", "label" => "Row", "to" => "/k/w/W-#{n}"})
+          }
+        }
+      ]
+    }
+
+    draw = fn m -> View.frame(m, 70, 50, 5) end
+    {m, _} = press(model(page), List.duplicate(:down, 48))
+    {rows, m} = draw.(m)
+    assert View.plain(rows) =~ "› W-49"
+
+    # Paging goes on from what is shown, up and back down to the end.
+    {m, []} = Model.operation(m, "page_previous")
+    {rows, m} = draw.(m)
+    refute View.plain(rows) =~ "W-49"
+    assert View.plain(rows) =~ "W-20"
+    {m, []} = Model.operation(m, "page_next")
+    {rows, _} = draw.(m)
+    assert View.plain(rows) =~ "› W-49"
+  end
+
   test "a hint redraws the list and keeps the selected row" do
     {m, _} = press(model(@list), [:down])
 

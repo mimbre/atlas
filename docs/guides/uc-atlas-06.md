@@ -4,7 +4,7 @@ This guide grows with the use case, one section per issue. In the end the operat
 
 ## IS-Atlas-17: the agents, each with what is assigned to it
 
-The agents are one key away from the start page: `g Agents`, as `w What the agent did` is. Each row counts the Assignments that point at the agent: what is assigned to it.
+The agents are one key away from the start page: `a Agents`, as `w What the agent did` is. Each row counts the Assignments that point at the agent: what is assigned to it.
 
 It is all description (`products/software_factory/model/targets/rela/atlas.json`, kind `agent`):
 
@@ -18,7 +18,7 @@ In test (`atlas tui --env test`):
 | Step | Keys / command | What you should see |
 |---|---|---|
 | An agent | `atlas put agent --name Ada --env test` | `ada` |
-| The agents | `g` on the start page | **Agents**: `ada  Ada  0 assigned`, and the coordinator with its count |
+| The agents | `a` on the start page | **Agents**: `ada  Ada  0 assigned`, and the coordinator with its count |
 | Assign a scene to Ada | `atlas set SC-Atlas-NN assigned_to=ada --cause "handed to Ada" --env test` | Ada's row shows `1 assigned` at once, in every open TUI |
 | What is assigned | `enter` on Ada | **Agent ada: Ada**, with the scene's Assignment under **Assignments** |
 
@@ -86,7 +86,7 @@ It is description, plus one general rule in Control. The association `assigned_t
 | A new scene | `c` on the scenes list, a title, `ctrl-s` | the scene's page, with `h Hand to…` |
 | Hand it over at once | `h`, `→` until **To** is `ada`, `↓`, `2099-03-04 09:30`, `ctrl-s` | the Assignment's page: **Assigned to** `ada` (handed to ada by …), **Deadline** `2099-03-04 09:30 UTC` |
 | Flow leaves it | wait a moment, `r` on the scene | **Expected** `Build it`, **Assigned to** still `ada` |
-| Ada's count | `g` | `ada  Ada  N assigned`, one more |
+| Ada's count | `a` | `ada  Ada  N assigned`, one more |
 
 `products/software_factory/e2e/scenarios/uc-atlas-06.exs` follows these steps.
 
@@ -118,7 +118,7 @@ In prod, after the merge, every scene without use cases moves from "Build it" to
 
 ## IS-Atlas-85: Open work, every open fact with its owner, what is expected, its deadline and late
 
-`l Open work` on the start page lists every open fact: one that someone is assigned to, or of which something is expected. Each row shows
+`atlas list assignment` lists every open fact: one that someone is assigned to, or of which something is expected. It is for agents and the command line; people have no Open work tab or start action (Open for you, Supervised by you and Assigned to you cover their work). Each row shows
 - who it is assigned to (`—` for nobody),
 - what is expected,
 - its deadline, or `Late · deadline …`,
@@ -130,12 +130,10 @@ My work (IS-Atlas-55, the start page "Assigned to you") is the same list, filter
 
 It is description, plus Control's list of the kind the start's relation starts at:
 
-- **`products/software_factory/model/targets/rela/atlas.json`:**
-  - `start.open = {title: "Open work", empty: …}`;
-  - the assignment kind has `start: {key: l, label: Open work}`.
+- **`products/software_factory/model/targets/rela/atlas.json`:** `start.open = {title: "Open work", empty: …}`.
 - **Control:**
   - the list of the Assignment kind (`/k/assignment`, no new page in the contract) is Open work. It reads every Assignment and every fact they belong to, and shows the open ones.
-  - `atlas list assignment` gives the same rows, one per open fact, by the fact's key.
+  - `atlas list assignment` gives these rows, one per open fact, by the fact's key.
 
 Control gathers Open work's unfiltered collection reads in one internal Facts request. Within that request, Facts reuses successful raw collection results when progress or completion needs the same collection again; pagination, enrichment and the complete page output stay unchanged. The data is discarded when the request ends, failed reads are not cached, and every later page request reads fresh data. This does not introduce a public protocol operation or a cross-request cache.
 
@@ -145,9 +143,8 @@ If any required collection fails, Open work shows the existing unavailable page 
 
 | Step | Keys / command | What you should see |
 |---|---|---|
-| Open work | `l` on the start page | **Open work**: `SC-Atlas-NN  A scene handed over at once` with `ada · Break it down into use cases and issues · Deadline 2099-03-04 09:30 · since …`, and the coordinator's open work |
+| Open work | `atlas list assignment --env test` | `SC-Atlas-NN  A scene handed over at once` with `ada · Break it down into use cases and issues · Deadline 2099-03-04 09:30 · since …`, and the coordinator's open work |
 | A deadline that passes | `atlas set AS-SC-Atlas-NN deadline="2020-05-06 07:08" --env test` | The scene comes first: `ada · Break it down … · Late · deadline 2020-05-06 07:08` |
-| From the command line | `atlas list assignment --env test --json` | the same rows |
-| Done | accept a use case | it leaves Open work: nobody is assigned and nothing is expected |
+| As JSON | `atlas list assignment --env test --json` | the same rows |
+| Done | accept a use case | it leaves the list: nobody is assigned and nothing is expected |
 
-`products/software_factory/e2e/scenarios/uc-atlas-06.exs` follows these steps.

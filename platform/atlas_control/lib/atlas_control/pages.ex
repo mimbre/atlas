@@ -794,9 +794,9 @@ defmodule AtlasControl.Pages do
   end
 
   # What is assigned to the client, calm (platform/atlas_control/backend/README.md): its
-  # groups (per kind), an Overview of the counts and the list, each row with its key, without
-  # technical noise; on a group's page (`active`, a kind) only that kind's. The technical
-  # details are an agent's or developer's (`atlas get`), never on a page a human reads.
+  # groups (per kind) and the list, each row with its key, without technical noise; on a
+  # group's page (`active`, a kind) only that kind's. No Overview: the tab and the groups
+  # carry the count. The technical details are an agent's or developer's (`atlas get`).
   defp assigned(m, by, answers, marked, active) do
     rule = assigned_rule(m)
     all = assigned_facts(m, answers, marked)
@@ -816,10 +816,7 @@ defmodule AtlasControl.Pages do
       Enum.frequencies_by(all, &elem(&1, 0)),
       active,
       rule.title || "",
-      [
-        {"summary", overview(items)},
-        {"list", list}
-      ]
+      [{"list", list}]
     )
   end
 
@@ -851,9 +848,9 @@ defmodule AtlasControl.Pages do
       reason: nil
     }
 
-  # How much there is: how many (`main`), and how many of those are late or blocked, and
+  # Open work's Overview: how many (`main`), and how many of those are late or blocked, and
   # any `more` counts (only when some are).
-  defp overview(items, main \\ "To do", more \\ []) do
+  defp overview(items, main, more) do
     late = Enum.count(items, fn {_, fact, link} -> true in [link["late"], fact["late"]] end)
 
     blocked =
@@ -991,8 +988,25 @@ defmodule AtlasControl.Pages do
   # `newest_first` lists a kind newest first (by key, which counts up).
   defp sort_facts(facts, k) do
     direction = if k && k.newest_first, do: :desc, else: :asc
-    Enum.sort_by(facts, & &1["key"], direction)
+    Enum.sort_by(facts, &key_order(&1["key"]), direction)
   end
+
+  # How keys sort wherever rows go by key: their numbers as numbers, so IS-Atlas-100 comes
+  # after IS-Atlas-99, not between IS-Atlas-07 and IS-Atlas-11. Equal numbers (07, 7) go
+  # by the key itself.
+  defp key_order(key) when is_binary(key) do
+    parts =
+      for part <- Regex.split(~r/\d+/, key, include_captures: true, trim: true) do
+        case Integer.parse(part) do
+          {n, ""} -> n
+          _ -> part
+        end
+      end
+
+    {parts, key}
+  end
+
+  defp key_order(key), do: {[], key}
 
   # Supervision (work acquisition decision 2026-11-17, §5.6–5.8; M3b P4)
 
@@ -1090,16 +1104,21 @@ defmodule AtlasControl.Pages do
       facts = (written[on] || %{})["facts"] || []
 
       if on == s.subject do
-        {s, for(work <- facts, do: {s.subject, work, work})}
+        {s, Enum.sort_by(for(work <- facts, do: {s.subject, work, work}), &item_key/1)}
       else
         owners = for {_, owner} = o <- owner_kinds(m, [on]), owner == s.subject, do: o
         whose = by_component(owners, List.duplicate(subjects[s.subject], length(owners)))
 
         {s,
-         for(work <- facts, {kind, subject} <- [whose[work["key"]]], do: {kind, subject, work})}
+         Enum.sort_by(
+           for(work <- facts, {kind, subject} <- [whose[work["key"]]], do: {kind, subject, work}),
+           &item_key/1
+         )}
       end
     end
   end
+
+  defp item_key({_kind, fact, _work}), do: key_order(fact["key"])
 
   # How Facts presents the work on a fact of `kind`, on its page: on the component among
   # its `parts` (`item_parts/3`) that a span's work is written on, else on the fact itself.
@@ -1483,7 +1502,7 @@ defmodule AtlasControl.Pages do
       required: true,
       choices:
         for(
-          p <- Enum.sort_by(others, & &1["key"]),
+          p <- Enum.sort_by(others, &key_order(&1["key"])),
           do: Blocks.choice(value: p["key"], label: "#{p["key"]}: #{label(candidate_k, p)}")
         )
     )
@@ -1542,8 +1561,8 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # Open for you, calm: its groups, an Overview, and one list per span; on a group's page
-  # (`active`, `{subflow, span}`) only that span's list.
+  # Open for you, calm: its groups and one list per span, titled with the span's flow; on a
+  # group's page (`active`, `{subflow, span}`) only that span's list.
   defp open_for_you(m, answers, active) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
@@ -1551,22 +1570,18 @@ defmodule AtlasControl.Pages do
         per_span = open_for_you_facts(m, answers)
         counts = Map.new(per_span, fn {s, facts} -> {{s.subflow, s.span}, length(facts)} end)
         shown = for {s, _} = group <- per_span, active in [nil, {s.subflow, s.span}], do: group
-        items = for {_s, facts} <- shown, item <- facts, do: item
 
         lists =
           for {s, facts} <- shown do
             {"list:#{s.subflow}:#{s.span}",
              Blocks.list(
                title: span_title(m, s),
-               rows:
-                 for({kind, fact, work} <- facts, do: screen_row(m, kind, fact, work, active)),
+               rows: for({kind, fact, work} <- facts, do: screen_row(m, kind, fact, work, false)),
                empty: rule.empty
              )}
           end
 
-        grouped_page(m, {:open_for_you, nil}, counts, active, rule.title || "", [
-          {"summary", screen_overview(rule, items, [])} | lists
-        ])
+        grouped_page(m, {:open_for_you, nil}, counts, active, rule.title || "", lists)
 
       failed ->
         unavailable(failed, "/")
@@ -1574,9 +1589,9 @@ defmodule AtlasControl.Pages do
   end
 
   # A screen, `{screen, by}`, with its groups first (`groups/2`): All, then each group
-  # with its count (`counts`, by key), the one shown (`active`; nil: All) marked. A group's
-  # page is titled with the group's name too and goes back to the whole page. `[` and `]`
-  # open the previous and the next group.
+  # that has items with its count (`counts`, by key), the one shown (`active`; nil: All)
+  # marked, and shown even when empty. A group's page is titled with the group's name too
+  # and goes back to the whole page. `[` and `]` open the previous and the next group.
   defp grouped_page(m, {screen, by} = whole, counts, active, title, blocks) do
     named = groups(m, screen)
 
@@ -1587,7 +1602,7 @@ defmodule AtlasControl.Pages do
         to: path(whole),
         active: active == nil
       )
-      | for {key, label} <- named do
+      | for {key, label} <- named, (counts[key] || 0) > 0 or active == key do
           Blocks.group(
             label: label,
             count: counts[key] || 0,
@@ -1637,9 +1652,8 @@ defmodule AtlasControl.Pages do
       else: label
   end
 
-  # Supervised by you, calm: its groups (per span the flows are in), an Overview with the
-  # quiet count of the client's running work, and the flows it supervises (state, who it
-  # waits on); on a group's page (`active`) only those in that span.
+  # Supervised by you, calm: its groups (per span the flows are in) and the flows it
+  # supervises (state, who it waits on); on a group's page (`active`) only those in that span.
   defp supervised_by_you(m, by, answers, active) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
@@ -1653,17 +1667,17 @@ defmodule AtlasControl.Pages do
 
         items = Enum.filter(all, &(active in [nil, span_key.(&1)]))
 
-        {work, doing} =
+        doing =
           case rule[:work] do
             %{kind: kind, of: of} ->
-              {[{(kind(m, kind) || unknown_kind(kind)).plural, length(running)}],
-               for(t <- running, key <- get_in(t, ["links", of]) || [], into: %{}, do: {key, t})}
+              for t <- running,
+                  key <- get_in(t, ["links", of]) || [],
+                  into: %{},
+                  do: {key, {kind, t}}
 
             _ ->
-              {[], %{}}
+              %{}
           end
-
-        doing = Map.new(doing, fn {key, t} -> {key, {rule.work.kind, t}} end)
 
         list =
           Blocks.list(
@@ -1671,7 +1685,7 @@ defmodule AtlasControl.Pages do
             rows:
               for(
                 {kind, fact, work} <- items,
-                do: screen_row(m, kind, fact, work, active, doing[fact["key"]])
+                do: screen_row(m, kind, fact, work, active == nil, doing[fact["key"]])
               ),
             empty: rule.empty
           )
@@ -1679,7 +1693,6 @@ defmodule AtlasControl.Pages do
         counts = Enum.frequencies_by(all, span_key)
 
         grouped_page(m, {:supervised_by_you, by}, counts, active, rule.title || "", [
-          {"summary", screen_overview(rule, items, work)},
           {"list", list}
         ])
 
@@ -1688,30 +1701,16 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # A screen's Overview: titled by the model's count (so the count is not said again), then
-  # how many are late or blocked, and `more`, only when some are.
-  defp screen_overview(rule, items, more) do
-    n = length(items)
-    late = Enum.count(items, fn {_, fact, _} -> fact["late"] == true end)
-    blocked = Enum.count(items, fn {_, fact, _} -> shown(fact, fact, "status") == "blocked" end)
-
-    fields =
-      for {label, count} <- [{"Late", late}, {"Blocked", blocked} | more],
-          count > 0,
-          do: Blocks.pair(label: label, value: Integer.to_string(count))
-
-    title = String.replace(rule.count || "{count}", "{count}", Integer.to_string(n))
-    Blocks.item(title: title, fields: fields)
-  end
-
   # One calm row of a screen: the fact's key, the fact, the flow its work is in (its short
-  # name), whom it waits on (the owner keys Facts presents on the `work`), whether it is
-  # blocked; the rest is on its page. On a group's page (`active`, one span of one flow) the
-  # group's name says the flow, so the row says what it belongs under (its parents' keys)
+  # name, when no heading says it: `flow?`), whom it waits on (the owner keys Facts presents
+  # on the `work`, only once someone supervises it or set it by hand: Flow's default holder
+  # of unpicked work is not news), whether it is blocked; the rest is on its page. Where a
+  # heading or group says the flow, the row says what it belongs under (its parents' keys)
   # instead. While the client's running work is on it (`doing`, `{kind, fact}`), the row
   # says that work (its kind and detail) in place of the flow: an agent is at it.
-  defp screen_row(m, kind, fact, work, active, doing \\ nil) do
-    parents = if active == nil, do: [], else: Map.values(parent_values(m, kind, fact))
+  defp screen_row(m, kind, fact, work, flow?, doing \\ nil) do
+    parents = if flow?, do: [], else: Map.values(parent_values(m, kind, fact))
+    p = work["presentation"] || %{}
 
     todo =
       case doing do
@@ -1719,16 +1718,20 @@ defmodule AtlasControl.Pages do
           Enum.join([singular(m, work_kind), detail(kind(m, work_kind), t)] -- [nil], " · ")
 
         nil ->
-          if active == nil, do: flow_name(m, fact, work)
+          if flow?, do: flow_name(m, fact, work)
       end
 
     detail =
       (parents ++
          [
            todo,
-           case get_in(work, ["presentation", "owner"]) do
-             [_ | _] = keys -> Enum.join(keys, ", ")
-             _ -> nil
+           case p["owner"] do
+             [_ | _] = keys ->
+               if p["supervisor"] not in [nil, []] or p["manual"] == true,
+                 do: Enum.join(keys, ", ")
+
+             _ ->
+               nil
            end,
            shown(fact, work, "status") == "blocked" && "blocked"
          ])
@@ -2639,7 +2642,7 @@ defmodule AtlasControl.Pages do
       choices:
         [Blocks.choice(value: "", label: "— none")] ++
           for(
-            fact <- Enum.sort_by(facts, & &1["key"]),
+            fact <- Enum.sort_by(facts, &key_order(&1["key"])),
             do: Blocks.choice(value: fact["key"], label: fact["key"])
           )
     )
@@ -3219,7 +3222,7 @@ defmodule AtlasControl.Pages do
       end
 
       rows =
-        for key <- Enum.sort(keys), to = kind_of.(key), to != nil do
+        for key <- Enum.sort_by(keys, &key_order/1), to = kind_of.(key), to != nil do
           Blocks.row(id: key, label: singular(m, to), to: path({:item, to, key}))
         end
 
@@ -3372,7 +3375,7 @@ defmodule AtlasControl.Pages do
 
       facts =
         case answer do
-          %{"facts" => facts} -> Enum.sort_by(facts, & &1["key"])
+          %{"facts" => facts} -> Enum.sort_by(facts, &key_order(&1["key"]))
           _ -> []
         end
 

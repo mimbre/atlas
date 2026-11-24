@@ -1437,14 +1437,18 @@ public struct ShellTabModel: Codable, Sendable, Equatable {
     public var id: String
     public var label: String
     public var to: String
+    public var section: String
+    public var key: String?
     public var icon: String?
     public var groups: [ShellGroupModel]?
     public var count: Int?
 
-    public init(id: String, label: String, to: String, icon: String? = nil, groups: [ShellGroupModel]? = nil, count: Int? = nil) {
+    public init(id: String, label: String, to: String, section: String, key: String? = nil, icon: String? = nil, groups: [ShellGroupModel]? = nil, count: Int? = nil) {
         self.id = id
         self.label = label
         self.to = to
+        self.section = section
+        self.key = key
         self.icon = icon
         self.groups = groups
         self.count = count
@@ -1454,6 +1458,8 @@ public struct ShellTabModel: Codable, Sendable, Equatable {
         case id
         case label
         case to
+        case section
+        case key
         case icon
         case groups
         case count

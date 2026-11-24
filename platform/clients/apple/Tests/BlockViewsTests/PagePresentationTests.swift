@@ -249,7 +249,7 @@ final class PagePresentationTests: XCTestCase {
         XCTAssertEqual(presentation.entries.map(\.id), ["#0"])
     }
 
-    func testCurrentContractConfirmationWithoutAnOfferRemainsAKnownFallback() throws {
+    func testAConfirmationWithoutAnOfferIsShownWithOnlyItsText() throws {
         // Control can explain an unavailable restart without offering an action. In the
         // current contract confirm_label and confirm_to are optional, cancel_to is not.
         let confirm = block("confirm", [
@@ -262,7 +262,7 @@ final class PagePresentationTests: XCTestCase {
         }
         XCTAssertNil(value.confirmLabel)
         XCTAssertNil(value.confirmTo)
-        XCTAssertEqual(PagePresentation(page).entries.map(\.item), [.notShown(type: "confirm")])
+        XCTAssertEqual(PagePresentation(page).entries.map(\.item), [.confirm(value)])
     }
 }
 

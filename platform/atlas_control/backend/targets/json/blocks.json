@@ -2878,6 +2878,16 @@
           "type": "string"
         },
         {
+          "name": "section",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "key",
+          "required": false,
+          "type": "string"
+        },
+        {
           "name": "icon",
           "required": false,
           "type": "string"
@@ -5636,7 +5646,7 @@
       }
     }
   ],
-  "version": "0.22.0",
+  "version": "0.23.0",
   "wire": {
     "block": "{\"id\": \"<id>\", \"type\": \"<block>\", \"props\": {...}}",
     "markup": "{\"kind\": \"<kind>\", \"start\": \"<block id>\", \"end\": \"<block id>\", \"group\": \"<id, on a piece of split markup>\", \"props\": {...}}",

@@ -4,19 +4,22 @@ import SwiftUI
 /// A page: its title and its blocks. Its lists' rows are the page's selection: selecting
 /// one (a click, or the arrow keys) calls `open` with its `to`, and the row whose `to` is
 /// `selectedPath` shows selected. `submit` is called with a call a block declares (a
-/// choice's answer) and its values.
+/// choice's answer) and its values; `act` with an action a block declares (its button).
 public struct PageView: View {
     let presentation: PagePresentation
     let selectedPath: String?
     let open: (String) -> Void
     let submit: (CallModel, [String: String]) -> Void
+    let act: (ActionModel) -> Void
 
     public init(page: PageMessage, selectedPath: String? = nil, open: @escaping (String) -> Void,
-                submit: @escaping (CallModel, [String: String]) -> Void = { _, _ in }) {
+                submit: @escaping (CallModel, [String: String]) -> Void = { _, _ in },
+                act: @escaping (ActionModel) -> Void = { _ in }) {
         presentation = PagePresentation(page)
         self.selectedPath = selectedPath
         self.open = open
         self.submit = submit
+        self.act = act
     }
 
     public var body: some View {
@@ -40,7 +43,7 @@ public struct PageView: View {
                 case .row(let row):
                     RowLabel(row: row).listRowSeparator(.hidden)
                 case .actions(let actions):
-                    still(UnsupportedActionsView(actions: actions))
+                    still(ActionsView(actions: actions, act: act))
                 case .entry(let entry):
                     still(entryView(entry))
                 case .section(let section):
@@ -109,13 +112,16 @@ public struct PageView: View {
 
     @ViewBuilder private func entryView(_ entry: PagePresentation.Entry) -> some View {
         switch entry.item {
-        case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open)
-        case .item(let item): ItemBlockView(item: item)
+        case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
+        case .item(let item): ItemBlockView(item: item, act: act)
         case .singleChoice(let choice):
             // A view of its own per page and revision: nothing typed for one
             // decision stays for another.
             SingleChoiceView(block: choice, submit: submit)
                 .id(SingleChoiceView.identity(path: presentation.path, block: choice))
+        // A page that asks is shown over the window (ActionPageView), not in a column.
+        case .form: FallbackView(type: "form", reason: nil)
+        case .confirm: FallbackView(type: "confirm", reason: nil)
         case .notShown(let type): FallbackView(type: type, reason: nil)
         case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
         }
@@ -161,6 +167,7 @@ struct ListBlockView: View {
     let list: ListBlock
     let selectedPath: String?
     let open: (String) -> Void
+    let act: (ActionModel) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
@@ -174,7 +181,7 @@ struct ListBlockView: View {
             ForEach(Array(list.rows.enumerated()), id: \.offset) { _, row in
                 ListRowView(row: row, selected: row.to == selectedPath, open: open)
             }
-            UnsupportedActionsView(actions: list.actions ?? [])
+            ActionsView(actions: list.actions ?? [], act: act)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -250,10 +257,13 @@ struct RowLabel: View {
 /// Text stays literal, selectable and unbounded, including embedded blank lines.
 struct ItemBlockView: View {
     let item: ItemBlock
+    let act: (ActionModel) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
             Text(item.title).prism(Prism.Typography.title7)
+            // The actions first: the next step is in reach without scrolling.
+            ActionsView(actions: item.actions ?? [], act: act)
             ForEach(Array(item.fields.enumerated()), id: \.offset) { _, field in
                 VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
                     if !field.label.isEmpty {
@@ -263,7 +273,6 @@ struct ItemBlockView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            UnsupportedActionsView(actions: item.actions ?? [])
             if let links = item.links, !links.isEmpty {
                 Text("Links are not supported in this client yet.").foregroundStyle(.secondary)
                 ForEach(Array(links.enumerated()), id: \.offset) { _, link in
@@ -275,17 +284,6 @@ struct ItemBlockView: View {
         .fixedSize(horizontal: false, vertical: true)
         .textSelection(.enabled)
         .modifier(PrismCard())
-    }
-}
-
-struct UnsupportedActionsView: View {
-    let actions: [ActionModel]
-
-    var body: some View {
-        if !actions.isEmpty {
-            Text("Actions are not supported in this client yet: " + actions.map(\.label).joined(separator: ", "))
-                .font(.callout).foregroundStyle(.secondary)
-        }
     }
 }
 

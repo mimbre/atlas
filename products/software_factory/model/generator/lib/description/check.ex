@@ -317,7 +317,7 @@ defmodule RelaDSL.Description.Check do
             else: []
 
         {ps ++
-           keys(tab, ~w(id label to assigned icon), at) ++
+           keys(tab, ~w(id label to assigned icon section key), at) ++
            texts ++
            if(is_boolean(Map.get(tab, "assigned", false)),
              do: [],
@@ -326,6 +326,18 @@ defmodule RelaDSL.Description.Check do
            if(is_nil(tab["icon"]) or (text?(tab["icon"]) and byte_size(tab["icon"]) <= 64),
              do: [],
              else: p(at, :tab_icon, [], "shell.tabs.icon: expected a name of at most 64 bytes")
+           ) ++
+           if(Map.get(tab, "section", "work") in ["work", "browse"],
+             do: [],
+             else: p(at, :tab_section, [], "shell.tabs.section: expected work or browse")
+           ) ++
+           if(
+             is_nil(tab["key"]) or
+               (tab["section"] == "browse" and is_binary(tab["key"]) and
+                  String.match?(tab["key"], ~r/^[[:graph:]] [[:graph:]]$/u)),
+             do: [],
+             else:
+               p(at, :tab_key, [], "shell.tabs.key: a browse tab's two-key sequence, as \"g s\"")
            ) ++
            destination ++ twice, MapSet.put(ids, tab["id"]), MapSet.put(targets, target)}
       end)

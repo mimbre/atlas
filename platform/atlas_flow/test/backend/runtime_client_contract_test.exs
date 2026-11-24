@@ -313,6 +313,20 @@ defmodule AtlasFlow.Backend.RuntimeClientContractTest do
     assert report(lease, 2, %{state: :started}) == :lease_lost
   end
 
+  test "a report Facts cannot answer is unreachable to the Runtime, never lease_lost; sent again it lands",
+       ctx do
+    lease = lease!()
+    assert {:recorded, %{missing: []}} = report(lease, 1, %{state: :accepted})
+
+    # A deploy restarts rela: the task fact cannot be read.
+    :ok = GenServer.call(FakeFacts, {:busy, "task", ctx.task})
+    assert report(lease, 2, %{state: :started}) == {:error, :unreachable}
+
+    :ok = GenServer.call(FakeFacts, {:free, "task", ctx.task})
+    assert {:recorded, %{missing: []}} = report(lease, 2, %{state: :started})
+    assert {:polled, %{lease_lost: []}} = poll([lease])
+  end
+
   test "ended answers the missing blobs", ctx do
     {_lease, missing} = ended_lease!(ctx, [{"a.txt", "a\n"}, {"README.md", @readme}])
     assert Enum.sort(missing) == Enum.sort([L.sha256("a\n"), L.sha256(@readme)])
