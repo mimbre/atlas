@@ -29,10 +29,6 @@
           ]
         }
       },
-      "start": {
-        "key": "a",
-        "label": "Agents"
-      },
       "top": false
     },
     "agent_request": {
@@ -64,10 +60,6 @@
         "summary": {
           "multiline": true
         }
-      },
-      "start": {
-        "key": "w",
-        "label": "What the agent did"
       },
       "top": false
     },
@@ -790,10 +782,6 @@
             "flow"
           ]
         }
-      },
-      "start": {
-        "key": "s",
-        "label": "Scenes"
       }
     },
     "task": {
@@ -1170,11 +1158,7 @@
             ]
           }
         }
-      ],
-      "start": {
-        "key": "t",
-        "label": "To-Dos"
-      }
+      ]
     },
     "turn": {
       "by_hand": false,
@@ -1605,6 +1589,30 @@
         "label": "Scenes",
         "section": "browse",
         "to": "/k/scene"
+      },
+      {
+        "icon": "agents",
+        "id": "agents",
+        "key": "g a",
+        "label": "Agents",
+        "section": "browse",
+        "to": "/k/agent"
+      },
+      {
+        "icon": "checklist",
+        "id": "to_dos",
+        "key": "g t",
+        "label": "To-Dos",
+        "section": "browse",
+        "to": "/k/to_do"
+      },
+      {
+        "icon": "history",
+        "id": "agent_requests",
+        "key": "g d",
+        "label": "What the agent did",
+        "section": "browse",
+        "to": "/k/agent_request"
       }
     ],
     "title": "Atlas Console"
@@ -1613,6 +1621,7 @@
     "assigned": {
       "count": "{count} assigned to you",
       "empty": "Nothing needs you right now.",
+      "greeting": "{name}",
       "relation": "assigned_to",
       "title": "Assigned to you"
     },

@@ -1,17 +1,20 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.23.0"
+  version "0.24.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
   # Something the user can do from a block: open `to`. `key` is the key a keyboard
-  # client binds it to; other clients may show it as a button.
+  # client binds it to; other clients may show it as a button. `page`: the action is the
+  # page's (what is done with the page's subject: create one, the fact's next step and
+  # More…), not its block's; a client shows it with the page's title, not under the block.
   defmodel :action do
     field :label, :string, required: true
     field :key, :string, required: true
     field :to, :string, required: true
     field :submit_to, :call
+    field :page, :boolean
   end
 
   # Semantic single-choice data is independent of keyboard shortcuts and renderers.
@@ -166,6 +169,9 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :to, :string
   end
 
+  # `greeting`: the words a client greets its viewer with, the viewer's name filled in,
+  # for a viewer the start's assigned relation points at, when the model words
+  # one; Control reads the name once at boot, so it is part of the shell's revision.
   defmodel :shell do
     field :title, :string, required: true
     field :env, :string, required: true
@@ -174,6 +180,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :tabs, {:list, :shell_tab}, required: true
     field :initial_to, :string, required: true
     field :active_tab, :string
+    field :greeting, :string
   end
 
   defmodel :boot_error do

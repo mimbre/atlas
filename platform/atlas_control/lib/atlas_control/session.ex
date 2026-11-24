@@ -83,6 +83,9 @@ defmodule AtlasControl.Session do
        output_idle: nil,
        by: "agent",
        by_kind: nil,
+       # The client's name, as its fact named it at the last boot (its label), which the
+       # shell's greeting fills in; kept while Facts does not answer.
+       by_name: nil,
        # Which client this is, as its hello says (`tui`, `agent`, …): only someone at the
        # TUI picks a flow up or hands it over, or an agent picks it up on behalf of whom it
        # assists (M3b plan §1, IS-Atlas-47; no sign-in yet).
@@ -553,13 +556,15 @@ defmodule AtlasControl.Session do
     # A boot refresh is a read, even while editing: never redraw or reset a draft.
     # Work against a candidate only: an invalid shell or target leaves the listeners,
     # route and form intact.
-    candidate = %{state | by_kind: known_kind(state, actor_kind(state))}
+    # Who the client is, and its name, read from Facts once for this boot (`booting/1`).
+    candidate = booting(state)
 
     case AtlasControl.Shell.boot(
            state.model,
            candidate.by_kind,
            message["to"],
-           &route(&1, candidate)
+           &route(&1, candidate),
+           candidate.by_name
          ) do
       {:ok, shell} ->
         {shell, missing} = counted(shell, state.tab_counts)
@@ -658,7 +663,8 @@ defmodule AtlasControl.Session do
   # leaves out groups without items, so boot does too. Boot only says those already read
   # (`tab_counts`), so it never waits for Facts (a client gives up on a slow boot); the
   # others are read just after it and come with the next boot. Kept until a hint makes
-  # them stale; all groups, uncounted, while unread. `{shell, missing}`.
+  # them stale. A group whose count is not known yet, or 0, is not sent: a client shows
+  # exactly what boot sends, so an empty group never flashes. `{shell, missing}`.
   defp counted(shell, known) do
     {tabs, missing} =
       Enum.map_reduce(shell["tabs"], [], fn
@@ -666,13 +672,20 @@ defmodule AtlasControl.Session do
           case known do
             %{^to => %{counts: counts}} ->
               groups =
-                for group <- groups, n = counts[group["to"]], do: Map.put(group, "count", n)
+                for group <- groups,
+                    n = counts[group["to"]],
+                    n > 0,
+                    do: Map.put(group, "count", n)
 
               tab = if n = counts[to], do: Map.put(tab, "count", n), else: tab
-              {%{tab | "groups" => groups}, missing}
+
+              tab =
+                if groups == [], do: Map.delete(tab, "groups"), else: %{tab | "groups" => groups}
+
+              {tab, missing}
 
             _ ->
-              {tab, [to | missing]}
+              {Map.delete(tab, "groups"), [to | missing]}
           end
 
         tab, missing ->
@@ -1311,9 +1324,30 @@ defmodule AtlasControl.Session do
 
   defp known_kind(_state, found), do: found
 
+  # Which kind of fact the client is and its name (its fact's label), for a boot. While
+  # Facts does not answer, the kind stays (`known_kind/2`) and so does the name read last;
+  # a client of a kind without a name read yet is named by its key.
+  defp booting(state) do
+    {found, fact} = actor_fact(state)
+    by_kind = known_kind(state, found)
+
+    by_name =
+      cond do
+        by_kind == nil -> nil
+        fact != nil -> Pages.label(Pages.kind_view(state.model, by_kind), fact)
+        by_kind == state.by_kind and state.by_name != nil -> state.by_name
+        true -> state.by
+      end
+
+    %{state | by_kind: by_kind, by_name: by_name}
+  end
+
   # The kind of fact the client is (the user at a TUI), or nil (an agent, a migration):
   # the kind whose ids its key fits, when a fact with that key exists.
-  defp actor_kind(state) do
+  defp actor_kind(state), do: state |> actor_fact() |> elem(0)
+
+  # `{kind, fact}` of the client, or `{nil, nil}`.
+  defp actor_fact(state) do
     route = {:item, "_", state.by}
 
     resolved =
@@ -1325,12 +1359,12 @@ defmodule AtlasControl.Session do
     case resolved do
       {:item, kind, key} ->
         case ask(kind, %{"key" => key}) do
-          %{"fact" => %{}} -> kind
-          _ -> nil
+          %{"fact" => %{} = fact} -> {kind, fact}
+          _ -> {nil, nil}
         end
 
       _ ->
-        nil
+        {nil, nil}
     end
   end
 
@@ -1662,7 +1696,8 @@ defmodule AtlasControl.Session do
 
     projected =
       if state.surface == "console" do
-        with {:ok, shell} <- AtlasControl.Shell.boot(state.model, state.by_kind),
+        with {:ok, shell} <-
+               AtlasControl.Shell.boot(state.model, state.by_kind, nil, nil, state.by_name),
              {:ok, page} <- AtlasControl.Console.project(message, shell["tabs"], console_actions),
              do: {:ok, page}
       else

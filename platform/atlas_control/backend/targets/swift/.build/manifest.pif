@@ -1,15 +1,15 @@
 [
   {
     "contents" : {
-      "guid" : "Workspace:/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift",
+      "guid" : "Workspace:/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift",
       "name" : "AtlasControlKit",
-      "path" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift",
+      "path" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift",
       "projects" : [
-        "a964a90d310827f73f5c3a06ccbc3d7557b323fb7db7a4c766106cbc105f23dd",
-        "b3bd5cdb137fc5de2780b620572601e8386a9095d07683b6d5e0529a6e31ab98"
+        "e921e5d16e30906466ea2cd76acd45cb631d9d9e7a7e0aa056dfc71d100b279f",
+        "2cd59f8b5d3754a29f77ca89edbec2feb176ea62072517d57ff3a322850cf4b1"
       ]
     },
-    "signature" : "098a9de56be25cea590d45164a4d06e405e53e5f9ac081d71832453dfd29ca49",
+    "signature" : "af151c0cc451ce9e02368d23bd7e8fda56de8c38bf067d7e9baf1d733e639834",
     "type" : "workspace"
   },
   {
@@ -222,8 +222,8 @@
               }
             ],
             "guid" : "PACKAGE:swift::MAINGROUP::REF_2",
-            "name" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift/Tests/AtlasControlKitTests",
-            "path" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift/Tests/AtlasControlKitTests",
+            "name" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Tests/AtlasControlKitTests",
+            "path" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Tests/AtlasControlKitTests",
             "sourceTree" : "<absolute>",
             "type" : "group"
           },
@@ -295,8 +295,8 @@
               }
             ],
             "guid" : "PACKAGE:swift::MAINGROUP::REF_3",
-            "name" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit",
-            "path" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit",
+            "name" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit",
+            "path" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit",
             "sourceTree" : "<absolute>",
             "type" : "group"
           },
@@ -368,8 +368,8 @@
               }
             ],
             "guid" : "PACKAGE:swift::MAINGROUP::REF_4",
-            "name" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit",
-            "path" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit",
+            "name" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit",
+            "path" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit",
             "sourceTree" : "<absolute>",
             "type" : "group"
           }
@@ -381,8 +381,8 @@
         "type" : "group"
       },
       "guid" : "PACKAGE:swift",
-      "path" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift/Package.swift",
-      "projectDirectory" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift",
+      "path" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Package.swift",
+      "projectDirectory" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift",
       "projectIsPackage" : "true",
       "projectName" : "AtlasControlKit",
       "targets" : [
@@ -394,7 +394,7 @@
         "e0248f8a3b7e8af75d51373b40de50f0378ae6472174e1287b458926b8f3b7d3"
       ]
     },
-    "signature" : "a964a90d310827f73f5c3a06ccbc3d7557b323fb7db7a4c766106cbc105f23dd",
+    "signature" : "e921e5d16e30906466ea2cd76acd45cb631d9d9e7a7e0aa056dfc71d100b279f",
     "type" : "project"
   },
   {
@@ -1376,8 +1376,8 @@
         "type" : "group"
       },
       "guid" : "AGGREGATE",
-      "path" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift/Package.swift",
-      "projectDirectory" : "/Users/melle/projects/eyra/NoOpenWork/platform/atlas_control/backend/targets/swift",
+      "path" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Package.swift",
+      "projectDirectory" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift",
       "projectIsPackage" : "true",
       "projectName" : "Aggregate",
       "targets" : [
@@ -1385,7 +1385,7 @@
         "6c6e64725639534061ff9faf14dca25ebeb08cbdb692133e2e9febae09e790b5"
       ]
     },
-    "signature" : "b3bd5cdb137fc5de2780b620572601e8386a9095d07683b6d5e0529a6e31ab98",
+    "signature" : "2cd59f8b5d3754a29f77ca89edbec2feb176ea62072517d57ff3a322850cf4b1",
     "type" : "project"
   },
   {

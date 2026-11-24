@@ -226,8 +226,9 @@ defmodule Model.SupervisionTest do
     tabs = AtlasEyra.shell(%{})["tabs"]
     start = AtlasEyra.start_page()
 
-    # Melle (2026-11-24): most urgent first, Assigned to you first; then the existing tabs.
-    assert Enum.map(tabs, & &1["id"]) == ~w(assigned supervised_by_you open_for_you scenes)
+    # Melle (2026-11-24): most urgent first, Assigned to you first; then what one browses.
+    assert Enum.map(tabs, & &1["id"]) ==
+             ~w(assigned supervised_by_you open_for_you scenes agents to_dos agent_requests)
 
     for {id, to, entry} <- [
           {"open_for_you", "/_open", start.open_for_you},
@@ -305,8 +306,18 @@ defmodule Model.SupervisionTest do
     assert %{"to" => "/", "assigned" => true} = default
     assert start_page_assigned?()
 
-    assert Enum.map(shell["tabs"], & &1["section"]) == ~w(work work work browse)
-    assert %{"id" => "scenes", "key" => "g s"} = List.last(shell["tabs"])
+    {work, browse} = Enum.split_with(shell["tabs"], &(&1["section"] == "work"))
+
+    assert Enum.map(shell["tabs"], & &1["section"]) ==
+             ~w(work work work browse browse browse browse)
+
+    assert Enum.map(work, & &1["id"]) == ~w(assigned supervised_by_you open_for_you)
+
+    # Every browse tab has its own `g` key; the start page holds only what is assigned, no
+    # ways to other lists (Melle, 2026-11-24).
+    keys = Enum.map(browse, & &1["key"])
+    assert Enum.all?(keys, &String.starts_with?(&1, "g ")) and keys == Enum.uniq(keys)
+    assert AtlasEyra.start_page().actions == []
   end
 
   test "Q4 boot: Control's shell opens a person on Assigned to you, the screens are tabs" do

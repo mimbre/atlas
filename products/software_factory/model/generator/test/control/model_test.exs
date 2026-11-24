@@ -93,6 +93,26 @@ defmodule RelaDSL.Control.ModelTest do
     assert %{"title" => "Office", "tabs" => [_, ^tab]} = Office.shell(%{"tabs" => [tab]})
   end
 
+  test "the start page's greeting: its words reach the assigned entry; only text is taken" do
+    assert Office.start_page().assigned.greeting == "Good day, {name}."
+
+    # The office's own start entry, as its atlas.json writes it, with one value changed.
+    start = JSON.decode!(File.read!("test/golden/office/atlas.json"))["start"]
+    greeting = fn value -> put_in(start, ["assigned", "greeting"], value) end
+
+    refused = fn value ->
+      for {path, problem} <- RelaDSL.Description.Check.check(%{}, %{"start" => greeting.(value)}),
+          RelaDSL.Problem.key(problem) == {:greeting_text, []},
+          do: path
+    end
+
+    assert refused.("Good day, {name}.") == []
+    assert refused.(nil) == []
+
+    for value <- [3, ["Good day"], "  ", %{"text" => "Good day"}],
+        do: assert(refused.(value) == [["start", "assigned", "greeting"]], inspect(value))
+  end
+
   test "what to do is only its owner's, in a state that says so" do
     letter = %{"key" => "LE-01", "values" => %{}, "links" => %{"desk" => ["DK-LE-01"]}}
 

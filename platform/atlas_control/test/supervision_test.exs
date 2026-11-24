@@ -364,19 +364,23 @@ defmodule AtlasControl.SupervisionTest do
       mine = item_answers(m, work(m, "W-1", presented(supervisor: ["ada"])), [member("ada")])
       assert :remove_item in tos.(m, mine)
       refute :delete in tos.(m, mine)
-      assert :new in tos.(m, mine)
+      # The span holds the runs of the widget's parts (`with:`): no Create part by hand.
+      refute :new in tos.(m, mine)
 
       # Without a run, nothing removes it: Delete does.
       unrun = item_answers(m, work(m, "W-1", nil), [member("ada")])
       assert :delete in tos.(m, unrun)
 
-      # The span's subflow makes the widget's parts: no Create part by hand.
-      made =
-        update_in(m, [:start, :open_for_you, :spans], fn spans ->
-          for s <- spans, do: %{s | creates: ["part"]}
-        end)
+      spans = fn m, change ->
+        update_in(m, [:start, :open_for_you, :spans], fn spans -> Enum.map(spans, change) end)
+      end
 
-      refute :new in tos.(made, mine)
+      # A span that holds no runs of parts leaves Create part...
+      unheld = spans.(m, &%{&1 | with_subjects: []})
+      assert :new in tos.(unheld, mine)
+
+      # ...unless its subflow makes them.
+      refute :new in tos.(spans.(unheld, &%{&1 | creates: ["part"]}), mine)
     end
   end
 

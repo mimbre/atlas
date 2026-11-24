@@ -146,6 +146,54 @@ defmodule AtlasTui.ConsoleTest do
     end
   end
 
+  # A ready console on a shell that greets its viewer (UC-Atlas-46), what is assigned counted.
+  defp greeted(greeting, count \\ "3 assigned to you") do
+    {model, [_]} = Console.receive(handshake(), Map.put(boot(), "greeting", greeting))
+    {model, []} = Console.receive(model, page())
+    %{model | count: count}
+  end
+
+  defp title_bar(model, width \\ 80),
+    do: model |> screen(width) |> String.split("\n") |> hd() |> String.trim_trailing()
+
+  test "the shell's greeting names the viewer in the title bar, between environment and count" do
+    model = greeted("Ada")
+    assert model.console.shell["greeting"] == "Ada"
+    assert title_bar(model) == " Atlas Console · test · Ada · 3 assigned to you"
+    # The tab bar is the line under it, as before.
+    assert model |> screen() |> String.split("\n") |> Enum.at(2) =~ "▸ Widgets"
+    assert title_bar(greeted("Ada", nil)) == " Atlas Console · test · Ada"
+
+    # Cut to the width, the count kept; left out when there is no room for it.
+    assert title_bar(greeted("Ada Longname"), 50) ==
+             " Atlas Console · test · Ada L · 3 assigned to you"
+
+    # The bar without the greeting is 41 cells: at that width the greeting has no room.
+    assert title_bar(greeted("Ada"), 41) == " Atlas Console · test · 3 assigned to you"
+
+    # The greeting never makes the bar longer than the width, or than it was without it.
+    for width <- [20, 44, 46, 50, 80] do
+      without = title_bar(put_in(greeted("Ada").console.shell["greeting"], nil), width)
+      bar = title_bar(greeted("Ada Longname"), width)
+      assert String.length(bar) <= max(width - 1, String.length(without)), bar
+    end
+  end
+
+  test "a shell without a greeting renders as before; one that is not text is refused" do
+    {model, [_]} = Console.receive(handshake(), boot())
+    {model, []} = Console.receive(model, page())
+    plain = %{model | count: "3 assigned to you"}
+    refute Map.has_key?(plain.console.shell, "greeting")
+    assert title_bar(plain) == " Atlas Console · test · 3 assigned to you"
+    assert screen(plain) == screen(put_in(greeted("Ada").console.shell["greeting"], nil))
+
+    for invalid <- [42, "", "two\nlines"] do
+      {pending, [_]} = Console.refresh(plain)
+      {stale, []} = Console.receive(pending, Map.put(boot(), "greeting", invalid))
+      assert stale.console.stale and stale.console.shell == plain.console.shell
+    end
+  end
+
   test "one boot in flight; unsolicited replies and interleaved compatibility pages have no authority" do
     model = fresh()
     assert Console.receive(model, boot()) == {model, []}

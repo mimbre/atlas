@@ -73,7 +73,14 @@ defmodule Model.Assignment do
   )
 
   start_page(
-    assigned: [relation: :assigned_to, title: "Assigned to you", count: "{count} assigned to you"],
+    # The TUI's title bar names the person (UC-Atlas-46; the producer's wording,
+    # 2026-11-24): "Atlas Console · prod · <name> · 3 assigned to you".
+    assigned: [
+      relation: :assigned_to,
+      title: "Assigned to you",
+      count: "{count} assigned to you",
+      greeting: "{name}"
+    ],
     open: [
       title: "Open work",
       empty: "No open work right now."
