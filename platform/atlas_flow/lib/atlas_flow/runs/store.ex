@@ -1492,10 +1492,9 @@ defmodule AtlasFlow.Runs.Store do
     relation = order["within"]
 
     with %{"fact" => %{} = fact} <-
-           Talk.transition_read(kind, %{"key" => run["subject_key"], "plain" => true}),
+           Talk.read(kind, %{"key" => run["subject_key"], "plain" => true}),
          [parent | _] <- List.wrap(get_in(fact, ["links", relation])),
-         %{"facts" => facts} <-
-           Talk.transition_read(kind, %{"linked" => %{relation => parent}}),
+         %{"facts" => facts} <- Talk.read(kind, %{"linked" => %{relation => parent}}),
          {:ok, runs} <- child_runs(config, run["flow"], kind, facts) do
       AtlasBus.Order.waiting_for(
         run["subject_key"],
