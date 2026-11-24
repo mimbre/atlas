@@ -33,9 +33,10 @@ defmodule AtlasTui.ShellTabsTest do
     model
   end
 
-  # A boot as `AtlasControl.Shell.boot/4` makes it: tabs carry id, label and to only.
+  # A boot as `AtlasControl.Shell.boot/4` makes it: tabs carry id, label, to, section
+  # and, a browse tab, its key.
   defp boot(tabs, initial_to) do
-    tabs = Enum.map(tabs, &Map.take(&1, ~w(id label to)))
+    tabs = Enum.map(tabs, &Map.take(&1, ~w(id label to section key)))
 
     %{
       "op" => "boot",
@@ -67,7 +68,19 @@ defmodule AtlasTui.ShellTabsTest do
   test "every index page Control serves as a tab boots, alone and opened first" do
     tabs =
       for {to, i} <- Enum.with_index(@tab_paths),
-          do: %{"id" => "t#{i}", "label" => "T#{i}", "to" => to}
+          do: %{"id" => "t#{i}", "label" => "T#{i}", "to" => to, "section" => "work"}
+
+    tabs =
+      tabs ++
+        [
+          %{
+            "id" => "b",
+            "label" => "B",
+            "to" => "/k/shelf",
+            "section" => "browse",
+            "key" => "g s"
+          }
+        ]
 
     for tab <- tabs do
       accepted(handshake(), boot([tab], tab["to"]))
@@ -78,8 +91,8 @@ defmodule AtlasTui.ShellTabsTest do
   test "a page Control never serves as a tab is still refused" do
     for to <- ["/k/widget/W1", "/k/widget/new", "/_kinds", "/workers/m/w/t/a", "/faults"] do
       tabs = [
-        %{"id" => "x", "label" => "X", "to" => to},
-        %{"id" => "w", "label" => "W", "to" => "/workers"}
+        %{"id" => "x", "label" => "X", "to" => to, "section" => "work"},
+        %{"id" => "w", "label" => "W", "to" => "/workers", "section" => "browse", "key" => "g w"}
       ]
 
       refused(handshake(), boot(tabs, "/workers"))

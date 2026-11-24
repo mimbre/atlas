@@ -16,7 +16,12 @@ defmodule AtlasTui.PresentationTest do
               "title" => "Atlas Console",
               "revision" => "fixture",
               "tabs" => [
-                %{"id" => "widgets", "label" => "Widgets", "to" => "/k/widget"}
+                %{
+                  "id" => "widgets",
+                  "label" => "Widgets",
+                  "to" => "/k/widget",
+                  "section" => "work"
+                }
               ]
             }
         }

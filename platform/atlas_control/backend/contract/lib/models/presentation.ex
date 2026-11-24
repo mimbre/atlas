@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.22.0"
+  version "0.23.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -137,13 +137,18 @@ defmodule AtlasBFFContract.Models.Presentation do
   end
 
   # Native shell metadata, independent of page blocks and terminal key bindings. `icon`
-  # is a semantic name a client may draw as it likes (a Mac app: a symbol); `groups` are
-  # the groups the tab's page declares (`groups` block), so a client can offer them
-  # while another tab is shown; `count` is the page's All, as its `groups` block says it.
+  # is a semantic name a client may draw as it likes (a Mac app: a symbol); `section` is
+  # what the tab is for: "work" (what needs someone; the tabs a client cycles through) or
+  # "browse" (reference, after them); `key`, a browse tab's own key sequence (as "g s"),
+  # which the console projection binds to opening it; `groups` are the groups the tab's
+  # page declares (`groups` block), so a client can offer them while another tab is shown;
+  # `count` is the page's All, as its `groups` block says it.
   defmodel :shell_tab do
     field :id, :string, required: true
     field :label, :string, required: true
     field :to, :string, required: true
+    field :section, :string, required: true
+    field :key, :string
     field :icon, :string
     field :groups, {:list, :shell_group}
     field :count, :integer

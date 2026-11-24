@@ -85,9 +85,9 @@ struct Sidebar: View {
             })
     }
 
-    private var rows: [Row] {
+    private func rows(_ section: String) -> [Row] {
         let foldedIds = Set(folded.split(separator: "\n").map(String.init))
-        return shell.tabs.flatMap { tab -> [Row] in
+        return shell.tabs.filter { $0.section == section }.flatMap { tab -> [Row] in
             let open = !foldedIds.contains(tab.id)
             let row = Row(id: .tab(tab.id), label: tab.label, count: tab.count, icon: Self.symbol(tab.icon),
                           open: tab.groups.isEmpty ? nil : open)
@@ -103,18 +103,26 @@ struct Sidebar: View {
     var body: some View {
         List(selection: choice) {
             Section {
-                ForEach(rows) { row in
-                    rowView(row)
-                        .opacity(shell.stale ? 0.6 : 1)
-                        .badge(row.count.map { Text("\($0)") })
-                        .tag(row.id)
-                }
+                rowViews(rows("work"))
             } header: {
-                if let count = shell.count { Text(count) }
+                // The model's count of what waits, next to the heading.
+                if let count = shell.count { Text("Work · \(count)") } else { Text("Work") }
+            }
+            Section("Browse") {
+                rowViews(rows("browse"))
             }
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 160, ideal: 220)
+    }
+
+    private func rowViews(_ rows: [Row]) -> some View {
+        ForEach(rows) { row in
+            rowView(row)
+                .opacity(shell.stale ? 0.6 : 1)
+                .badge(row.count.map { Text("\($0)") })
+                .tag(row.id)
+        }
     }
 
     /// A tab: its fold's chevron (a blank of the same width without groups), icon and
@@ -153,7 +161,6 @@ struct Sidebar: View {
         case "watching": "eye"
         case "mine": "person.crop.circle"
         case "stack": "rectangle.stack"
-        case "checklist": "checklist"
         case "machines": "cpu"
         default: "circle"
         }

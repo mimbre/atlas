@@ -6,7 +6,9 @@ defmodule AtlasControl.Console do
   @max_actions 256
   @max_bytes 3_000_000
 
-  def project(page, tab_count, declared_actions \\ []) do
+  # `tabs`: the shell's tabs as boot sends them. Tab and Shift+Tab go through the work
+  # tabs; a browse tab with its own `key` is opened with that.
+  def project(page, tabs, declared_actions \\ []) do
     revision = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
     native = page["blocks"]
 
@@ -18,7 +20,7 @@ defmodule AtlasControl.Console do
              else: :invalid_operations
            ) do
       groups = [
-        {"browse", "Navigation", browsing(page, tab_count)},
+        {"browse", "Navigation", browsing(page, tabs)},
         {"browse", "Active view", view_actions(native) ++ declared_actions},
         {"form", "Editing", editing(native, "form")},
         {"confirm", "Confirmation", confirmation(native)},
@@ -137,15 +139,16 @@ defmodule AtlasControl.Console do
 
   defp browsing(page, tabs) do
     rows? = Enum.any?(page["blocks"], &(&1["type"] == "list" and &1["props"]["rows"] != []))
+    work = Enum.count(tabs, &(&1["section"] != "browse"))
 
     [
       command("Next tab", ["Tab"], "tab_next",
-        available: tabs > 1,
-        reason: if(tabs <= 1, do: "Only one configured tab")
+        available: work > 1,
+        reason: if(work <= 1, do: "Only one work tab")
       ),
       command("Previous tab", ["Shift+Tab"], "tab_previous",
-        available: tabs > 1,
-        reason: if(tabs <= 1, do: "Only one configured tab")
+        available: work > 1,
+        reason: if(work <= 1, do: "Only one work tab")
       ),
       command("Previous row", ["Up", "k"], "list_previous", available: rows?),
       command("Next row", ["Down", "j"], "list_next", available: rows?),
@@ -159,6 +162,12 @@ defmodule AtlasControl.Console do
       command("Scroll up", ["PageUp"], "scroll_up"),
       command("Scroll down", ["PageDown"], "scroll_down")
     ] ++
+      for %{"section" => "browse", "key" => key} = tab <- tabs, is_binary(key) do
+        %{
+          command(tab["label"], [key], "open")
+          | operation: %{"name" => "open", "to" => tab["to"]}
+        }
+      end ++
       if complete_panes?(page) do
         [
           command("Previous pane", ["["], "part_previous"),
@@ -272,7 +281,8 @@ defmodule AtlasControl.Console do
     end
   end
 
-  # View bindings take precedence over optional navigation aliases, as legacy actions do.
+  # View bindings take precedence over optional navigation aliases, as legacy actions do;
+  # a view key also takes a navigation sequence that starts with it ("g" takes "g s").
   # The final declaration is shared by execution and legend; there is no duplicate help.
   defp settle_aliases(groups) do
     view =
@@ -286,7 +296,7 @@ defmodule AtlasControl.Console do
       {"browse", "Navigation", actions} ->
         actions =
           Enum.flat_map(actions, fn action ->
-            keys = Enum.reject(action.keys, &(&1 in view))
+            keys = Enum.reject(action.keys, &(&1 in view or hd(String.split(&1, " ")) in view))
             if keys == [], do: [], else: [%{action | keys: keys}]
           end)
 

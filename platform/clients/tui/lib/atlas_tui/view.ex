@@ -914,6 +914,9 @@ defmodule AtlasTui.View do
   defp console_notice(%Model{console: %{key_buffer: buffer}}) when buffer != "",
     do: [{:dim, "Shortcut: #{buffer} · Enter to select · Esc to cancel"}]
 
+  defp console_notice(%Model{console: %{key_prefix: prefix}}) when prefix != "",
+    do: [{:dim, "#{prefix} … · Esc to cancel"}]
+
   defp console_notice(model), do: notice(model)
 
   # Footer

@@ -1448,7 +1448,7 @@ defmodule AtlasControl.PagesTest do
     assert flagged == ["W-2"]
     assert Pages.assigned_count(@carded_start, answers, Map.keys(marks)) == "2 held"
     # The pending row counts.
-    assert counts(page)["To do"] == "2"
+    assert length(rows) == 2
 
     # Flow settled past the write: the mark goes, and so does the row.
     marks = AtlasControl.Freshness.Marks.settled(marks, 7)
@@ -1457,7 +1457,6 @@ defmodule AtlasControl.PagesTest do
     assert Enum.map(rows, & &1["key"]) == ["W-1"]
     refute Enum.any?(rows, &Map.has_key?(&1, "pending"))
     assert Pages.assigned_count(@carded_start, answers, Map.keys(marks)) == "1 held"
-    assert counts(page)["To do"] == "1"
   end
 
   test "what is assigned shows the work its presentation has open, and an owner set by hand" do
@@ -1505,7 +1504,7 @@ defmodule AtlasControl.PagesTest do
   # Open work: the list of the cards is what is held, for everyone; a card is due by a time.
   @open AtlasControl.Model.catalog(Shop.Open)
 
-  test "what is assigned is calm: an overview and a calm list, no technical details" do
+  test "what is assigned is calm: groups and a calm list, no Overview, no technical details" do
     card = fn key, shown, values ->
       fact(key, Map.merge(%{"of" => String.replace_prefix(key, "C-", "")}, values))
       |> Map.put("links", %{"held_by" => ["ada"]})
@@ -1557,11 +1556,9 @@ defmodule AtlasControl.PagesTest do
     page = render({:assigned, "ada"}, @open, [cards, widgets])
     blocks = by_id(page)
 
-    # Overview, then the list; ids stable. No technical details: those are `atlas get`'s.
-    assert Enum.map(page.blocks, & &1["id"]) == ["groups", "summary", "list"]
-    assert blocks["summary"]["title"] == "Overview"
-    assert counts(page) == %{"To do" => "3", "Late" => "1", "Blocked" => "1"}
-    refute Map.has_key?(blocks["summary"], "actions")
+    # The groups, then the list; ids stable. No Overview: the tab and the groups count.
+    # No technical details: those are `atlas get`'s.
+    assert Enum.map(page.blocks, & &1["id"]) == ["groups", "list"]
 
     # Calm rows: each item's key; no since, cause or owner; what is expected, blocked, late.
     rows = blocks["list"]["rows"]
@@ -1577,7 +1574,7 @@ defmodule AtlasControl.PagesTest do
     assert Enum.map(page.console_actions, & &1.keys) == [["["], ["]"]]
   end
 
-  test "the Overview counts late on the fact too, and blocked as the link's presentation says" do
+  test "a row is blocked as the link's presentation says, else as the fact's" do
     card = fn key, shown ->
       fact(key, %{"of" => String.replace_prefix(key, "C-", "")})
       |> Map.put("links", %{"held_by" => ["ada"]})
@@ -1608,9 +1605,7 @@ defmodule AtlasControl.PagesTest do
 
     page = render({:assigned, "ada"}, @open, [cards, widgets])
 
-    # Late only on the fact counts; W-1 is not blocked, W-2 is.
-    assert counts(page) == %{"To do" => "2", "Late" => "1", "Blocked" => "1"}
-
+    # W-1 is not blocked, W-2 is.
     assert Map.new(by_id(page)["list"]["rows"], &{&1["to"], &1["detail"]}) == %{
              "/k/widget/W-1" => "",
              "/k/widget/W-2" => "blocked"
@@ -2002,7 +1997,6 @@ defmodule AtlasControl.PagesTest do
     assert older["detail"] == "F"
     assert [%{"key" => "s", "label" => "Widgets", "to" => "/k/widget"}] = list["actions"]
     assert Pages.assigned_count(@assigning, answers) == "2 kept by you"
-    assert counts(page) == %{"To do" => "2"}
 
     # Its groups: all, then one per kind it may hold, each its own page with only those.
     groups = for g <- by_id(page)["groups"]["groups"], do: {g["to"], g["count"], g["active"]}
@@ -2022,13 +2016,12 @@ defmodule AtlasControl.PagesTest do
 
     assert [%{"to" => "/k/part/P-1"}] = by_id(page)["list"]["rows"]
 
-    # Nothing kept: the Overview and the empty list.
+    # Nothing kept: the groups and the empty list.
     page =
       render_run({:assigned, "K-1"}, @assigning, "open", [%{"facts" => []}, %{"facts" => []}])
 
-    assert Enum.map(page.blocks, & &1["id"]) == ["groups", "summary", "list"]
+    assert Enum.map(page.blocks, & &1["id"]) == ["groups", "list"]
     assert page.markup == []
-    assert counts(page) == %{"To do" => "0"}
     empty = by_id(page)["list"]
     assert empty["rows"] == [] and empty["empty"] == "Nothing is kept by you."
   end
