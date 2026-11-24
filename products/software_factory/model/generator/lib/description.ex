@@ -180,9 +180,10 @@ defmodule RelaDSL.Description do
 
   @doc """
   How the runs of `subflow` are selected and imported from the facts. `order: [within:
-  relation, by: field, done: [state]]` picks its subjects up one at a time: of those under
-  one parent through `within`, only the first by the number `by` (`AtlasBus.Order`) whose
-  run did not complete in a `done` state.
+  relation, by: field, done: [state]]` picks its numbered subjects up one at a time: of
+  those under one parent through `within`, only the first by the number `by`
+  (`AtlasBus.Order`) that is not completed and whose run did not complete in a `done`
+  state. A subject without a number never waits.
   """
   defmacro select(subflow, opts), do: item(:select, subflow, opts)
 

@@ -157,7 +157,7 @@ defmodule Model.OpenForYouTest do
     assert to in tos(rows(render({:list, from}, m), "list"))
   end
 
-  test "the issues of a use case are picked up in order: a later one waits", c do
+  test "the numbered issues of a use case are picked up in order: a later one waits", c do
     m = c.m
     span = Enum.find(Pages.open_for_you_rule(m).spans, &(&1.subflow == "issue"))
     list = "list:#{span.subflow}:#{span.span}"
@@ -169,19 +169,22 @@ defmodule Model.OpenForYouTest do
       "by" => "ada"
     })
 
-    for {key, order} <- [{"IS-Atlas-01", 2}, {"IS-Atlas-02", 1}] do
+    # Two numbered (as Plan numbers them) and one without a number (made by hand).
+    for {key, order} <- [{"IS-Atlas-01", 2}, {"IS-Atlas-02", 1}, {"IS-Atlas-03", nil}] do
       put("issue", %{
         "op" => "create",
         "key" => key,
-        "values" => %{"title" => key, "order" => order},
+        "values" => Map.reject(%{"title" => key, "order" => order}, &(elem(&1, 1) == nil)),
         "links" => %{"in_use_case" => ["UC-Atlas-01"]},
         "by" => "ada"
       })
     end
 
     Engine.round(c.engine)
-    first = Pages.path({:item, "issue", "IS-Atlas-02"})
-    await_any(fn -> tos(rows(render({:open_for_you, "ada"}, m), list)) == [first] end)
+    path = &Pages.path({:item, "issue", &1})
+    open = fn -> Enum.sort(tos(rows(render({:open_for_you, "ada"}, m), list))) end
+    # The first numbered one and the unnumbered one, which never waits.
+    await_any(fn -> open.() == [path.("IS-Atlas-02"), path.("IS-Atlas-03")] end)
 
     # The later one (order 2) waits for the first: no Pick up, and it says for which.
     page = render({:item, "issue", "IS-Atlas-01"}, m)
@@ -218,8 +221,7 @@ defmodule Model.OpenForYouTest do
       "by" => "ada"
     })
 
-    later = Pages.path({:item, "issue", "IS-Atlas-01"})
-    assert tos(rows(render({:open_for_you, "ada"}, m), list)) == [later]
+    assert open.() == [path.("IS-Atlas-01"), path.("IS-Atlas-03")]
 
     assert [{:pick_up, "issue", "IS-Atlas-01", _}] =
              actions(render({:item, "issue", "IS-Atlas-01"}, m))

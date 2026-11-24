@@ -1021,8 +1021,9 @@ defmodule AtlasFacts.Server do
         f = mapping["fields"]
 
         with {:ok, facts} <- collection(state, plural(state, presenter["subject"])),
-             {:ok, runs} <- collection(state, plural(state, mapping["kind"])) do
-          siblings = for s <- facts, parent in links_of(s, relation), do: s
+             {:ok, runs} <- collection(state, plural(state, mapping["kind"])),
+             siblings = for(s <- facts, parent in links_of(s, relation), do: s),
+             {:ok, siblings} <- with_progress(state, presenter["subject"], siblings) do
           keys = MapSet.new(siblings, & &1.key)
 
           latest =
@@ -1049,7 +1050,8 @@ defmodule AtlasFacts.Server do
                %{
                  "key" => s.key,
                  "order" => s.properties[order["by"]],
-                 "finished" => AtlasBus.Order.finished?(order, flow, run)
+                 "finished" =>
+                   AtlasBus.Order.finished?(order, flow, run, s[:completion]["done"] == true)
                }
              end
            )}

@@ -1481,9 +1481,10 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # The fact the run's subject waits for (`AtlasBus.Order`): the first of those under its
-  # parent that the subflow did not finish, when that is another; nil when it waits for
-  # none, `:unavailable` while Facts does not answer.
+  # The fact the run's subject waits for (`AtlasBus.Order`): the first numbered one under
+  # its parent that is not finished (completed, as Facts works out, or its run ended in a
+  # `done` state), when that is another; nil when it waits for none, `:unavailable` while
+  # Facts does not answer.
   defp waiting_for(_config, _run, nil), do: nil
 
   defp waiting_for(config, run, order) do
@@ -1494,7 +1495,7 @@ defmodule AtlasFlow.Runs.Store do
            Talk.transition_read(kind, %{"key" => run["subject_key"], "plain" => true}),
          [parent | _] <- List.wrap(get_in(fact, ["links", relation])),
          %{"facts" => facts} <-
-           Talk.transition_read(kind, %{"linked" => %{relation => parent}, "plain" => true}),
+           Talk.transition_read(kind, %{"linked" => %{relation => parent}}),
          {:ok, runs} <- child_runs(config, run["flow"], kind, facts) do
       AtlasBus.Order.waiting_for(
         run["subject_key"],
@@ -1503,7 +1504,13 @@ defmodule AtlasFlow.Runs.Store do
           do: %{
             "key" => f["key"],
             "order" => get_in(f, ["values", order["by"]]),
-            "finished" => AtlasBus.Order.finished?(order, run["flow"], runs[f["key"]])
+            "finished" =>
+              AtlasBus.Order.finished?(
+                order,
+                run["flow"],
+                runs[f["key"]],
+                get_in(f, ["completion", "done"]) == true
+              )
           }
         )
       )

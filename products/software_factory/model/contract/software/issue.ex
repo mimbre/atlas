@@ -40,7 +40,7 @@ defmodule Model.Issue do
 
     field(:order, :integer,
       description:
-        "Where it is built among the issues of its use case, lowest first; one without comes last. Plan numbers the issues it proposes; change it to reorder",
+        "Where it is built among the numbered issues of its use case, lowest first. Plan numbers the issues it proposes; change it to reorder. One without a number never waits and is never waited for",
       label: "Order"
     )
 
@@ -134,8 +134,9 @@ defmodule Model.Issue do
   # entry. An issue whose pull request already reported its merge is completed history
   # (no entry writes, nothing rerun). Any other issue matches no row and starts in
   # `working`, as a new one does, writing nothing: what it showed and its owner stay.
-  # The issues of one use case are built in order (`order`, IS-Atlas-114): only the first
-  # whose run did not end `done` can be picked up; the others wait for it.
+  # The numbered issues of one use case are built in order (`order`, IS-Atlas-114): only
+  # the first not finished (completed, or its run ended `done`) can be picked up; the other
+  # numbered ones wait for it. An issue without a number never waits.
   select(:issue,
     choices: [],
     projection: [
