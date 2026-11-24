@@ -41,17 +41,40 @@ class Gate(http.server.BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else None
         headers = {k: v for k, v in self.headers.items() if k.lower() not in DROP}
+        # rela serves its change feed only to its own origin; the caller is checked above.
+        if self.path.startswith("/api/v1/_events"):
+            headers = {k: v for k, v in headers.items() if k.lower() != "origin"}
+            headers["Origin"] = f"http://127.0.0.1:{self.rela}"
         rela = http.client.HTTPConnection("127.0.0.1", self.rela, timeout=60)
         try:
             rela.request(self.command, self.path, body, headers)
             answer = rela.getresponse()
+            kept = [(k, v) for k, v in answer.getheaders() if k.lower() not in DROP]
+            # rela's change feed (GET /api/v1/_events) never ends: passed on as it comes.
+            if answer.getheader("Content-Type", "").startswith("text/event-stream"):
+                return self.stream(answer.status, kept, answer)
             data = answer.read()
         except OSError as error:
             sys.stderr.write(f"rela-gate: rela did not answer: {error}\n")
             return self.answer(502, [], b"", close=True)
         finally:
             rela.close()
-        self.answer(answer.status, [(k, v) for k, v in answer.getheaders() if k.lower() not in DROP], data)
+        self.answer(answer.status, kept, data)
+
+    def stream(self, status, headers, answer):
+        self.send_response(status)
+        for k, v in headers:
+            self.send_header(k, v)
+        self.close_connection = True
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.flush()
+        try:
+            while chunk := answer.read1(65536):
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except OSError:
+            pass
 
     def answer(self, status, headers, data, close=False):
         self.send_response(status)

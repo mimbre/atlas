@@ -229,20 +229,26 @@ defmodule AtlasCode.FakeGitHub do
   def push(%{"fake" => pid}, _slug, _dir, commit, branch) do
     fault(pid, :push) ||
       Agent.get_and_update(pid, fn s ->
-        case s.branches[branch] do
-          at when at in [nil, commit] ->
-            {:ok,
-             %{
-               s
-               | branches: Map.put(s.branches, branch, commit),
-                 writes: [{:push, branch, commit} | s.writes]
-             }}
+        at = s.branches[branch]
 
-          _ ->
-            {{:error, :branch_taken}, s}
+        # Never forced: a new branch, the same commit or a fast-forward.
+        if at == nil or MapSet.member?(ancestors(s.commits, commit), at) do
+          {:ok,
+           %{
+             s
+             | branches: Map.put(s.branches, branch, commit),
+               pulls: Map.new(s.pulls, &head(&1, branch, commit)),
+               writes: [{:push, branch, commit} | s.writes]
+           }}
+        else
+          {{:error, :branch_taken}, s}
         end
       end)
   end
+
+  # A pull from `branch` follows it.
+  defp head({n, %{"head_ref" => branch} = p}, branch, commit), do: {n, %{p | "head" => commit}}
+  defp head(pull, _branch, _commit), do: pull
 
   @impl true
   def create_pull(%{"fake" => pid}, slug, pull) do

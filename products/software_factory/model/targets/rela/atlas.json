@@ -573,6 +573,18 @@
         ]
       },
       "properties": {
+        "ci_fixes": {
+          "label": "CI fixes",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "ci_push": {
+          "label": "CI fix push",
+          "set_by": [
+            "flow"
+          ]
+        },
         "description": {
           "multiline": true
         },
@@ -584,6 +596,15 @@
         },
         "order": {
           "label": "Order"
+        },
+        "pr_checks": {
+          "label": "CI",
+          "set_by": "connector"
+        },
+        "pr_checks_failure": {
+          "label": "CI failure",
+          "multiline": true,
+          "set_by": "connector"
         },
         "pr_state": {
           "label": "Pull request state",
