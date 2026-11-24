@@ -2971,6 +2971,11 @@
           "name": "active_tab",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "greeting",
+          "required": false,
+          "type": "string"
         }
       ],
       "name": "shell"
@@ -4967,7 +4972,8 @@
           "effect": "complete",
           "name": "shell",
           "optional": {
-            "active_tab": "string"
+            "active_tab": "string",
+            "greeting": "string"
           },
           "required": {
             "env": "string",

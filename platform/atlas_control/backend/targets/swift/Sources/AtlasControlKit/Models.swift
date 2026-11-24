@@ -1507,8 +1507,9 @@ public struct ShellModel: Codable, Sendable, Equatable {
     public var tabs: [ShellTabModel]
     public var initialTo: String
     public var activeTab: String?
+    public var greeting: String?
 
-    public init(title: String, env: String, spec: String, revision: String, tabs: [ShellTabModel], initialTo: String, activeTab: String? = nil) {
+    public init(title: String, env: String, spec: String, revision: String, tabs: [ShellTabModel], initialTo: String, activeTab: String? = nil, greeting: String? = nil) {
         self.title = title
         self.env = env
         self.spec = spec
@@ -1516,6 +1517,7 @@ public struct ShellModel: Codable, Sendable, Equatable {
         self.tabs = tabs
         self.initialTo = initialTo
         self.activeTab = activeTab
+        self.greeting = greeting
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1526,6 +1528,7 @@ public struct ShellModel: Codable, Sendable, Equatable {
         case tabs
         case initialTo = "initial_to"
         case activeTab = "active_tab"
+        case greeting
     }
 }
 

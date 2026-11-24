@@ -166,6 +166,9 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :to, :string
   end
 
+  # `greeting`: the words a client greets its viewer with, the viewer's name filled in,
+  # for a viewer the start's assigned relation points at (a person) when the model words
+  # one; Control reads the name once at boot, so it is part of the shell's revision.
   defmodel :shell do
     field :title, :string, required: true
     field :env, :string, required: true
@@ -174,6 +177,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :tabs, {:list, :shell_tab}, required: true
     field :initial_to, :string, required: true
     field :active_tab, :string
+    field :greeting, :string
   end
 
   defmodel :boot_error do

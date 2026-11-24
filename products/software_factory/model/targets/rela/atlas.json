@@ -1613,6 +1613,7 @@
     "assigned": {
       "count": "{count} assigned to you",
       "empty": "Nothing needs you right now.",
+      "greeting": "{name}",
       "relation": "assigned_to",
       "title": "Assigned to you"
     },

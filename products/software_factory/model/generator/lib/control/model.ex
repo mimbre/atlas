@@ -7,7 +7,8 @@ defmodule RelaDSL.Control.Model do
       the environment's settings add (`"tabs"`), and the id of the tab a client opens
       on without a target (`"default"`, when the shell names one); nil without `shell`;
     * `start_page/0`: what a client opens on (`start_page`): `assigned` (what is assigned
-      to it), `open` (open work, for everyone), `open_for_you` (the supervised spans a
+      to it; its `greeting`, nil or the words a client greets its viewer with, `{name}`
+      its name), `open` (open work, for everyone), `open_for_you` (the supervised spans a
       person may pick a run up in, each with the subject kinds of its `with:` subflows
       (`with_subjects`), the kinds its subflow's tasks create (`creates`), the kind its
       work is written on, whose read carries its presentation (`written_on`: its
@@ -413,7 +414,13 @@ defmodule RelaDSL.Control.Model do
     assigned =
       case get_in(d, ["start", "assigned"]) do
         %{"relation" => relation} = rule when is_binary(relation) ->
-          %{relation: relation, title: rule["title"], empty: rule["empty"], count: rule["count"]}
+          %{
+            relation: relation,
+            title: rule["title"],
+            empty: rule["empty"],
+            count: rule["count"],
+            greeting: rule["greeting"]
+          }
 
         _ ->
           nil
