@@ -20,10 +20,13 @@ defmodule AtlasFacts.Application do
         if Application.get_env(:atlas_facts, :rela_ipv6),
           do: :ok = :httpc.set_options(ipfamily: :inet6fb4)
 
+        rela_url = Application.fetch_env!(:atlas_facts, :rela_url)
+
         [
           {AtlasFacts.Server,
-           rela: {AtlasFacts.Rela.Http, Application.fetch_env!(:atlas_facts, :rela_url)},
-           data_dir: data_dir}
+           name: AtlasFacts.Server, rela: {AtlasFacts.Rela.Http, rela_url}, data_dir: data_dir},
+          # rela's change feed: what others write in rela reaches Facts (ADR-0006).
+          {AtlasFacts.Rela.Events, url: rela_url, notify: AtlasFacts.Server}
         ] ++ connectors(data_dir)
       else
         []

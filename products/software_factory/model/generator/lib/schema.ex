@@ -98,7 +98,9 @@ defmodule RelaDSL.Schema do
   names it, `writes: [field: field, file: name]`: its agent writes the field's text to the
   file, and Flow puts it in that field once the task completed. A review whose findings outside the
   subject's scope become new facts names their kind, `follow_ups: kind`: Flow makes one for
-  each follow-up its answer gives, under the subject's nearest parent.
+  each follow-up its answer gives, under the subject's nearest parent. A fix of something
+  else than the latest review's findings names the subject's field that says what to fix,
+  `findings: field` (only a fix).
 
   With `ladder: true` a task is a step of the review → fix loop (F2, `AtlasFlow.Ladder`):
   its end leads where the ladder's next step says, so it maps `author`, `review`, `fix`,
@@ -301,6 +303,7 @@ defmodule RelaDSL.Schema do
     :creates,
     :writes,
     :follow_ups,
+    :findings,
     :records,
     :machinery,
     :field,
@@ -472,7 +475,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `creates:`, `writes:`, `follow_ups:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `creates:`, `writes:`, `follow_ups:`, `findings:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1369,6 +1372,8 @@ defmodule RelaDSL.Schema do
         pre <> "creates: and writes: exclude each other",
       not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
         pre <> "follow_ups: must be a kind",
+      not (spec[:findings] == nil or (kind == :fix and is_atom(spec[:findings]))) &&
+        pre <> "findings: is a field of the subject, for a fix only",
       spec[:read_first] not in [nil, true] && pre <> "read_first: is true or left out",
       not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
     ]

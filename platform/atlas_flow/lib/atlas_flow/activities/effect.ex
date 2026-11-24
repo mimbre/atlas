@@ -23,7 +23,10 @@ defmodule AtlasFlow.Activities.Effect do
   (`Translate.latest_result/1`). Flow names the result by that ref only, never by a commit.
   When a review ran, `review` adds the latest review's task, verdict and findings, as the
   run keeps them; when the result is a fix's, `fix` adds its task and answer. It has no
-  target, and is not ready while the run has no task.
+  target, and is not ready while the run has no task. A spec's `input` may also name a
+  subject field, `onto`, that holds the web address of a pull the service opened before:
+  the frozen request's `input` adds it as `pull`, so the result goes onto that pull, not a
+  new one; not ready while that field is empty.
 
   An integration is approved by the run's own composition. `approved` names the subject
   field its approvals are about: an identity, such as a revision, that the fingerprint
@@ -58,7 +61,8 @@ defmodule AtlasFlow.Activities.Effect do
       (spec["operation"] in ["create", "publish"] or text?(spec["target"])) and
       (spec["operation"] != "publish" or
          (is_map(spec["input"]) and text?(spec["input"]["repository"]) and
-            text?(spec["input"]["base"]))) and
+            text?(spec["input"]["base"]) and
+            (spec["input"]["onto"] == nil or text?(spec["input"]["onto"])))) and
       (spec["operation"] != "integrate" or
          (text?(spec["approved"]) and spec["approved"] in spec["fingerprint"]["fields"] and
             approving?(spec["approving"])))
@@ -113,6 +117,9 @@ defmodule AtlasFlow.Activities.Effect do
       spec["operation"] == "publish" and latest_task(run) == nil ->
         {:error, :not_ready}
 
+      spec["operation"] == "publish" and onto(spec) != nil and not text?(values[onto(spec)]) ->
+        {:error, :not_ready}
+
       true ->
         request =
           %{
@@ -132,7 +139,7 @@ defmodule AtlasFlow.Activities.Effect do
           |> then(&if(spec["approved"], do: Map.put(&1, "approved", fingerprint), else: &1))
           |> then(
             &if(spec["operation"] == "publish",
-              do: Map.put(&1, "input", publication(spec, run)),
+              do: Map.put(&1, "input", publication(spec, run, values)),
               else: &1
             )
           )
@@ -168,7 +175,9 @@ defmodule AtlasFlow.Activities.Effect do
   defp latest_task(run),
     do: AtlasFlow.WorkSource.Translate.latest_result(get_in(run, ["pending", "tasks"]) || [])
 
-  defp publication(spec, run) do
+  defp onto(spec), do: spec["input"]["onto"]
+
+  defp publication(spec, run, values) do
     tasks = get_in(run, ["pending", "tasks"]) || []
     key = latest_task(run)
     latest = Enum.find(tasks, &(&1["key"] == key)) || %{}
@@ -186,6 +195,7 @@ defmodule AtlasFlow.Activities.Effect do
     |> Map.put("result", AtlasFlow.WorkSource.Translate.result_ref(key))
     |> then(&if(review, do: Map.put(&1, "review", review), else: &1))
     |> then(&if(fix, do: Map.put(&1, "fix", fix), else: &1))
+    |> then(&if(onto(spec), do: Map.put(&1, "pull", values[onto(spec)]), else: &1))
   end
 
   def id(run, spec),
