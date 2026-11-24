@@ -141,7 +141,7 @@
     },
     "break_down_scene": {
       "prod": {
-        "digest": "54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec",
+        "digest": "bcc4b4edb0865f270870136a5138d1ccc15df90101bf267913f0b473ebb8d8f5",
         "history": [
           {
             "digest": "22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1",
@@ -153,6 +153,14 @@
           },
           {
             "digest": "54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
+          {
+            "digest": "bcc4b4edb0865f270870136a5138d1ccc15df90101bf267913f0b473ebb8d8f5",
             "states": [
               "accepting",
               "break_down",
@@ -183,7 +191,7 @@
         ]
       },
       "test": {
-        "digest": "54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec",
+        "digest": "bcc4b4edb0865f270870136a5138d1ccc15df90101bf267913f0b473ebb8d8f5",
         "history": [
           {
             "digest": "22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1",
@@ -195,6 +203,14 @@
           },
           {
             "digest": "54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
+          {
+            "digest": "bcc4b4edb0865f270870136a5138d1ccc15df90101bf267913f0b473ebb8d8f5",
             "states": [
               "accepting",
               "break_down",
@@ -227,8 +243,16 @@
     },
     "break_down_use_case": {
       "prod": {
-        "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
+        "digest": "1320f1221de47473b17d5050b931d83b2f79d02adf7c60c73402904230ff0a0b",
         "history": [
+          {
+            "digest": "1320f1221de47473b17d5050b931d83b2f79d02adf7c60c73402904230ff0a0b",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
           {
             "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
             "states": [
@@ -269,8 +293,16 @@
         ]
       },
       "test": {
-        "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
+        "digest": "1320f1221de47473b17d5050b931d83b2f79d02adf7c60c73402904230ff0a0b",
         "history": [
+          {
+            "digest": "1320f1221de47473b17d5050b931d83b2f79d02adf7c60c73402904230ff0a0b",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
           {
             "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
             "states": [
@@ -497,7 +529,7 @@
     },
     "issue": {
       "prod": {
-        "digest": "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
+        "digest": "9d8d393006253cea6470c07e6c1fed97d8b074edaf5668476943c3c477ebf2c8",
         "history": [
           {
             "digest": "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
@@ -570,6 +602,19 @@
               "review",
               "review_gate",
               "rework"
+            ]
+          },
+          {
+            "digest": "9d8d393006253cea6470c07e6c1fed97d8b074edaf5668476943c3c477ebf2c8",
+            "states": [
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "reviewing",
+              "stuck",
+              "unchanged",
+              "working"
             ]
           },
           {
@@ -597,7 +642,7 @@
         ]
       },
       "test": {
-        "digest": "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
+        "digest": "9d8d393006253cea6470c07e6c1fed97d8b074edaf5668476943c3c477ebf2c8",
         "history": [
           {
             "digest": "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
@@ -670,6 +715,19 @@
               "review",
               "review_gate",
               "rework"
+            ]
+          },
+          {
+            "digest": "9d8d393006253cea6470c07e6c1fed97d8b074edaf5668476943c3c477ebf2c8",
+            "states": [
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "reviewing",
+              "stuck",
+              "unchanged",
+              "working"
             ]
           },
           {
@@ -699,7 +757,7 @@
     },
     "package": {
       "prod": {
-        "digest": "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214",
+        "digest": "cff1c8ec60ecf670246f9a4455dbc5be6ddc6eb75aab5877616fbe629203db9c",
         "history": [
           {
             "digest": "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
@@ -707,6 +765,22 @@
               "authored",
               "authoring",
               "check_failed",
+              "stuck",
+              "waiting"
+            ]
+          },
+          {
+            "digest": "cff1c8ec60ecf670246f9a4455dbc5be6ddc6eb75aab5877616fbe629203db9c",
+            "states": [
+              "authoring",
+              "awaiting_decision",
+              "diagnosing",
+              "fixing",
+              "fresh",
+              "held",
+              "ready",
+              "reviewing",
+              "stronger",
               "stuck",
               "waiting"
             ]
@@ -753,7 +827,7 @@
         ]
       },
       "test": {
-        "digest": "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214",
+        "digest": "cff1c8ec60ecf670246f9a4455dbc5be6ddc6eb75aab5877616fbe629203db9c",
         "history": [
           {
             "digest": "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
@@ -761,6 +835,22 @@
               "authored",
               "authoring",
               "check_failed",
+              "stuck",
+              "waiting"
+            ]
+          },
+          {
+            "digest": "cff1c8ec60ecf670246f9a4455dbc5be6ddc6eb75aab5877616fbe629203db9c",
+            "states": [
+              "authoring",
+              "awaiting_decision",
+              "diagnosing",
+              "fixing",
+              "fresh",
+              "held",
+              "ready",
+              "reviewing",
+              "stronger",
               "stuck",
               "waiting"
             ]

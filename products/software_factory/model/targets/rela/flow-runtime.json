@@ -141,7 +141,8 @@
           {"from":"f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda","to":"6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","working":"working"},"reason":"The review's follow-ups become new issues under its use case; same states"},
           {"from":"6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c","to":"21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","working":"working"},"reason":"A result without changes goes to its supervisor, not to a pull request; one state more"},
           {"from":"21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20","to":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Issue → Pull request: its label is its signature"},
-          {"from":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","to":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Build: renamed from Issue → Pull request"}
+          {"from":"7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182","to":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Build: renamed from Issue → Pull request"},
+          {"from":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","to":"9d8d393006253cea6470c07e6c1fed97d8b074edaf5668476943c3c477ebf2c8","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Build: its supervisor's pickup starts the work; texts only"}
         ],
         "subject": "issue",
         "projection": {
@@ -168,7 +169,8 @@
         "choice_states": [],
         "migrations": [
           {"from":"ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c","to":"457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747","preserve_entry":true,"states":{"authored":"authored","authoring":"authoring","check_failed":"check_failed","stuck":"stuck","waiting":"waiting"},"reason":"The author task's input is a Code repository and reference; same states"},
-          {"from":"457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747","to":"ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214","states":{"authored":"stuck","authoring":"authoring","check_failed":"stuck","stuck":"stuck","waiting":"waiting"},"reason":"The review and fix loop: each task is a ladder step; a run that ended authored or check_failed is stuck"}
+          {"from":"457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747","to":"ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214","states":{"authored":"stuck","authoring":"authoring","check_failed":"stuck","stuck":"stuck","waiting":"waiting"},"reason":"The review and fix loop: each task is a ladder step; a run that ended authored or check_failed is stuck"},
+          {"from":"ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214","to":"cff1c8ec60ecf670246f9a4455dbc5be6ddc6eb75aab5877616fbe629203db9c","preserve_entry":true,"states":{"authoring":"authoring","awaiting_decision":"awaiting_decision","diagnosing":"diagnosing","fixing":"fixing","fresh":"fresh","held":"held","ready":"ready","reviewing":"reviewing","stronger":"stronger","stuck":"stuck","waiting":"waiting"},"reason":"Its supervisor's pickup starts the work; held and awaiting_decision ask no hand-back; texts only"}
         ],
         "subject": "package",
         "projection": {
@@ -367,7 +369,8 @@
         "migrations": [
           {"from":"f3af151326510e0e56885c3e76a3da8e50c061edbb28cededb570791013f21f9","to":"22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Scene → Use cases: designed use cases, decisions read first, the producer's note"},
           {"from":"22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1","to":"bf01ce6f998aa561aeed3447ae41c1bd35bd2df082399358b59a2353a20a9ba9","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Design: renamed from Scene → Use cases"},
-          {"from":"bf01ce6f998aa561aeed3447ae41c1bd35bd2df082399358b59a2353a20a9ba9","to":"54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Design: its use cases carry no design status"}
+          {"from":"bf01ce6f998aa561aeed3447ae41c1bd35bd2df082399358b59a2353a20a9ba9","to":"54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Design: its use cases carry no design status"},
+          {"from":"54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec","to":"bcc4b4edb0865f270870136a5138d1ccc15df90101bf267913f0b473ebb8d8f5","preserve_entry":true,"states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Design: its supervisor's pickup starts the work; texts only"}
         ],
         "subject": "scene",
         "projection": {
@@ -436,7 +439,8 @@
         "migrations": [
           {"from":"d9aebb44c50face4331b072e2f04d14cb556715659784a89fd1366b6a03253d7","to":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Use case → Issues: its agent reads the use case's Design part"},
           {"from":"c373a592ce886b9c8c6cd064df421963f45eebd8ed580d6e58a4f6a020f90e33","to":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: renamed from Use case → Issues"},
-          {"from":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","to":"258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its agent proposes vertical slices"}
+          {"from":"d082e4d18dd39507a3b42b25a6fd69f4482787230fa18787dd2f2e892f5c21c5","to":"258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its agent proposes vertical slices"},
+          {"from":"258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670","to":"1320f1221de47473b17d5050b931d83b2f79d02adf7c60c73402904230ff0a0b","preserve_entry":true,"states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its supervisor's pickup starts the work; texts only"}
         ],
         "subject": "use_case",
         "projection": {

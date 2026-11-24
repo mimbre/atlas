@@ -3,8 +3,8 @@ defmodule Model.Delivery do
   Building an issue: its subflow `issue`, **Build** (Issue → Pull request), on the kind
   Model.Issue holds with its gates, selection and migration policy.
 
-  A person picks an issue up in the Console and becomes its human supervisor; handed to
-  a machinery, it runs one agent task on that supervisor's Runtime (`working`). When the
+  A person picks an issue up in the Console and becomes its human supervisor; that pickup
+  alone starts its work: one agent task on that supervisor's Runtime (`working`). When the
   task ends, a second agent reviews its result there (`reviewing`): a Git checkout of it,
   judged against the issue, ending with a verdict, its blocking findings and its
   follow-ups. Follow-ups are what it finds outside the issue's scope (a nice-to-have,
@@ -62,7 +62,7 @@ defmodule Model.Delivery do
         expected: "Build it",
         why: "it is not built",
         instructions:
-          "Its machinery runs one agent on it, on a fresh base of develop. Nothing is done while it is not assigned to a machinery."
+          "Its supervisor's Runtime runs one agent on it, on a fresh base of develop. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:author,
@@ -94,7 +94,7 @@ defmodule Model.Delivery do
         expected: "Review it on the machinery",
         why: "its agent's work is done",
         instructions:
-          "Its machinery runs a second agent on its result, which judges whether it does what the issue asks. Nothing is done while it is not assigned to a machinery."
+          "Its supervisor's Runtime runs a second agent on its result, which judges whether it does what the issue asks. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:review,
@@ -127,7 +127,7 @@ defmodule Model.Delivery do
         expected: "Fix it on the machinery",
         why: "its review asks for changes",
         instructions:
-          "Its machinery runs an agent on its result with the review's findings; its fix is what Code then opens a pull request from. Nothing is done while it is not assigned to a machinery."
+          "Its supervisor's Runtime runs an agent on its result with the review's findings; its fix is what Code then opens a pull request from. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:fix,
@@ -225,5 +225,16 @@ defmodule Model.Delivery do
     to: "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
     states: :same,
     reason: "Build: renamed from Issue → Pull request"
+  )
+
+  # Build: its presentation says its supervisor's pickup starts the work (IS-Atlas-25), no
+  # longer that it waits for a machinery; texts only, so a run keeps its state and entry,
+  # also with a task in flight.
+  migrate(:issue,
+    from: "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
+    to: "9d8d393006253cea6470c07e6c1fed97d8b074edaf5668476943c3c477ebf2c8",
+    preserve_entry: true,
+    states: :same,
+    reason: "Build: its supervisor's pickup starts the work; texts only"
   )
 end

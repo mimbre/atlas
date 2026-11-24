@@ -5,8 +5,8 @@ defmodule Model.Scene do
   pickup point is a subflow of its own; the pipeline is horseshoe-shaped: it starts with
   the scene, its producer's input, and ends with its producer's acceptance.
 
-    * `break_down_scene` **Design** (Scene → Use cases): a person picks it up (its span) and hands it to a machinery:
-      one agent on the supervisor's Runtime reads the scene and a checkout of the
+    * `break_down_scene` **Design** (Scene → Use cases): a person picks it up (its span), and that pickup
+      alone starts its work: one agent on the supervisor's Runtime reads the scene and a checkout of the
       repository and writes the use cases it proposes to a file in its result
       (`creates:`), each with its Design part, designed within the existing architecture
       (the decisions it reads first) and a note where it would need a new architecture
@@ -133,7 +133,7 @@ defmodule Model.Scene do
         expected: "Break it down into use cases",
         why: "it is to be broken down",
         instructions:
-          "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery.",
+          "Its supervisor's Runtime runs one agent on it that proposes its use cases; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then.",
         section: [field: :note, heading: "Its producer's note"]
       )
 
@@ -328,5 +328,15 @@ defmodule Model.Scene do
     to: "54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec",
     states: :same,
     reason: "Design: its use cases carry no design status"
+  )
+
+  # Design: its presentation says its supervisor's pickup starts the work (IS-Atlas-25), no
+  # longer that it waits for a machinery; texts only, so a run keeps its state and entry.
+  migrate(:break_down_scene,
+    from: "54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec",
+    to: "bcc4b4edb0865f270870136a5138d1ccc15df90101bf267913f0b473ebb8d8f5",
+    preserve_entry: true,
+    states: :same,
+    reason: "Design: its supervisor's pickup starts the work; texts only"
   )
 end

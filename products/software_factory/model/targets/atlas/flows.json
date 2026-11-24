@@ -419,7 +419,7 @@
           "present": {
             "expected": "Break it down into use cases",
             "todo": {
-              "instructions": "Its machinery runs one agent on it that proposes its use cases; Flow makes them under it. Nothing is done while it is not assigned to a machinery.",
+              "instructions": "Its supervisor's Runtime runs one agent on it that proposes its use cases; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then.",
               "section": {
                 "field": "note",
                 "heading": "Its producer's note"
@@ -571,7 +571,7 @@
           "present": {
             "expected": "Break it down into issues",
             "todo": {
-              "instructions": "Its machinery runs one agent on it that proposes its issues; Flow makes them under it. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its supervisor's Runtime runs one agent on it that proposes its issues; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then."
             },
             "why": "nothing is under it yet"
           },
@@ -1048,7 +1048,7 @@
           "present": {
             "expected": "Fix it on the machinery",
             "todo": {
-              "instructions": "Its machinery runs an agent on its result with the review's findings; its fix is what Code then opens a pull request from. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its supervisor's Runtime runs an agent on its result with the review's findings; its fix is what Code then opens a pull request from. Its supervisor's pickup starts the work: nothing is done until then."
             },
             "why": "its review asks for changes"
           },
@@ -1201,7 +1201,7 @@
           "present": {
             "expected": "Review it on the machinery",
             "todo": {
-              "instructions": "Its machinery runs a second agent on its result, which judges whether it does what the issue asks. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its supervisor's Runtime runs a second agent on its result, which judges whether it does what the issue asks. Its supervisor's pickup starts the work: nothing is done until then."
             },
             "why": "its agent's work is done"
           },
@@ -1317,7 +1317,7 @@
           "present": {
             "expected": "Build it",
             "todo": {
-              "instructions": "Its machinery runs one agent on it, on a fresh base of develop. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its supervisor's Runtime runs one agent on it, on a fresh base of develop. Its supervisor's pickup starts the work: nothing is done until then."
             },
             "why": "it is not built"
           },
@@ -1428,7 +1428,7 @@
           "present": {
             "expected": "Author it on the machinery",
             "todo": {
-              "instructions": "Its machinery builds it on a fresh base of develop and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its supervisor's Runtime builds it on a fresh base of develop and runs bin/check after the work. Its supervisor's pickup starts the work: nothing is done until then."
             },
             "why": "it is ready to be built"
           },
@@ -1487,9 +1487,9 @@
             "via": "assignment"
           },
           "present": {
-            "expected": "Decide, and hand it back to its machinery",
+            "expected": "Decide how it goes on",
             "todo": {
-              "instructions": "Set its answer to one the question offers, and assign it back to its machinery. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Set its answer to one the question offers: its work then goes on, on its supervisor's Runtime."
             },
             "why": "its work needs a decision"
           },
@@ -1563,7 +1563,7 @@
           "present": {
             "expected": "Diagnose it on the machinery",
             "todo": {
-              "instructions": "Its machinery finds out why, read-only, from the latest change set. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its supervisor's Runtime finds out why, read-only, from the latest change set. Its supervisor's pickup starts the work: nothing is done until then."
             },
             "why": "its fixes did not get it through"
           },
@@ -1651,7 +1651,7 @@
           "present": {
             "expected": "Fix it on the machinery",
             "todo": {
-              "instructions": "Its machinery fixes the reviewed change set on the author's base and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its supervisor's Runtime fixes the reviewed change set on the author's base and runs bin/check after the work. Its supervisor's pickup starts the work: nothing is done until then."
             },
             "why": "its review or check found a problem"
           },
@@ -1740,7 +1740,7 @@
           "present": {
             "expected": "Author it afresh on the machinery",
             "todo": {
-              "instructions": "Its machinery builds it again on the original base and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its supervisor's Runtime builds it again on the original base and runs bin/check after the work. Its supervisor's pickup starts the work: nothing is done until then."
             },
             "why": "the work so far did not get it through"
           },
@@ -1829,9 +1829,9 @@
             "via": "assignment"
           },
           "present": {
-            "expected": "Answer, and hand it back to its machinery",
+            "expected": "Answer its question",
             "todo": {
-              "instructions": "Set its answer to one the question offers, and assign it back to its machinery. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Set its answer to one the question offers: its work then goes on, on its supervisor's Runtime."
             },
             "why": "its work was held"
           },
@@ -1921,7 +1921,7 @@
           "present": {
             "expected": "Review it on the machinery",
             "todo": {
-              "instructions": "Its machinery reviews the change set, read-only, on the author's base. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its supervisor's Runtime reviews the change set, read-only, on the author's base. Its supervisor's pickup starts the work: nothing is done until then."
             },
             "why": "its author's work is done"
           },
@@ -2009,7 +2009,7 @@
           "present": {
             "expected": "Author it on the machinery with the stronger profile",
             "todo": {
-              "instructions": "Its machinery builds it again on the original base with the stronger profile and runs bin/check after the work. Nothing is done while it is not assigned to a machinery."
+              "instructions": "Its supervisor's Runtime builds it again on the original base with the stronger profile and runs bin/check after the work. Its supervisor's pickup starts the work: nothing is done until then."
             },
             "why": "the work so far did not get it through"
           },

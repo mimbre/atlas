@@ -449,38 +449,66 @@ defmodule Model.PackageRunsTest do
       assert owner(@key) == ["ada"]
     end
 
-    test "a run of the package before the loop (acc. 3) moves on: waiting and authoring stay; authored and check_failed are stuck",
-         c do
-      issue_run(c, "ada")
+    # F2-P's migration (acc. 3) is history: Flow takes one hop, from a run's digest to the
+    # compiled one, and live runs moved from a4 to the loop's digest then. It stays declared
+    # as it was: waiting and authoring stay; authored and check_failed are stuck.
+    test "a run of the package before the loop (acc. 3) moved on: waiting and authoring stayed; authored and check_failed are stuck" do
       a4 = "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747"
+      loop = "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214"
+
+      assert [%{"states" => states} = m] =
+               Enum.filter(Model.AtlasEyra.selection(@name)["migrations"], &(&1["from"] == a4))
+
+      assert m["to"] == loop
+      refute Map.has_key?(m, "preserve_entry")
+
+      assert states == %{
+               "authored" => "stuck",
+               "authoring" => "authoring",
+               "check_failed" => "stuck",
+               "stuck" => "stuck",
+               "waiting" => "waiting"
+             }
+    end
+
+    # Its presentation says its supervisor's pickup starts the work, and held and
+    # awaiting_decision ask no hand-back to a machinery: texts only, so a live run on the
+    # loop's digest keeps its state and its entry (nothing is presented again).
+    test "a live run of the loop moves to the new texts, keeping its state and entry", c do
+      issue_run(c, "ada")
+      loop = "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214"
       digest = flow(:test).digest()
-      assert digest != a4
+      assert digest != loop
 
-      for {key, state, status, to, to_status} <- [
-            {"PK-IS-Atlas-01-1", "authored", "completed", "stuck", "completed"},
-            {"PK-IS-Atlas-01-2", "check_failed", "completed", "stuck", "completed"},
-            {"PK-IS-Atlas-01-3", "stuck", "completed", "stuck", "completed"},
-            {"PK-IS-Atlas-01-4", "waiting", "active", "waiting", "active"}
+      for {key, state, status} <- [
+            {"PK-IS-Atlas-01-1", "held", "active"},
+            {"PK-IS-Atlas-01-2", "awaiting_decision", "active"},
+            {"PK-IS-Atlas-01-3", "stuck", "completed"},
+            {"PK-IS-Atlas-01-4", "waiting", "active"}
           ] do
-        package(key, "mac-mini", %{
-          "instructions" => if(state == "waiting", do: nil, else: "Do it.")
-        })
-
-        old_run(c, key, a4, state, status)
+        package(key, "ada", %{"instructions" => if(state == "waiting", do: nil, else: "Do it.")})
+        old_run(c, key, loop, state, status)
         run = reconcile(c, key)
         assert run["definition_sha256"] == digest, key
-        assert {run["state"], run["status"]} == {to, to_status}, key
+        assert {run["state"], run["status"], run["entry"]} == {state, status, 1}, key
 
-        assert [%{"from" => ^a4, "to" => ^digest, "state" => ^state}] =
+        assert [%{"from" => ^loop, "to" => ^digest, "state" => ^state}] =
                  run["pending"]["migrations"]
       end
 
-      # An active authoring run with no task yet is entered again on the new definition.
-      key = "PK-IS-Atlas-01-5"
-      package(key, "mac-mini")
-      old_run(c, key, a4, "authoring", "active")
-      run = intended(c, key)
-      assert {run["definition_sha256"], run["state"]} == {digest, "authoring"}
+      package = Enum.find(Model.AtlasEyra.__flows__(), &(&1.name == :package))
+
+      presented = for state <- package.states, state.present, do: {state.name, state.present}
+      assert length(presented) == 8
+
+      for {name, present} <- presented do
+        assert present.instructions =~ "supervisor", "#{name}"
+
+        if name in [:held, :awaiting_decision] do
+          refute present.expected =~ "machinery", "#{name}"
+          refute present.instructions =~ "machinery", "#{name}"
+        end
+      end
     end
 
     test "without its instructions it waits; nothing is asked or sent until they are set", c do
