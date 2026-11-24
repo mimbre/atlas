@@ -122,7 +122,7 @@ defmodule AtlasE2E.FlowRunTest do
     end
     reconcile = fn -> as_flow.(fn -> Store.reconcile(config, %{"sort" => PrivateChoiceRun}, ManualClock.now(clock)) end) end
     assert {:ok, [waiting]} = reconcile.()
-    %{"fact" => subject} = Talk.transition_read("box", %{"key" => "B-1", "plain" => true})
+    %{"fact" => subject} = Talk.read("box", %{"key" => "B-1", "plain" => true})
     values = %{"entry" => waiting["entry"], "request_id" => "proof-choice", "run" => waiting["key"], "source_version" => subject["version"], "changed_fields" => %{"choice" => "yes"}}
     assert {:refused, _} = Talk.put("choice", %{"op" => "submit", "by" => "stranger", "values" => Map.put(values, "roles", ["clerk"])})
     assert {:refused, _} = Talk.put("choice", %{"op" => "submit", "by" => "stranger", "values" => values})

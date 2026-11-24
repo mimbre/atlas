@@ -52,10 +52,6 @@ defmodule AtlasFlow.Talk do
     end
   end
 
-  @doc "Read: Facts' answer, or `%{\"error\" => …}`."
-  def transition_read(kind, content),
-    do: read(kind, Map.put(content, "consistency", "transition"))
-
   @doc "Trusted, read-only evidence for an explicitly reviewed tally retirement."
   def recovery_evidence(write, writer, candidate \\ nil) do
     envelope = Envelope.new("read", "_flow_recovery")
@@ -81,6 +77,7 @@ defmodule AtlasFlow.Talk do
     end
   end
 
+  @doc "Read: Facts' answer, or `%{\"error\" => …}`."
   def read(kind, content), do: read(kind, content, @tries)
 
   defp read(_kind, _content, 0), do: %{"error" => "Facts did not answer"}

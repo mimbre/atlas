@@ -48,7 +48,7 @@ defmodule AtlasGates.Facts.Bus do
     content =
       if key, do: %{"key" => key, "plain" => true}, else: %{"plain" => true, "linked" => %{}}
 
-    case read(state, kind, Map.put(content, "consistency", "transition")) do
+    case read(state, kind, content) do
       %{"fact" => fact} -> {:ok, fact}
       %{"facts" => facts} -> {:ok, facts}
       other -> {:error, "Facts answered #{inspect(other)}"}
