@@ -181,10 +181,10 @@ defmodule AtlasControl.WorkerPagesTest do
     {_page, lists} =
       workers_page([
         {"R-1", "over", "2026-11-10T10:00:00Z"},
-        {"R-2", "going", "2026-11-13T09:00:00Z"},
-        {"R-3", "going", "2026-11-13T11:00:00Z"},
+        {"R-2", "going", "2099-11-13T09:00:00Z"},
+        {"R-3", "going", "2099-11-13T11:00:00Z"},
         {"R-4", "over", "2026-11-12T10:00:00Z"},
-        {"R-5", "going", "2026-11-13T10:00:00Z"},
+        {"R-5", "going", "2099-11-13T10:00:00Z"},
         {"R-6", "over", "2026-11-11T10:00:00Z"}
       ])
 
@@ -203,6 +203,17 @@ defmodule AtlasControl.WorkerPagesTest do
 
       assert {:worker_page, :worker, %{attempt: "1"}} = AtlasControl.Pages.route(row["to"])
     end
+  end
+
+  test "a running turn whose lease ran out is not listed as running" do
+    # Its end was never stored (an outage when it ended); its worker runs the next turn.
+    {_page, [running, _finished]} =
+      workers_page([
+        {"R-1", "going", "2026-11-13T09:00:00Z"},
+        {"R-2", "going", "2099-11-13T09:00:00Z"}
+      ])
+
+    assert row_keys(running) == ["R-2"]
   end
 
   test "the Workers page keeps only the twenty most recently finished turns" do
@@ -260,7 +271,7 @@ defmodule AtlasControl.WorkerPagesTest do
     {page, _} =
       workers_page([
         {"R-1", "over", "2026-11-10T10:00:00Z"},
-        {"R-2", "going", "2026-11-13T09:00:00Z"},
+        {"R-2", "going", "2099-11-13T09:00:00Z"},
         {"R-3", "over", "2026-11-12T10:00:00Z", "failed: exit 1"},
         {"R-4", "over", "2026-11-11T10:00:00Z", "stopped"}
       ])
