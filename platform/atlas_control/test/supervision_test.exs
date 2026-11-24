@@ -405,6 +405,44 @@ defmodule AtlasControl.SupervisionTest do
     end
   end
 
+  test "Retry and Remove say an outside copy stays open, and where, until its connector reads it ended" do
+    for m <- @models do
+      # The widget is copied from outside: its `ext_ref` is the address, `done` ends it.
+      m =
+        put_in(m, [:kinds, "widget", :connector], %{
+          address: "ext_ref",
+          system: "elsewhere",
+          until: %{"done" => ["true"]}
+        })
+
+      url = "https://example.invalid/w/1"
+
+      text = fn route, values ->
+        item = work(m, "W-1", presented(supervisor: ["ada"]), %{"values" => values})
+        page = Pages.render(route, m, item_answers(m, item, [member("ada")]), @tui_ada)
+        assert [%{"type" => "confirm", "props" => %{"text" => text}}] = page.blocks
+        text
+      end
+
+      for verb <- [:retry, :remove_item] do
+        route = {verb, "widget", "W-1", "R-1"}
+        open = text.(route, %{"title" => "W-1", "ext_ref" => url, "done" => false})
+        assert open =~ url
+
+        assert open ==
+                 text.(route, %{"title" => "W-1"}) <>
+                   Pages.stays_open(m, "widget", %{"values" => %{"ext_ref" => url}}, verb)
+
+        # Ended outside, or never copied: nothing more is said.
+        refute text.(route, %{"title" => "W-1", "ext_ref" => url, "done" => true}) =~ url
+        assert Pages.open_outside(m, "widget", %{"values" => %{"ext_ref" => ""}}) == []
+      end
+
+      # A kind without a connector has nothing open outside.
+      assert Pages.open_outside(@s, "widget", %{"values" => %{"ext_ref" => url}}) == []
+    end
+  end
+
   # The answers to the hand-over's reads: the item's, the parts of the widget, the jobs.
   defp hand_over_answers(m, item, members, parts, jobs) do
     {widget, _card} = item

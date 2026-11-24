@@ -190,6 +190,9 @@ defmodule AtlasControl.Session do
               "Stored by Facts (position #{envelope.position})."
           end
 
+        # What stays open outside Atlas after it (Remove, Retry): said once it is stored.
+        text = text <> (pending[:also] || "")
+
         # Its own write is a hint too: the recent pages it changed are pushed once settled.
         hint = %{position: envelope.position, changes: changes}
         state = seen(%{state | batch: Batch.add(state.batch, hint, now_ms())}, envelope.position)
@@ -1044,7 +1047,9 @@ defmodule AtlasControl.Session do
           Pages.inputs_kind(state.model)} do
       {nil, inputs} when is_binary(inputs) ->
         values = %{"run" => run, "request_id" => Envelope.new("fact", inputs).id}
-        put_fact(state, inputs, %{"op" => "retry", "values" => values}, {:item, kind, key})
+        also = Pages.stays_open(state.model, kind, hd(answers)["fact"], :retry)
+        content = %{"op" => "retry", "values" => values}
+        put_fact(state, inputs, content, {:item, kind, key}, nil, nil, also)
 
       {nil, _} ->
         not_sent(state, route, ["This model declares no supervision."])
@@ -1057,14 +1062,16 @@ defmodule AtlasControl.Session do
   # Remove (IS-Atlas-09, IS-Atlas-30): read again and checked as the page checks it; then
   # the work Flow made for the fact, each with what is under it first, is deleted, one
   # Delete at a time, each waited for; last the fact itself, as Delete deletes it, which
-  # ends its run (IS-Atlas-16).
+  # ends its run (IS-Atlas-16). What stays open outside Atlas (its pull request) is said
+  # once it is stored: Atlas closes nothing there.
   defp submit({:remove_item, kind, key, _run} = route, _raw, state) do
     state = %{state | route: route, cause: nil}
     answers = page_answers(route, state.model)
 
     with nil <- Pages.remove_problem(state.model, route, answers, viewer(state)),
          :ok <- delete_all(state, Pages.work_of(state.model, hd(answers))) do
-      delete(route, kind, key, state)
+      also = Pages.stays_open(state.model, kind, hd(answers)["fact"], :remove_item)
+      delete(route, kind, key, state, also)
     else
       problem when is_binary(problem) -> not_sent(state, route, [problem])
       reasons -> not_sent(state, route, reasons)
@@ -1200,7 +1207,7 @@ defmodule AtlasControl.Session do
     put_fact(state, kind, content, {:item, kind, key}, %{number: number, tries: 1, skipped: []})
   end
 
-  defp delete(route, kind, key, state) do
+  defp delete(route, kind, key, state, also \\ nil) do
     answer = ask(kind, %{"key" => key})
 
     held =
@@ -1215,7 +1222,10 @@ defmodule AtlasControl.Session do
           %{state | route: route},
           kind,
           content,
-          Pages.after_delete(state.model, kind, answer)
+          Pages.after_delete(state.model, kind, answer),
+          nil,
+          nil,
+          also
         )
 
       # Remove deleted the work first: what still hangs under the fact is said, never an
@@ -1262,7 +1272,8 @@ defmodule AtlasControl.Session do
     put_fact(state, kind, content, {:item, kind, key}, retry, note)
   end
 
-  defp put_fact(state, kind, content, after_route, retry \\ nil, note \\ nil) do
+  # `also`: words the stored notice adds (what stays open outside Atlas after it).
+  defp put_fact(state, kind, content, after_route, retry \\ nil, note \\ nil, also \\ nil) do
     content = Map.put(content, "by", state.by)
     content = if state.cause, do: Map.put(content, "cause", state.cause), else: content
     envelope = Envelope.new("fact", kind)
@@ -1274,6 +1285,7 @@ defmodule AtlasControl.Session do
       content: content,
       after: after_route,
       retry: retry,
+      also: if(also in [nil, ""], do: nil, else: also),
       wait: @first_resend,
       timer: timer
     }

@@ -3313,15 +3313,55 @@ defmodule AtlasControl.Pages do
   defp confirming(:pick_up, _m, _kind, _answer, form),
     do: if(form[:assists], do: ", on behalf of #{form[:assists]}", else: "")
 
-  defp confirming(:retry, _m, _kind, _answer, _form),
+  defp confirming(:retry, m, kind, answer, _form),
     do:
       ". Its flow goes back to the start of its supervised part, where its agent work is " <>
-        "offered again, fresh; the work it runs now is stopped."
+        "offered again, fresh; the work it runs now is stopped." <>
+        stays_open(m, kind, answer["fact"], :retry)
 
   defp confirming(:remove_item, m, kind, answer, _form) do
     {work, _held} = held(m, kind, answer)
     with_work = if work == [], do: "", else: ", with its #{counted(work)} and what is under them"
-    " will be deleted#{with_work}. Its flow ends. This cannot be undone."
+
+    " will be deleted#{with_work}. Its flow ends. This cannot be undone." <>
+      stays_open(m, kind, answer["fact"], :remove_item)
+  end
+
+  @doc """
+  What stays open outside Atlas for the fact: the address of the copy its kind's connector
+  reads (`connector.address`, say a pull request), while the fact holds one and the
+  connector has not read it as ended (a value of `connector.until`). `[{label, address}]`,
+  the address field's label; none without a connector. Atlas closes nothing outside, so
+  Remove and Retry say it stays open, and where.
+  """
+  def open_outside(m, kind, fact) do
+    k = kind(m, kind)
+    values = (is_map(fact) && fact["values"]) || %{}
+
+    with %{address: address} = c <- k && Map.get(k, :connector),
+         value when is_binary(value) and value != "" <- values[address],
+         false <-
+           Enum.any?(c[:until] || %{}, fn {f, ends} -> to_text(values[f]) in ends end) do
+      [{(field(k, address) || %{label: humanize(address)}).label, value}]
+    else
+      _ -> []
+    end
+  end
+
+  @doc """
+  The words Remove (`:remove_item`) and Retry (`:retry`) add for what stays open outside
+  Atlas (`open_outside/3`), after what they say they do; "" when nothing does.
+  """
+  def stays_open(m, kind, fact, verb) do
+    {label, _key} = @supervision[verb]
+
+    after_it =
+      if verb == :retry, do: ", and its fresh work may open another", else: ""
+
+    Enum.map_join(open_outside(m, kind, fact), fn {what, address} ->
+      " Its #{String.downcase(what)} stays open at #{address}: #{label} does not close it" <>
+        "#{after_it}. Close it there, with a comment, if it is not wanted."
+    end)
   end
 
   # Form inputs from the model

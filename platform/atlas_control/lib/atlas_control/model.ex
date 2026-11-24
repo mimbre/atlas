@@ -56,8 +56,11 @@ defmodule AtlasControl.Model do
   @doc """
   Every kind, sorted by name: `%{name, label, plural, about, top, newest_first, primary,
   id, fields, relations, counts, progress, shows_progress, done_label,
-  late, start, agent, delete_error, hidden, presented}` (`presented`: work on its facts is
-  presented, so a read of them asks Facts for their `"presentation"`). `id` is `%{prefix,
+  late, start, agent, delete_error, hidden, presented, connector}` (`presented`: work on its
+  facts is presented, so a read of them asks Facts for their `"presentation"`; `connector`:
+  nil, or the outside copy a connector reads for its facts, `%{address, system, until}`, the
+  field holding its address and the values of fields that end its reads, `%{field =>
+  [value]}`). `id` is `%{prefix,
   digits, first, from, template, prefixes}`; `fields` are in the order pages show them, each
   `%{name, label, type, values, labels, required, hint, settable, set_by, multiline,
   url, cause}`; `relations` are those that start at the kind, sorted by name, each

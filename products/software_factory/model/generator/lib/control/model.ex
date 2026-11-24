@@ -21,7 +21,9 @@ defmodule RelaDSL.Control.Model do
       as (`inputs`, the run mapping's inputs);
     * `kinds/0`: every kind, sorted by name, with its names, its id, its fields in the
       order pages show them, the relations that start at it, and what its pages show
-      besides (counts, progress, lateness, the fields a flow keeps to itself);
+      besides (counts, progress, lateness, the fields a flow keeps to itself), and the
+      outside copy a connector reads for its facts (`connector`: `address`, `system`,
+      `until`; nil without one);
     * `form(kind, mode)`: what a create (`:create`) or change (`:edit`) form asks, its
       defaults, the field an id is made from and the value that decides (`authority`);
     * `key(kind, values)`: the key of a new fact whose id is made from a field;
@@ -280,10 +282,23 @@ defmodule RelaDSL.Control.Model do
         agent: spec["agent"],
         delete_error: if(is_binary(spec["delete_error"]), do: spec["delete_error"]),
         hidden: state_fields(presenters, kind),
-        presented: Enum.any?(presenters, &(&1["kind"] == kind))
+        presented: Enum.any?(presenters, &(&1["kind"] == kind)),
+        connector: connector(spec["connector"])
       }
     end
   end
+
+  # The outside copy a connector reads for the kind's facts: the field holding its
+  # `address`, its `system`, and the values that end its reads (`until`, `%{field =>
+  # [value]}`); nil without a connector.
+  defp connector(%{"address" => address} = c) when is_binary(address),
+    do: %{
+      address: address,
+      system: c["system"],
+      until: Map.new(c["until"] || %{}, fn {field, values} -> {field, List.wrap(values)} end)
+    }
+
+  defp connector(_none), do: nil
 
   # The fields in the order pages show them: the primary (or the one the id is made from)
   # first, then choices, then flags, then the rest, so long text ends up last.
