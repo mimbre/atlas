@@ -8,8 +8,13 @@ defmodule AtlasTui.GoingBackTest do
   alias AtlasTui.{Console, ConsoleProjectionFixture, Interactions, Model}
 
   @tabs [
-    %{"id" => "assigned", "label" => "Assigned to you", "to" => "/"},
-    %{"id" => "open", "label" => "Open work", "to" => "/k/part"}
+    %{"id" => "assigned", "label" => "Assigned to you", "to" => "/", "section" => "work"},
+    %{
+      "id" => "supervised",
+      "label" => "Supervised by you",
+      "to" => "/_supervised",
+      "section" => "work"
+    }
   ]
 
   defp list(path, title, rows, extra \\ %{}) do
@@ -47,7 +52,7 @@ defmodule AtlasTui.GoingBackTest do
     list("/k/widget", "Widgets", rows, %{"back" => "/"})
   end
 
-  defp open_work, do: list("/k/part", "Open work", [{"Part", "/k/part/P-1"}])
+  defp supervised, do: list("/_supervised", "Supervised by you", [{"Part", "/k/part/P-1"}])
 
   # A fact's page: Control names its kind's list as the way back.
   defp widget(key, notes \\ 1) do
@@ -224,12 +229,12 @@ defmodule AtlasTui.GoingBackTest do
     m = start() |> go(:enter, widget("W-1"))
     assert %{"props" => %{"available" => true}} = back_action(m)
 
-    m = go(m, :tab, open_work())
+    m = go(m, :tab, supervised())
     assert m.console.history == []
     assert press(m, :esc) == {m, []}
 
     m = go(m, :enter, part("P-1"))
-    assert go(m, :esc, open_work()).path == "/k/part"
+    assert go(m, :esc, supervised()).path == "/_supervised"
   end
 
   test "a form's cancel returns to the page it was opened from, and back goes on from there" do

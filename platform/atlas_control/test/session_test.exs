@@ -261,7 +261,7 @@ defmodule AtlasControl.SessionTest do
   test "a client sees the top list at once", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
-    assert %{"env" => "test", "spec" => "0.22.0"} = next(c, "welcome")
+    assert %{"env" => "test", "spec" => "0.24.0"} = next(c, "welcome")
     assert %{"path" => "/", "title" => "Widgets", "reason" => "open"} = page = next(c, "page")
     assert rows(page) == ["One"]
   end
@@ -2258,7 +2258,7 @@ defmodule AtlasControl.SessionTest do
                Enum.find(page["blocks"], &(&1["id"] == "list"))["props"]["rows"]
     end
 
-    test "boot's tabs with groups carry their counts from the next boot on, read again when a hint makes them stale" do
+    test "boot's tabs carry their counts, only groups known to have items, from the next boot on, read again when stale" do
       port = supervised_shop([])
       tui = hello_as(port, "tui")
       put(tui, %{"op" => "open", "to" => "/_supervised"})
@@ -2267,14 +2267,17 @@ defmodule AtlasControl.SessionTest do
       counts = fn ->
         put(tui, %{"op" => "boot"})
 
-        for %{"groups" => [_ | _]} = tab <- next(tui, "boot")["tabs"],
+        for tab <- next(tui, "boot")["tabs"],
+            tab["to"] in ["/_open", "/_supervised"],
             into: %{},
-            do: {tab["to"], {tab["count"], Enum.map(tab["groups"], & &1["count"])}}
+            do: {tab["to"], {tab["count"], Enum.map(tab["groups"] || [], & &1["count"])}}
       end
 
-      # Boot never waits for the counts: the first has none, they are read just after it.
-      assert %{"/_open" => {nil, [nil]}, "/_supervised" => {nil, [nil]}} = counts.()
-      assert %{"/_open" => {1, [1]}, "/_supervised" => {0, [0]}} = counts.()
+      # Boot never waits for the counts: the first has none, and no groups (a client shows
+      # what boot sends, so none flashes); they are read just after it. A group without
+      # items is left out.
+      assert %{"/_open" => {nil, []}, "/_supervised" => {nil, []}} = counts.()
+      assert %{"/_open" => {1, [1]}, "/_supervised" => {0, []}} = counts.()
 
       # Flow sets the run's supervisor: the work moves from Open for you to Supervised by you.
       present_run(["ada"])
@@ -2287,8 +2290,52 @@ defmodule AtlasControl.SessionTest do
       )
 
       assert %{"path" => "/_supervised", "reason" => "hint"} = next(tui, "page", @arrives)
-      assert %{"/_open" => {nil, [nil]}, "/_supervised" => {nil, [nil]}} = counts.()
-      assert %{"/_open" => {0, [0]}, "/_supervised" => {1, [1]}} = counts.()
+      assert %{"/_open" => {nil, []}, "/_supervised" => {nil, []}} = counts.()
+      assert %{"/_open" => {0, []}, "/_supervised" => {1, [1]}} = counts.()
+    end
+  end
+
+  describe "the shell greets its viewer by name (UC-Atlas-46)" do
+    # The page for `/` without the parts that say when or why it was sent.
+    defp home(socket) do
+      put(socket, %{"op" => "open", "to" => "/"})
+      assert %{"path" => "/"} = page = next(socket, "page")
+      Map.drop(page, ["position", "reason", "hint"])
+    end
+
+    defp greeted_shop(model) do
+      port = gateway(model)
+      FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"checked_by" => ["ada"]})
+      FakeStore.put("ada", %{"name" => "Ada"}, "member")
+      Application.put_env(:atlas_control, :tui_user, "ada")
+      on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+      port
+    end
+
+    defp booted(socket) do
+      put(socket, %{"op" => "boot"})
+      next(socket, "boot")
+    end
+
+    test "a TUI member's boot carries the greeting with its name; an agent's does not" do
+      port = greeted_shop(Shop.ShelledGreeted)
+      tui = hello_as(port, "tui")
+      assert %{"greeting" => "Hello, Ada.", "initial_to" => "/"} = booted(tui)
+
+      agent = hello_as(port, "agent")
+      refute Map.has_key?(booted(agent), "greeting")
+
+      # The shell is built at boot: a renamed member sees the new name at the next one.
+      FakeStore.put("ada", %{"name" => "Ada B"}, "member")
+      assert %{"greeting" => "Hello, Ada B."} = booted(hello_as(port, "tui"))
+    end
+
+    test "the page for / is the same as without a greeting" do
+      greeted = home(hello_as(greeted_shop(Shop.ShelledGreeted), "tui"))
+      plain = home(hello_as(greeted_shop(Shop.ShelledAssigned), "tui"))
+      assert greeted == plain
+      assert Enum.any?(greeted["blocks"], &(&1["id"] == "list"))
+      refute JSON.encode!(greeted) =~ "Hello"
     end
   end
 end

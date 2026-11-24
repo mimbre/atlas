@@ -41,7 +41,9 @@ defmodule RelaDSL.Description do
   (`for`, the supervisor's kind) and the field that holds how it ended (`ended`, empty
   while it runs). It needs `supervision:`, and is given once, where those relations are.
   `start_page` takes `assigned:`, `open:`, and, with supervision, `open_for_you:` and
-  `supervised_by_you:` (each `title:`, `count:`, `empty:`).
+  `supervised_by_you:` (each `title:`, `count:`, `empty:`). `assigned:` also takes
+  `greeting:`, the text a client greets its viewer with, `{name}` its name (the way
+  `count:` has `{count}`); Control fills it in for a viewer the relation points at.
   `shell` takes `title:`, `tabs:` (each `id:`, `label:`, `to:`, `assigned:`, and `icon:`, a
   semantic name a client may draw the tab with) and `default:`, the id of the tab a client
   opens on without a target (else the first).
@@ -176,7 +178,13 @@ defmodule RelaDSL.Description do
   @doc "A relation: Rela's `label:`, `description:`, `from:`, `to:`, `max_outgoing:`, `inverse:` and Atlas's rules."
   defmacro relation(name, opts), do: item(:relation, name, opts)
 
-  @doc "How the runs of `subflow` are selected and imported from the facts."
+  @doc """
+  How the runs of `subflow` are selected and imported from the facts. `order: [within:
+  relation, by: field, done: [state]]` picks its numbered subjects up one at a time: of
+  those under one parent through `within`, only the first by the number `by`
+  (`AtlasBus.Order`) that is not completed and whose run did not complete in a `done`
+  state. A subject without a number never waits.
+  """
   defmacro select(subflow, opts), do: item(:select, subflow, opts)
 
   @doc "An approved migration of the runs of `subflow`: `from:` digest, `to:` digest, `states:` (a map, or `:same`)."

@@ -61,9 +61,9 @@ final class ShellTabsTests: XCTestCase {
         XCTAssertFalse(tabs.isEmpty)
         let defaultTab = tabs.first { $0["id"] as? String == shell["default"] as? String } ?? tabs[0]
 
-        // Control sends id, label and to; it leaves `assigned` tabs out for a client the
+        // Control sends id, label, to and section; it leaves `assigned` tabs out for a client the
         // start page assigns nothing to.
-        let all = tabs.map { ["id": $0["id"]!, "label": $0["label"]!, "to": $0["to"]!] as [String: Any] }
+        let all = tabs.map { ["id": $0["id"]!, "label": $0["label"]!, "to": $0["to"]!, "section": "work"] as [String: Any] }
         let unassigned = zip(tabs, all).filter { $0.0["assigned"] as? Bool != true }.map(\.1)
         for shown in [all, unassigned] where !shown.isEmpty {
             let defaultTo = defaultTab["to"] as! String

@@ -7,7 +7,8 @@ defmodule RelaDSL.Control.Model do
       the environment's settings add (`"tabs"`), and the id of the tab a client opens
       on without a target (`"default"`, when the shell names one); nil without `shell`;
     * `start_page/0`: what a client opens on (`start_page`): `assigned` (what is assigned
-      to it), `open` (open work, for everyone), `open_for_you` (the supervised spans a
+      to it; its `greeting`, nil or the words a client greets its viewer with, `{name}`
+      its name), `open` (open work, for everyone), `open_for_you` (the supervised spans a
       person may pick a run up in, each with the subject kinds of its `with:` subflows
       (`with_subjects`), the kinds its subflow's tasks create (`creates`), the kind its
       work is written on, whose read carries its presentation (`written_on`: its
@@ -17,7 +18,8 @@ defmodule RelaDSL.Control.Model do
       of a supervisor's running work, nil without `supervised_work`), both nil without
       supervision, the start page's `actions`, and `flows`: each subflow's short name (its
       `label:`) by subflow name, which a person's list row shows for the flow its work is
-      in. Both carry the supervision `relation` and the kind a pickup or hand-over is sent
+      in, and `states`: each subflow's states' short names (`label:`) by state name, which
+      Assigned to you shows as what is to be done. Both carry the supervision `relation` and the kind a pickup or hand-over is sent
       as (`inputs`, the run mapping's inputs);
     * `kinds/0`: every kind, sorted by name, with its names, its id, its fields in the
       order pages show them, the relations that start at it, and what its pages show
@@ -40,7 +42,7 @@ defmodule RelaDSL.Control.Model do
   """
 
   @doc false
-  def body(schema, extension, flow_runtime, subflows, flow_labels) do
+  def body(schema, extension, flow_runtime, subflows, labels) do
     d = merge(schema, extension)
     presenters = RelaDSL.Presentation.presenters(d, flow_runtime)
     kinds = kinds(d, presenters)
@@ -53,7 +55,7 @@ defmodule RelaDSL.Control.Model do
 
       @doc "What a client opens on: what is assigned to it, open work and the start actions."
       def start_page,
-        do: unquote(Macro.escape(start_page(d, flow_runtime, presenters, subflows, flow_labels)))
+        do: unquote(Macro.escape(start_page(d, flow_runtime, presenters, subflows, labels)))
 
       @doc "Every kind, as pages show it, sorted by name."
       def kinds, do: unquote(Macro.escape(kinds))
@@ -407,13 +409,19 @@ defmodule RelaDSL.Control.Model do
 
   # -- The start page ---------------------------------------------------------------------
 
-  defp start_page(d, flow_runtime, presenters, subflows, flow_labels) do
+  defp start_page(d, flow_runtime, presenters, subflows, labels) do
     supervision = get_in(flow_runtime || %{}, ["flow_runtime", "supervision"])
 
     assigned =
       case get_in(d, ["start", "assigned"]) do
         %{"relation" => relation} = rule when is_binary(relation) ->
-          %{relation: relation, title: rule["title"], empty: rule["empty"], count: rule["count"]}
+          %{
+            relation: relation,
+            title: rule["title"],
+            empty: rule["empty"],
+            count: rule["count"],
+            greeting: rule["greeting"]
+          }
 
         _ ->
           nil
@@ -508,7 +516,8 @@ defmodule RelaDSL.Control.Model do
             Enum.sort(d["entities"] || %{}),
           do: %{kind: kind, key: key, label: label}
         ),
-      flows: flow_labels
+      flows: labels.flows,
+      states: labels.states
     }
   end
 

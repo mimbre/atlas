@@ -1,0 +1,89 @@
+{
+  "" : {
+    "diagnostics" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/AtlasControlKit-primary.dia",
+    "emit-module-dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/AtlasControlKit-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/AtlasControlKit-primary-emit-module.dia",
+    "pch" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/AtlasControlKit-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/AtlasControlKit-primary.swiftdeps"
+  },
+  "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Blocks.swift" : {
+    "const-values" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Blocks.swiftconstvalues",
+    "dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Blocks.d",
+    "diagnostics" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Blocks.dia",
+    "index-unit-output-path" : "/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Blocks.o",
+    "llvm-bc" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Blocks.bc",
+    "object" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Blocks.o",
+    "swift-dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Blocks.swiftdeps",
+    "swiftmodule" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Blocks~partial.swiftmodule"
+  },
+  "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Contract.swift" : {
+    "const-values" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Contract.swiftconstvalues",
+    "dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Contract.d",
+    "diagnostics" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Contract.dia",
+    "index-unit-output-path" : "/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Contract.o",
+    "llvm-bc" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Contract.bc",
+    "object" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Contract.o",
+    "swift-dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Contract.swiftdeps",
+    "swiftmodule" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Contract~partial.swiftmodule"
+  },
+  "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Fallback.swift" : {
+    "const-values" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Fallback.swiftconstvalues",
+    "dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Fallback.d",
+    "diagnostics" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Fallback.dia",
+    "index-unit-output-path" : "/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Fallback.o",
+    "llvm-bc" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Fallback.bc",
+    "object" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Fallback.o",
+    "swift-dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Fallback.swiftdeps",
+    "swiftmodule" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Fallback~partial.swiftmodule"
+  },
+  "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/JSONValue.swift" : {
+    "const-values" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/JSONValue.swiftconstvalues",
+    "dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/JSONValue.d",
+    "diagnostics" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/JSONValue.dia",
+    "index-unit-output-path" : "/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/JSONValue.o",
+    "llvm-bc" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/JSONValue.bc",
+    "object" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/JSONValue.o",
+    "swift-dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/JSONValue.swiftdeps",
+    "swiftmodule" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/JSONValue~partial.swiftmodule"
+  },
+  "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Markup.swift" : {
+    "const-values" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Markup.swiftconstvalues",
+    "dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Markup.d",
+    "diagnostics" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Markup.dia",
+    "index-unit-output-path" : "/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Markup.o",
+    "llvm-bc" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Markup.bc",
+    "object" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Markup.o",
+    "swift-dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Markup.swiftdeps",
+    "swiftmodule" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Markup~partial.swiftmodule"
+  },
+  "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Messages.swift" : {
+    "const-values" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Messages.swiftconstvalues",
+    "dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Messages.d",
+    "diagnostics" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Messages.dia",
+    "index-unit-output-path" : "/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Messages.o",
+    "llvm-bc" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Messages.bc",
+    "object" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Messages.o",
+    "swift-dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Messages.swiftdeps",
+    "swiftmodule" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Messages~partial.swiftmodule"
+  },
+  "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Models.swift" : {
+    "const-values" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Models.swiftconstvalues",
+    "dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Models.d",
+    "diagnostics" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Models.dia",
+    "index-unit-output-path" : "/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Models.o",
+    "llvm-bc" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Models.bc",
+    "object" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Models.o",
+    "swift-dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Models.swiftdeps",
+    "swiftmodule" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Models~partial.swiftmodule"
+  },
+  "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/Sources/AtlasControlKit/Pages.swift" : {
+    "const-values" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Pages.swiftconstvalues",
+    "dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Pages.d",
+    "diagnostics" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Pages.dia",
+    "index-unit-output-path" : "/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Pages.o",
+    "llvm-bc" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Pages.bc",
+    "object" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Pages.o",
+    "swift-dependencies" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Pages.swiftdeps",
+    "swiftmodule" : "/Users/melle/projects/eyra/MacPolish/platform/atlas_control/backend/targets/swift/.build/out/Intermediates.noindex/AtlasControlKit.build/Debug/AtlasControlKit-t.build/Objects-normal/arm64/Pages~partial.swiftmodule"
+  }
+}

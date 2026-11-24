@@ -4,19 +4,30 @@ import SwiftUI
 /// A page: its title and its blocks. Its lists' rows are the page's selection: selecting
 /// one (a click, or the arrow keys) calls `open` with its `to`, and the row whose `to` is
 /// `selectedPath` shows selected. `submit` is called with a call a block declares (a
-/// choice's answer) and its values.
+/// choice's answer) and its values; `act` with an action a block declares (its button).
+/// Under a block are only its own actions; the page's (`PageActions.ofPage`) are in the
+/// header, the page's title with them, when `header` is set, else where the page's
+/// container puts them (the window's toolbar).
 public struct PageView: View {
     let presentation: PagePresentation
+    let pageActions: [ActionModel]
+    let header: Bool
     let selectedPath: String?
     let open: (String) -> Void
     let submit: (CallModel, [String: String]) -> Void
+    let act: (ActionModel) -> Void
 
-    public init(page: PageMessage, selectedPath: String? = nil, open: @escaping (String) -> Void,
-                submit: @escaping (CallModel, [String: String]) -> Void = { _, _ in }) {
+    public init(page: PageMessage, header: Bool = false, selectedPath: String? = nil,
+                open: @escaping (String) -> Void,
+                submit: @escaping (CallModel, [String: String]) -> Void = { _, _ in },
+                act: @escaping (ActionModel) -> Void = { _ in }) {
         presentation = PagePresentation(page)
+        pageActions = PageActions.ofPage(page)
+        self.header = header
         self.selectedPath = selectedPath
         self.open = open
         self.submit = submit
+        self.act = act
     }
 
     public var body: some View {
@@ -33,6 +44,8 @@ public struct PageView: View {
             // first one's rows).
             ForEach(lines) { line in
                 switch line.content {
+                case .header:
+                    still(PageHeader(title: presentation.title, actions: pageActions, act: act))
                 case .title(let title):
                     still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.s10))
                 case .empty(let empty):
@@ -40,7 +53,7 @@ public struct PageView: View {
                 case .row(let row):
                     RowLabel(row: row).listRowSeparator(.hidden)
                 case .actions(let actions):
-                    still(UnsupportedActionsView(actions: actions))
+                    still(ActionsView(actions: actions, act: act))
                 case .entry(let entry):
                     still(entryView(entry))
                 case .section(let section):
@@ -52,10 +65,12 @@ public struct PageView: View {
         .navigationTitle(presentation.title)
     }
 
-    /// A row of the page's list: a list block's title, its empty text, one of its rows (the
-    /// page's selection), its actions; or any other block, or a section, as one row.
+    /// A row of the page's list: the page's header, a list block's title, its empty text,
+    /// one of its rows (the page's selection), its actions; or any other block, or a
+    /// section, as one row.
     private struct Line: Identifiable {
         enum Content {
+            case header
             case title(String)
             case empty(String)
             case row(RowModel)
@@ -73,9 +88,10 @@ public struct PageView: View {
         }
     }
 
-    /// The page's rows, top down, each id made of its block's.
+    /// The page's rows, top down, each id made of its block's (the header's, which no
+    /// block's id can be, its own).
     private var lines: [Line] {
-        presentation.groups.flatMap { group -> [Line] in
+        let blocks = presentation.groups.flatMap { group -> [Line] in
             switch group {
             case .section(let section):
                 return [Line(id: group.id, content: .section(section))]
@@ -91,12 +107,14 @@ public struct PageView: View {
                 for (offset, row) in list.rows.enumerated() {
                     lines.append(Line(id: group.id + "/row/\(offset)", content: .row(row)))
                 }
-                if let actions = list.actions, !actions.isEmpty {
+                let actions = PageActions.ofBlock(list.actions)
+                if !actions.isEmpty {
                     lines.append(Line(id: group.id + "/actions", content: .actions(actions)))
                 }
                 return lines
             }
         }
+        return header ? [Line(id: "\u{0}header", content: .header)] + blocks : blocks
     }
 
     /// A row of the page that is not one of its selection.
@@ -109,13 +127,16 @@ public struct PageView: View {
 
     @ViewBuilder private func entryView(_ entry: PagePresentation.Entry) -> some View {
         switch entry.item {
-        case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open)
-        case .item(let item): ItemBlockView(item: item)
+        case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
+        case .item(let item): ItemBlockView(item: item, act: act)
         case .singleChoice(let choice):
             // A view of its own per page and revision: nothing typed for one
             // decision stays for another.
             SingleChoiceView(block: choice, submit: submit)
                 .id(SingleChoiceView.identity(path: presentation.path, block: choice))
+        // A page that asks is shown over the window (ActionPageView), not in a column.
+        case .form: FallbackView(type: "form", reason: nil)
+        case .confirm: FallbackView(type: "confirm", reason: nil)
         case .notShown(let type): FallbackView(type: type, reason: nil)
         case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
         }
@@ -161,6 +182,7 @@ struct ListBlockView: View {
     let list: ListBlock
     let selectedPath: String?
     let open: (String) -> Void
+    let act: (ActionModel) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
@@ -174,7 +196,7 @@ struct ListBlockView: View {
             ForEach(Array(list.rows.enumerated()), id: \.offset) { _, row in
                 ListRowView(row: row, selected: row.to == selectedPath, open: open)
             }
-            UnsupportedActionsView(actions: list.actions ?? [])
+            ActionsView(actions: PageActions.ofBlock(list.actions), act: act)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -219,7 +241,8 @@ struct ListRowView: View {
 }
 
 /// A row's content: its id (the item's key; a row without one has no id column at all),
-/// its label, its detail, and whether a write to it is being processed.
+/// its label, its detail, and whether a write to it is being processed. The id and the
+/// detail have narrow columns of a fixed width, so rows line up; the label has the rest.
 struct RowLabel: View {
     let row: RowModel
 
@@ -227,13 +250,13 @@ struct RowLabel: View {
         HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
             if let id = row.id {
                 Text(id).monospaced().prism(Prism.Typography.tableRow).foregroundStyle(.secondary)
-                    .lineLimit(1).frame(maxWidth: 120, alignment: .leading)
+                    .lineLimit(1).frame(width: 100, alignment: .leading)
             }
             Text(row.label).prism(Prism.Typography.tableRow).foregroundStyle(.primary).lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
             if let detail = row.detail {
                 Text(detail).prism(Prism.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(width: 110, alignment: .leading)
             }
             if row.pending == true {
                 Text("⋯ being processed").prism(Prism.Typography.captionSmall)
@@ -250,10 +273,13 @@ struct RowLabel: View {
 /// Text stays literal, selectable and unbounded, including embedded blank lines.
 struct ItemBlockView: View {
     let item: ItemBlock
+    let act: (ActionModel) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
             Text(item.title).prism(Prism.Typography.title7)
+            // The actions first: the next step is in reach without scrolling.
+            ActionsView(actions: PageActions.ofBlock(item.actions), act: act)
             ForEach(Array(item.fields.enumerated()), id: \.offset) { _, field in
                 VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
                     if !field.label.isEmpty {
@@ -263,7 +289,6 @@ struct ItemBlockView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            UnsupportedActionsView(actions: item.actions ?? [])
             if let links = item.links, !links.isEmpty {
                 Text("Links are not supported in this client yet.").foregroundStyle(.secondary)
                 ForEach(Array(links.enumerated()), id: \.offset) { _, link in
@@ -275,17 +300,6 @@ struct ItemBlockView: View {
         .fixedSize(horizontal: false, vertical: true)
         .textSelection(.enabled)
         .modifier(PrismCard())
-    }
-}
-
-struct UnsupportedActionsView: View {
-    let actions: [ActionModel]
-
-    var body: some View {
-        if !actions.isEmpty {
-            Text("Actions are not supported in this client yet: " + actions.map(\.label).joined(separator: ", "))
-                .font(.callout).foregroundStyle(.secondary)
-        }
     }
 }
 

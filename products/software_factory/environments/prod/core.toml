@@ -19,9 +19,12 @@ kill_timeout = "10s"
   destination = "/data"
   initial_size = "1gb"
 
+# A dedicated CPU: on shared-cpu-1x a deploy's boot spent the burst balance, and the core
+# ran throttled to its 1/16 baseline (2026-11-24: ~90% steal, Facts answers past 2 s, every
+# Runtime poll timed out).
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  size = "performance-1x"
+  memory = "2048mb"
 
 [checks.control]
   type = "tcp"
