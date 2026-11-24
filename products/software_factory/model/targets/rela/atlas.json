@@ -585,6 +585,15 @@
         "order": {
           "label": "Order"
         },
+        "pr_checks": {
+          "label": "CI",
+          "set_by": "connector"
+        },
+        "pr_checks_failure": {
+          "label": "CI failure",
+          "multiline": true,
+          "set_by": "connector"
+        },
         "pr_state": {
           "label": "Pull request state",
           "set_by": "connector"
