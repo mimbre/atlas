@@ -125,6 +125,69 @@ defmodule AtlasCode.GitTest do
     assert git(dir, ["--git-dir", cache, "show", ref <> ":README.md"]) == "changed\n"
   end
 
+  test "an update of a pull: develop merged into its head, conflicts marked; the result on it folds into one merge",
+       %{url: url, dir: dir} do
+    # The pull's head and develop change the README each their own way.
+    source = Path.join(dir, "app-source")
+    remote = Path.join(dir, "app.git")
+    commit = ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam"]
+    git(source, ["checkout", "-q", "-b", "feature"])
+    File.write!(Path.join(source, "README.md"), "pull\n")
+    git(source, commit ++ ["pull"])
+    git(source, ["checkout", "-q", "develop"])
+    File.write!(Path.join(source, "README.md"), "develop\n")
+    git(source, commit ++ ["develop"])
+    git(source, ["push", "-q", remote, "develop", "feature:refs/pull/7/head"])
+    head = source |> git(["rev-parse", "feature"]) |> String.trim()
+    develop = source |> git(["rev-parse", "develop"]) |> String.trim()
+
+    update = "refs/atlas/updates/7/develop"
+    base_id = "code-" <> snapshot(update)
+    base = "refs/atlas/bases/" <> base_id
+    cache = Path.join(dir, "runtime.git")
+    git(dir, ["init", "-q", "--bare", cache])
+    fetch = ["--git-dir", cache, "fetch", "-q", "#{url}/bases/#{base_id}", "+#{base}:#{base}"]
+    {_, 0} = System.cmd("git", fetch, env: header(@token), stderr_to_stdout: true)
+
+    # The base's commit is the merge: the pull's head and develop, the conflict marked.
+    merge = cache |> git_in(["rev-parse", base <> "^"], "") |> String.trim()
+    assert git_in(cache, ["rev-parse", merge <> "^@"], "") == head <> "\n" <> develop <> "\n"
+    readme = git_in(cache, ["show", merge <> ":README.md"], "")
+    assert readme =~ "<<<<<<<" and readme =~ "pull" and readme =~ "develop"
+
+    assert git_in(cache, ["log", "-1", "--format=%B", merge], "") =~
+             ~r/\AAtlas: merge develop into pull #7\n\nConflicts:\n\tREADME.md/
+
+    # Its agent resolves it; the Runtime pushes its result on the merge.
+    blob = cache |> git_in(["hash-object", "-w", "--stdin"], "both\n") |> String.trim()
+    index = [{"GIT_INDEX_FILE", Path.join(dir, "index")}]
+    git_in(cache, ["read-tree", merge], "", index)
+    git_in(cache, ["update-index", "--add", "--cacheinfo", "100644,#{blob},README.md"], "", index)
+    tree = cache |> git_in(["write-tree"], "", index) |> String.trim()
+
+    result =
+      cache |> git_in(["commit-tree", tree, "-p", merge, "-m", "result"], "") |> String.trim()
+
+    ref = "refs/atlas/results/TK-2"
+    push = ["--git-dir", cache, "push", "-q", "#{url}/bases/#{base_id}"]
+    {_, 0} = System.cmd("git", push ++ ["#{result}:#{ref}"], env: header(@token))
+
+    # Published onto the pull: one merge commit, the result's tree on the pull's head and
+    # develop, no commit with conflict markers; the result's ref names it, and it folds once.
+    {:ok, code} = AtlasCode.Service.base_repository(AtlasCode.settings(), base_id)
+    folded = AtlasCode.Effects.fold(code, result, ref)
+    assert folded != result
+    assert git_in(code, ["rev-parse", folded <> "^@"], "") == head <> "\n" <> develop <> "\n"
+    assert git_in(code, ["show", folded <> ":README.md"], "") == "both\n"
+
+    assert git_in(code, ["log", "-1", "--format=%s", folded], "") =~
+             "Merge develop into pull #7"
+
+    assert git_in(code, ["rev-parse", ref], "") == folded <> "\n"
+    assert AtlasCode.Effects.fold(code, folded, ref) == folded
+    assert AtlasCode.Effects.fold(code, result, ref) == folded
+  end
+
   defp git_in(git_dir, args, input, env \\ []) do
     file = Path.join(System.tmp_dir!(), "git-in-#{System.unique_integer([:positive])}")
     File.write!(file, input)

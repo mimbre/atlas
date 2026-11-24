@@ -4,8 +4,11 @@ defmodule Model.Issue do
   its `issue` subflow: an agent builds it on its supervisor's Runtime, a second agent
   reviews it, one fix follows changes required, Code opens its pull request (`pr_url`),
   its CI is waited for (`pr_checks` and `pr_checks_failure`, as rela's GitHub sync writes
-  them; red is fixed at most twice, `ci_fixes`), and its supervisor merges it; merged
-  (`pr_state`, as the GitHub connector copies it) is done.
+  them; red is fixed at most twice, `ci_fixes`), a conflict with develop is updated once
+  (`pr_mergeable`, as the sync writes it; `pr_updates`), and its supervisor merges it;
+  merged (`pr_state`, as the GitHub connector copies it) is done. Closed or removed in
+  Atlas, rela's GitHub sync closes its open pull request (`pr_close_failure` when GitHub
+  refused).
 
   `pass_result`, `gate_result`, `effect_result` and `pr_outcome` stay on the kind with
   what earlier flows wrote; no flow writes them now. The gates stay defined, for when
@@ -21,6 +24,16 @@ defmodule Model.Issue do
   type(:pull_request_checks,
     values: [:pending, :success, :failure],
     labels: [pending: "Running", success: "Passed", failure: "Failed"]
+  )
+
+  type(:pull_request_mergeable,
+    values: [:unknown, :clean, :behind, :conflicting],
+    labels: [
+      unknown: "Not known yet",
+      clean: "Mergeable",
+      behind: "Behind its base",
+      conflicting: "Conflicts"
+    ]
   )
 
   entity :issue,
@@ -129,6 +142,36 @@ defmodule Model.Issue do
         "Flow: how pushing a fix of its failing CI onto its pull request ended (done, no_changes, refused)",
       set_by: [:flow],
       label: "CI fix push"
+    )
+
+    field(:pr_mergeable, :pull_request_mergeable,
+      description:
+        "GitHub: whether its pull request merges into its base (mergeable, mergeable_state)",
+      set_by: :connector,
+      label: "Mergeable"
+    )
+
+    # The update's count: its run sets it entering the update of a conflict with develop,
+    # so a conflict after it goes to its supervisor; reaching Merge it resets it.
+    field(:pr_updates, :string,
+      description:
+        "Flow: how many updates with develop its run made since its pull request was last mergeable (none, one)",
+      set_by: [:flow],
+      label: "Updates"
+    )
+
+    field(:pr_update, :string,
+      description:
+        "Flow: how pushing its update with develop onto its pull request ended (done, no_changes, refused)",
+      set_by: [:flow],
+      label: "Update push"
+    )
+
+    field(:pr_close_failure, :string,
+      description:
+        "GitHub: why closing its open pull request failed after it was closed in Atlas",
+      set_by: :connector,
+      label: "Pull request close failure"
     )
 
     connector(

@@ -63,7 +63,7 @@ defmodule AtlasFlow.WorkSource.Leases do
   @doc "The task fact (`{:ok, fact}`, `{:ok, nil}` when there is none) or `{:error, why}`."
   @spec read(String.t()) :: {:ok, map() | nil} | {:error, term()}
   def read(task_key) do
-    case Talk.transition_read(@task, %{"key" => task_key, "plain" => true}) do
+    case Talk.read(@task, %{"key" => task_key, "plain" => true}) do
       %{"fact" => %{"values" => values} = fact} when is_map(values) -> {:ok, fact}
       %{"fact" => nil} -> {:ok, nil}
       other -> {:error, {:unreadable, task_key, other}}

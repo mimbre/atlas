@@ -259,7 +259,7 @@
     },
     "break_down_use_case": {
       "prod": {
-        "digest": "c8e4cca38879ece41b72e1bf72f70a80f11464e7b17ec9b700e59aecbd94487f",
+        "digest": "c7a2c365f29940f90596ff37f008a52feeb6ea984a6efcfa3078e04fa532a843",
         "history": [
           {
             "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
@@ -271,6 +271,14 @@
           },
           {
             "digest": "2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
+          {
+            "digest": "a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f",
             "states": [
               "accepting",
               "break_down",
@@ -294,7 +302,7 @@
             ]
           },
           {
-            "digest": "c8e4cca38879ece41b72e1bf72f70a80f11464e7b17ec9b700e59aecbd94487f",
+            "digest": "c7a2c365f29940f90596ff37f008a52feeb6ea984a6efcfa3078e04fa532a843",
             "states": [
               "accepting",
               "break_down",
@@ -325,7 +333,7 @@
         ]
       },
       "test": {
-        "digest": "c8e4cca38879ece41b72e1bf72f70a80f11464e7b17ec9b700e59aecbd94487f",
+        "digest": "c7a2c365f29940f90596ff37f008a52feeb6ea984a6efcfa3078e04fa532a843",
         "history": [
           {
             "digest": "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
@@ -337,6 +345,14 @@
           },
           {
             "digest": "2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695",
+            "states": [
+              "accepting",
+              "break_down",
+              "broken_down"
+            ]
+          },
+          {
+            "digest": "a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f",
             "states": [
               "accepting",
               "break_down",
@@ -360,7 +376,7 @@
             ]
           },
           {
-            "digest": "c8e4cca38879ece41b72e1bf72f70a80f11464e7b17ec9b700e59aecbd94487f",
+            "digest": "c7a2c365f29940f90596ff37f008a52feeb6ea984a6efcfa3078e04fa532a843",
             "states": [
               "accepting",
               "break_down",
@@ -577,7 +593,7 @@
     },
     "issue": {
       "prod": {
-        "digest": "189cd9e972e3590077ecf152048044c8a2e6ce3b0e133c109049e4383e556876",
+        "digest": "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e",
         "history": [
           {
             "digest": "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
@@ -606,7 +622,20 @@
             ]
           },
           {
-            "digest": "189cd9e972e3590077ecf152048044c8a2e6ce3b0e133c109049e4383e556876",
+            "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
+            "states": [
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "reviewing",
+              "stuck",
+              "unchanged",
+              "working"
+            ]
+          },
+          {
+            "digest": "67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66",
             "states": [
               "checking",
               "ci_failing",
@@ -620,19 +649,9 @@
               "reviewing",
               "stuck",
               "unchanged",
-              "working"
-            ]
-          },
-          {
-            "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
-            "states": [
-              "done",
-              "fixing",
-              "merging",
-              "publishing",
-              "reviewing",
-              "stuck",
-              "unchanged",
+              "update_failing",
+              "update_pushing",
+              "updating",
               "working"
             ]
           },
@@ -687,6 +706,27 @@
             ]
           },
           {
+            "digest": "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e",
+            "states": [
+              "checking",
+              "ci_failing",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "reviewing",
+              "stuck",
+              "unchanged",
+              "update_failing",
+              "update_pushing",
+              "updating",
+              "working"
+            ]
+          },
+          {
             "digest": "99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e",
             "states": [
               "author",
@@ -727,11 +767,14 @@
           "reviewing",
           "stuck",
           "unchanged",
+          "update_failing",
+          "update_pushing",
+          "updating",
           "working"
         ]
       },
       "test": {
-        "digest": "189cd9e972e3590077ecf152048044c8a2e6ce3b0e133c109049e4383e556876",
+        "digest": "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e",
         "history": [
           {
             "digest": "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
@@ -760,7 +803,20 @@
             ]
           },
           {
-            "digest": "189cd9e972e3590077ecf152048044c8a2e6ce3b0e133c109049e4383e556876",
+            "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
+            "states": [
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "reviewing",
+              "stuck",
+              "unchanged",
+              "working"
+            ]
+          },
+          {
+            "digest": "67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66",
             "states": [
               "checking",
               "ci_failing",
@@ -774,19 +830,9 @@
               "reviewing",
               "stuck",
               "unchanged",
-              "working"
-            ]
-          },
-          {
-            "digest": "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
-            "states": [
-              "done",
-              "fixing",
-              "merging",
-              "publishing",
-              "reviewing",
-              "stuck",
-              "unchanged",
+              "update_failing",
+              "update_pushing",
+              "updating",
               "working"
             ]
           },
@@ -841,6 +887,27 @@
             ]
           },
           {
+            "digest": "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e",
+            "states": [
+              "checking",
+              "ci_failing",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "reviewing",
+              "stuck",
+              "unchanged",
+              "update_failing",
+              "update_pushing",
+              "updating",
+              "working"
+            ]
+          },
+          {
             "digest": "99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e",
             "states": [
               "author",
@@ -881,6 +948,9 @@
           "reviewing",
           "stuck",
           "unchanged",
+          "update_failing",
+          "update_pushing",
+          "updating",
           "working"
         ]
       }

@@ -1425,7 +1425,7 @@ defmodule Model.PackageRunsTest do
 
   # The decision facts Facts holds: none, while Flow writes no decision.
   defp decisions do
-    %{"facts" => facts} = AtlasFlow.Talk.transition_read("decision", %{"plain" => true})
+    %{"facts" => facts} = AtlasFlow.Talk.read("decision", %{"plain" => true})
     facts
   end
 

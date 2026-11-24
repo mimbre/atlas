@@ -8,9 +8,10 @@ defmodule Model.UseCase do
       use case (its description and Design part), its scene and a checkout of the
       repository, and writes the issues it proposes to a file in its result (`creates:`).
       Flow, the only writer, makes them under the use case, numbered in the order proposed
-      (`order`: they are built in that order), and "Accept it" (`accepting`)
-      goes to the supervisor, who changes, removes or adds any by hand and accepts the
-      break-down. Its run ends there and hands the use case on (`phase: accept`).
+      (`order`: they are built in that order), and "Accept it" (`accepting`) goes to the
+      supervisor, who changes or removes any by hand (the use case's page offers no Create
+      of an issue, which Plan makes) and accepts the break-down. Its run ends there and
+      hands the use case on (`phase: accept`).
     * `accept_use_case` "Accept the use case": accepts it by itself once all its issues
       are done (`children`, `open_children`: the composition's count of its issues, and of
       those whose `issue` run did not end `done`: reviewed and merged, or closed with
@@ -165,7 +166,7 @@ defmodule Model.UseCase do
         expected: "Accept its issues",
         why: "its agent's break-down is done",
         instructions:
-          "Read the issues under it, which its agent proposed; change, delete or add any, then accept them. They can then be picked up and built.",
+          "Read the issues under it, which its agent proposed; change any, or remove one (Remove, under More… on its page), then accept them. They can then be picked up and built.",
         answers: [[key: "a", label: "Accept", change: %{values: %{verdict: :accept}}]]
       )
 
@@ -309,11 +310,20 @@ defmodule Model.UseCase do
     reason: "Plan: its agent asks rela first (D-0100)"
   )
 
+  # Plan: "Accept it" says what the page offers (change, Remove), not delete or add; nothing
+  # else changed.
+  migrate(:break_down_use_case,
+    from: "aa7fce1ce687d65c90d380759e927a68c067ec70a5f4fc2cd5648f966f17d949",
+    to: "a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f",
+    states: :same,
+    reason: "Plan: its accept step says what its page offers"
+  )
+
   # Plan: its presentation says its supervisor's pickup starts the work (IS-Atlas-25), no
   # longer that it waits for a machinery; texts only, so a run keeps its state and entry.
   migrate(:break_down_use_case,
-    from: "aa7fce1ce687d65c90d380759e927a68c067ec70a5f4fc2cd5648f966f17d949",
-    to: "c8e4cca38879ece41b72e1bf72f70a80f11464e7b17ec9b700e59aecbd94487f",
+    from: "a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f",
+    to: "c7a2c365f29940f90596ff37f008a52feeb6ea984a6efcfa3078e04fa532a843",
     preserve_entry: true,
     states: :same,
     reason: "Plan: its supervisor's pickup starts the work; texts only"

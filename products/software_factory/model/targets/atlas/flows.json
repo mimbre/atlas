@@ -527,7 +527,7 @@
                   "label": "Accept"
                 }
               ],
-              "instructions": "Read the issues under it, which its agent proposed; change, delete or add any, then accept them. They can then be picked up and built."
+              "instructions": "Read the issues under it, which its agent proposed; change any, or remove one (Remove, under More… on its page), then accept them. They can then be picked up and built."
             },
             "why": "its agent's break-down is done"
           },
@@ -1018,8 +1018,18 @@
             },
             {
               "roles": [],
+              "to": "update_failing",
+              "when": "(entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind') and entity.pr_updates == 'one'"
+            },
+            {
+              "roles": [],
+              "to": "updating",
+              "when": "entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind'"
+            },
+            {
+              "roles": [],
               "to": "merging",
-              "when": "entity.pr_checks == 'success'"
+              "when": "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean'"
             },
             {
               "roles": [],
@@ -1043,7 +1053,7 @@
           "present": {
             "expected": "Wait for its CI",
             "todo": {
-              "instructions": "GitHub runs the checks of its pull request; nothing is asked of anyone meanwhile. Passed, its supervisor merges it; failed, an agent fixes what failed on its machinery, at most twice."
+              "instructions": "GitHub runs the checks of its pull request; nothing is asked of anyone meanwhile. Passed and mergeable, its supervisor merges it; conflicting with develop, an agent updates it; failed, an agent fixes what failed on its machinery, at most twice."
             },
             "why": "its pull request is open"
           },
@@ -1051,6 +1061,10 @@
             {
               "field": "pr_checks",
               "value": "pending"
+            },
+            {
+              "field": "pr_mergeable",
+              "value": "unknown"
             }
           ],
           "timers": [],
@@ -1072,7 +1086,7 @@
             {
               "roles": [],
               "to": "merging",
-              "when": "entity.pr_checks == 'success'"
+              "when": "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean'"
             }
           ],
           "creates": [],
@@ -1377,6 +1391,16 @@
               "roles": [],
               "to": "done",
               "when": "entity.pr_state == 'merged'"
+            },
+            {
+              "roles": [],
+              "to": "checking",
+              "when": "entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind'"
+            },
+            {
+              "roles": [],
+              "to": "checking",
+              "when": "entity.pr_checks == 'failure' or entity.pr_checks == 'pending'"
             }
           ],
           "creates": [],
@@ -1393,11 +1417,20 @@
           "present": {
             "expected": "Review and merge its pull request",
             "todo": {
-              "instructions": "Its CI passed. Open its pull request, read its review's verdict and findings and its fix's answer in its body, and merge it on GitHub; the issue is done once GitHub says it is merged."
+              "instructions": "Its CI passed and it merges into develop. Open its pull request, read its review's verdict and findings and its fix's answer in its body, and merge it on GitHub; the issue is done once GitHub says it is merged."
             },
             "why": "its agent's work is done"
           },
-          "set": [],
+          "set": [
+            {
+              "field": "pr_updates",
+              "value": "none"
+            },
+            {
+              "field": "ci_fixes",
+              "value": "none"
+            }
+          ],
           "timers": [],
           "waiting_for": []
         },
@@ -1582,6 +1615,184 @@
               "value": "none"
             }
           ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "update_failing": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "done",
+              "when": "entity.gate_result == 'close'"
+            },
+            {
+              "roles": [],
+              "to": "done",
+              "when": "entity.pr_state == 'merged'"
+            },
+            {
+              "roles": [],
+              "to": "checking",
+              "when": "entity.pr_mergeable == 'clean'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Conflicts with develop",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Decide what to do with it",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "gate_result": "close"
+                    }
+                  },
+                  "key": "c",
+                  "label": "Close it"
+                }
+              ],
+              "instructions": "Its agent could not update its pull request with develop: the update ended without a result, Code could not push it (its branch moved meanwhile), or it still conflicts. Update it by hand (once it is green and mergeable it is yours to merge), or close it."
+            },
+            "why": "its pull request conflicts with develop, and its agent's update did not resolve it"
+          },
+          "set": [
+            {
+              "field": "gate_result",
+              "value": "none"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "update_pushing": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "checking",
+              "when": "entity.pr_update == 'done'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "update_failing",
+              "when": "entity.pr_update == 'no_changes'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "update_failing",
+              "when": "entity.pr_update == 'refused'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "effect",
+          "label": "Pushing its update",
+          "present": {
+            "expected": "Let Code push its update",
+            "todo": {
+              "instructions": "Code pushes the update onto the branch of its pull request on GitHub; nothing is asked of anyone meanwhile."
+            },
+            "why": "its update with develop is done"
+          },
+          "set": [
+            {
+              "field": "pr_update",
+              "value": "none"
+            }
+          ],
+          "spec": {
+            "action": "push",
+            "contract": 1,
+            "field": "pr_update",
+            "fingerprint": {
+              "fields": ["title"],
+              "relations": []
+            },
+            "input": {
+              "base": "develop",
+              "onto": "pr_url",
+              "repository": "github.com/mimbre/atlas"
+            },
+            "name": "update",
+            "operation": "publish",
+            "payload": ["title", "description"],
+            "service": "code"
+          },
+          "timers": [],
+          "waiting_for": []
+        },
+        "updating": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": ["atlas-flow"],
+              "to": "update_pushing",
+              "when": "entity.task_result == 'completed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "update_pushing",
+              "when": "entity.task_result == 'check_failed'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "update_failing",
+              "when": "entity.task_result == 'stuck'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "update_failing",
+              "when": "entity.task_result == 'abandoned'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "kind": "task",
+          "label": "Updating it with develop",
+          "present": {
+            "expected": "Update it with develop on the machinery",
+            "todo": {
+              "instructions": "Its machinery runs an agent on develop merged into its pull request, which resolves the conflicts; Code then pushes the update onto its pull request. Nothing is done while it is not assigned to a machinery."
+            },
+            "why": "its pull request conflicts with develop"
+          },
+          "set": [
+            {
+              "field": "pr_updates",
+              "value": "one"
+            }
+          ],
+          "spec": {
+            "cost_class": "standard",
+            "field": "task_result",
+            "fields": ["title", "description"],
+            "input": {
+              "base": "develop",
+              "repository": "github.com/mimbre/atlas",
+              "update": "pr_url"
+            },
+            "instructions": "Update the pull request of the issue below with develop, in the repository you are given: a Git checkout of develop merged into its pull request. Its last commit only adds the base's dependencies; under it (HEAD~1) is the merge: its first parent is the pull request's head, its second develop, and its message lists the files that conflict, which hold Git's conflict markers. Resolve every conflict keeping the pull request's intent and develop's changes alike; leave no conflict marker. Generated targets (products/software_factory/model/targets) are never merged by hand: take develop's and regenerate them with mix model.gen (in products/software_factory). Where the pull request's model change has a migrate(…) of a run digest, chain it from develop's current digests, as mix model.gen --check names them. Run bin/check. End your answer with what you resolved and what is left open.",
+            "kind": "fix",
+            "machinery": "machinery",
+            "parents": ["title", "description"],
+            "profile": "deep_coding",
+            "records": {
+              "kind": "task",
+              "relation": "task_of"
+            },
+            "role": "developer"
+          },
           "timers": [],
           "waiting_for": []
         },
@@ -3123,6 +3334,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "9f6b405886c2f875754765a944a2ad46178f0fe1155709ecc5fcedfd65eb79e2",
+  "rela_flows_sha256": "92b3c967abe03b876ca4b137a6d5ca88405417f7da625a58278a4f97c525f047",
   "writer": "system:atlas-flow"
 }

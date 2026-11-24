@@ -59,6 +59,12 @@ defmodule AtlasFlow.Activities.Task do
   A fix whose spec names a field of the subject, `findings`, ends with that field's text
   instead (what failed in the result's CI, say), not the review's.
 
+  **An update of an open pull.** A fix may name `input: %{"repository",
+  "base", "update" => field}`, `field` the subject's field holding the web address of a
+  pull the service opened: its base is `refs/atlas/updates/<number>/<base>`, which Code
+  resolves to `base` merged into that pull's head, conflicts marked in the files. Not
+  ready while that field holds no pull's address.
+
   **A proposal (slice 7).** A spec's `creates` (`%{"kind", "file"}`) asks its agent, after
   the instructions, to write what it proposes to that file at the top of the repository: a
   JSON list of `{title, description}`, and of the texts the spec's `fields` name. When the
@@ -206,9 +212,15 @@ defmodule AtlasFlow.Activities.Task do
   # path (D44), never a URL (a scheme, or `user@host:path`). Or, for a ladder task that
   # reviews, fixes or diagnoses, the loop's latest result, read or written as its kind is.
   # Or, for a review or fix outside any ladder (a subject's), a repository and the run's latest
-  # result, which Code serves as a base of that repository.
-  defp input?(_kind, _ladder, %{"repository" => r, "base" => b} = input),
-    do: map_size(input) == 2 and text?(r) and text?(b) and not url?(r) and not url?(b)
+  # result, which Code serves as a base of that repository. Or, for a fix, a repository, a
+  # base and the subject's field holding the address of a pull to update with that base.
+  defp input?(_kind, _ladder, %{"repository" => r, "base" => b} = input)
+       when map_size(input) == 2,
+       do: text?(r) and text?(b) and not url?(r) and not url?(b)
+
+  defp input?("fix", nil, %{"repository" => r, "base" => b, "update" => f} = input),
+    do:
+      map_size(input) == 3 and text?(r) and text?(b) and text?(f) and not url?(r) and not url?(b)
 
   defp input?(kind, true, %{"result" => "latest", "access" => access} = input),
     do:
@@ -257,7 +269,7 @@ defmodule AtlasFlow.Activities.Task do
     with true <- is_binary(relation) || :other,
          {:ok, %{} = holder} <- holder(owner, projection, subject),
          [key] when is_binary(key) <- List.wrap(get_in(holder, ["links", relation])) do
-      case Talk.transition_read(spec["machinery"], %{"key" => key, "plain" => true}) do
+      case Talk.read(spec["machinery"], %{"key" => key, "plain" => true}) do
         %{"fact" => %{}} -> {:machinery, key}
         %{"fact" => nil} -> :other
         _ -> :unavailable
@@ -271,7 +283,7 @@ defmodule AtlasFlow.Activities.Task do
   defp holder(owner, %{"on" => on}, subject) when is_binary(on) do
     case {(owner || %{})["via"], List.wrap(get_in(subject, ["links", on]))} do
       {kind, [key]} when is_binary(kind) and is_binary(key) ->
-        case Talk.transition_read(kind, %{"key" => key, "plain" => true}) do
+        case Talk.read(kind, %{"key" => key, "plain" => true}) do
           %{"fact" => fact} -> {:ok, fact}
           _ -> :unavailable
         end
@@ -291,7 +303,7 @@ defmodule AtlasFlow.Activities.Task do
     subject = run["subject_key"]
     records = spec["records"]
 
-    case Talk.transition_read(records["kind"], %{
+    case Talk.read(records["kind"], %{
            "linked" => %{records["relation"] => subject},
            "plain" => true
          }) do
@@ -477,7 +489,7 @@ defmodule AtlasFlow.Activities.Task do
   # standing decisions and those the subject is based on, as its `read_first` gives them.
   defp read_first(%{"read_first" => true}, subject, %{read_first: read_first})
        when is_function(read_first, 2) do
-    case read_first.(subject, &Talk.transition_read/2) do
+    case read_first.(subject, &Talk.read/2) do
       text when is_binary(text) and text != "" -> "\n\n## Read these first\n\n" <> text
       _ -> ""
     end
@@ -498,7 +510,7 @@ defmodule AtlasFlow.Activities.Task do
 
     with {to, key} <- parent,
          %{"fact" => %{} = found} <-
-           Talk.transition_read(to, %{"key" => key, "plain" => true}) do
+           Talk.read(to, %{"key" => key, "plain" => true}) do
       values = found["values"] || %{}
 
       sections =
@@ -546,6 +558,9 @@ defmodule AtlasFlow.Activities.Task do
 
     {reference, sections} =
       case input do
+        %{"update" => field, "base" => base} ->
+          {update_ref((subject["values"] || %{})[field], base), []}
+
         %{"base" => reference} ->
           {reference, []}
 
@@ -559,6 +574,16 @@ defmodule AtlasFlow.Activities.Task do
          {:ok, base} <- base(run, input["repository"], reference),
          do: {:ok, %{base: base, change_set: nil, sections: sections, loop: nil, ladder: nil}}
   end
+
+  # The base of an update of an open pull: Code's merge of `base` into the pull's head.
+  defp update_ref(url, base) when is_binary(url) do
+    case Regex.run(~r{/pull/(\d+)\z}, url) do
+      [_, number] -> "refs/atlas/updates/" <> number <> "/" <> base
+      nil -> nil
+    end
+  end
+
+  defp update_ref(_url, _base), do: nil
 
   # A fix's spec naming `findings` fixes what that field of the subject says; any other
   # fixes the latest review's findings.
@@ -702,7 +727,7 @@ defmodule AtlasFlow.Activities.Task do
     servable(intent, repository(spec) || (run["pending"]["ladder"] || %{})["repository"])
     key = intent["key"]
 
-    case Talk.transition_read(spec["records"]["kind"], %{"key" => key, "plain" => true}) do
+    case Talk.read(spec["records"]["kind"], %{"key" => key, "plain" => true}) do
       %{"fact" => %{} = fact} ->
         case Translate.outcome(fact, spec["check"] != nil) do
           # Ended: its result is the task's own, taken as always; an answer that came
@@ -972,7 +997,7 @@ defmodule AtlasFlow.Activities.Task do
 
     with [_ | _] = entries <- Ladder.follow_ups(answer),
          %{"fact" => %{} = subject} <-
-           Talk.transition_read(run["subject_kind"], %{
+           Talk.read(run["subject_kind"], %{
              "key" => run["subject_key"],
              "plain" => true
            }),
@@ -1007,7 +1032,7 @@ defmodule AtlasFlow.Activities.Task do
   defp make(kind, entries, relation, under, intent, tag, what, run, ctx) do
     with %{"prefix" => prefix, "digits" => digits} = ids <- (ctx[:ids] || %{})[kind],
          %{"facts" => facts} when is_list(facts) <-
-           Talk.transition_read(kind, %{"plain" => true}) do
+           Talk.read(kind, %{"plain" => true}) do
       first = HandOver.next_number(%{"prefix" => prefix}, Enum.map(facts, & &1["key"]))
       supervisor = run["supervised_by"]
       by = if is_binary(supervisor), do: "For #{supervisor}: ", else: ""
@@ -1234,7 +1259,7 @@ defmodule AtlasFlow.Activities.Task do
   defp facts(spec, run) do
     records = spec["records"]
 
-    case Talk.transition_read(records["kind"], %{
+    case Talk.read(records["kind"], %{
            "linked" => %{records["relation"] => run["subject_key"]},
            "plain" => true
          }) do
