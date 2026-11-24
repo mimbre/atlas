@@ -28,7 +28,12 @@ defmodule AtlasFacts.RelaEventsTest do
   end
 
   test "a kind written past Facts is read again when rela says it changed, and hinted", c do
-    send_and_wait("fact", "widget", %{"op" => "create", "key" => "W-1", "values" => %{"title" => "One"}})
+    send_and_wait("fact", "widget", %{
+      "op" => "create",
+      "key" => "W-1",
+      "values" => %{"title" => "One"}
+    })
+
     :ok = AtlasBus.listen("widget")
 
     FakeRela.poke(c.rela, "W-1", %{"title" => "Synced"})
@@ -39,6 +44,7 @@ defmodule AtlasFacts.RelaEventsTest do
                    1_000
 
     assert change["fields"] == ["title"]
+
     assert %{"fact" => %{"values" => %{"title" => "Synced"}}} =
              send_and_wait("read", "widget", %{"key" => "W-1"})
 
@@ -55,7 +61,10 @@ defmodule AtlasFacts.RelaEventsTest do
         "event: ready\nid: a\ndata: {\"conn\":\"c\"}\n\nevent: entity:changed\nid: b\ndata: {\"type\":\"widget\"}\n\nevent: pi"
       )
 
-    assert [%{"event" => "ready", "id" => "a"}, %{"event" => "entity:changed", "data" => ~s({"type":"widget"})}] =
+    assert [
+             %{"event" => "ready", "id" => "a"},
+             %{"event" => "entity:changed", "data" => ~s({"type":"widget"})}
+           ] =
              frames
 
     assert rest == "event: pi"

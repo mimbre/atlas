@@ -120,8 +120,11 @@ defmodule AtlasFacts.Rela.Events do
     case fields["event"] do
       "entity:changed" ->
         case JSON.decode(fields["data"] || "") do
-          {:ok, %{"type" => kind}} when is_binary(kind) -> send(state.notify, {:rela_changed, [kind]})
-          _ -> :ok
+          {:ok, %{"type" => kind}} when is_binary(kind) ->
+            send(state.notify, {:rela_changed, [kind]})
+
+          _ ->
+            :ok
         end
 
       "ready" when not resumed? ->

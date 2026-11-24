@@ -211,7 +211,10 @@ defmodule AtlasFacts.Server do
         changed
 
       error ->
-        Logger.warning("Facts could not read #{kind} again after rela said it changed: #{inspect(error)}")
+        Logger.warning(
+          "Facts could not read #{kind} again after rela said it changed: #{inspect(error)}"
+        )
+
         []
     end
   end
