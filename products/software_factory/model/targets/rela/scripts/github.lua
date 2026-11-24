@@ -2,13 +2,18 @@
 -- rela's scheduler (schedules.yaml) as integration:github. Hand-written, like
 -- data-entry.yaml.
 --
--- For every issue with a pull request (pr_url) that is not merged or closed yet, it reads
--- the pull, and while it is open the combined check status of its head and whether it
--- merges into its base: pr_state, pr_checks (pending, success, failure), when CI failed
+-- For every issue with a pull request (pr_url) that is not merged yet, it reads the pull,
+-- and while it is open the combined check status of its head and whether it merges into
+-- its base: pr_state, pr_checks (pending, success, failure), when CI failed
 -- pr_checks_failure (the failing checks and the failing lines of their logs), and
 -- pr_mergeable (clean, behind, conflicting, or unknown while GitHub works it out). For
--- every pull request fact that is not merged or closed yet: its title, state and draft.
--- Only what differs is written.
+-- every pull request fact that is not merged yet: its title, state and draft. Only what
+-- differs is written.
+--
+-- Merged is final. Closed is not: a closed pull can be reopened. A pull recorded closed is
+-- read again when GitHub lists it among its repository's open pulls (one list per
+-- repository and run), so a reopened pull's state, mergeability and checks are synced
+-- again. The pull of an issue closed in Atlas (gate_result close) is left closed.
 --
 -- rela → GitHub: an open pull request of an issue closed in Atlas (gate_result close, an
 -- explicit record in this rela's own data) is closed on GitHub with a comment. A pull is
@@ -224,12 +229,40 @@ local function write(id, before, after)
   if any then rela.update_entity(id, changed) end
 end
 
-local DONE = {merged = true, closed = true}
+-- Pulls recorded closed that GitHub lists open again: repository → set of open numbers,
+-- read once per run. A repository whose list GitHub does not give has none this run.
+local open_pulls = {}
+
+local function reopened(repo, number)
+  if open_pulls[repo] == nil then
+    local numbers = {}
+    local page = 1
+    while true do
+      local pulls, err = json("/repos/" .. repo .. "/pulls?state=open&per_page=100&page=" .. page)
+      if not pulls then
+        print("github sync: " .. repo .. ": open pulls: " .. tostring(err))
+        break
+      end
+      for _, pull in ipairs(pulls) do numbers[tostring(pull.number)] = true end
+      if #pulls < 100 then break end
+      page = page + 1
+    end
+    open_pulls[repo] = numbers
+  end
+  return open_pulls[repo][number] == true
+end
+
+-- Whether a pull recorded in this state (merged, closed, open or not read yet) is read.
+local function read(state, repo, number)
+  if state == "merged" then return false end
+  if state == "closed" then return reopened(repo, number) end
+  return true
+end
 
 for _, issue in ipairs(rela.list_entities("issue")) do
   local p = issue.properties
   local repo, number = slug(p.pr_url)
-  if repo and not DONE[p.pr_state] then
+  if repo and not (p.pr_state == "closed" and p.gate_result == "close") and read(p.pr_state, repo, number) then
     local pull, err = json("/repos/" .. repo .. "/pulls/" .. number)
     if pull then
       local after = {pr_state = pull_state(pull)}
@@ -270,7 +303,7 @@ end
 for _, pr in ipairs(rela.list_entities("pull_request")) do
   local p = pr.properties
   local repo, number = slug(p.url)
-  if repo and not DONE[p.state] then
+  if repo and read(p.state, repo, number) then
     local pull = json("/repos/" .. repo .. "/pulls/" .. number)
     if pull then
       write(pr.id, p, {title = pull.title, state = pull_state(pull), draft = pull.draft == true})
