@@ -8,8 +8,9 @@ defmodule Model.UseCase do
       use case (its description and Design part), its scene and a checkout of the
       repository, and writes the issues it proposes to a file in its result (`creates:`).
       Flow, the only writer, makes them under the use case, and "Accept it" (`accepting`)
-      goes to the supervisor, who changes, removes or adds any by hand and accepts the
-      break-down. Its run ends there and hands the use case on (`phase: accept`).
+      goes to the supervisor, who changes or removes any by hand (the use case's page
+      offers no Create of an issue, which Plan makes) and accepts the break-down. Its run
+      ends there and hands the use case on (`phase: accept`).
     * `accept_use_case` "Accept the use case": accepts it by itself once all its issues
       are done (`children`, `open_children`: the composition's count of its issues, and of
       those whose `issue` run did not end `done`: reviewed and merged, or closed with
@@ -164,7 +165,7 @@ defmodule Model.UseCase do
         expected: "Accept its issues",
         why: "its agent's break-down is done",
         instructions:
-          "Read the issues under it, which its agent proposed; change, delete or add any, then accept them. They can then be picked up and built.",
+          "Read the issues under it, which its agent proposed; change any, or remove one (Remove, under More… on its page), then accept them. They can then be picked up and built.",
         answers: [[key: "a", label: "Accept", change: %{values: %{verdict: :accept}}]]
       )
 
@@ -287,5 +288,14 @@ defmodule Model.UseCase do
     to: "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
     states: :same,
     reason: "Plan: its agent proposes vertical slices"
+  )
+
+  # Plan: "Accept it" says what the page offers (change, Remove), not delete or add; nothing
+  # else changed.
+  migrate(:break_down_use_case,
+    from: "258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670",
+    to: "1588812d8dd96692394964d26fadf06178baee0e5be9307c0f9e2a286c4926f8",
+    states: :same,
+    reason: "Plan: its accept step says what its page offers"
   )
 end
