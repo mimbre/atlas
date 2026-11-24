@@ -174,6 +174,16 @@ defmodule AtlasControl.SupervisionTest do
     end
   end
 
+  test "Open for you lists its rows by key, their numbers as numbers" do
+    for m <- @models do
+      items = for key <- ~w(W-100 W-11 W-07 W-9), do: work(m, key, presented())
+      route = {:open_for_you, "ada"}
+      page = Pages.render(route, m, screen_answers(route, m, items))
+      [list | _] = for b <- page.blocks, b["type"] == "list", do: b
+      assert keys_of(list["props"]["rows"]) == ~w(W-07 W-9 W-11 W-100), span(m).written_on
+    end
+  end
+
   test "Open for you and Supervised by you declare their groups: all, then one per span" do
     m = @s
     s = span(m)
