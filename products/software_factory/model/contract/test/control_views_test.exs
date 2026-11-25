@@ -93,6 +93,34 @@ defmodule Model.ControlViewsTest do
     end
   end
 
+  # SC-Atlas-09: a use case Design made shows its producer, set by Flow and never in a form.
+  test "a use case's page shows who produced it" do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+
+    use_case = %{
+      "key" => "UC-Atlas-01",
+      "values" => %{"title" => "Read the README"},
+      "links" => %{"produced_by" => ["ada"]},
+      "origins" => %{"produced_by" => %{"by" => "flow", "cause" => "For ada: proposed"}}
+    }
+
+    reads = AtlasControl.Pages.reads({:item, "use_case", "UC-Atlas-01"}, m)
+    answers = [%{"fact" => use_case} | for(_ <- tl(reads), do: %{"facts" => []})]
+    page = AtlasControl.Pages.render({:item, "use_case", "UC-Atlas-01"}, m, answers)
+
+    assert [%{"value" => "ada", "origin" => %{"by" => "flow"}}] =
+             for(
+               b <- page.blocks,
+               pair <-
+                 List.wrap(get_in(b, ["props", "fields"])) ++
+                   List.wrap(get_in(b, ["props", "links"])),
+               is_map(pair) and pair["label"] == "Produced by",
+               do: pair
+             )
+
+    refute AtlasControl.Pages.settable_relation?(m, "produced_by", "ada")
+  end
+
   test "a scene's page and row are named by its title" do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     scene = %{"key" => "SC-Atlas-01", "values" => %{"title" => "Write the first scene"}}
