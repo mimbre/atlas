@@ -87,6 +87,7 @@ var censusNotHome = map[string]string{
 	"releases":                 "the Runtime's data folder (~/.local/share/atlas-runtime/releases)",
 	"bin":                      "a Runtime release folder (bin/atlas-runtime), or the user's ~/.local/bin",
 	"com.mimbre.atlas-runtime": "the Runtime's launch agent label, as its file name in ~/Library/LaunchAgents",
+	"com.mimbre.atlas-code":    "the Code service's launch agent label, as its file name in ~/Library/LaunchAgents",
 	"BUILD":                    "a Runtime release folder (~/.local/share/atlas-runtime/releases/<build>): the build's name",
 	".local":                   "user home (~/.local/state/atlas-runtime, the default Runtime home)",
 	"state":                    "user home (~/.local/state/atlas-runtime, the default Runtime home)",

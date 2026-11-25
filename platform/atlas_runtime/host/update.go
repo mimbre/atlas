@@ -57,6 +57,10 @@ const defaultReleases = "https://github.com/mimbre/atlas/releases/download"
 // The launch agent that starts the Runtime at login (macos/install.sh).
 const launchAgent = "com.mimbre.atlas-runtime"
 
+// The Code service's launch agent (macos/install.sh, IS-Atlas-116): it runs the atlas_code
+// release of the release the installed CLI points at, so an update restarts it too.
+const codeAgent = "com.mimbre.atlas-code"
+
 // restartWait bounds how long update waits for the Runtime to answer on the new build: the
 // first start on a release compiles it. A variable for tests.
 var restartWait = 20 * time.Minute
@@ -416,6 +420,14 @@ func restart(dir string, options updateOptions) (string, error) {
 	}
 	var cmd *exec.Cmd
 	if how == "launchd" {
+		// Code first, on the new release (-k: stop the running one), then the Runtime.
+		if _, err := os.Stat(filepath.Join(user, "Library", "LaunchAgents", codeAgent+".plist")); err == nil {
+			code := exec.Command("launchctl", "kickstart", "-k", "gui/"+strconv.Itoa(os.Getuid())+"/"+codeAgent)
+			code.Stdout, code.Stderr = os.Stderr, os.Stderr
+			if err := code.Run(); err != nil {
+				return how, fmt.Errorf("restart Code by launchd: %w", err)
+			}
+		}
 		cmd = exec.Command("launchctl", "kickstart", "gui/"+strconv.Itoa(os.Getuid())+"/"+launchAgent)
 	} else {
 		cmd = exec.Command(options.install, "service", "start")
