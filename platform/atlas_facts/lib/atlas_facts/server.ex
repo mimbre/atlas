@@ -9,7 +9,9 @@ defmodule AtlasFacts.Server do
 
   - A `fact` is stored in rela and answered with one `stored` (acknowledgement and hint,
     with the fact's position) or one `refused` (final, with reasons). Never silence.
-    A resent id gets its first answer again and is not stored twice. `stored` says what
+    A resent id gets its first answer again and is not stored twice. A write Facts cannot
+    take yet (it has not read rela's schema and facts, or rela is not reachable) is
+    refused with `code: "not_ready"`, unrecorded: the same id may be sent again later. `stored` says what
     the write changed (`changes`, one entry per fact, what it brought along included:
     `AtlasFacts.Freshness.Changes`).
   - A `read` is answered with the facts of a kind (all, or `"linked" => %{relation => key}`
@@ -138,31 +140,22 @@ defmodule AtlasFacts.Server do
   @impl true
   def handle_info({:atlas_bus, %Envelope{class: class} = envelope, content}, state)
       when class in ["fact", "read"] do
-    {_, state} = ensure_description(state, envelope)
+    {described, state} = ensure_description(state, envelope)
 
     binding = Ledger.request_identity(envelope, content)
 
-    if class == "fact" do
-      if Ledger.matches_request?(state.ledger, envelope.id, binding) do
-        rela = state.rela
-        log = Changes.open()
+    cond do
+      # Facts has not read rela's schema and facts yet (it is starting, or rela is not
+      # reachable): a write is refused as not ready, unrecorded, so the same id is stored
+      # once Facts is ready. A sender may wait and send it again (`not_ready`).
+      class == "fact" and described == :unavailable ->
+        not_ready(envelope, content, state)
 
-        # Every write rela accepts while this fact is handled is noted, for its hint.
-        recording = Changes.recorder(rela, log)
+      class == "fact" ->
+        fact(envelope, content, binding, state)
 
-        try do
-          {:noreply, state} =
-            dispatch(envelope, content, Map.merge(state, %{rela: recording, changes: log}))
-
-          {:noreply, %{Map.delete(state, :changes) | rela: rela}}
-        after
-          Changes.close(log)
-        end
-      else
-        refusal(envelope, :request_conflict, state)
-      end
-    else
-      dispatch(envelope, content, state)
+      true ->
+        dispatch(envelope, content, state)
     end
   end
 
@@ -457,6 +450,13 @@ defmodule AtlasFacts.Server do
         changes = changes(state, envelope.kind, content["key"] || value["key"])
         reply(envelope, "stored", Map.put(value, "changes", changes), value["position"])
 
+      # rela was not reachable while the input was checked, before anything is written:
+      # not ready, not a refusal on the merits, so the sender may send it again.
+      {:error, reason}
+      when envelope.class == "fact" and
+             reason in [:unavailable, {:subject_authority, :unavailable}] ->
+        not_ready(envelope, content, state)
+
       {:error, reason} ->
         reply(
           envelope,
@@ -501,6 +501,42 @@ defmodule AtlasFacts.Server do
       role ->
         guidance(envelope, content, role, state)
     end
+  end
+
+  defp fact(envelope, content, binding, state) do
+    if Ledger.matches_request?(state.ledger, envelope.id, binding) do
+      rela = state.rela
+      log = Changes.open()
+
+      # Every write rela accepts while this fact is handled is noted, for its hint.
+      recording = Changes.recorder(rela, log)
+
+      try do
+        {:noreply, state} =
+          dispatch(envelope, content, Map.merge(state, %{rela: recording, changes: log}))
+
+        {:noreply, %{Map.delete(state, :changes) | rela: rela}}
+      after
+        Changes.close(log)
+      end
+    else
+      refusal(envelope, :request_conflict, state)
+    end
+  end
+
+  @not_ready ["Facts is not ready yet: it is still reading its facts from rela."]
+
+  defp not_ready(envelope, content, state) do
+    about = %{"op" => content_op(content), "key" => content_key(content)}
+
+    reply(
+      envelope,
+      "refused",
+      Map.merge(about, %{"code" => "not_ready", "reasons" => @not_ready}),
+      nil
+    )
+
+    {:noreply, state}
   end
 
   defp refusal(envelope, reason, state) do
@@ -598,6 +634,7 @@ defmodule AtlasFacts.Server do
   defp ensure_description(state, %Envelope{kind: kind}) do
     case kind_spec(state, kind) do
       {:ok, _, state} -> {:ok, state}
+      {:error, :unavailable, state} -> {:unavailable, state}
       {_, _, state} -> {:error, state}
     end
   end
@@ -720,7 +757,10 @@ defmodule AtlasFacts.Server do
 
       # Not recorded: the same id may be stored once rela is back.
       :unavailable ->
-        reply(envelope, "refused", Map.put(about, "reasons", ["rela is not reachable"]), nil)
+        refusal =
+          Map.merge(about, %{"code" => "not_ready", "reasons" => ["rela is not reachable"]})
+
+        reply(envelope, "refused", refusal, nil)
 
       # rela answered but failed: not recorded either, so the same id may be stored later.
       {:unavailable, reason} ->

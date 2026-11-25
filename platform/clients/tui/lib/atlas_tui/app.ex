@@ -8,6 +8,9 @@ defmodule AtlasTui.App do
   - A link's key opens its web address in the browser (`AtlasTui.Browser`).
   - When the connection drops it says so, retries every 2 seconds, and on return opens
     the page it was on.
+  - Closed by Control as too old, when it can take a newer build (`release: :restart`),
+    it ends: `run/3` returns `{:too_old, page, control spec}`, for `AtlasTui.CLI` to hand
+    to bin/atlas (IS-Atlas-76).
   - The first `:` starts the agent (`atlas steer`, a Control client of its own) as a
     child process, and keeps it while the TUI runs. They talk in JSON lines on its stdin
     and stdout (`AtlasAgent.Steer`); its stderr goes to `steer.log` beside the
@@ -26,7 +29,12 @@ defmodule AtlasTui.App do
   @agent_silence 30_000
   @root Path.expand("../../../../..", __DIR__)
 
-  def run(env, settings) do
+  @doc """
+  Runs until its user quits (`:ok`) or Control closes this build as too old and it can
+  take a newer one (`{:too_old, page, control spec}`). Options: `release` (see
+  `AtlasTui.Model`) and `to`, the page to open instead of Control's start page.
+  """
+  def run(env, settings, opts \\ []) do
     with {:error, reason} <- :shell.start_interactive({:noshell, :raw}) do
       IO.puts(:stderr, "atlas: the TUI needs a terminal (#{inspect(reason)})")
       System.halt(1)
@@ -40,8 +48,11 @@ defmodule AtlasTui.App do
     reconcile = settings["reconcile_seconds"] || 5
     :timer.send_interval(reconcile * 1_000, :reconcile)
 
+    model = %{Model.new(env) | release: opts[:release]}
+    model = put_in(model.console.start_to, opts[:to])
+
     state = %{
-      model: Model.new(env),
+      model: model,
       settings: settings,
       reconcile: reconcile,
       socket: nil,
@@ -95,7 +106,10 @@ defmodule AtlasTui.App do
           {:ok, message} ->
             {model, effects} = Console.receive(state.model, message)
 
-            loop(draw(effects(%{state | model: model}, effects)))
+            case List.keyfind(effects, :too_old, 0) do
+              nil -> loop(draw(effects(%{state | model: model}, effects)))
+              too_old -> stop(draw(%{state | model: model}), too_old)
+            end
 
           _ ->
             loop(state)
@@ -233,15 +247,19 @@ defmodule AtlasTui.App do
     state = %{state | model: model}
 
     if :quit in effects do
-      stop_output(state)
-      if state.socket, do: AtlasControlTransport.close(state.socket)
-      if state.agent, do: Port.close(state.agent)
-      :ok
+      stop(state, :ok)
     else
       state = effects(state, effects)
 
       keys(state, rest)
     end
+  end
+
+  defp stop(state, outcome) do
+    stop_output(state)
+    if state.socket, do: AtlasControlTransport.close(state.socket)
+    if state.agent, do: Port.close(state.agent)
+    outcome
   end
 
   defp effects(state, effects) do

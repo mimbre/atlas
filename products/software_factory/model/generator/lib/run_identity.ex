@@ -16,7 +16,11 @@ defmodule RelaDSL.RunIdentity do
       of its migrations (a chain that ends at a current one);
     * its `states` map states of `from` to states of `to` (`:same`: each state of `to`
       to itself); a digest's states are the same in every migration that names them;
-    * `rekey: true` maps every state to itself.
+    * `rekey: true` maps every state to itself;
+    * `reopen:` lists states of `from` (each one it maps): a completed run in one of them
+      is entered again in the state it maps to, when that one is open (Flow's
+      `AtlasFlow.Runs.Run.migrate/5`), never with `rekey:`; `preserve_entry:` then holds
+      for the runs that keep their state.
 
   Against the `digests.json` of a base branch (`base_problems/3`), so a change cannot
   approve its own migration:
@@ -108,11 +112,32 @@ defmodule RelaDSL.RunIdentity do
           p.(:states_from, "states: maps other states than #{short(from)} has"),
         (m.opts[:rekey] == true and expanded != :invalid and
            Enum.any?(expanded, fn {k, v} -> k != v end)) &&
-          p.(:rekey, "rekey: true keeps every state: map each to itself")
+          p.(:rekey, "rekey: true keeps every state: map each to itself"),
+        reopen_problem(m.opts, expanded) &&
+          p.(
+            :reopen,
+            "reopen: is a list of states the migration maps, without rekey:"
+          )
       ]
       |> Enum.filter(& &1)
       |> Enum.map(&{m, &1})
     end)
+  end
+
+  defp reopen_problem(opts, expanded) do
+    case opts[:reopen] do
+      nil ->
+        false
+
+      states when is_list(states) and states != [] and expanded != :invalid ->
+        mapped = for {k, _} <- expanded, do: k
+
+        not Enum.all?(states, &(is_atom(&1) and to_string(&1) in mapped)) or
+          opts[:rekey] == true
+
+      _ ->
+        true
+    end
   end
 
   defp expand(:same, to, states), do: for(s <- Map.get(states, to, []), do: {s, s})

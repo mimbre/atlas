@@ -620,7 +620,7 @@ defmodule AtlasControl.SessionTest do
     assert FakeStore.last_fact() == nil
   end
 
-  test "hello carries the contract version: an older client, or one without, is told it is too old",
+  test "hello carries the contract version: an older client, or one without, is told which contract each side speaks",
        %{port: port} do
     version = AtlasControl.Blocks.version()
 
@@ -631,12 +631,15 @@ defmodule AtlasControl.SessionTest do
       hello = %{"op" => "hello", "env" => "test", "client" => "tui"}
       put(socket, if(spec, do: Map.put(hello, "spec", spec), else: hello))
 
-      assert %{"op" => "bye", "text" => text} = next(socket, "bye")
+      assert %{"op" => "bye", "text" => text, "reason" => "too_old", "spec" => ^version} =
+               next(socket, "bye")
 
-      assert text =~
-               "This client implements contract #{spec || "(none)"}; Control test speaks #{version}."
+      # What is true on each side, and no remedy the client may not take (IS-Atlas-76).
+      assert text ==
+               "This client implements contract #{spec || "(none)"}; Control test speaks " <>
+                 "#{version}, and no older one."
 
-      assert text =~ "It is too old"
+      refute text =~ "update"
       assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
     end
 
@@ -2151,6 +2154,102 @@ defmodule AtlasControl.SessionTest do
       tui = hello_as(port, "tui")
       put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/pick_up/R-1", "values" => %{}})
       assert %{"reason" => "refused", "refused" => ["pickup_pending"]} = next(tui, "page")
+    end
+
+    # Every message up to the page that answers a submit (`stored` or `refused`): the
+    # notices sent meanwhile, and that page.
+    defp answered(socket, notices \\ []) do
+      {:ok, line} = :gen_tcp.recv(socket, 0, @arrives)
+
+      case JSON.decode!(line) do
+        %{"op" => "notice"} = n ->
+          answered(socket, [n | notices])
+
+        %{"op" => "page", "reason" => r} = page when r in ["stored", "refused"] ->
+          {page, Enum.reverse(notices)}
+
+        _ ->
+          answered(socket, notices)
+      end
+    end
+
+    defp pick_up(tui),
+      do: put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/pick_up/R-1", "values" => %{}})
+
+    test "a pickup while Facts is loading waits for it, and is stored once Facts is ready" do
+      port = supervised_shop([])
+      tui = hello_as(port, "tui")
+      hold_clock()
+      FakeStore.loading(true, self())
+      pick_up(tui)
+
+      # Refused as not ready: held, and sent again with the same id, nothing stored yet.
+      assert_receive {:not_ready, id}, @arrives
+      # The usual wait for an answer, set as it was sent; then the short one, not ready.
+      assert {_, _, 5_000} = held_wait({:resend, ^id})
+      resend = held_wait({:resend, ^id})
+      assert {_, _, 1_000} = resend
+      held_wait({:restart_wait, ^id})
+      assert supervision_inputs() == []
+      run_out(resend)
+      assert_receive {:not_ready, ^id}, @arrives
+      resend = held_wait({:resend, ^id})
+
+      # Facts is ready: the next try is stored, as one pickup, and no error is shown.
+      FakeStore.loading(false)
+      run_out(resend)
+      {pid, _, _} = held_wait({:settle_timeout, _})
+      send(pid, {:settle_timeout, :none})
+      assert {%{"reason" => "stored", "path" => "/k/widget/W-1"}, notices} = answered(tui)
+      assert [%{"op" => "pickup", "values" => %{"run" => "R-1"}}] = supervision_inputs()
+      assert Enum.all?(notices, &(&1["tone"] != "error")), inspect(notices)
+      assert Enum.any?(notices, &(&1["text"] =~ "Atlas is restarting; waiting"))
+    end
+
+    @tag :capture_log
+    test "a pickup while Facts stays not ready past the wait says Atlas is restarting" do
+      port = supervised_shop([])
+      tui = hello_as(port, "tui")
+      hold_clock()
+      FakeStore.loading(true, self())
+      pick_up(tui)
+
+      assert_receive {:not_ready, id}, @arrives
+      run_out(held_wait({:restart_wait, ^id}))
+
+      assert {%{"reason" => "refused", "refused" => refused}, notices} = answered(tui)
+      assert refused == ["Atlas is restarting, try again in a moment."]
+
+      assert %{"tone" => "error", "text" => "Atlas is restarting, try again in a moment"} =
+               List.last(notices)
+
+      refute Enum.any?(notices, &(&1["text"] =~ "Facts refused"))
+      assert supervision_inputs() == []
+
+      # It is no longer sent: a resend that runs out late sends nothing. Barriers: the
+      # session handled it, then Facts' stand-in handled all it was sent before.
+      {session, _, _} = late = held_wait({:resend, ^id})
+      run_out(late)
+      :sys.get_state(session)
+      FakeStore.sent()
+      refute_received {:not_ready, ^id}
+    end
+
+    test "a refusal on the merits after a restart wait still shows its reasons" do
+      port = supervised_shop([])
+      tui = hello_as(port, "tui")
+      hold_clock()
+      FakeStore.loading(true, self())
+      pick_up(tui)
+      assert_receive {:not_ready, id}, @arrives
+
+      FakeStore.loading(false)
+      FakeStore.refuse("R-1", "pickup_pending")
+      run_out(held_wait({:resend, ^id}))
+
+      assert {%{"reason" => "refused", "refused" => ["pickup_pending"]}, notices} = answered(tui)
+      assert %{"tone" => "error", "text" => "Facts refused: pickup_pending"} = List.last(notices)
+      refute Enum.any?(notices, &(&1["text"] =~ "try again in a moment"))
     end
 
     test "Hand over… sends exactly a hand-over input to someone else; never to itself" do

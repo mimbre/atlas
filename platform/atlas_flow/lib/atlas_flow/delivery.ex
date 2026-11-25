@@ -34,7 +34,10 @@ defmodule AtlasFlow.Delivery do
   `base_id` and cannot be derived from it. A change set without a `base` is
   `rejected(invalid)` (work_source 0.2.0), and nothing is stored. Past a cap it is
   `too_large`. Recording `complete` pins the manifest again (a no-op unless a restart
-  dropped the pin; rev 4, R2). The pin goes on `invalid`, `too_large`, an `ended` without a
+  dropped the pin; rev 4, R2). A completion write Facts misses (a deploy, a throttled
+  core) leaves the result `incomplete` and the lease live: the next report (a replayed
+  `ended`), `put_done` or Dispatch's sweep (`result_pending/3`, a cast) decides it again
+  from the task fact and completes it, before the lease expires (IS-Atlas-112). The pin goes on `invalid`, `too_large`, an `ended` without a
   result, and the `accepted` of a later attempt.
 
   **Fenced attempts (F10).** Dispatch fences a lease (`expired`, `lost`) on the task fact
@@ -106,6 +109,14 @@ defmodule AtlasFlow.Delivery do
   def put_done(client, lease_id, outcome, server \\ __MODULE__),
     do: GenServer.call(server, {:put_done, client, lease_id, outcome}, :infinity)
 
+  @doc """
+  Dispatch's sweep read lease `lease_id` of `task_key` live, `ended` with its result still
+  `incomplete`: Delivery completes it when every referenced blob is held (a completion
+  write Facts missed, IS-Atlas-112). A cast: the sweep never waits on Delivery.
+  """
+  def result_pending(task_key, lease_id, server \\ __MODULE__),
+    do: GenServer.cast(server, {:result_pending, task_key, lease_id})
+
   ## Server
 
   @impl true
@@ -135,6 +146,18 @@ defmodule AtlasFlow.Delivery do
   def handle_cast({:lease_fenced, task_key, lease_id, cause}, state) do
     with {:ok, _, n} <- Leases.parse(lease_id),
          do: end_attempt(task_key, n, lease_id, cause, now(state))
+
+    {:noreply, state}
+  end
+
+  def handle_cast({:result_pending, task_key, lease_id}, state) do
+    decide = fn fact ->
+      lease = %{id: lease_id, task_key: task_key, runtime: Leases.value(fact, "runtime")}
+      completion(fact, lease, state)
+    end
+
+    with {:error, why} <- Leases.update(task_key, decide),
+         do: Logger.warning("flow delivery could not complete #{lease_id}: #{inspect(why)}")
 
     {:noreply, state}
   end
@@ -183,11 +206,17 @@ defmodule AtlasFlow.Delivery do
     with {:ok, task_key, _} <- lease(lease_id) do
       lease = %{id: lease_id, task_key: task_key, runtime: runtime_id}
 
-      case outcome do
-        :stored -> Leases.update(task_key, &completion(&1, lease, state))
-        :too_large -> Leases.update(task_key, &too_large(&1, lease, state))
-        _ -> :ok
-      end
+      written =
+        case outcome do
+          :stored -> Leases.update(task_key, &completion(&1, lease, state))
+          :too_large -> Leases.update(task_key, &too_large(&1, lease, state))
+          _ -> :ok
+        end
+
+      # Not stored: the result stays incomplete until the next report, put_done or sweep
+      # completes it (IS-Atlas-112).
+      with {:error, why} <- written,
+           do: Logger.warning("flow delivery could not settle #{lease_id}: #{inspect(why)}")
     end
 
     {:reply, :ok, state}
@@ -225,8 +254,12 @@ defmodule AtlasFlow.Delivery do
       next = Translate.state(report)
 
       cond do
+        # The same report again: a result whose completion Facts missed completes now.
         revision == last and last > 0 and digest == Leases.value(fact, "lease_report") ->
-          {:reply, {:recorded, %{missing: missing(state, fact)}}}
+          case completion(fact, lease, state, {:recorded, %{missing: []}}) do
+            {:write, _, _, _} = write -> write
+            {:reply, _} -> {:reply, {:recorded, %{missing: missing(state, fact)}}}
+          end
 
         revision == last + 1 and follows?(previous(fact, held, last), next) ->
           record(fact, lease, report, next, state)
@@ -523,7 +556,9 @@ defmodule AtlasFlow.Delivery do
 
   ## Completion
 
-  defp completion(fact, lease, state) do
+  # An ended result still incomplete is completed (or found invalid) once every blob it
+  # references is held: from a put_done, a replayed ended report, or the sweep's notice.
+  defp completion(fact, lease, state, reply \\ :ok) do
     with false <- Leases.fenced?(fact, lease.id, lease.runtime),
          "incomplete" <- Leases.value(fact, "result_state"),
          {:ok, manifest} <-
@@ -532,9 +567,12 @@ defmodule AtlasFlow.Delivery do
       result_state = verdict(manifest, Leases.value(fact, "result_fingerprints"))
 
       {:write, %{"lease_state" => "done", "result_state" => result_state}, %{},
-       fn -> settled(state, lease.task_key, result_state) end}
+       fn ->
+         settled(state, lease.task_key, result_state)
+         reply
+       end}
     else
-      _ -> {:reply, :ok}
+      _ -> {:reply, reply}
     end
   end
 

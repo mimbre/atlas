@@ -119,7 +119,7 @@ defmodule AtlasControl.Pages do
       {:ok, page, p} when page in [:pick_up, :hand_over, :retry, :remove_item] ->
         {page, p.kind, p.key, p.run}
 
-      {:ok, page, params} when page in [:workers, :worker, :worker_guidance] ->
+      {:ok, page, params} when page in [:workers, :health, :worker, :worker_guidance] ->
         {:worker_page, page, params}
 
       {:ok, :kinds, _} ->
@@ -862,13 +862,17 @@ defmodule AtlasControl.Pages do
   @doc """
   A calm page's Overview (platform/atlas_control/backend/README.md): an `item` titled "Overview" with one pair per
   `{label, count}`; the first, the main count, always, the others only when some are.
+  `actions`, when given, are the page's (`page_actions/1`): the Workers page's Health.
   """
-  def summary([main | more]) do
+  def summary([main | more], actions \\ []) do
     fields =
       for {label, n} <- [main | Enum.filter(more, fn {_, n} -> n > 0 end)],
           do: Blocks.pair(label: label, value: Integer.to_string(n))
 
-    Blocks.item(title: "Overview", fields: fields)
+    case actions do
+      [] -> Blocks.item(title: "Overview", fields: fields)
+      actions -> Blocks.item(title: "Overview", fields: fields, actions: page_actions(actions))
+    end
   end
 
   # One calm row of what is assigned: the fact's key, the fact, who it is with (`owner?`, on
@@ -2772,7 +2776,9 @@ defmodule AtlasControl.Pages do
   # Pick up and Retry), and everything else, which its More… action opens. Nothing raw
   # where the flow covers it: no Delete where Remove ends the run instead, no change of
   # who has a supervised flow's work while nobody picked it up (D-0099), and no Create of
-  # what a flow makes under it. An action on the same key as a next step gives way to it.
+  # what a flow makes under it. An action on the same key as a next step gives way to it,
+  # and Pick up or Retry to an owner's answer of the same label: a state's own Retry
+  # (back to the step that failed, IS-Atlas-134) stands for the span's.
   defp offered(m, kind, k, fact, rest, form) do
     parts = item_parts(m, kind, rest)
     work = work_presentation(m, kind, fact, parts)
@@ -2782,8 +2788,13 @@ defmodule AtlasControl.Pages do
     {picks, supervising} =
       supervision_actions(m, kind, fact, work, candidates(m, kind, part_answers), form)
 
+    answers = answer_actions(kind, fact, todo)
+    answered = Enum.map(answers, & &1["label"])
+
     next =
-      answer_actions(kind, fact, todo) ++ restart_actions(m, kind, fact, parts, form) ++ picks
+      answers ++
+        restart_actions(m, kind, fact, parts, form) ++
+        Enum.reject(picks, &(&1["label"] in answered))
 
     span? = kind in span_kinds(m)
 
@@ -3155,6 +3166,24 @@ defmodule AtlasControl.Pages do
 
   defp restart_actors(m) do
     Map.get_lazy(m, :actors, fn -> configured_restart_actors(m) end)
+  end
+
+  @doc """
+  The key of the configured decider: as the model's owners name it, else as the
+  environment's settings give it (`"actors": {"decider": …}`); nil when neither does.
+  """
+  def decider(m) do
+    case get_in(restart_actors(m), ["decider", "key"]) do
+      key when is_binary(key) -> key
+      _ -> configured_decider()
+    end
+  end
+
+  defp configured_decider do
+    case AtlasBus.Actors.configured() do
+      %{"decider" => key} when is_binary(key) and key != "" -> key
+      _ -> nil
+    end
   end
 
   defp configured_restart_actors(m) do

@@ -81,7 +81,7 @@ entities:
         description: 'Flow: how the last pass ended (none, delivered, failed)'
       gate_result:
         type: string
-        description: 'Flow: the last gate verdict, or a maintainer''s choice (none, review, rework, ready, person, close)'
+        description: 'Flow: the last gate verdict, or a maintainer''s choice (none, review, rework, ready, person, close, retry, publish)'
       effect_result:
         type: string
         description: 'Flow: how publishing the pull request ended (none, done, refused)'
@@ -121,6 +121,12 @@ entities:
       pr_update:
         type: string
         description: 'Flow: how pushing its update with develop onto its pull request ended (done, no_changes, refused)'
+      retry_step:
+        type: string
+        description: 'Flow: the step its run''s last agent task ran as, which Retry goes back to (author, review, fix, ci_fix, ci_fix_again)'
+      task_failure:
+        type: string
+        description: 'Flow: which of its agent tasks ended without a result (stuck or abandoned), in which state, and why; none while its last task ran'
       pr_close_failure:
         type: string
         description: 'GitHub: why closing its open pull request failed after it was closed in Atlas'

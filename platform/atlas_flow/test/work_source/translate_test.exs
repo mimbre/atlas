@@ -323,4 +323,23 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
     refute Map.has_key?(values, "selection_reason")
     assert values["turn_id"] == "turn-1"
   end
+
+  test "the latest result is the latest task that ended with one, never a review" do
+    t = &%{"key" => &1, "task_kind" => &2, "outcome" => &3}
+    author = t.("TK-1", "author", "completed")
+    review = t.("TK-2", "review", "completed")
+
+    assert Translate.latest_result([]) == nil
+    assert Translate.latest_result([author, review]) == "TK-1"
+    assert Translate.latest_result([author, review, t.("TK-3", "fix", "check_failed")]) == "TK-3"
+
+    # A fix that ended stuck or abandoned left no result: a retry starts from the author's.
+    for outcome <- ~w(stuck abandoned cancelled) do
+      assert Translate.latest_result([author, review, t.("TK-3", "fix", outcome)]) == "TK-1"
+    end
+
+    # A record of an answer names no task.
+    assert Translate.latest_result([author, %{"outcome" => "held"}]) == "TK-1"
+    assert Translate.latest_result([t.("TK-1", "author", "stuck")]) == nil
+  end
 end

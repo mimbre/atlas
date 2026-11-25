@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppUpdate
 import AtlasControlKit
 import BlockViews
 import ControlSession
@@ -12,6 +13,7 @@ import SwiftUI
 /// actions) is a sheet over them; the keys of the shown page's actions take them.
 struct ShellView: View {
     let session: Session
+    let updater: Updater
     @State private var keys = ActionKeys()
 
     private func submit(_ call: CallModel, _ values: [String: String]) {
@@ -33,6 +35,19 @@ struct ShellView: View {
         }
         .onAppear { keys.start(session) }
         .onDisappear { keys.stop() }
+        // The app's update (IS-Atlas-66): asked at start, and at once when Control closes
+        // the app as too old; taken when no form or confirm is open, on the page shown.
+        .task {
+            updater.canTakeNow = { [session] in !session.state.isEditing && !session.state.submitting }
+            updater.page = { [session] in session.state.pageOnScreen?.path ?? session.state.expected }
+            updater.start()
+        }
+        .onChange(of: session.state.connection) { _, connection in
+            if case .ended(.tooOld(let control, _)) = connection {
+                updater.closedTooOld(controlSpec: control)
+            }
+        }
+        .onChange(of: session.state.isEditing) { updater.pageChanged() }
         .sheet(isPresented: Binding(get: { shell.sheet != nil }, set: { if !$0 { session.leave() } })) {
             if let page = shell.sheet {
                 ActionPageView(page: page, draft: shell.draft, submitting: shell.submitting,
@@ -52,11 +67,12 @@ struct ShellView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            StatusBar(status: StatusViewModel(session.state), shell: shell)
+            StatusBar(status: StatusViewModel(session.state), shell: shell,
+                      update: updater.status.statusText(installed: updater.installed))
         }
         .overlay {
             if case .ended(let ending) = session.state.connection {
-                EndedView(ending: ending)
+                EndedView(ending: ending, env: session.state.settings.env, updater: updater)
             }
         }
     }
@@ -238,12 +254,18 @@ struct EnvironmentBadge: View {
 /// Why the session is over, over the window.
 struct EndedView: View {
     let ending: SessionState.Ending
+    let env: String
+    let updater: Updater
 
     var body: some View {
         VStack(spacing: 8) {
             switch ending {
             case .bye(let text):
                 Text(text)
+            case .tooOld(let control, _):
+                // What each side speaks and where the update stands, never "too old" alone.
+                Text(updater.status.closedText(installed: updater.installed, env: env, control: control,
+                                               ownContract: Contract.version))
             case .incompatible(let welcome):
                 Text("Control \(welcome.env) speaks contract \(welcome.spec); this app implements \(Contract.version) for this environment.")
             case .unreadableWelcome(let reason):

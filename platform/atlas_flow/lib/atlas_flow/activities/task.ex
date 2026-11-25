@@ -59,6 +59,12 @@ defmodule AtlasFlow.Activities.Task do
   A fix whose spec names a field of the subject, `findings`, ends with that field's text
   instead (what failed in the result's CI, say), not the review's.
 
+  **Why it ended without a result.** A task outside any ladder whose spec names a field
+  of the subject, `failure`, has Flow write there, when it ends `stuck` or `abandoned`,
+  which task it was (its kind and key), the run's state it ran in, how it ended and its
+  reason, so whoever its run then goes to sees why. A later task whose state resets
+  that field (`set`) leaves no stale reason behind.
+
   **An update of an open pull.** A fix may name `input: %{"repository",
   "base", "update" => field}`, `field` the subject's field holding the web address of a
   pull the service opened: its base is `refs/atlas/updates/<number>/<base>`, which Code
@@ -183,11 +189,12 @@ defmodule AtlasFlow.Activities.Task do
       spec["ladder"] in [nil, true] and input?(spec["kind"], spec["ladder"], spec["input"]) and
       check?(spec["check"]) and checked?(spec) and text?(spec["instructions"]) and
       texts?(spec["fields"] || []) and texts?(spec["parents"] || []) and
-      spec["read_first"] in [nil, true] and
+      spec["read_first"] in [nil, true] and note?(spec["note"]) and
       creates?(spec["creates"]) and writes?(spec["writes"]) and
       not (spec["creates"] != nil and spec["writes"] != nil) and
       (spec["follow_ups"] == nil or text?(spec["follow_ups"])) and
       (spec["findings"] == nil or (spec["kind"] == "fix" and text?(spec["findings"]))) and
+      (spec["failure"] == nil or (spec["ladder"] == nil and text?(spec["failure"]))) and
       records?(spec["records"]) and text?(spec["machinery"])
   end
 
@@ -195,11 +202,19 @@ defmodule AtlasFlow.Activities.Task do
 
   defp creates?(%{"kind" => kind, "file" => file} = creates),
     do:
-      Enum.all?(Map.keys(creates), &(&1 in ~w(kind file fields values order))) and text?(kind) and
-        text?(file) and texts?(creates["fields"] || []) and
-        is_map(creates["values"] || %{}) and (creates["order"] == nil or text?(creates["order"]))
+      Enum.all?(Map.keys(creates), &(&1 in ~w(kind file fields values order discard))) and
+        text?(kind) and text?(file) and texts?(creates["fields"] || []) and
+        is_map(creates["values"] || %{}) and (creates["order"] == nil or text?(creates["order"])) and
+        creates["discard"] in [nil, true]
 
   defp creates?(_creates), do: false
+
+  defp note?(nil), do: true
+
+  defp note?(%{"field" => field, "heading" => heading} = note),
+    do: map_size(note) == 2 and text?(field) and text?(heading)
+
+  defp note?(_note), do: false
 
   defp writes?(nil), do: true
 
@@ -342,7 +357,8 @@ defmodule AtlasFlow.Activities.Task do
 
     %{
       "title" => "#{spec["kind"]} #{subject["key"]}",
-      "instructions" => Enum.join([spec["instructions"] | sections]),
+      "instructions" =>
+        Enum.join([spec["instructions"] | sections]) <> note(spec["note"], values),
       "profile" => spec["profile"],
       "cost_class" => spec["cost_class"]
     }
@@ -350,6 +366,17 @@ defmodule AtlasFlow.Activities.Task do
       &if(spec["check"], do: Map.put(&1, "after_check", %{"command" => spec["check"]}), else: &1)
     )
   end
+
+  # The spec's `note`: the text of the subject's field under its heading, when it has one
+  # (what its supervisor said when its last proposal was not accepted, say).
+  defp note(%{"field" => field, "heading" => heading}, values) do
+    case values[field] do
+      text when is_binary(text) -> if text?(text), do: "\n\n## #{heading}\n\n#{text}", else: ""
+      _ -> ""
+    end
+  end
+
+  defp note(_note, _values), do: ""
 
   # The push path's capacity rule, kept only for `AtlasFlow.FakeRuntime` (test support of
   # the push client), which A5 removes together with it. Nothing in the lease path calls it.
@@ -889,12 +916,44 @@ defmodule AtlasFlow.Activities.Task do
       result =
         if next == run_outcome, do: result, else: Map.put(result, "reason", "no proposal")
 
-      {:result, next, result, [change(intent, spec, ["result"], values) | made ++ follow_ups],
-       nil}
+      # What its proposal made, kept with its result, so a state that discards it
+      # (`creates: [discard: true]`) deletes those and nothing added by hand.
+      result =
+        if made != [] and spec["creates"] != nil,
+          do: Map.put(result, "made", for(w <- made, do: [w["kind"], w["content"]["key"]])),
+          else: result
+
+      {:result, next, result,
+       [change(intent, spec, ["result"], values) | made ++ follow_ups] ++
+         failure(spec, next, result, run), nil}
     else
       :unavailable -> :none
     end
   end
+
+  # A task that ended without a result (`stuck` or `abandoned`) whose spec names a field
+  # of its subject, `failure`: Flow writes there which task it was, in which state of the
+  # run, how it ended and why, for the one who decides what follows. One write, under an
+  # id of the task's key; nothing for any other end.
+  defp failure(%{"failure" => field} = spec, outcome, result, run)
+       when outcome in ["stuck", "abandoned"] do
+    why = result["reason"] || result["kind"]
+
+    text =
+      "The #{spec["kind"]} task #{result["key"]} (in #{run["state"]}) ended #{outcome}" <>
+        if(is_binary(why) and why != "", do: ": #{why}.", else: ".")
+
+    [
+      write(result["key"], ["failure"], run["subject_kind"], %{
+        "op" => "change",
+        "key" => run["subject_key"],
+        "values" => %{field => text},
+        "by" => "flow"
+      })
+    ]
+  end
+
+  defp failure(_spec, _outcome, _result, _run), do: []
 
   # What a task that proposes facts (`creates`) or writes a field of its subject
   # (`writes`) asks its agent: the file, at the top of the repository, and its form.

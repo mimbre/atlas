@@ -759,13 +759,19 @@ public struct NoticeMessage: Codable, Sendable, Equatable {
 
 /// The fields of a message (its selectors are the case's).
 public struct ByeMessage: Codable, Sendable, Equatable {
+    public var reason: String?
+    public var spec: String?
     public var text: String
 
-    public init(text: String) {
+    public init(reason: String? = nil, spec: String? = nil, text: String) {
+        self.reason = reason
+        self.spec = spec
         self.text = text
     }
 
     enum CodingKeys: String, CodingKey {
+        case reason
+        case spec
         case text
     }
 }

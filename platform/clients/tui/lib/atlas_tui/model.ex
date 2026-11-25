@@ -54,6 +54,11 @@ defmodule AtlasTui.Model do
             last_hint: nil,
             waiting: false,
             closed: false,
+            # How this build takes a newer one when Control closes it as too old
+            # (IS-Atlas-76): `:restart` (bin/atlas updates it and starts it again on the
+            # page), `{:not_updated, why, once}` (bin/atlas could not update it), or nil (not
+            # started by bin/atlas).
+            release: nil,
             # The request line (`:`): its text while it is open, nil when closed.
             ask: nil,
             # The agent's plan for the last request, shown over the page; nil when none.

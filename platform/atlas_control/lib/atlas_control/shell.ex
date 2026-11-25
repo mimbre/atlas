@@ -154,7 +154,7 @@ defmodule AtlasControl.Shell do
       case Pages.route(if(is_binary(to), do: to, else: "")) do
         :home -> tab["assigned"] == true and Pages.assigned_rule(m) != nil
         {:list, kind} -> Pages.kind?(m, kind) and text?(canonical_tab(to), 2_048)
-        {:worker_page, :workers, _} -> tab["assigned"] != true
+        {:worker_page, page, _} when page in [:workers, :health] -> tab["assigned"] != true
         {:open_for_you, _} -> tab["assigned"] != true and Pages.open_for_you_rule(m) != nil
         {:supervised_by_you, _} -> tab["assigned"] != true and Pages.supervised_rule(m) != nil
         _ -> false
@@ -175,7 +175,8 @@ defmodule AtlasControl.Shell do
       # A removed overview falls back; valid detail/form targets stay canonical.
       index? =
         route == :home or match?({:list, _}, route) or
-          match?({:worker_page, :workers, _}, route) or screen?(route)
+          match?({:worker_page, page, _} when page in [:workers, :health], route) or
+          screen?(route)
 
       configured? = Enum.any?(tabs, &(&1["to"] == canonical))
       # Without a target (or one a tab no longer offers): the shell's default tab, when
@@ -220,8 +221,8 @@ defmodule AtlasControl.Shell do
        do: target_path(route, kind, [kind, key, relation], m)
 
   defp canonical_target({:worker_page, page, params} = route, _m)
-       when page in [:workers, :worker, :worker_guidance] do
-    keys = if page == :workers, do: [], else: [:machine, :worker, :turn, :attempt]
+       when page in [:workers, :health, :worker, :worker_guidance] do
+    keys = if page in [:workers, :health], do: [], else: [:machine, :worker, :turn, :attempt]
 
     if Enum.all?(keys, &text?(params[&1], 2_048)),
       do: {:ok, Pages.path(route)},

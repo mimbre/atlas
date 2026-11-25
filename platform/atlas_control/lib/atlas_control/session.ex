@@ -9,7 +9,10 @@ defmodule AtlasControl.Session do
     docs/design/page-freshness.md §2.2): the page goes out once Flow says it has settled
     past the write (`_settled`), or once `settle_ms` (1 s) ran out, which is logged. A
     fact without an answer is sent again with the same id, after 5 seconds, then twice
-    as long each time, up to a minute.
+    as long each time, up to a minute. A fact Facts refused as not ready yet (`not_ready`:
+    it has not read its facts, as during a restart) is no refusal on its merits: it is
+    held and sent again with the same id every second until Facts takes it, for up to
+    30 s; then the client is told "Atlas is restarting, try again in a moment".
   - Every page is read in one `_page` read, and the session keeps what it depended on
     (`AtlasControl.Freshness`): for the path on screen and the paths viewed before it.
     Hints (`stored`, by anyone) are collected for a moment and handled at once: a page
@@ -50,12 +53,21 @@ defmodule AtlasControl.Session do
   @read_attempts 3
   @first_resend 5_000
   @last_resend 60_000
+  # A fact Facts refused as not ready yet (`not_ready`: it is starting, during a restart)
+  # is sent again after this, with the same id, until Facts takes it or the restart wait
+  # runs out; then the client is told Atlas is restarting.
+  @not_ready_resend 1_000
+  @restart_wait 30_000
+  @restarting "Atlas is restarting, try again in a moment"
   # How often a create tries the next number when its key turns out to be taken.
   @key_tries 10
   # What Facts answers with how far it is: its position alone.
   @position "_position"
   # Who answers how far Flow has settled (`_settled`).
   @flow "flow"
+  # Who answers what Flow says about its health (`_health`, AtlasFlow.Health); a setting
+  # (`health_endpoint`) for tests.
+  @flow_health "flow/health"
   # How many recent pages, besides the one on screen, one batch of hints pushes.
   @pushes 3
 
@@ -169,6 +181,8 @@ defmodule AtlasControl.Session do
     {pending, rest} = Map.pop(state.pending, id)
     Process.cancel_timer(pending.timer)
     state = %{state | pending: rest}
+    not_ready? = class == "refused" and content["code"] == "not_ready"
+    if pending.restart && not not_ready?, do: Process.cancel_timer(pending.restart)
 
     # A key this client made up was taken by someone else: try the next one.
     retry? =
@@ -205,6 +219,11 @@ defmodule AtlasControl.Session do
 
       "refused" when retry? ->
         {:noreply, retry_create(state, pending)}
+
+      # Not a refusal on the merits: Facts is not ready yet. The fact waits, and is sent
+      # again, as it was, until Facts is ready or the restart wait runs out.
+      "refused" when not_ready? ->
+        {:noreply, wait_for_facts(state, id, pending)}
 
       "refused" ->
         reasons = refusal_reasons(content, "Facts refused it")
@@ -304,6 +323,13 @@ defmodule AtlasControl.Session do
       nil ->
         {:noreply, state}
 
+      # Waiting for Facts to be ready: sent again quietly; a lost answer is sent again
+      # after the usual wait.
+      %{restart: restart} = pending when restart != nil ->
+        :ok = AtlasBus.send(pending.envelope, pending.content)
+        timer = AtlasControl.Clock.after_ms({:resend, id}, @first_resend)
+        {:noreply, put_in(state.pending[id], %{pending | wait: @first_resend, timer: timer})}
+
       pending ->
         :ok = AtlasBus.send(pending.envelope, pending.content)
         wait = min(pending.wait * 2, @last_resend)
@@ -313,11 +339,29 @@ defmodule AtlasControl.Session do
     end
   end
 
+  # Facts was not ready within the restart wait: the fact is no longer sent, and the client
+  # is told why, without "Facts refused it": nothing was refused on its merits.
+  def handle_info({:restart_wait, id}, state) do
+    case Map.pop(state.pending, id) do
+      {%{restart: restart} = pending, rest} when restart != nil ->
+        Process.cancel_timer(pending.timer)
+
+        Logger.warning(
+          "control: Facts not ready within #{@restart_wait} ms; #{id} not sent again"
+        )
+
+        {:noreply, restarting(%{state | pending: rest})}
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
   # Protocol
 
   # A client says which contract version it implements. One older than Control's cannot
-  # render what Control sends now: it is told so and closed, rather than shown a page it
-  # breaks on. A newer one shows what it knows, and the rest as fallbacks.
+  # render what Control sends now: it is told which contract each side speaks and closed,
+  # rather than shown a page it breaks on. A newer one shows what it knows, and the rest as fallbacks.
   defp handle_op(op, _message, %{output_connection: true} = state)
        when op not in ~w(worker_output_subscribe worker_output_next worker_output_unsubscribe),
        do: bye(state, "This connection is reserved for worker output.")
@@ -333,11 +377,14 @@ defmodule AtlasControl.Session do
           "This is Control #{environment}; it does not serve #{inspect(message["env"])}."
         )
 
+      # What each side speaks, and no remedy: how a client takes a newer build is its own
+      # (the TUI updates and starts again, IS-Atlas-76). `reason` and `spec` let it act.
       too_old?(message["spec"], version) ->
         bye(
           state,
           "This client implements contract #{message["spec"] || "(none)"}; Control " <>
-            "#{environment} speaks #{version}. It is too old: update it (atlas starts the newest build)."
+            "#{environment} speaks #{version}, and no older one.",
+          %{"reason" => "too_old", "spec" => version}
         )
 
       message["surface"] not in [nil, "console"] ->
@@ -719,8 +766,8 @@ defmodule AtlasControl.Session do
       else: put_in(state.tab_counts[to], %{counts: counts, set: set})
   end
 
-  defp bye(state, text) do
-    send_client(state, %{"op" => "bye", "text" => text})
+  defp bye(state, text, why \\ %{}) do
+    send_client(state, Map.merge(%{"op" => "bye", "text" => text}, why))
     {:stop, :normal, state}
   end
 
@@ -1287,6 +1334,32 @@ defmodule AtlasControl.Session do
     put_fact(state, kind, content, {:item, kind, key}, retry, note)
   end
 
+  defp wait_for_facts(state, id, pending) do
+    first? = pending.restart == nil
+
+    restart =
+      pending.restart || AtlasControl.Clock.after_ms({:restart_wait, id}, @restart_wait)
+
+    timer = AtlasControl.Clock.after_ms({:resend, id}, @not_ready_resend)
+    pending = %{pending | restart: restart, timer: timer, wait: @not_ready_resend}
+    state = put_in(state.pending[id], pending)
+
+    if first?,
+      do: notice(state, "pending", "Atlas is restarting; waiting until Facts is ready…"),
+      else: state
+  end
+
+  defp restarting(state) do
+    if form_shown?(state, state.route) do
+      form = Map.put(state.form, :errors, [@restarting <> "."])
+      state = notice(state, "error", @restarting)
+      show(%{state | form: form}, state.route, "refused", nil)
+    else
+      state = notice(state, "error", @restarting)
+      show(state, state.route, "refused", nil, [@restarting <> "."])
+    end
+  end
+
   defp put_fact(state, kind, content, after_route, retry \\ nil, note \\ nil) do
     content = Map.put(content, "by", state.by)
     content = if state.cause, do: Map.put(content, "cause", state.cause), else: content
@@ -1300,7 +1373,9 @@ defmodule AtlasControl.Session do
       after: after_route,
       retry: retry,
       wait: @first_resend,
-      timer: timer
+      timer: timer,
+      # The restart wait, while Facts is not ready to take it (`wait_for_facts/3`).
+      restart: nil
     }
 
     state = put_in(state.pending[envelope.id], pending)
@@ -1622,6 +1697,10 @@ defmodule AtlasControl.Session do
     answers = page_answers(route, state.model)
 
     case route do
+      # The core's health: never read from Facts, so it shows while Facts is stuck.
+      {:worker_page, :health, _} ->
+        {health_page(state), answers, ReadSet.none()}
+
       {:worker_page, _, _} = worker_route ->
         {page, read} =
           recording(fn ask ->
@@ -1649,7 +1728,68 @@ defmodule AtlasControl.Session do
 
         page = route |> Pages.render(state.model, answers, viewer) |> Faults.with_action(route)
         set = ReadSet.of(PageReads.roles(route, state.model), answers, page.blocks)
-        {page, answers, set}
+        with_alerts(state, route, page, answers, set)
+    end
+  end
+
+  # The decider's start page carries the core's alerts on top (IS-Atlas-117): one per
+  # stall, worked out from the health report as the page is made, so nothing is stored
+  # or scheduled for them (D-0100). The page is read again when an alert may come or go
+  # (`AtlasControl.HealthPage.until/2`), a reconcile reading it then.
+  defp with_alerts(state, route, page, answers, set) do
+    decider = Pages.decider(state.model)
+
+    if start_route?(route) and is_binary(decider) and state.by == decider do
+      now = DateTime.utc_now()
+      report = health_report()
+      view = AtlasControl.HealthPage.alert_view(AtlasControl.HealthPage.alerts(report, now))
+
+      page = %{
+        page
+        | blocks: view.blocks ++ page.blocks,
+          markup: view.markup ++ (page.markup || [])
+      }
+
+      until = %ReadSet{as_of: set.as_of, until: AtlasControl.HealthPage.until(report, now)}
+      {page, answers, ReadSet.union(set, until)}
+    else
+      {page, answers, set}
+    end
+  end
+
+  defp start_route?(:home), do: true
+  defp start_route?({:assigned, _by}), do: true
+  defp start_route?(_route), do: false
+
+  # The health page (IS-Atlas-117), for those who may read the Workers page: whom the
+  # settings name, without asking Facts whether their fact exists, since the page is for
+  # when Facts or Flow is stuck. Flow is asked once (`health_timeout_ms`, 1 s); Facts'
+  # queue is counted on the Bus, without asking Facts.
+  defp health_page(state) do
+    readers = get_in(state.model.settings || %{}, ["workers", "read", "actors"])
+
+    if is_list(readers) and state.by in readers do
+      AtlasControl.HealthPage.render(health_report())
+    else
+      AtlasControl.WorkerPages.error("forbidden", "/workers")
+    end
+  end
+
+  # What the health page and the decider's alerts are made from.
+  defp health_report,
+    do: %{flow: ask_health(), facts_waiting: AtlasBus.waiting(AtlasBus.store())}
+
+  defp ask_health do
+    address = Application.get_env(:atlas_control, :health_endpoint, @flow_health)
+    envelope = %{Envelope.new("request", "_health") | address: address}
+    :ok = AtlasBus.send(envelope, %{})
+    id = envelope.id
+    timeout = Application.get_env(:atlas_control, :health_timeout_ms, 1_000)
+
+    receive do
+      {:atlas_bus, %Envelope{id: ^id, class: "answer"}, answer} -> answer
+    after
+      timeout -> nil
     end
   end
 

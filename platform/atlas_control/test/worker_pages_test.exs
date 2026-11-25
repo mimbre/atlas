@@ -293,6 +293,10 @@ defmodule AtlasControl.WorkerPagesTest do
              {"Needs attention", "1"}
            ]
 
+    # The core's health is one key away (IS-Atlas-117).
+    assert [%{"label" => "Health", "key" => "h", "to" => "/health", "page" => true}] =
+             summary["actions"]
+
     # A row is the worker and what it did in plain words: no id, machine or turn.
     rows =
       for id <- ~w(workers-running workers-finished), r <- block(page, id)["props"]["rows"], do: r

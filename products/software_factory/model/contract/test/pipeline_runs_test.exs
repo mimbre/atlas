@@ -132,7 +132,7 @@ defmodule Model.PipelineRunsTest do
       assert written(rejected_run) == [%{"phase" => "break_down"}]
       # Its next break-down's agent reads the producer's note.
       {:task, spec} = flow(env, "break_down_scene").mechanism("break_down")
-      assert "note" in spec["fields"]
+      assert spec["note"]["field"] == "note"
 
       # Accept ends the pipeline.
       {:ok, done} =
@@ -155,7 +155,8 @@ defmodule Model.PipelineRunsTest do
       assert spec["creates"] == %{
                "kind" => "use_case",
                "file" => "use_cases.json",
-               "fields" => ["design", "note"]
+               "fields" => ["design", "note"],
+               "discard" => true
              }
 
       # Plan reads its Design part.

@@ -20,14 +20,14 @@ defmodule AtlasFlow.EngineTest do
 
   defp todo(key), do: FakeFacts.get("box", key)["values"]["todo"]
 
-  test "Flow keeps no process of its own per fact: only the engine and its activities' inboxes" do
+  test "Flow keeps no process of its own per fact: only the engine, its activities' inboxes and its health" do
     FakeFacts.put("box", %{"key" => "B-1", "values" => %{"phase" => "first"}})
     engine = start_supervised!({Engine, every: 3_600_000, model: AtlasFlow.Depot})
     Engine.round(engine)
     assert todo("B-1") == "Sort it"
 
     assert Enum.sort(for {id, _, _, _} <- Supervisor.which_children(AtlasFlow.Root), do: id) ==
-             [AtlasFlow.Activities.Effect.Inbox]
+             [AtlasFlow.Activities.Effect.Inbox, AtlasFlow.Health]
 
     refute Process.whereis(AtlasFlow.Items)
     refute Process.whereis(AtlasFlow.Supervisor)

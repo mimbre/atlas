@@ -128,6 +128,13 @@ defmodule AtlasFlow.Engine do
        round: nil,
        # A due round, independently of the synchronous callers waiting for it.
        pending_round: false,
+       # Flow's health (`AtlasFlow.Health`, IS-Atlas-117): when the round stepping now was
+       # due, when a round became due while one stepped, and the last finished round's due
+       # and end. The table they are written to (option `health:`).
+       round_due: nil,
+       pending_due: nil,
+       last_round: nil,
+       health: Keyword.get(opts, :health, AtlasFlow.Health),
        queued: [],
        settled: Settled.new(),
        # The facts whose owner did not exist yet, by that owner: `%{owner => MapSet}`.
@@ -139,7 +146,7 @@ defmodule AtlasFlow.Engine do
   def handle_call(:round, from, %{round: nil} = state), do: {:noreply, begin_round(state, [from])}
 
   def handle_call(:round, from, state),
-    do: {:noreply, %{state | pending_round: true, queued: state.queued ++ [from]}}
+    do: {:noreply, %{due_later(state) | pending_round: true, queued: state.queued ++ [from]}}
 
   def handle_call(:idle, _from, %{round: nil} = state), do: {:reply, :ok, state}
 
@@ -163,7 +170,9 @@ defmodule AtlasFlow.Engine do
 
         if state.round == nil,
           do: {:noreply, begin_round(state, [caller])},
-          else: {:noreply, %{state | pending_round: true, queued: state.queued ++ [caller]}}
+          else:
+            {:noreply,
+             %{due_later(state) | pending_round: true, queued: state.queued ++ [caller]}}
 
       _ ->
         {:reply, result, state}
@@ -176,7 +185,7 @@ defmodule AtlasFlow.Engine do
   @impl true
   def handle_info(:round, %{round: nil} = state), do: {:noreply, begin_round(state, [])}
   # Due while one steps: coalesce independently of callers waiting for a round.
-  def handle_info(:round, state), do: {:noreply, %{state | pending_round: true}}
+  def handle_info(:round, state), do: {:noreply, %{due_later(state) | pending_round: true}}
   def handle_info(:round_step, %{round: nil} = state), do: {:noreply, state}
   def handle_info(:round_step, state), do: {:noreply, round_step(state)}
 
@@ -547,6 +556,40 @@ defmodule AtlasFlow.Engine do
       | timer: Clock.schedule(state.clock, self(), :round, delay),
         round_at: DateTime.add(Clock.now(state.clock), delay, :millisecond)
     }
+    |> health()
+  end
+
+  # A round became due while one steps: it is due from now, however long that one takes.
+  defp due_later(%{pending_due: nil} = state), do: %{state | pending_due: Clock.now(state.clock)}
+  defp due_later(state), do: state
+
+  # When the round that begins now was due: when it became due while another stepped, when
+  # its timer was set for, or now when it comes sooner (a call, a run's timer).
+  defp due_now(state) do
+    now = Clock.now(state.clock)
+
+    cond do
+      state.pending_due -> state.pending_due
+      state.round_at && DateTime.compare(state.round_at, now) == :lt -> state.round_at
+      true -> now
+    end
+  end
+
+  # What Flow's health page reads (`AtlasFlow.Health`): never waited for.
+  defp health(state) do
+    {last_due, last_finished} = state.last_round || {nil, nil}
+
+    AtlasFlow.Health.round(
+      %{
+        due: state.round_due,
+        next_due: state.round_at,
+        last_due: last_due,
+        last_finished: last_finished
+      },
+      state.health
+    )
+
+    state
   end
 
   # When the round is due: on its interval, or at the first timer of an active run.
@@ -574,7 +617,8 @@ defmodule AtlasFlow.Engine do
   # reconcile yet), and list what to project; then step it.
   defp begin_round(state, callers) do
     Clock.cancel(state.clock, state.timer)
-    state = %{state | timer: nil, round_at: nil}
+    due = due_now(state)
+    state = health(%{state | timer: nil, round_at: nil, round_due: due, pending_due: nil})
 
     case Talk.read("_description", %{}) do
       %{"description" => description} ->
@@ -680,14 +724,21 @@ defmodule AtlasFlow.Engine do
         do: settle(state, Settled.release(state.settled)),
         else: state
 
+    # Its health is noted before anyone waiting for the round hears it ended.
+    state =
+      health(%{
+        state
+        | round: nil,
+          round_due: nil,
+          last_round: {state.round_due, Clock.now(state.clock)}
+      })
+
     for caller <- round.callers do
       case caller do
         {:recovery, from, result} -> GenServer.reply(from, result)
         from -> GenServer.reply(from, :ok)
       end
     end
-
-    state = %{state | round: nil}
 
     if state.pending_round,
       do: begin_round(%{state | pending_round: false, queued: []}, state.queued),

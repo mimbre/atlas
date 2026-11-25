@@ -790,13 +790,14 @@ jobs:
           [ -n "$ATLAS_FLY_TOKEN_CORE" ] || { echo "::error::Add the secret FLY_API_TOKEN_TEST (fly tokens create deploy -a eyra-atlas-test)"; exit 1; }
           platform/ops/deploy-test-current.sh "develop-$GITHUB_SHA"
 
+  # When nothing that ends up on Fly changed (deploy is false), the job still runs and
+  # succeeds without deploying, so deploy-mac-app follows every merge to master.
   deploy-prod:
     name: Deploy prod on Fly, and a smoke check
     needs: [tested-tree, generator, contract, model-dsl, model-contract, model-base, beam, tui, agent, runtime-backend-generator, runtime-backend-contract]
     if: >-
       ${{ !cancelled()
       && github.event_name == 'push' && github.ref == 'refs/heads/master'
-      && needs.tested-tree.outputs.deploy != 'false'
       && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
       && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
     runs-on: ubuntu-latest
@@ -807,17 +808,27 @@ jobs:
       group: fly-deploy-prod
       cancel-in-progress: false
     steps:
+      - name: Nothing that runs on Fly changed
+        if: needs.tested-tree.outputs.deploy == 'false'
+        run: echo "Nothing that runs on Fly changed, so prod keeps its build." >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
+        if: needs.tested-tree.outputs.deploy != 'false'
       - uses: erlef/setup-beam@v1
+        if: needs.tested-tree.outputs.deploy != 'false'
         with:
           otp-version: "28"
           elixir-version: "1.18"
       - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: needs.tested-tree.outputs.deploy != 'false'
       - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
+        if: needs.tested-tree.outputs.deploy != 'false'
       - name: Install the pinned schema validator in this deployment job
+        if: needs.tested-tree.outputs.deploy != 'false'
         run: platform/atlas_facts/rela/scripts/start-test.sh install
       - run: sudo apt-get update && sudo apt-get install -y lsof netcat-openbsd jq
+        if: needs.tested-tree.outputs.deploy != 'false'
       - name: Deploy prod (rela, then the core), then the smoke check
+        if: needs.tested-tree.outputs.deploy != 'false'
         env:
           ATLAS_FLY_TOKEN_RELA: ${{ secrets.FLY_API_TOKEN_PROD_RELA }}
           ATLAS_FLY_TOKEN_CORE: ${{ secrets.FLY_API_TOKEN_PROD }}
@@ -825,3 +836,121 @@ jobs:
           [ -n "$ATLAS_FLY_TOKEN_RELA" ] || { echo "::error::Add the secret FLY_API_TOKEN_PROD_RELA (fly tokens create deploy -a eyra-atlas-rela)"; exit 1; }
           [ -n "$ATLAS_FLY_TOKEN_CORE" ] || { echo "::error::Add the secret FLY_API_TOKEN_PROD (fly tokens create deploy -a eyra-atlas)"; exit 1; }
           platform/ops/deploy.sh prod "master-$GITHUB_SHA"
+
+  # Each prod release publishes the Mac app at its revision (IS-Atlas-66): after
+  # deploy-prod, AtlasMac is tested and built at this commit, bundled as `Atlas Console.app`
+  # (its version master-<commit>, its contract, this run's number as its build), signed with
+  # the Developer ID, and published as the GitHub release atlas-console-<commit>; the release
+  # atlas-console holds feed.json, naming the newest. Installed apps read that feed when they
+  # start, every 10 minutes, and when Control closes them as too old, and update themselves
+  # (platform/clients/apple, AppUpdate). The feed never goes back to an earlier build.
+  deploy-mac-app:
+    name: Publish the Mac app of this release
+    needs: [tested-tree, deploy-prod]
+    if: >-
+      ${{ !cancelled()
+      && github.event_name == 'push' && github.ref == 'refs/heads/master'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+      && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    # One release at a time, in order; never cancel one midway.
+    concurrency:
+      group: mac-app-release
+      cancel-in-progress: false
+    env:
+      REVISION: ${{ github.sha }}
+      BUILD: ${{ github.run_number }}
+      FEED_TAG: atlas-console
+      FEED_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/atlas-console/feed.json
+      GH_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        working-directory: platform/clients/apple
+    steps:
+      - name: The signing secrets are there
+        working-directory: .
+        env:
+          MAC_SIGNING_CERTIFICATE: ${{ secrets.MAC_SIGNING_CERTIFICATE }}
+          MAC_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MAC_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          [ -n "$MAC_SIGNING_CERTIFICATE" ] || { echo "::error::Add the secret MAC_SIGNING_CERTIFICATE: the Developer ID Application certificate with its private key, exported from Keychain Access as a .p12, base64 (base64 -i developer-id.p12 | pbcopy)"; exit 1; }
+          [ -n "$MAC_SIGNING_CERTIFICATE_PASSWORD" ] || { echo "::error::Add the secret MAC_SIGNING_CERTIFICATE_PASSWORD: the password of the .p12 in MAC_SIGNING_CERTIFICATE"; exit 1; }
+      - uses: actions/checkout@v4
+      - run: swift --version
+      # What is published is what was tested: the unit run and the packager's own tests.
+      - run: swift test
+      - run: python3 -B tools/test_package_release_app.py
+      - name: Build AtlasMac at this revision
+        id: build
+        run: |
+          swift build -c release --product AtlasMac
+          echo "binary=$(swift build -c release --product AtlasMac --show-bin-path)/AtlasMac" >> "$GITHUB_OUTPUT"
+          echo "contract=$(python3 -B tools/package_release_app.py contract ../../atlas_control/backend/targets/swift/Sources/AtlasControlKit/Contract.swift)" >> "$GITHUB_OUTPUT"
+      - name: Bundle Atlas Console.app
+        env:
+          BINARY: ${{ steps.build.outputs.binary }}
+          CONTRACT: ${{ steps.build.outputs.contract }}
+        run: |
+          python3 -B tools/package_release_app.py bundle --binary "$BINARY" \
+            --output "$RUNNER_TEMP/release/Atlas Console.app" \
+            --revision "$REVISION" --build "$BUILD" --contract "$CONTRACT" --feed-url "$FEED_URL" \
+            --env prod --host 127.0.0.1 --port 7593
+      - name: Sign it with the Developer ID
+        env:
+          MAC_SIGNING_CERTIFICATE: ${{ secrets.MAC_SIGNING_CERTIFICATE }}
+          MAC_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MAC_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 24)
+          echo "$MAC_SIGNING_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$MAC_SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+          [ -n "$identity" ] || { echo "::error::MAC_SIGNING_CERTIFICATE holds no Developer ID Application identity"; exit 1; }
+          app="$RUNNER_TEMP/release/Atlas Console.app"
+          codesign --force --options runtime --timestamp --keychain "$keychain" --sign "$identity" "$app"
+          codesign --verify --strict --verbose=2 "$app"
+          # An installed app takes only a release that meets its own designated requirement:
+          # this identifier, signed by this team.
+          codesign -d -r- "$app" 2>&1 | grep -q 'certificate leaf\[subject.OU\]' \
+            || { echo "::error::The signed app's designated requirement names no team"; exit 1; }
+          security delete-keychain "$keychain"
+      - name: Publish the release and point the feed at it
+        env:
+          CONTRACT: ${{ steps.build.outputs.contract }}
+        run: |
+          short=${REVISION:0:12}
+          tag="atlas-console-$short"
+          zip="$RUNNER_TEMP/release/Atlas-Console-$short.zip"
+          ditto -c -k --keepParent "$RUNNER_TEMP/release/Atlas Console.app" "$zip"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" "$zip" --target "$REVISION" --latest=false \
+              --title "Atlas Console master-$short" \
+              --notes "The Mac app at $REVISION (contract $CONTRACT, build $BUILD). Installed apps update to it themselves."
+          else
+            gh release upload "$tag" "$zip" --clobber
+          fi
+          if ! gh release view "$FEED_TAG" >/dev/null 2>&1; then
+            gh release create "$FEED_TAG" --target "$REVISION" --latest=false --title "Atlas Console feed" \
+              --notes "feed.json names the newest Mac app release; installed apps read it."
+          fi
+          rm -f "$RUNNER_TEMP/current.json"
+          gh release download "$FEED_TAG" --pattern feed.json --output "$RUNNER_TEMP/current.json" || true
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag/$(basename "$zip")"
+          status=0
+          python3 -B tools/package_release_app.py feed --revision "$REVISION" --build "$BUILD" --contract "$CONTRACT" \
+            --url "$url" --zip "$zip" --current "$RUNNER_TEMP/current.json" --output "$RUNNER_TEMP/feed.json" || status=$?
+          if [ "$status" = 3 ]; then
+            echo "The feed already names a later build; $tag is published but not the newest." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          [ "$status" = 0 ] || exit "$status"
+          gh release upload "$FEED_TAG" "$RUNNER_TEMP/feed.json" --clobber
+          echo "Published $tag (contract $CONTRACT, build $BUILD); $FEED_URL names it." >> "$GITHUB_STEP_SUMMARY"

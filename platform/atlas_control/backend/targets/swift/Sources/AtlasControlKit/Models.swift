@@ -1595,13 +1595,19 @@ public struct WelcomeModel: Codable, Sendable, Equatable {
 /// The model `bye`.
 public struct ByeModel: Codable, Sendable, Equatable {
     public var text: String
+    public var reason: String?
+    public var spec: String?
 
-    public init(text: String) {
+    public init(text: String, reason: String? = nil, spec: String? = nil) {
         self.text = text
+        self.reason = reason
+        self.spec = spec
     }
 
     enum CodingKeys: String, CodingKey {
         case text
+        case reason
+        case spec
     }
 }
 

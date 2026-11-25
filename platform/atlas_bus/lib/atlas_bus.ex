@@ -55,6 +55,21 @@ defmodule AtlasBus do
   end
 
   @doc """
+  How many messages wait at the endpoint `name`, unread (its process's queue), or nil when
+  no endpoint is attached as `name` on this node. Envelopes only: it never reads them, and
+  it does not wait for the endpoint, so it answers while the endpoint is busy or stuck
+  (Control's health page, the length of Facts' queue: IS-Atlas-117).
+  """
+  def waiting(name) when is_binary(name) do
+    with [{pid, _}] <- Registry.lookup(AtlasBus.Endpoints, name),
+         {:message_queue_len, n} <- Process.info(pid, :message_queue_len) do
+      n
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
   Put a message on the Bus from the calling process, which must be attached.
   Returns an error only for a message the Bus will not route.
   """

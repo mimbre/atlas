@@ -42,7 +42,7 @@ defmodule RelaDSL.Description.Build do
     :restart_by,
     :order
   ]
-  @migrate_keys [:from, :to, :states, :rekey, :preserve_entry, :reason]
+  @migrate_keys [:from, :to, :states, :rekey, :preserve_entry, :reopen, :reason]
   @flow_runtime_keys [:runs, :writer, :inputs, :supervision, :senders]
   @supervision_keys [:relation, :operation, :hand_to]
   @work_keys [:kind, :of, :for, :ended]

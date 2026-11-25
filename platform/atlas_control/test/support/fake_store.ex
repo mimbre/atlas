@@ -36,6 +36,13 @@ defmodule AtlasControl.FakeStore do
   def silent(on?), do: GenServer.call(__MODULE__, {:silent, on?})
 
   @doc """
+  Report that it is loading (`true`), as Facts does before it has read its facts: every
+  fact is refused as not ready (`code: "not_ready"`), unrecorded; `false`: ready again.
+  Tells `pid`, if given, `{:not_ready, id}` of each fact it refuses so.
+  """
+  def loading(on?, pid \\ nil), do: GenServer.call(__MODULE__, {:loading, on?, pid})
+
+  @doc """
   A hint of a write someone else made, as Facts sends it to every listener of `kind`:
   `changes` as a `stored` says them, at the next position. Nothing is stored.
   """
@@ -79,6 +86,7 @@ defmodule AtlasControl.FakeStore do
        facts: %{},
        position: 0,
        silent: false,
+       loading: false,
        silent_reads: %{},
        tell_unanswered: nil,
        reserved: MapSet.new(),
@@ -100,6 +108,9 @@ defmodule AtlasControl.FakeStore do
     do: {:reply, :ok, put_in(s.presentations[{kind, key}], {presentation, runs})}
 
   def handle_call({:silent, on?}, _from, s), do: {:reply, :ok, %{s | silent: on?}}
+
+  def handle_call({:loading, on?, pid}, _from, s),
+    do: {:reply, :ok, %{s | loading: on? && (pid || true)}}
 
   def handle_call({:silent_reads, kinds}, _from, s) do
     silent =
@@ -172,6 +183,20 @@ defmodule AtlasControl.FakeStore do
 
   def handle_info({:atlas_bus, %Envelope{class: "fact"}, _content}, %{silent: true} = s),
     do: {:noreply, s}
+
+  def handle_info({:atlas_bus, %Envelope{class: "fact"} = e, c}, %{loading: loading} = s)
+      when loading != false do
+    refusal = %{
+      "op" => c["op"],
+      "key" => c["key"],
+      "code" => "not_ready",
+      "reasons" => ["Facts is not ready yet: it is still reading its facts from rela."]
+    }
+
+    :ok = AtlasBus.send(Envelope.reply(e, "refused"), refusal)
+    if is_pid(loading), do: send(loading, {:not_ready, e.id})
+    {:noreply, s}
+  end
 
   # A pickup, hand-over or retry (work acquisition decision 2026-11-17, §5.6): an input of
   # a flow, kept as sent (Facts checks it, and keeps it applied for Flow). It changes no

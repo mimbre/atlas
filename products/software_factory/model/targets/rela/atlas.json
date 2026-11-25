@@ -642,6 +642,19 @@
             "flow"
           ]
         },
+        "retry_step": {
+          "label": "Retry step",
+          "set_by": [
+            "flow"
+          ]
+        },
+        "task_failure": {
+          "label": "Task failure",
+          "multiline": true,
+          "set_by": [
+            "flow"
+          ]
+        },
         "task_result": {
           "label": "Task result",
           "set_by": [
@@ -1308,6 +1321,10 @@
         },
         "status": {
           "label": "Flux group"
+        },
+        "supervisor_note": {
+          "label": "Supervisor's note",
+          "multiline": true
         },
         "task_result": {
           "label": "Task result",

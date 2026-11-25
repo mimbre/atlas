@@ -29,4 +29,19 @@ final class SettingsTests: XCTestCase {
     func testASettingsFileWithoutControl() {
         XCTAssertThrowsError(try SessionSettings.file(Data(#"{"env":"test"}"#.utf8)))
     }
+
+    // MARK: A release, and the app it starts after updating itself (IS-Atlas-66)
+
+    func testAReleaseOpenedFromTheFinderConnectsWhereItsBundleSays() throws {
+        let info: [String: Any] = ["AtlasControl": ["env": "prod", "host": "127.0.0.1", "port": 7593]]
+        XCTAssertEqual(try SessionSettings.launch([], bundle: info), SessionSettings(env: "prod", host: "127.0.0.1", port: 7593))
+        XCTAssertEqual(try SessionSettings.launch(["--env", "test", "--host", "h", "--port", "1"], bundle: info).env, "test",
+                       "launch arguments win over the bundle")
+    }
+
+    func testTheUpdatedAppStartsWithTheSameSettingsOnThePageShown() throws {
+        var settings = SessionSettings(env: "prod", host: "127.0.0.1", port: 7593, reconcileSeconds: 2.5)
+        settings.startPage = "/k/issue/IS-1"
+        XCTAssertEqual(try SessionSettings.launch(settings.arguments), settings)
+    }
 }

@@ -320,6 +320,13 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(Page.workers.template, "/workers")
     }
 
+    func test_page_health_builds_and_matches_its_path() throws {
+        let params: [String: String] = [:]
+        let path = try Page.health.path(params)
+        XCTAssertEqual(Page.match(path), PageMatch(page: .health, params: params))
+        XCTAssertEqual(Page.health.template, "/health")
+    }
+
     func test_page_worker_builds_and_matches_its_path() throws {
         let params: [String: String] = ["attempt": "v attempt/1", "machine": "v machine/1", "turn": "v turn/1", "worker": "v worker/1"]
         let path = try Page.worker.path(params)
@@ -800,7 +807,7 @@ final class ContractTests: XCTestCase {
     }
 
     func test_control_message_bye_decodes_and_round_trips() throws {
-        let text = ##"{"op":"bye","text":"text 1"}"##
+        let text = ##"{"op":"bye","reason":"reason 1","spec":"spec 1","text":"text 1"}"##
         let message = try decode(ControlMessage.self, text)
         guard case .bye = message else { return XCTFail("decoded as \(message)") }
         try assertRoundTrip(message, text)

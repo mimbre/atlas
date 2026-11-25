@@ -145,7 +145,8 @@
           {"from":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","to":"171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"preserve_entry":true,"reason":"Build: its agent asks rela first (D-0100)"},
           {"from":"171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147","to":"6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"The CI gate: CI is waited for before the merge, and red is fixed at most twice"},
           {"from":"6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce","to":"67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66","preserve_entry":true,"states":{"checking":"checking","ci_failing":"ci_failing","ci_fixing":"ci_fixing","ci_fixing_again":"ci_fixing_again","ci_pushing":"ci_pushing","done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Mergeable and green only: a conflict with develop is updated by an agent"},
-          {"from":"67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66","to":"87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e","preserve_entry":true,"states":{"checking":"checking","ci_failing":"ci_failing","ci_fixing":"ci_fixing","ci_fixing_again":"ci_fixing_again","ci_pushing":"ci_pushing","done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","update_failing":"update_failing","update_pushing":"update_pushing","updating":"updating","working":"working"},"reason":"Build: its supervisor's pickup starts the work; texts only"}
+          {"from":"67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66","to":"87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e","preserve_entry":true,"states":{"checking":"checking","ci_failing":"ci_failing","ci_fixing":"ci_fixing","ci_fixing_again":"ci_fixing_again","ci_pushing":"ci_pushing","done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","update_failing":"update_failing","update_pushing":"update_pushing","updating":"updating","working":"working"},"reason":"Build: its supervisor's pickup starts the work; texts only"},
+          {"from":"87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e","to":"59755bfb4a34101d408bb5c0ebce2bdc93252ad04a024f10a8931160ade7aa33","preserve_entry":true,"reopen":["stuck"],"states":{"checking":"checking","ci_failing":"ci_failing","ci_fixing":"ci_fixing","ci_fixing_again":"ci_fixing_again","ci_pushing":"ci_pushing","done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","update_failing":"update_failing","update_pushing":"update_pushing","updating":"updating","working":"working"},"reason":"No item gets stuck: a stuck issue stays with its supervisor, who may retry it"}
         ],
         "subject": "issue",
         "projection": {
@@ -381,7 +382,8 @@
           {"from":"22f92911df5dc1f8386533e92dd53367904496f854b86e771c6f84881a4387c1","to":"bf01ce6f998aa561aeed3447ae41c1bd35bd2df082399358b59a2353a20a9ba9","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Design: renamed from Scene → Use cases"},
           {"from":"bf01ce6f998aa561aeed3447ae41c1bd35bd2df082399358b59a2353a20a9ba9","to":"54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Design: its use cases carry no design status"},
           {"from":"54483a0d6c36f6d302c5aa85ae64deb5380952192a752dfebd1d55c9f794d4ec","to":"f52ee753f148fefc1ae12ce899968a99b9e2cf7671950223340de423aa356ae6","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"preserve_entry":true,"reason":"Design: its agent asks rela first (D-0100)"},
-          {"from":"f52ee753f148fefc1ae12ce899968a99b9e2cf7671950223340de423aa356ae6","to":"1fa161740e21d0c8055aafd3a24ef417993671d1057e14762aa4064aad1249c0","preserve_entry":true,"states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Design: its supervisor's pickup starts the work; texts only"}
+          {"from":"f52ee753f148fefc1ae12ce899968a99b9e2cf7671950223340de423aa356ae6","to":"1fa161740e21d0c8055aafd3a24ef417993671d1057e14762aa4064aad1249c0","preserve_entry":true,"states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Design: its supervisor's pickup starts the work; texts only"},
+          {"from":"1fa161740e21d0c8055aafd3a24ef417993671d1057e14762aa4064aad1249c0","to":"c7f67e0c0f7dc9247c959f1ccf90fb95ab65ceab1c746d025336b77a1f1b7092","preserve_entry":true,"states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Design: its proposal can be sent back with a note"}
         ],
         "subject": "scene",
         "projection": {
@@ -455,7 +457,8 @@
           {"from":"258a95da4ce00a62fa8bd1dc4579f11a560b782d971db95599be685c7bba0670","to":"2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: the issues it proposes are numbered, in the order they are built"},
           {"from":"2fa20f07409610f03c30a8eb76c3ce82aedc2d03832860d285a1e25cf6a74695","to":"aa7fce1ce687d65c90d380759e927a68c067ec70a5f4fc2cd5648f966f17d949","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"preserve_entry":true,"reason":"Plan: its agent asks rela first (D-0100)"},
           {"from":"aa7fce1ce687d65c90d380759e927a68c067ec70a5f4fc2cd5648f966f17d949","to":"a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f","states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its accept step says what its page offers"},
-          {"from":"a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f","to":"c7a2c365f29940f90596ff37f008a52feeb6ea984a6efcfa3078e04fa532a843","preserve_entry":true,"states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its supervisor's pickup starts the work; texts only"}
+          {"from":"a1cb09d9e0d2166947d7658fcb886a35bd3f6a4acee0626ebdb6d61bdfb38a1f","to":"c7a2c365f29940f90596ff37f008a52feeb6ea984a6efcfa3078e04fa532a843","preserve_entry":true,"states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its supervisor's pickup starts the work; texts only"},
+          {"from":"c7a2c365f29940f90596ff37f008a52feeb6ea984a6efcfa3078e04fa532a843","to":"87f1c51b6a705ba8f23903a62812a86ee7d96056eaee4074ea2573410c416b97","preserve_entry":true,"states":{"accepting":"accepting","break_down":"break_down","broken_down":"broken_down"},"reason":"Plan: its proposal can be sent back with a note"}
         ],
         "subject": "use_case",
         "projection": {
@@ -635,7 +638,9 @@
               "update_pushing",
               "update_failing",
               "merging",
-              "unchanged"
+              "unchanged",
+              "stuck",
+              "review_stuck"
             ],
             "with": [
               "package",

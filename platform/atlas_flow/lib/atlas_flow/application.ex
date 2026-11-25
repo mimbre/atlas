@@ -20,7 +20,9 @@ defmodule AtlasFlow.Application do
         end
 
       # The work source first: the Engine's first round already finds Bases (M3 A4).
-      children = [AtlasFlow.Activities.Effect.Inbox] ++ work_source ++ engine
+      # Health first: Dispatch and the Engine note in its table what Control's health page
+      # reads (IS-Atlas-117).
+      children = [AtlasFlow.Health, AtlasFlow.Activities.Effect.Inbox] ++ work_source ++ engine
 
       Supervisor.start_link(children, strategy: :one_for_one, name: AtlasFlow.Root)
     end

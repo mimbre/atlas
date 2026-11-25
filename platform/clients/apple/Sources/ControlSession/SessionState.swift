@@ -40,8 +40,12 @@ public struct SessionState: Sendable, Equatable {
 
     /// Why the session ended.
     public enum Ending: Sendable, Equatable {
-        /// Control said bye (another environment, a client too old, …), with its text.
+        /// Control said bye (another environment, …), with its text.
         case bye(String)
+        /// Control closed the app as too old (`reason` "too_old"): the contract Control
+        /// speaks, and its text. The app's update says what is true and what happens
+        /// (IS-Atlas-66), not this text alone.
+        case tooOld(control: String, text: String)
         /// Control's welcome names another environment, contract version or surface.
         case incompatible(WelcomeMessage)
         /// Control's welcome does not decode, and why (the TUI ends such a session too).
@@ -191,8 +195,13 @@ public struct SessionState: Sendable, Equatable {
     /// one opened since); another waits until it has.
     public private(set) var submitting = false
 
+    /// The page to open after the first boot instead of the shell's `initial_to`: the
+    /// page the app showed before it updated itself (`--to`). Used once.
+    var startPage: String?
+
     public init(settings: SessionSettings) {
         self.settings = settings
+        startPage = settings.startPage
     }
 
     // MARK: Derived
@@ -368,7 +377,11 @@ public struct SessionState: Sendable, Equatable {
         case .welcome(let welcome):
             return self.welcome(welcome)
         case .bye(let bye):
-            connection = .ended(.bye(bye.text))
+            if bye.reason == "too_old" {
+                connection = .ended(.tooOld(control: bye.spec ?? "a newer contract", text: bye.text))
+            } else {
+                connection = .ended(.bye(bye.text))
+            }
             return [.close]
         case .notice(let notice):
             self.notice = notice
@@ -461,7 +474,9 @@ public struct SessionState: Sendable, Equatable {
     /// boot asked for it), or, while editing, the page on screen as it is.
     private mutating func start(_ shell: Shell) -> [Effect] {
         phase = .content
-        let target = isEditing ? (pageOnScreen?.path ?? shell.initialTo) : shell.initialTo
+        let wished = startPage.flatMap { Page.match($0) != nil ? $0 : nil }
+        startPage = nil
+        let target = isEditing ? (pageOnScreen?.path ?? shell.initialTo) : (wished ?? shell.initialTo)
         let column: Column
         if let opened, opened.path == target {
             column = .opened

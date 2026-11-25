@@ -41,6 +41,9 @@ defmodule AtlasTui.Console do
             key_buffer: "",
             # The first key of a two-key sequence ("g" of "g s") waiting for its second.
             key_prefix: "",
+            # The page to open after the first boot instead of the shell's start page: the
+            # one a TUI showed before it was closed as too old and updated (IS-Atlas-76).
+            start_to: nil,
             generation: 0
 
   @history_limit 100
@@ -114,11 +117,17 @@ defmodule AtlasTui.Console do
           if console.phase == :boot do
             # Reopen the canonical target only after hello's compatibility page and
             # successful boot. Keep a local editor intact while restoring server path.
-            target = if draft?(model) and model.path, do: model.path, else: shell["initial_to"]
+            target =
+              cond do
+                draft?(model) and model.path -> model.path
+                console.start_to -> console.start_to
+                true -> shell["initial_to"]
+              end
 
             console = %{
               console
               | phase: :content,
+                start_to: nil,
                 expected: target,
                 in_flight: target,
                 restoring: draft?(model),
@@ -145,6 +154,29 @@ defmodule AtlasTui.Console do
       end
     else
       {model, []}
+    end
+  end
+
+  # Closed as too old (IS-Atlas-76): started by bin/atlas, which can update this build,
+  # the TUI ends with `{:too_old, page, control spec}` and bin/atlas starts the newest
+  # build on that page. Otherwise it says what is true and what to do, and stays closed.
+  def receive(model, %{"op" => "bye", "reason" => "too_old"} = message) do
+    model = disconnected(model)
+    theirs = message["spec"] || "a newer contract"
+    said = "Control #{model.env} speaks #{theirs}; this build is #{Protocol.version()}"
+
+    case model.release do
+      :restart ->
+        notice = %{tone: "pending", text: "#{said}. Taking the newest build…"}
+        {%{model | notice: notice, closed: true}, [{:too_old, model.path, theirs}]}
+
+      {:not_updated, why, once} ->
+        text = "#{said} and could not be updated: #{why}. Quit and run atlas again once #{once}."
+        {%{model | notice: %{tone: "error", text: text}, closed: true}, []}
+
+      nil ->
+        text = "#{said}. Quit and run atlas again: it takes the newest build."
+        {%{model | notice: %{tone: "error", text: text}, closed: true}, []}
     end
   end
 

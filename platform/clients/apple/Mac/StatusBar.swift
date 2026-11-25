@@ -1,12 +1,16 @@
 #if os(macOS)
+import AppUpdate
 import ControlSession
 import SwiftUI
 
 /// Below the columns: connected or not, the position of the page on screen, how and when
-/// it last changed, the last hint, the reconcile interval and the last notice.
+/// it last changed, the last hint, the reconcile interval, the app's update and the last
+/// notice.
 struct StatusBar: View {
     let status: StatusViewModel
     let shell: ShellViewModel
+    /// What the app's update says ("Updating to <revision>…"), when it says anything.
+    let update: (text: String, tone: UpdateStatus.Tone)?
 
     var body: some View {
         HStack(spacing: 14) {
@@ -31,6 +35,13 @@ struct StatusBar: View {
                 Text("\(failure.path) could not be read (\(failure.reason))").foregroundStyle(.red)
             }
             Spacer(minLength: 8)
+            if let update {
+                Text(update.text)
+                    .foregroundStyle(tone(update.tone.rawValue))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(update.text)
+            }
             if let notice = status.notice {
                 Text(notice.text)
                     .foregroundStyle(tone(notice.tone))
