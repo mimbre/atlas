@@ -63,7 +63,7 @@ defmodule AtlasFlow.Delivery do
   alias AtlasFlow.{Bases, Results, Talk}
   alias AtlasFlow.Runs.{Clock, Store}
   alias AtlasFlow.Runtime.Records
-  alias AtlasFlow.WorkSource.{Configuration, Leases, Translate}
+  alias AtlasFlow.WorkSource.{Configuration, Leases, Translate, Upgrade}
 
   @endpoint "flow/delivery"
 
@@ -81,6 +81,17 @@ defmodule AtlasFlow.Delivery do
   """
   def configuration(client, input, server \\ __MODULE__) do
     GenServer.call(server, {:configuration, client, input}, 10_000)
+  catch
+    :exit, _ -> :none
+  end
+
+  @doc """
+  The upgrade step of a poll of `client` (`AtlasFlow.WorkSource.Upgrade.poll/3`): records
+  what the poll says on the Runtime's open upgrade, then `{:serve, %{id, build}}` or
+  `:none`. Never fails a poll: a Delivery that does not answer in time is `:none`.
+  """
+  def upgrade(client, input, server \\ __MODULE__) do
+    GenServer.call(server, {:upgrade, client, input}, 10_000)
   catch
     :exit, _ -> :none
   end
@@ -191,6 +202,10 @@ defmodule AtlasFlow.Delivery do
 
   def handle_call({:configuration, {runtime_id, _holder}, input}, _from, state) do
     {:reply, Configuration.poll(runtime_id, input), state}
+  end
+
+  def handle_call({:upgrade, {runtime_id, _holder}, input}, _from, state) do
+    {:reply, Upgrade.poll(runtime_id, input), state}
   end
 
   def handle_call({:scope, {runtime_id, _}, lease_id, sha}, _from, state) do

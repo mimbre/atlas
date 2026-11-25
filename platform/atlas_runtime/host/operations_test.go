@@ -267,8 +267,8 @@ func TestServiceStartChecksBackendSocket(t *testing.T) {
 	}
 	command.Close()
 
-	// Nothing answers: the start goes ahead (and stops here, without the checkout location).
-	if _, err = execute([]string{"service", "start"}); err == nil || err.Error() != "CLI was not built with the Atlas checkout location" {
+	// Nothing answers: the start goes ahead (and stops here, without the checkout location or a release).
+	if _, err = execute([]string{"service", "start"}); err == nil || err.Error() != "CLI was not built with the Atlas checkout location and is not in a release" {
 		t.Fatalf("expected the start to proceed, got %v", err)
 	}
 }

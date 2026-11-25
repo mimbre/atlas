@@ -46,11 +46,25 @@ defmodule AtlasRuntime.Provenance do
     }
   end
 
-  @doc "This machine and Runtime build, for `record/3`."
+  @doc """
+  This machine and Runtime build, for `record/3`. The build is the release's the service
+  runs from (`ATLAS_RUNTIME_BUILD`, set by `atlas-runtime service start` from a release,
+  IS-Atlas-26), else the application's version.
+  """
   def context do
     {:ok, host} = :inet.gethostname()
-    vsn = Application.spec(:atlas_runtime, :vsn)
-    %{machine: to_string(host), runtime_build: if(vsn, do: to_string(vsn), else: "unknown")}
+    %{machine: to_string(host), runtime_build: build()}
+  end
+
+  defp build do
+    case System.get_env("ATLAS_RUNTIME_BUILD") do
+      build when is_binary(build) and build != "" ->
+        build
+
+      _ ->
+        vsn = Application.spec(:atlas_runtime, :vsn)
+        if vsn, do: to_string(vsn), else: "unknown"
+    end
   end
 
   @doc "The turn's top-level model change, or nil: then its result is `failed: model_changed`."

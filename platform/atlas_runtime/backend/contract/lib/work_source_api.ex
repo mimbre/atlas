@@ -35,8 +35,10 @@ defmodule AtlasRuntimeBackend.WorkSource do
 
   # 0.2.0: put_blob is carried (an added route; nothing earlier changed). 0.3.0: the poll
   # body may carry configuration_refused (boundary 0.4.0, IS-Atlas-27), sent only when the
-  # Runtime has a refusal to report, so a 0.2.0 source never receives it.
-  version "0.3.0"
+  # Runtime has a refusal to report, so a 0.2.0 source never receives it. 0.4.0: the poll
+  # body may carry upgrade (boundary 0.5.0, IS-Atlas-26), sent only while the Runtime works
+  # on an upgrade a source served, so a source that serves none never receives it.
+  version "0.4.0"
   boundary AtlasRuntimeBoundary.WorkSource
 
   expose [:poll, :report, :get_blob, :put_blob]

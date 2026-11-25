@@ -69,6 +69,8 @@ The operations contract (`platform/atlas_runtime/boundary/contract/lib/operation
 | `preferences` | `GET /v1/policy` | the policy view: `version`, `changed_by`, `changed_at`, `buffer_size`, `independence`, and per profile its `permissions`, `cost_classes`, `limits` and `options` (`provider`, `harness`, `model`, `availability`) |
 | `preferences --reenable HARNESS` | `POST /v1/harnesses/HARNESS/clear-quota-mark` | 200 `cleared` (also for a harness without a mark); 404 for an unknown harness |
 | `release --slot SLOT` | `POST /v1/slots/SLOT/release` | 200 `released` (also with nothing to release); 404 for a slot not in `policy.json`; 409 `slot-busy` while the slot's process is alive, printed as `slot busy: …` |
+| `update --build BUILD` | `GET /v1/runtime`, `POST /v1/control/drain`, `stop`, `resume` | installs the released build BUILD; see [Update to a released build](#update-to-a-released-build) |
+| `version` | — | this binary's `build` (a release's, or `checkout`), `release`, `root`, `goos`, `goarch`; needs no home |
 
 ```sh
 atlas-runtime service status
@@ -78,6 +80,8 @@ atlas-runtime service resume
 atlas-runtime service stop [--force]
 atlas-runtime preferences [--reenable HARNESS]
 atlas-runtime release --slot SLOT
+atlas-runtime update --build BUILD [--from URL|DIR] [--install PATH] [--restart auto|launchd|service|none] [--detach]
+atlas-runtime version
 ```
 
 - **Modes.** `pause` takes no new work (`at-capacity`, `not_accepting`) and starts no buffered work, while `starting` and `running` turns continue. `drain` also takes no new work, returns every work the executor accepted from a work source and has not started (`returned`, `never_started`, retryable) and lets running turns finish; work still queued at the local source stays queued, and is handed over after `resume`. The Runtime stays `draining` until `resume`, also with an empty buffer. `drain` while paused returns the buffer; `pause` while draining gives `paused`. `resume` opens the Runtime again. The mode is kept in `mode.json` and outlasts a restart; `service stop` does not change it.
@@ -871,6 +875,7 @@ Everything machine-specific is in `~/.config/atlas-runtime/machine.json`, outsid
 | --- | --- |
 | `machine`, `environment`, `workers` | written into `server.json` (see [Optional Atlas Server lifecycle reporting](#optional-atlas-server-lifecycle-reporting)) |
 | `runtime_home` | the Runtime home (`ATLAS_RUNTIME_HOME`); set the same value in `~/.zshenv` |
+| `releases` | optional: where Atlas publishes the Runtime's releases (`https://github.com/OWNER/REPO/releases/download`), passed to the service as `ATLAS_RUNTIME_RELEASES` for `atlas-runtime update`; without it an upgrade fails at its update |
 | `path` | `PATH` for the service and its workers: `atlas-runtime`, the asdf shims (Elixir), `codex`/`claude` |
 | `bus.host`, `bus.port` | the Bus listener in `server.json`; `start.sh` waits up to 60 s for it |
 | `fly_proxy.app`, `fly_proxy.remote_port` | optional: tunnel `127.0.0.1:bus.port` to that port of that Fly app; leave out when the Bus is reachable directly |
@@ -897,7 +902,7 @@ Everything machine-specific is in `~/.config/atlas-runtime/machine.json`, outsid
 
 `install.sh` is idempotent: identical files are left alone, and an agent is (re)loaded only when its plist changed or it is not loaded. Loading the Runtime agent runs `start.sh`, which starts the service, or does nothing when it is already running; it never stops a running Runtime. Reloading the tunnel agent drops the Bus link for a moment; the Runtime links again by itself. A changed `start.sh` takes effect at its next run.
 
-**Update.** After updating the checkout: wait until `atlas-runtime service status` shows no busy slot, `atlas-runtime service stop`, rebuild the binary, run `install.sh` again, and start with `launchctl kickstart gui/$UID/com.mimbre.atlas-runtime` (the same path as at login).
+**Update.** Through Control: its supervisor starts an upgrade of the machinery, naming the released build ([Upgrade through Control](#upgrade-through-control)). By hand on the machine, with the same command: `atlas-runtime update --build BUILD` ([Update to a released build](#update-to-a-released-build)); it restarts the Runtime through this launch agent. Set `releases` in `machine.json` (`https://github.com/OWNER/REPO/releases/download`): `start.sh` passes it to the service as `ATLAS_RUNTIME_RELEASES`. A changed `start.sh` or `install.sh` still needs `install.sh` again.
 
 **What survives a reboot.** Launch agents run only in a logged-in session, and `secret.sh` can read the keychain only there. So the Mac must log in by itself: System Settings → Users & Groups → *Automatically log in as* this user (not available with FileVault on), with the login keychain's password equal to the login password, so that the login unlocks it. Then, after a reboot: the tunnel agent starts and is restarted every 10 s until it holds; `start.sh` retries the token for 5 minutes (the network or keychain may not be ready yet), writes `server.json`, waits for the Bus port and starts the service; `server.token` is deleted again once the service has read it. Turns running at the moment of the reboot do not continue, and their Server turns keep their lease until it runs out. Not managed here: sleep and power settings (for a server, `sudo pmset -a sleep 0` and `sudo pmset -a autorestart 1`), and the Code service.
 
@@ -914,6 +919,38 @@ atlas-runtime service status           # new incarnation, slots idle
 ```
 
 Then start one turn of a listed worker and check that it shows up on the Server with a confirmed `server.report`. To exercise only `start.sh` without rebooting (not the auto-login and keychain), stop the service and run `launchctl kickstart gui/$UID/com.mimbre.atlas-runtime`.
+
+## Update to a released build
+
+A Runtime runs a **release**, the build Atlas publishes, not a checkout on the machine. CI publishes one for every push to develop and master (`deploy-runtime-release`), as the GitHub release `atlas-runtime-<commit>`: `atlas-runtime-<commit>-darwin-arm64.tar.gz` and its `.sha256`, built by [`release.sh`](release.sh) (`release.sh BUILD OUT_DIR` builds one for this machine). A release holds `release.json` (`build`, `goos`, `goarch`), `bin/atlas-runtime` (built with `-X main.build=BUILD`), the compiled service (`build/`, as `service start` builds it from a checkout, links resolved), the umbrella's `config/` and `host/boot.exs` and `host/service.exs`. `service start` from a release starts the service from `build/`, without Mix or Hex, and the service reports the release's build as `runtime_build` (`ATLAS_RUNTIME_BUILD`). Erlang and Elixir are the machine's, as `.tool-versions` pins them.
+
+```sh
+atlas-runtime update --build 3f2c…   # the commit Atlas published
+```
+
+`update` (its options: `--from` the releases, default `$ATLAS_RUNTIME_RELEASES`, a URL ending in `/releases/download` or a folder with the same layout; `--install` the installed command, default `~/.local/bin/atlas-runtime`; `--restart`):
+
+1. takes `update.lock` in the Runtime home without waiting: while another update holds it, it refuses, `update refused: another update holds update.lock (pid N)`, reason `update_running`;
+2. reads `service status`: while a slot is busy it refuses and names every busy slot, `update refused: slot busy: dev1; drain the Runtime (atlas-runtime service drain) and wait until service status shows no busy slot`, reason `slot_busy`, `busy: ["dev1"]`. An open Runtime is drained first, so nothing starts between the check and the stop, and is checked again;
+3. fetches the archive and its `.sha256` from `FROM/atlas-runtime-BUILD/`, checks the sha256, unpacks it into `~/.local/share/atlas-runtime/releases/BUILD` (`$ATLAS_RUNTIME_RELEASES_DIR`) and checks that `release.json` and the binary's `version` say BUILD for this machine (a release already there is reused);
+4. stops the service (it is idle: nothing is cancelled) and points the installed command at the release's `bin/atlas-runtime` (a symlink; the command it replaced stays as `atlas-runtime.previous`);
+5. starts the Runtime again: `--restart launchd` kickstarts `com.mimbre.atlas-runtime` (`$ATLAS_RUNTIME_LAUNCH_AGENT`), the same path as at login; `service` runs the installed command's `service start`; `auto` (the default) takes launchd when that agent is loaded; `none` leaves it stopped. It waits until `service status` shows BUILD (3 minutes);
+6. resumes a Runtime it drained itself; a mode someone set before (drained by an upgrade, paused) stays.
+
+It prints the outcome, and writes it to `update.json` in the Runtime home: `state` `done` (with `result` `updated`, or `current` when BUILD already runs, which changes nothing), or `failed` with the `step` (`check`, `drain`, `fetch`, `stop`, `install`, `restart`) and `error`, exit 1. Before the stop, a failure resumes what it drained and changes nothing else; a restart that fails puts the replaced command back and starts it. `--detach` runs the same update in its own session (`update.log`) after the same lock and slot checks, and returns at once: that is how the Runtime runs it on itself. Only the update holding the lock writes `update.json`.
+
+The service keeps `ATLAS_RUNTIME_RELEASES`, `ATLAS_RUNTIME_RELEASES_DIR` and `ATLAS_RUNTIME_LAUNCH_AGENT` from the environment it was started with (every other `ATLAS_` variable is dropped), so an update it runs finds the releases.
+
+### Upgrade through Control
+
+Its supervisor upgrades a Runtime from Control, and types nothing on its machine (IS-Atlas-26; [docs/guides/uc-atlas-50.md](../../../docs/guides/uc-atlas-50.md)): a `runtime_upgrade` under the Runtime's machinery names the build. Flow's work source serves it in the Runtime's poll answer (`polled.upgrade`, `work_source` 0.5.0) until it ends, and every poll reports where the Runtime is (`poll_input.upgrade`). The puller of that source takes each step in a task (`AtlasRuntime.Upgrade`), kept in `upgrade.json` so it outlasts the restart:
+
+- **draining**: the Runtime drains (`set_mode`, as `service drain`); each poll names the busy slots;
+- **updating**: once no slot is busy it runs `atlas-runtime update --build BUILD --detach` with the binary it runs on. A refusal for a busy slot or the lock waits for the next poll; any other is `failed`;
+- **restarted**: the Runtime the update started (another incarnation) on BUILD opens again (`resume`) and says so; Flow verifies it;
+- **failed**: `update.json` says the update failed (`failed_step` `update`, or `restart`), or the Runtime came back on another build (`restart`); the Runtime opens again on the build it runs, and the reason names no path of the machine.
+
+Once the source no longer serves it after `restarted` or `failed`, `upgrade.json` goes. Only the source that served it reports it and moves it.
 
 ## Model-free native sandbox verification
 

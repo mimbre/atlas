@@ -179,6 +179,29 @@ defmodule AtlasFlow.Backend.RouterTest do
       refute Map.has_key?(JSON.decode!(conn.resp_body), "configuration")
     end
 
+    test "IS-Atlas-26: a poll may report an upgrade, and its answer carry one" do
+      report = %{"id" => "RU-01", "step" => "draining", "busy" => ["dev1"], "mode" => "draining"}
+      body = poll_body() |> JSON.decode!() |> Map.put("upgrade", report) |> JSON.encode!()
+
+      polled =
+        {:polled,
+         %{
+           leases: [],
+           cancel: [],
+           lease_lost: [],
+           timing: %{lease_ttl: 900, poll_max: 25},
+           upgrade: %{id: "RU-01", build: "b2", extra: "dropped"}
+         }}
+
+      conn = request(:post, "/v1/poll", body, plug: plug(stub(poll: fn _ -> polled end)))
+      assert conn.status == 200
+      assert JSON.decode!(conn.resp_body)["upgrade"] == %{"id" => "RU-01", "build" => "b2"}
+      assert_received {:poll, _, %{"upgrade" => ^report}, _}
+
+      conn = request(:post, "/v1/poll", poll_body(), [])
+      refute Map.has_key?(JSON.decode!(conn.resp_body), "upgrade")
+    end
+
     test "the path's parameters go to the source with the body's fields" do
       body = JSON.encode!(%{revision: 2, report: %{state: "started"}})
       conn = request(:post, "/v1/leases/L~1~x/reports", body, [])

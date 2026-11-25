@@ -132,8 +132,8 @@ func serviceStart(dir string) (map[string]any, error) {
 	} else if !absent(dialErr) {
 		return nil, fmt.Errorf("existing service is not responding: %w", dialErr)
 	}
-	if repoRoot == "" {
-		return nil, errors.New("CLI was not built with the Atlas checkout location")
+	if _, _, err = releaseLayout(); err != nil {
+		return nil, err
 	}
 	if err = os.Remove(commandSocket); err != nil && !os.IsNotExist(err) {
 		return nil, err
@@ -142,11 +142,18 @@ func serviceStart(dir string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The binary itself, not the installed command's link: update may point that at
+	// another release while this daemon runs, and its workers run through this one.
+	if resolved, resolveErr := filepath.EvalSymlinks(executable); resolveErr == nil {
+		executable = resolved
+	}
 	build, cmd := serviceCommands(dir, executable)
-	build.Stdout = os.Stderr
-	build.Stderr = os.Stderr
-	if err = build.Run(); err != nil {
-		return nil, fmt.Errorf("Runtime build: %w", err)
+	if build != nil {
+		build.Stdout = os.Stderr
+		build.Stderr = os.Stderr
+		if err = build.Run(); err != nil {
+			return nil, fmt.Errorf("Runtime build: %w", err)
+		}
 	}
 	log, err := os.OpenFile(filepath.Join(dir, "service.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {

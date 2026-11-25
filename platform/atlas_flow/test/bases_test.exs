@@ -548,6 +548,9 @@ defmodule AtlasFlow.BasesTest do
       start_bases(context)
       :ok = Bases.request(@repository, "develop", {self(), :ready}, context.name)
       settle(context, fn -> FakeCode.blocked(context.fake) == 1 end)
+      # Code is asked before Bases schedules its 15 s timeout in the same request: let the
+      # request finish so the timeout is on the clock before the clock moves.
+      :sys.get_state(context.name)
 
       ManualClock.advance(context.clock, 14_999)
       :sys.get_state(context.name)

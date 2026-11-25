@@ -2,6 +2,7 @@
   "machine": "example-mac-mini",
   "environment": "prod",
   "runtime_home": "/Users/me/.local/state/atlas-runtime",
+  "releases": "https://github.com/OWNER/REPO/releases/download",
   "workers": ["dev1", "dev2"],
   "path": "/Users/me/.npm-global/bin:/Users/me/.local/bin:/Users/me/.asdf/shims:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
   "bus": {"host": "127.0.0.1", "port": 7595},

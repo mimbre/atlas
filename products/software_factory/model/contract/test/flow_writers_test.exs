@@ -49,7 +49,9 @@ defmodule Model.FlowWritersTest do
              "by" => "flow",
              "senders" => %{
                "task" => [@dispatch, @delivery, @landing],
-               "task_attempt" => [@delivery]
+               "task_attempt" => [@delivery],
+               "machinery" => [@delivery],
+               "runtime_upgrade" => [@delivery]
              }
            }
   end
@@ -115,7 +117,7 @@ defmodule Model.FlowWritersTest do
 
     others =
       for {kind, spec} <- extension["entities"] || %{},
-          kind not in ["task", "task_attempt"],
+          kind not in ["task", "task_attempt", "machinery", "runtime_upgrade"],
           {field, p} <- spec["properties"] || %{},
           p["set_by"] == ["flow"],
           do: {kind, field}
@@ -126,6 +128,17 @@ defmodule Model.FlowWritersTest do
     for {kind, field} <- others, sender <- [@dispatch, @delivery, @landing] do
       assert refused?(check(create(kind, "X-1", %{field => "x"}), as(sender))),
              "#{kind}.#{field} from #{sender}"
+    end
+  end
+
+  test "5b. the work source's poll steps write a Runtime's machinery and its upgrade, from the receiver" do
+    machinery = create("machinery", "mini", %{"name" => "mini", "applied_version" => 2})
+    upgrade = create("runtime_upgrade", "RU-01", %{"build" => "b2", "step" => "draining"})
+
+    for write <- [machinery, upgrade] do
+      assert check(write, as(@delivery)) == :ok
+      assert refused?(check(write, as(@delivery, "someone")))
+      assert refused?(check(write, as(@dispatch)))
     end
   end
 

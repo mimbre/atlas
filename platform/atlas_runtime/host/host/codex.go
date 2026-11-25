@@ -229,6 +229,9 @@ func socketEntries(home string, projects ...string) ([][2]string, error) {
 //     local_source; work acquisition M2, decision F4);
 //   - bases: every client's uploaded base records and the core's import staging (S5c; a base work's
 //     folder <home>/workers/work-<work_id> lies in the home, so every profile denies it by path);
+//   - update.lock, update.log, update.json: an atlas-runtime update's lock, its detached log and its
+//     outcome (host/update.go); upgrade.json: the upgrade the Runtime runs for its work source
+//     (upgrade.ex, IS-Atlas-26). An agent must neither take the lock nor forge a step;
 //   - <name>.json.tmp for each <name>.json above: the sibling an atomic write (write <path>.tmp, then
 //     rename) fills before the rename, with the whole new content (execution_events.ex and
 //     availability.ex write execution-events.json and availability.json so on every change). A
@@ -241,8 +244,10 @@ var sensitiveHomeNames = append(slices.Clone(runtimeSockets), "turns", "code.jso
 	"backends.json", "policy.json", "availability.json", "service.log", "service.lock", "passes",
 	"snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets",
 	"submissions", "rebinds", "frozen", "execution-events.json", "mode.json", "clients.json", "sources", "local-source", "bases",
+	"update.lock", "update.log", "update.json", "upgrade.json",
 	"code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp", "availability.json.tmp",
-	"execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp")
+	"execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp",
+	"update.json.tmp", "upgrade.json.tmp")
 
 // repositoryRuntimeEntries are the runtimeEntries of a Codex dedicated repository. Codex cannot even
 // lstat below a denied directory, and Git lstats every ancestor of its worktree, so a Runtime home or

@@ -9,6 +9,9 @@ get() { /usr/bin/plutil -extract "$1" "${2:-raw}" -o - $C/machine.json }
 export PATH=$(get path)
 export ATLAS_RUNTIME_HOME=$(get runtime_home)
 H=$ATLAS_RUNTIME_HOME
+# Where Atlas publishes the Runtime's releases, for the update an upgrade through Control
+# runs (atlas-runtime update; IS-Atlas-26). Optional: without it, an upgrade fails at update.
+if R=$(get releases 2>/dev/null); then export ATLAS_RUNTIME_RELEASES=$R; fi
 BUS_HOST=$(get bus.host)
 BUS_PORT=$(get bus.port)
 trap 'rm -f $H/server.token' EXIT

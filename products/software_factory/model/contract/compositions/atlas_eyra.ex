@@ -39,6 +39,7 @@ defmodule Model.AtlasEyra do
     PrReview,
     PrTest,
     PullRequest,
+    RuntimeUpgrade,
     Scene,
     ToDo,
     UseCase
@@ -320,7 +321,8 @@ defmodule Model.AtlasEyra do
       Decision,
       FollowThrough,
       ToDo,
-      Package
+      Package,
+      RuntimeUpgrade
     ])
 
     link(:pr_review,

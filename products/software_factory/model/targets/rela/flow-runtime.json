@@ -1,0 +1,667 @@
+{
+  "flow_runtime": {
+    "version": 1,
+    "flags": {
+      "decision": {"field": "unverified", "value": true, "label": "🔴 Unverified decision"}
+    },
+    "reviews": {
+      "based_on": [{"field": "unverified", "value": true, "label": "Based on unverified decisions"}]
+    },
+    "kind": "flow_run",
+    "writer": {
+      "sender": "flow",
+      "by": "flow",
+      "senders": {
+        "task": [
+          "flow/dispatch",
+          "flow/delivery",
+          "flow/landing"
+        ],
+        "task_attempt": [
+          "flow/delivery"
+        ],
+        "machinery": [
+          "flow/delivery"
+        ],
+        "runtime_upgrade": [
+          "flow/delivery"
+        ]
+      }
+    },
+    "fields": {
+      "flow": "flow",
+      "subject_kind": "subject_kind",
+      "subject_key": "subject_key",
+      "generation": "generation",
+      "definition_sha256": "definition_sha256",
+      "state": "state",
+      "entry": "entry",
+      "entered_at": "entered_at",
+      "status": "status",
+      "deadlines": "deadlines",
+      "pending": "pending",
+      "input_cursor": "input_cursor",
+      "last_input": "last_input",
+      "blocked_reason": "blocked_reason"
+    },
+    "selection": {
+      "runtime_upgrade": {
+        "choices": [],
+        "choice_states": [],
+        "subject": "runtime_upgrade",
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "step": [
+                "done"
+              ]
+            },
+            "state": "done"
+          },
+          {
+            "when": {
+              "step": [
+                "failed"
+              ]
+            },
+            "state": "failed"
+          },
+          {
+            "when": {
+              "step": [
+                "verifying"
+              ]
+            },
+            "state": "verifying"
+          },
+          {
+            "when": {
+              "step": [
+                "updating"
+              ]
+            },
+            "state": "updating"
+          },
+          {
+            "when": {
+              "step": [
+                "draining"
+              ]
+            },
+            "state": "draining"
+          },
+          {
+            "when": [],
+            "state": "requested"
+          }
+        ]
+      },
+      "decide": {
+        "choices": ["status"],
+        "choice_states": ["for_person_always", "for_person", "for_agent", "for_agent_unverified"],
+        "subject": "decision",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "deadline_field": "deadline",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "status": [
+            "proposed",
+            "rejected",
+            "superseded"
+          ]
+        },
+        "imports": [
+          {
+            "when": {
+              "status": [
+                "rejected"
+              ]
+            },
+            "state": "rejected"
+          },
+          {
+            "when": {
+              "status": [
+                "superseded"
+              ]
+            },
+            "state": "accepted"
+          }
+        ],
+        "verification": {
+          "kind": "gate_verdict",
+          "field": "unverified",
+          "relations": [
+            "reviewed_by",
+            "overruled_by"
+          ]
+        }
+      },
+      "to_do": {
+        "choices": ["status"],
+        "choice_states": ["open"],
+        "subject": "to_do",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "status": [
+                "done"
+              ]
+            },
+            "state": "done"
+          },
+          {
+            "when": {
+              "status": [
+                "wont_do"
+              ]
+            },
+            "state": "wont_do"
+          }
+        ],
+        "reopen": "explicit"
+      },
+      "issue": {
+        "choices": [],
+        "choice_states": [],
+        "subject": "issue",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "pr_outcome": [
+                "integrated"
+              ]
+            },
+            "state": "done"
+          }
+        ],
+        "order": {
+          "within": "in_use_case",
+          "by": "order",
+          "done": [
+            "done"
+          ]
+        }
+      },
+      "package": {
+        "choices": [],
+        "choice_states": [],
+        "subject": "package",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": []
+      },
+      "pull_request": {
+        "choices": [],
+        "choice_states": [],
+        "subject": "pull_request",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "state": [
+                "merged"
+              ]
+            },
+            "state": "integrated"
+          },
+          {
+            "when": {
+              "state": [
+                "closed"
+              ]
+            },
+            "state": "closed"
+          },
+          {
+            "when": {
+              "review_outcome": [
+                "changes_requested"
+              ]
+            },
+            "state": "changes_requested"
+          },
+          {
+            "when": {
+              "test_outcome": [
+                "failed"
+              ]
+            },
+            "state": "changes_requested"
+          },
+          {
+            "when": {
+              "review_outcome": [
+                "approved"
+              ],
+              "test_outcome": [
+                "passed"
+              ]
+            },
+            "state": "blocked"
+          }
+        ]
+      },
+      "pr_review": {
+        "choices": ["verdict"],
+        "choice_states": ["working", "escalated"],
+        "subject": "pr_review",
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "superseded": [
+                true
+              ]
+            },
+            "state": "superseded"
+          },
+          {
+            "when": {
+              "verdict": [
+                "approved"
+              ]
+            },
+            "state": "approved"
+          },
+          {
+            "when": {
+              "verdict": [
+                "changes_requested"
+              ]
+            },
+            "state": "changes_requested"
+          },
+          {
+            "when": [],
+            "state": "working"
+          }
+        ]
+      },
+      "pr_test": {
+        "choices": ["verdict"],
+        "choice_states": ["working", "escalated"],
+        "subject": "pr_test",
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "superseded": [
+                true
+              ]
+            },
+            "state": "superseded"
+          },
+          {
+            "when": {
+              "verdict": [
+                "passed"
+              ]
+            },
+            "state": "passed"
+          },
+          {
+            "when": {
+              "verdict": [
+                "failed"
+              ]
+            },
+            "state": "failed"
+          },
+          {
+            "when": [],
+            "state": "working"
+          }
+        ]
+      },
+      "follow_through": {
+        "choices": [],
+        "choice_states": [],
+        "subject": "decision",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "deadline_field": "deadline",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "status": [
+            "accepted"
+          ]
+        },
+        "imports": [
+          {
+            "when": {
+              "no_work": [
+                true
+              ]
+            },
+            "state": "no_work"
+          },
+          {
+            "when": {
+              "status": [
+                "accepted"
+              ]
+            },
+            "state": "waiting"
+          }
+        ]
+      },
+      "break_down_scene": {
+        "choices": [],
+        "choice_states": [],
+        "subject": "scene",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "phase": [
+            "break_down"
+          ]
+        },
+        "imports": [],
+        "reopen": "new_generation",
+        "restart_by": [
+          "owner",
+          "decider"
+        ]
+      },
+      "accept_scene": {
+        "choices": [],
+        "choice_states": [],
+        "subject": "scene",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "phase": [
+            "accept",
+            null
+          ]
+        },
+        "imports": [
+          {
+            "completed": true,
+            "state": "accepted"
+          },
+          {
+            "when": {
+              "phase": [
+                null
+              ]
+            },
+            "state": "building"
+          }
+        ],
+        "reopen": "explicit",
+        "restart_by": [
+          "owner",
+          "decider"
+        ]
+      },
+      "break_down_use_case": {
+        "choices": [],
+        "choice_states": [],
+        "subject": "use_case",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "phase": [
+            "break_down"
+          ]
+        },
+        "imports": [],
+        "reopen": "new_generation",
+        "restart_by": [
+          "owner",
+          "decider"
+        ]
+      },
+      "accept_use_case": {
+        "choices": [],
+        "choice_states": [],
+        "subject": "use_case",
+        "projection": {
+          "on": "assignment",
+          "state_field": "flow_state",
+          "handover_field": "handover",
+          "owner_relation": "assigned_to",
+          "field": "expected"
+        },
+        "admission": {
+          "phase": [
+            "accept",
+            "accepted",
+            null
+          ]
+        },
+        "imports": [
+          {
+            "completed": true,
+            "state": "accepted"
+          },
+          {
+            "when": {
+              "phase": [
+                null
+              ]
+            },
+            "state": "building"
+          }
+        ],
+        "reopen": "explicit",
+        "restart_by": [
+          "owner",
+          "decider"
+        ]
+      }
+    },
+    "inputs": {
+      "kind": "flow_input",
+      "fields": {
+        "request_id": "request_id",
+        "run": "run",
+        "flow": "flow",
+        "subject_kind": "subject_kind",
+        "subject_key": "subject_key",
+        "generation": "generation",
+        "entry": "entry",
+        "source_version": "source_version",
+        "subject_version": "subject_version",
+        "actor": "actor",
+        "roles": "roles",
+        "changed_fields": "changed_fields",
+        "links": "links",
+        "payload_digest": "payload_digest",
+        "status": "status",
+        "position": "position",
+        "prepared_at": "prepared_at",
+        "applied_at": "applied_at",
+        "operation": "operation",
+        "hand_to": "hand_to"
+      },
+      "acl": {
+        "decider": {
+          "update": [
+            "decision"
+          ]
+        },
+        "principle_authority": {
+          "update": [
+            "decision"
+          ]
+        },
+        "delegate": {
+          "update": [
+            "decision"
+          ]
+        },
+        "assignee": {
+          "update": [
+            "to_do"
+          ]
+        },
+        "reviewer": {
+          "update": [
+            "pr_review"
+          ]
+        },
+        "maintainer": {
+          "update": [
+            "issue",
+            "pull_request",
+            "pr_review",
+            "pr_test",
+            "use_case"
+          ]
+        },
+        "tester": {
+          "update": [
+            "pr_test"
+          ]
+        },
+        "maintainer": {
+          "update": [
+            "issue",
+            "pull_request",
+            "pr_review",
+            "pr_test",
+            "use_case"
+          ]
+        }
+      },
+      "roles": {
+        "decider": "decided_by",
+        "principle_authority": "decided_by",
+        "delegate": "decided_by",
+        "assignee": "assigned_to",
+        "reviewer": "verdict_by",
+        "maintainer": "verdict_by",
+        "tester": "verdict_by",
+        "maintainer": "verdict_by"
+      }
+    },
+    "supervision": {
+      "version": 1,
+      "relation": "supervised_by",
+      "inputs": {
+        "operation": "operation",
+        "operations": [
+          "pickup",
+          "hand_over",
+          "retry"
+        ],
+        "hand_to": "hand_to"
+      },
+      "spans": {
+        "issue": [
+          {
+            "name": "build",
+            "label": "Build",
+            "states": [
+              "working",
+              "reviewing",
+              "fixing",
+              "publishing",
+              "checking",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
+              "ci_failing",
+              "updating",
+              "update_pushing",
+              "update_failing",
+              "merging",
+              "unchanged",
+              "stuck",
+              "review_stuck"
+            ],
+            "with": [
+              "package",
+              "pull_request"
+            ]
+          }
+        ],
+        "break_down_use_case": [
+          {
+            "name": "break_down",
+            "label": "Plan",
+            "states": [
+              "break_down",
+              "accepting"
+            ],
+            "with": []
+          }
+        ],
+        "break_down_scene": [
+          {
+            "name": "break_down",
+            "label": "Design",
+            "states": [
+              "break_down",
+              "accepting"
+            ],
+            "with": []
+          }
+        ]
+      },
+      "work": {
+        "kind": "task",
+        "of": "task_of",
+        "for": "done_for",
+        "ended": "result_kind"
+      }
+    }
+  }
+}
