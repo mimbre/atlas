@@ -191,6 +191,28 @@ defmodule AtlasRuntime.PolicyTest do
 
       assert Policy.profiles({:error, :missing}, Availability.empty(), [], @now) == %{}
     end
+
+    test "a harness that leaves between the skip and the availability check gives no_permitted_option, no crash",
+         %{tmp_dir: dir} do
+      # As when codex is removed while an offer is built: installed on the first ask only.
+      policy =
+        loaded(dir, %{
+          "version" => 1,
+          "profiles" => %{
+            "light_work" => %{
+              "permissions" => ["workspace-write"],
+              "cost_classes" => ["standard"],
+              "options" => [@codex]
+            }
+          }
+        })
+
+      {:ok, asked} = Agent.start_link(fn -> 0 end)
+      installed = fn _ -> Agent.get_and_update(asked, &{&1 == 0, &1 + 1}) end
+
+      assert Policy.profiles(policy, Availability.empty(), installed, @now)["light_work"] ==
+               %{available: false, reason: :no_permitted_option}
+    end
   end
 
   # Main's #330 round 3: one availability rule for the offer and a retry's check. A profile
