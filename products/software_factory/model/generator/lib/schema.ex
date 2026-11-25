@@ -100,7 +100,12 @@ defmodule RelaDSL.Schema do
   when it has text, under that heading (what its supervisor said when it sent the proposal
   back). One that writes a field of the subject
   names it, `writes: [field: field, file: name]`: its agent writes the field's text to the
-  file, and Flow puts it in that field once the task completed. A review whose findings outside the
+  file, and Flow puts it in that field once the task completed. A task that proposes may
+  instead ask the one who wrote its subject, `asks: [field: field, file: name]` beside
+  `creates:` or `writes:`: when its agent finds the subject too vague to propose from, it
+  writes its questions to that file and nothing else; Flow, the only writer, puts their
+  text in that field of the subject, makes nothing, and the task ends `asked`, a result of
+  its own to map in `on:`. A review whose findings outside the
   subject's scope become new facts names their kind, `follow_ups: kind`: Flow makes one for
   each follow-up its answer gives, under the subject's nearest parent. A fix of something
   else than the latest review's findings names the subject's field that says what to fix,
@@ -147,7 +152,10 @@ defmodule RelaDSL.Schema do
   `default: {kind, key}`, who owns it while no one is assigned. A default may name a
   configured actor instead of a key, `default: {kind, config: role}`: each environment's
   settings say who that is (`actors`), so the model names nobody; the role is one of
-  the composition's `actors/0`. Every subflow names an
+  the composition's `actors/0`. Inside a supervised span the `decider`'s state goes to the
+  run's human supervisor instead; `default: {kind, config: role, supervisor: false}` keeps
+  it with the configured actor there too, for a state that asks someone else than the
+  supervisor (the one who produced the subject). Every subflow names an
   owner, and every state that is not final resolves to exactly one: its own (`owner`
   inside the state, with the same options) or the subflow's. Waiting is not a status:
   `wait_for` names the roles that decide, and the owner still answers for the item.
@@ -263,6 +271,8 @@ defmodule RelaDSL.Schema do
   @writer "atlas-flow"
   @effect_results [:done, :refused]
   @task_results [:completed, :check_failed, :stuck, :abandoned]
+  # A task that may ask instead of proposing (`asks:`) also ends `asked`.
+  @asks_results @task_results ++ [:asked]
   # A review (outside any ladder, on the run's latest result) also ends asking for
   # changes, its verdict.
   @verdict_review_results @task_results ++ [:changes_required]
@@ -309,6 +319,7 @@ defmodule RelaDSL.Schema do
     :note,
     :creates,
     :writes,
+    :asks,
     :follow_ups,
     :findings,
     :failure,
@@ -483,7 +494,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `note:`, `creates:`, `writes:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `note:`, `creates:`, `writes:`, `asks:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1043,9 +1054,17 @@ defmodule RelaDSL.Schema do
 
   defp owner_of(opts) when is_list(opts) do
     case Map.new(opts) do
-      %{default: {kind, [config: role]}} = o -> %{o | default: %{kind: kind, config: role}}
-      %{default: {kind, key}} = o -> %{o | default: %{kind: kind, key: key}}
-      o -> o
+      %{default: {kind, [config: role]}} = o ->
+        %{o | default: %{kind: kind, config: role}}
+
+      %{default: {kind, [config: role, supervisor: false]}} = o ->
+        %{o | default: %{kind: kind, config: role, supervisor: false}}
+
+      %{default: {kind, key}} = o ->
+        %{o | default: %{kind: kind, key: key}}
+
+      o ->
+        o
     end
   end
 
@@ -1092,6 +1111,9 @@ defmodule RelaDSL.Schema do
 
   defp default_problems(:none, _pre), do: []
 
+  defp default_problems({kind, [config: role, supervisor: false]}, pre),
+    do: default_problems({kind, [config: role]}, pre)
+
   defp default_problems({kind, [config: role]}, pre) do
     for {what, v} <- [kind: kind, role: role],
         not valid_name?(v),
@@ -1107,7 +1129,7 @@ defmodule RelaDSL.Schema do
   defp default_problems(other, pre),
     do: [
       pre <>
-        "default must be {kind, key} or {kind, config: role}, such as {:team, :desk}; " <>
+        "default must be {kind, key} or {kind, config: role} (and supervisor: false), such as {:team, :desk}; " <>
         "got #{inspect(other)}"
     ]
 
@@ -1189,6 +1211,7 @@ defmodule RelaDSL.Schema do
       cond do
         opts[:ladder] == true -> @ladder_results
         kind == :review and base_result_input?(opts[:input]) -> @verdict_review_results
+        opts[:asks] != nil -> @asks_results
         true -> @task_results
       end
 
@@ -1384,6 +1407,19 @@ defmodule RelaDSL.Schema do
         pre <> "writes: must be [field: field, file: text]",
       (spec[:creates] != nil and spec[:writes] != nil) &&
         pre <> "creates: and writes: exclude each other",
+      not (spec[:asks] == nil or
+             (Keyword.keyword?(spec[:asks]) and
+                Enum.sort(Keyword.keys(spec[:asks])) == [:field, :file] and
+                is_atom(spec[:asks][:field]) and spec[:asks][:field] != nil and
+                text?.(spec[:asks][:file]))) &&
+        pre <> "asks: must be [field: field, file: text]",
+      (spec[:asks] != nil and spec[:creates] == nil and spec[:writes] == nil) &&
+        pre <> "asks: goes beside creates: or writes:, what it asks instead of",
+      (spec[:asks] != nil and spec[:ladder] != nil) &&
+        pre <> "asks: is for a task outside any ladder",
+      (file_of(spec[:asks]) != nil and
+         file_of(spec[:asks]) in [file_of(spec[:creates]), file_of(spec[:writes])]) &&
+        pre <> "asks: names a file of its own, not its proposal's",
       not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
         pre <> "follow_ups: must be a kind",
       not (spec[:findings] == nil or (kind == :fix and is_atom(spec[:findings]))) &&
@@ -1395,6 +1431,11 @@ defmodule RelaDSL.Schema do
     ]
     |> Enum.filter(& &1)
   end
+
+  defp file_of(spec) when is_list(spec),
+    do: if(Keyword.keyword?(spec), do: spec[:file])
+
+  defp file_of(_spec), do: nil
 
   @doc """
   What is wrong with a task's `input`, as a tag a test compares (never the text): nil
