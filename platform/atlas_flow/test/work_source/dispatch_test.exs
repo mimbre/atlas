@@ -10,6 +10,7 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
 
   alias AtlasFlow.{Delivery, Dispatch, FakeFacts, WorkSource}
   alias AtlasFlow.FakeFacts.Leasing, as: L
+  alias AtlasFlow.WorkSource.Translate
 
   @mini {"mini", "ada"}
   @mini2 {"mini-2", "ada"}
@@ -581,53 +582,106 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
     end
   end
 
+  # D-0102: an update or an outage stops running work; afterwards it restarts by itself
+  # from its step, on a fresh attempt.
   describe "boot (acceptance 6)" do
-    test "a restarted Dispatch counts live leases as renewed and loses no ready intent", ctx do
-      %{task: task} = L.supervised_task("B-1", "ada")
-      L.supervised_task("B-2", "ada")
-      ready(ctx)
-      lease = lease!(@mini)
-      assert {:recorded, _} = report(@mini, lease, 1, :accepted)
-
-      L.advance(ctx, 800)
+    defp restart_dispatch(ctx) do
       :ok = stop_supervised(Dispatch)
       L.start_dispatch(ctx.clock)
-
-      # Renewed at boot: past the granted expiry it is still live.
-      L.advance(ctx, 800)
-      Dispatch.sweep()
-      assert L.values(task)["lease_state"] == "accepted"
-
-      assert {:polled, %{lease_lost: [], leases: [%{work: %{work_key: "TK-B-2-1"}}]}} =
-               poll(@mini, [lease])
     end
 
-    test "Facts down at boot: no holding is lost meanwhile, and a silent lease still expires once Facts is back",
+    test "a started lease at boot is cancelled (restart), and its task offered again on a fresh attempt",
          ctx do
       {task, lease} = started(ctx, "B-1")
-      run = AtlasFlow.Runs.Run.key("watch", "bin", "B-1", 1)
+      L.advance(ctx, 800)
+      restart_dispatch(ctx)
+
+      # Until the sweep it counts as renewed: past the granted expiry it is still held.
+      L.advance(ctx, 200)
+      assert {:polled, %{lease_lost: [], cancel: []}} = poll(@mini, [lease], %{})
+
+      # A lease granted after the boot is not stopped.
+      %{task: later} = L.supervised_task("B-2", "ada")
+      ready(ctx)
+      after_boot = lease!(@mini)
+      assert {:recorded, _} = report(@mini, after_boot, 1, :accepted)
+
+      Dispatch.sweep()
+
+      assert %{"lease_state" => "cancel_requested", "lease_end_cause" => "restart"} =
+               L.values(task)
+
+      assert L.values(later)["lease_state"] == "accepted"
+
+      assert {:polled, %{cancel: [^lease], lease_lost: []}} =
+               poll(@mini, [lease, after_boot], %{})
+
+      # The Runtime's cancelled ending brings no result: the task is offered again.
+      ended = L.ended(nil, kind: :cancelled, reason: :cancel)
+
+      assert {:recorded, _} =
+               WorkSource.report(@mini, %{lease_id: lease, revision: 3, report: ended})
+
+      assert %{"lease_state" => "done", "result_kind" => "cancelled"} = v = L.values(task)
+      assert v["lease_end_cause"] == "restart"
+      assert :retry = Translate.outcome(FakeFacts.get("task", task), false)
+      assert Translate.empty(v) == nil
+
+      assert {:polled, %{leases: [%{lease_id: fresh, work: %{work_key: ^task}}]}} =
+               poll(@mini, [after_boot])
+
+      assert fresh != lease
+      assert %{"attempt" => 2, "lease_id" => ^fresh} = L.values(task)
+
+      Dispatch.sweep()
+      assert L.values(task)["lease_state"] == "offered"
+      assert L.values(later)["lease_state"] == "accepted"
+    end
+
+    test "an offered lease at boot is lost (restart), and its task offered again", ctx do
+      %{task: task} = L.supervised_task("B-1", "ada")
+      ready(ctx)
+      lease = lease!(@mini)
+      L.advance(ctx, 10)
+      restart_dispatch(ctx)
+
+      Dispatch.sweep()
+      assert %{"lease_state" => "lost", "lease_end_cause" => "restart"} = v = L.values(task)
+      assert Translate.empty(v) == nil
+
+      assert {:polled, %{leases: [%{lease_id: fresh}], lease_lost: [^lease]}} =
+               poll(@mini, [lease])
+
+      assert fresh != lease
+      assert L.values(task)["attempt"] == 2
+    end
+
+    test "a lease granted after boot is not cancelled", ctx do
+      {task, lease} = started(ctx, "B-1")
+      Dispatch.sweep()
+      assert L.values(task)["lease_state"] == "started"
+      assert {:polled, %{cancel: [], lease_lost: []}} = poll(@mini, [lease], %{})
+    end
+
+    test "Facts down at boot: no holding is lost meanwhile; once Facts is back the work is stopped",
+         ctx do
+      {task, lease} = started(ctx, "B-1")
       leases_read = {:block_read, "task", %{"plain" => true}}
 
       :ok = stop_supervised(Dispatch)
       :ok = GenServer.call(FakeFacts, leases_read)
       L.start_dispatch(ctx.clock)
 
-      # The Runtime's running work is not cancelled by a Dispatch that could not read the leases.
-      assert {:polled, %{lease_lost: []}} = poll(@mini, [lease])
+      # The Runtime's running work is not lost by a Dispatch that could not read the leases.
+      assert {:polled, %{lease_lost: [], cancel: []}} = poll(@mini, [lease])
 
       :ok = GenServer.call(FakeFacts, put_elem(leases_read, 0, :allow_read))
       Dispatch.sweep()
 
-      # Its Runtime gone silent, the lease ends, and the task is offered again once its run
-      # counted that attempt.
-      L.advance(ctx, 900)
-      Dispatch.sweep()
-      L.advance(ctx, 120)
-      Dispatch.sweep()
-      assert L.values(task)["lease_state"] == "lost"
-      :ok = L.retried(run, [1])
-      assert {:polled, %{leases: [%{lease_id: fresh}]}} = poll(@mini)
-      assert fresh != lease
+      assert %{"lease_state" => "cancel_requested", "lease_end_cause" => "restart"} =
+               L.values(task)
+
+      assert {:polled, %{cancel: [^lease], lease_lost: []}} = poll(@mini, [lease], %{})
     end
   end
 

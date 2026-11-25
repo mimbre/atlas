@@ -54,18 +54,27 @@ defmodule AtlasFlow.Dispatch do
     attempt; the second silence in a row ends the task `abandoned`;
   - on a supervisor or span change (`done_for` no longer the supervisor): an `offered`
     lease → `lost`; an `accepted` or `started` one → `cancel_requested`, named in its
-    holder's next poll's `cancel`; an `ended` one stands.
+    holder's next poll's `cancel`; an `ended` one stands;
+  - for a lease that was live when Dispatch booted (`restart`, see **Boot**): the same
+    cancel, cause `restart`. An `offered` lease → `lost`, an `accepted` or `started` one
+    → `cancel_requested`; the Runtime's `cancelled` ending is no result
+    (`Translate.no_result?/1`), so the task is offered again on a fresh attempt. An
+    `ended` one stands.
 
   Each `expired` or `lost` write, once stored, is cast to Delivery
   (`AtlasFlow.Delivery.lease_fenced/4`, never a call), which ends that lease's running
   `task_attempt` (F10). A `cancel_requested` write is not: the lease's work goes on until
   its Runtime ends it.
 
-  **Boot.** Every live lease on a task fact counts as renewed at boot (§5.3 item 5). When
-  Facts does not answer that read (a deploy that restarts rela with the core), every sweep
-  reads again (in the sweep's process) until it does; until then a poll loses no holding,
-  since Dispatch cannot tell a live one from a lost one. Otherwise each Runtime would cancel its running work, and the
-  leases on the task facts would never be swept: their tasks leased forever.
+  **Boot.** An update or an outage stops running work; afterwards it restarts by itself
+  from its step (D-0102). Every live lease on a task fact is read at boot and counts as
+  renewed, so no holding is lost meanwhile; one that is `offered`, `accepted` or `started`
+  is marked `restart`, and the first sweep stops it as above. A lease granted after the
+  boot is never marked. When Facts does not answer that read (a deploy that restarts rela
+  with the core), every sweep reads again (in the sweep's process) until it does; until
+  then a poll loses no holding, since Dispatch cannot tell a live one from a lost one.
+  Otherwise each Runtime would drop its running work as lost while the leases on the task
+  facts stayed live and were never swept: their tasks leased forever.
 
   Options of `start_link/1`: `name` (default `AtlasFlow.Dispatch`), `model` (default the
   configured one), `clock`, `delivery` (the server fences are cast to, default
@@ -546,7 +555,8 @@ defmodule AtlasFlow.Dispatch do
         granted_at: now(state),
         expires_at: DateTime.add(now(state), state.ttl, :second),
         state: :offered,
-        cancel: false
+        cancel: false,
+        restart: false
       }
 
       wire = %{
@@ -740,8 +750,10 @@ defmodule AtlasFlow.Dispatch do
     end
   end
 
-  # Every live lease on a task fact counts as renewed now (§5.3 item 5); read once, at boot,
-  # and again by each sweep while Facts did not answer it.
+  # The live leases on the task facts, read once, at boot, and again by each sweep while
+  # Facts did not answer it. Each counts as renewed until the sweep ends it: one that is
+  # `offered`, `accepted` or `started` is marked `restart` (D-0102), so the sweep stops its
+  # work and the task is offered again on a fresh attempt.
   defp boot_leases(state) do
     case Leases.all() do
       {:ok, facts} ->
@@ -782,7 +794,8 @@ defmodule AtlasFlow.Dispatch do
                "expired" -> :expired
                _ -> :live
              end,
-           cancel: lease_state == "cancel_requested"
+           cancel: lease_state == "cancel_requested",
+           restart: lease_state in ~w(offered accepted started)
          }}
       end
 
