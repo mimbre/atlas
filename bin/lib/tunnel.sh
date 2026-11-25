@@ -27,11 +27,12 @@ stop_tunnel() {
   rm -f "$(tunnel_pidfile)"
 }
 ensure_tunnel() {
-  local fly holder deadline probe_error=""
+  local fly holder deadline probe_error="" own=""
   # An open tunnel is shared by every client on this machine (the TUI, atlas commands,
   # agents), so a slow answer must not drop it: it is reopened only once its proxy has
   # died or its port no longer accepts.
   if tunnel_pid >/dev/null; then
+    own=1
     for _ in 1 2 3; do
       if control_ready 10; then return 0; fi
     done
@@ -44,7 +45,8 @@ ensure_tunnel() {
   stop_tunnel
   # A machine that keeps its own route to Control open on this port (a Runtime's Fly
   # proxy, com.mimbre.atlas-control-proxy, IS-Atlas-56) is used as it is: atlas shares it.
-  if listening && control_ready 10; then return 0; fi
+  # Not after atlas's own tunnel died: its three probes have just failed on this port.
+  if [ -z "$own" ] && listening && control_ready 10; then return 0; fi
   if listening; then
     holder="$(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
     echo "$prog: port $port is taken by pid ${holder:-?}, not by atlas's tunnel to $fly_app; stop it first" >&2
