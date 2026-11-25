@@ -94,3 +94,40 @@ final class FakeClock: SessionClock {
         now = target
     }
 }
+
+/// The steer agent, played by the test: it sees what the session sent and says what the
+/// agent writes and when it ends.
+@MainActor
+final class FakeSteer: SteerConnection {
+    private var events: (@MainActor (SteerEvent) -> Void)?
+    private(set) var sent: [SteerRequest] = []
+    private(set) var stopped = false
+
+    func start(_ events: @escaping @MainActor (SteerEvent) -> Void) { self.events = events }
+
+    func send(_ line: Data) {
+        sent.append(try! WireLine.decode(SteerRequest.self, from: line))
+    }
+
+    func stop() { stopped = true }
+
+    func say(_ line: Data) { events?(.line(line)) }
+
+    func exit(_ why: String) { events?(.exited(why)) }
+}
+
+/// Starts fake agents and keeps them, newest last; `unavailable` says why none starts.
+@MainActor
+final class FakeSteerConnector: SteerConnector {
+    private(set) var made: [FakeSteer] = []
+    var unavailable: String?
+
+    func connection(env: String) throws(SteerUnavailable) -> any SteerConnection {
+        if let unavailable { throw SteerUnavailable(unavailable) }
+        let agent = FakeSteer()
+        made.append(agent)
+        return agent
+    }
+
+    var last: FakeSteer? { made.last }
+}

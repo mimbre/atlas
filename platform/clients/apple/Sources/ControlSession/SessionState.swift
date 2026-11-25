@@ -18,7 +18,11 @@ import Foundation
 /// out drops the connection: a later one marks the shell stale and is tried again
 /// (Control may be busy reading a page). An action is taken as the TUI and the agent CLI
 /// take one: its `submit_to` is submitted, else its page is opened, over the page it was
-/// taken on, until Control stores it or the user leaves it.
+/// taken on, until Control stores it or the user leaves it. Until Control answers an
+/// action (its page, the page stored or refused, or a notice that ends the submit), the
+/// action is `pending`, so a slow Control never looks like a dead click. An `agent:<intent>`
+/// action asks the steer agent about the page it is on, as the TUI's does
+/// (`AtlasTui.Model.agent_action`); its plan shows over the columns until it is closed.
 public struct SessionState: Sendable, Equatable {
     // MARK: Parts of the state
 
@@ -115,6 +119,41 @@ public struct SessionState: Sendable, Equatable {
         public var from: PageMessage?
     }
 
+    /// What the user did that Control (or the agent) has not answered yet: shown at once,
+    /// on the action's button, on the sheet and in the status bar, and gone with the answer.
+    public struct Pending: Sendable, Equatable {
+        public enum Kind: Sendable, Equatable {
+            /// An action's page (its confirm, form or more actions) is being opened.
+            case opening
+            /// A call is submitted (an action's `submit_to`, a confirm, a form, a choice).
+            case sending
+            /// The agent is asked (`agent:<intent>`) and has not answered.
+            case asking
+        }
+
+        public var kind: Kind
+        /// What is done, in Control's words (the action's or the button's label), if known.
+        public var label: String?
+        /// The action taken, when it was one: its button shows that it is pending.
+        public var action: ActionModel?
+
+        public init(kind: Kind, label: String?, action: ActionModel?) {
+            self.kind = kind
+            self.label = label
+            self.action = action
+        }
+
+        /// What the status bar says while it is pending.
+        public var text: String {
+            let what = label.map { "“\($0)”" }
+            switch kind {
+            case .opening: return what.map { "Opening \($0)…" } ?? "Opening…"
+            case .sending: return what.map { "Sending \($0)…" } ?? "Sending…"
+            case .asking: return what.map { "Asking the agent: \($0)…" } ?? "Asking the agent…"
+            }
+        }
+    }
+
     /// What the state asks `Session` to do.
     public enum Effect: Sendable, Equatable {
         /// Make a new connection to Control.
@@ -129,6 +168,9 @@ public struct SessionState: Sendable, Equatable {
         case handshakeDeadline
         /// Give up on this boot after `bootSeconds` (`Input.bootTimedOut(serial)`).
         case bootDeadline(serial: Int)
+        /// Send a message to the steer agent, started when it is first needed
+        /// (`Input.steerLine`, `Input.steerGone`).
+        case steer(SteerRequest)
     }
 
     /// The protocol's phases, as in `AtlasTui.Console`.
@@ -191,9 +233,23 @@ public struct SessionState: Sendable, Equatable {
     /// it, whichever came last: what the sidebar shows under every tab, also before it is
     /// opened.
     public private(set) var groupCounts: [String: Int] = [:]
-    /// A submit is sent and Control has not replied to it (a page stored or refused, or
-    /// one opened since); another waits until it has.
+    /// A submit is sent and Control has not replied to it (a page stored or refused, one
+    /// opened since, or a notice that answers it); another waits until it has.
     public private(set) var submitting = false
+    /// What the user did that is not answered yet (`Pending`).
+    public private(set) var pending: Pending?
+    /// The error notice that answered the last submit without a page (Control sends no
+    /// `refused` page then): shown on the sheet, until a page is shown or opened.
+    public private(set) var answer: NoticeMessage?
+    /// An action ended by Control's `ok` notice: the stored page that may follow is its,
+    /// and closes its pages as it would have.
+    var storedAction: Action?
+
+    /// The steer agent's plan as it last sent it (the contract's `plan` block), from the
+    /// `agent:<intent>` action that asked until it is closed; nil when none is shown.
+    public private(set) var plan: PlanBlock?
+    /// The steps of the proposed plan the user dropped, by `n`; the rest run.
+    public private(set) var droppedSteps: Set<Int> = []
 
     /// The page to open after the first boot instead of the shell's `initial_to`: the
     /// page the app showed before it updated itself (`--to`). Used once.
@@ -275,11 +331,41 @@ public struct SessionState: Sendable, Equatable {
         /// The user typed into the page on screen.
         case edit(name: String, value: String)
         /// The user gave a call a block of the page declares (a choice's `answer`), with
-        /// the values it asks for: sent as it is, as `submit`.
-        case submit(call: CallModel, values: [String: String])
+        /// the values it asks for: sent as it is, as `submit`. `label` says what is sent
+        /// (the button's), for the pending cue.
+        case submit(call: CallModel, values: [String: String], label: String? = nil)
+        /// A line from the steer agent.
+        case steerLine(Data)
+        /// The steer agent stopped (or could not be started), and why.
+        case steerGone(String)
+        /// Run the proposed plan's kept steps, with their values.
+        case runPlan
+        /// Keep or drop a step of the proposed plan.
+        case togglePlanStep(n: Int)
+        /// Stop a running plan before its next step.
+        case stopPlan
+        /// Close the plan: cancel it while it is being made or proposed; close it once over.
+        case closePlan
     }
 
     public mutating func handle(_ input: Input) -> [Effect] {
+        let effects = apply(input)
+        settlePending()
+        return effects
+    }
+
+    /// The pending cue goes once what it waited for is answered: the page opened, the
+    /// submit replied to, the connection lost. The agent's goes with its first word.
+    private mutating func settlePending() {
+        guard let pending else { return }
+        switch pending.kind {
+        case .opening: if expected == nil || connection != .connected { self.pending = nil }
+        case .sending: if !submitting { self.pending = nil }
+        case .asking: break
+        }
+    }
+
+    private mutating func apply(_ input: Input) -> [Effect] {
         switch input {
         case .start:
             guard connection == .idle else { return [] }
@@ -332,13 +418,21 @@ public struct SessionState: Sendable, Equatable {
                 opened = action.from
                 self.action = nil
             }
+            dropOpening()
             return navigate(to, column: .opened)
         case .act(let model):
+            if let intent = Self.agentIntent(model.to) { return ask(model, intent: intent) }
             guard connection == .connected, phase == .ready || phase == .content else { return [] }
-            if let call = model.submitTo { return handle(.submit(call: call, values: [:])) }
+            if let call = model.submitTo {
+                let effects = apply(.submit(call: call, values: [:], label: model.label))
+                if !effects.isEmpty { pending = Pending(kind: .sending, label: model.label, action: model) }
+                return effects
+            }
             guard Page.match(model.to) != nil else { return [] }
             if action == nil { action = Action(from: opened) }
-            return navigate(model.to, column: .opened)
+            let effects = navigate(model.to, column: .opened)
+            pending = Pending(kind: .opening, label: model.label, action: model)
+            return effects
         case .leave:
             guard connection == .connected, phase == .ready || phase == .content,
                   action != nil || (opened.map(Self.asks) ?? false) else { return [] }
@@ -348,6 +442,7 @@ public struct SessionState: Sendable, Equatable {
             let page = opened?.path == from?.path ? nil : opened
             guard let target = Self.cancelTarget(page) ?? from?.path ?? index?.path else { return [] }
             draft = [:]
+            dropOpening()
             if target == index?.path {
                 opened = nil
                 return navigate(target, column: .index)
@@ -359,15 +454,135 @@ public struct SessionState: Sendable, Equatable {
             guard isEditing else { return [] }
             draft[name] = value
             return []
-        case .submit(let call, let values):
+        case .submit(let call, let values, let label):
             guard connection == .connected, phase == .ready || phase == .content else { return [] }
             // Not while a page is on its way (its reply would drop the submit's), and once
             // only until Control replies.
             guard expected == nil, inFlight == nil, !submitting else { return [] }
             submitting = true
+            answer = nil
+            pending = Pending(kind: .sending, label: label, action: nil)
             let request = SubmitRequest(endpoint: call.endpoint, params: call.params ?? [:], values: values)
             return [.send(.submit(request))]
+        case .steerLine(let line):
+            guard let message = try? WireLine.decode(SteerMessage.self, from: line) else { return [] }
+            return steer(message)
+        case .steerGone(let why):
+            if pending?.kind == .asking { pending = nil }
+            if let plan, ["planning", "running"].contains(plan.state) {
+                self.plan?.state = "failed"
+                self.plan?.title = "The agent stopped"
+                self.plan?.summary = why
+            }
+            notice = NoticeMessage(text: "The agent stopped: \(why)", tone: "error")
+            return []
+        case .runPlan:
+            return runPlan()
+        case .togglePlanStep(let n):
+            guard plan?.state == "proposed", plan?.steps.contains(where: { $0.n == n }) == true else { return [] }
+            if droppedSteps.contains(n) { droppedSteps.remove(n) } else { droppedSteps.insert(n) }
+            return []
+        case .stopPlan:
+            guard plan?.state == "running" else { return [] }
+            notice = NoticeMessage(text: "Stopping after this step…", tone: "pending")
+            return [.steer(.stop)]
+        case .closePlan:
+            guard let plan, plan.state != "running" else { return [] }
+            self.plan = nil
+            droppedSteps = []
+            if pending?.kind == .asking { pending = nil }
+            return ["planning", "proposed"].contains(plan.state) ? [.steer(.cancel)] : []
         }
+    }
+
+    /// An `open` the user asked for replaces an action's page that is on its way.
+    private mutating func dropOpening() {
+        if pending?.kind == .opening { pending = nil }
+    }
+
+    // MARK: The agent
+
+    /// The intent of an action that asks the agent (`agent:<intent>`), else nil.
+    public static func agentIntent(_ to: String) -> String? {
+        guard to.hasPrefix("agent:") else { return nil }
+        let intent = String(to.dropFirst("agent:".count))
+        return intent.isEmpty ? nil : intent
+    }
+
+    /// The page that declares `action` (a block's or the page's): the opened page (an
+    /// action's page over it first), else the index page; else the page on screen.
+    func page(declaring action: ActionModel) -> PageMessage? {
+        let pages = [opened, self.action?.from, index].compactMap { $0 }
+        return pages.first { page in
+            page.blocks.contains { block in
+                switch block.content {
+                case .item(let item): (item.actions ?? []).contains(action)
+                case .list(let list): (list.actions ?? []).contains(action)
+                default: false
+                }
+            }
+        } ?? pageOnScreen
+    }
+
+    /// Ask the agent about the page the action is on, with the action's intent, as the
+    /// TUI does: its label is the request, and its plan shows "Planning…" at once.
+    private mutating func ask(_ model: ActionModel, intent: String) -> [Effect] {
+        guard let on = page(declaring: model)?.path else { return [] }
+        // A plan being made or run is the agent's one task; it is closed first.
+        if let plan, ["planning", "running"].contains(plan.state) { return [] }
+        plan = PlanBlock(title: "Planning…", request: model.label, state: "planning", steps: [])
+        droppedSteps = []
+        pending = Pending(kind: .asking, label: model.label, action: model)
+        return [.steer(.ask(AskRequest(intent: intent, on: on, request: model.label)))]
+    }
+
+    private mutating func steer(_ message: SteerMessage) -> [Effect] {
+        if pending?.kind == .asking { pending = nil }
+        switch message {
+        case .plan(let message):
+            // A plan after the user closed it is not shown again.
+            guard let old = plan else { return [] }
+            guard case .plan(let block) = message.block.content else {
+                notice = NoticeMessage(text: "The agent sent a plan this app cannot show.", tone: "error")
+                return []
+            }
+            // A new proposal starts with every step kept, as the agent made it.
+            if block.state == "proposed", old.state != "proposed" { droppedSteps = [] }
+            // "Stopping after this step…" is answered by the plan itself once it ends.
+            if old.state == "running", ["done", "stopped", "failed"].contains(block.state), notice?.tone == "pending" {
+                notice = nil
+            }
+            plan = block
+        case .notice(let message):
+            notice = message
+        case .undecodable:
+            notice = NoticeMessage(text: "The agent sent a plan this app cannot show.", tone: "error")
+        case .unknown:
+            break
+        }
+        return []
+    }
+
+    /// Run the kept steps, in order, with the values the agent gave them (the TUI's `run`).
+    private mutating func runPlan() -> [Effect] {
+        guard let plan, plan.state == "proposed" else { return [] }
+        let kept = plan.steps.filter { !droppedSteps.contains($0.n) && $0.state != "dropped" }
+        if kept.isEmpty {
+            notice = NoticeMessage(text: "Every step is dropped; cancel this plan.", tone: "info")
+            return []
+        }
+        let blocked = kept.filter { $0.state == "blocked" }
+        guard blocked.isEmpty else {
+            let numbers = blocked.map { String($0.n) }.joined(separator: ", ")
+            notice = NoticeMessage(text: "Step \(numbers) cannot run; drop it before running.", tone: "error")
+            return []
+        }
+        let steps = kept.map { step in
+            RunStepModel(n: step.n, values: step.inputs.map { inputs in
+                Dictionary(inputs.map { ($0.name, $0.value ?? "") }) { first, _ in first }
+            })
+        }
+        return [.steer(.run(RunRequest(steps: steps)))]
     }
 
     // MARK: Messages
@@ -385,7 +600,7 @@ public struct SessionState: Sendable, Equatable {
             return [.close]
         case .notice(let notice):
             self.notice = notice
-            return []
+            return answered(by: notice)
         case .bootShell(let shell):
             return boot(.success(shell))
         case .bootError(let error):
@@ -506,10 +721,39 @@ public struct SessionState: Sendable, Equatable {
         return []
     }
 
+    /// A notice that answers a submit: `ok` (stored) or `error` (not sent, refused). Control
+    /// sends it before the page stored or refused, and alone when it shows no page (the
+    /// user opened another meanwhile, or nothing was sent): the submit is over either way.
+    /// Stored, the action is done and its pages close at once, onto the page it was taken
+    /// on; the stored page, if one follows, is shown as usual. Not stored, the sheet stays,
+    /// saying why.
+    private mutating func answered(by notice: NoticeMessage) -> [Effect] {
+        guard submitting, notice.tone == "ok" || notice.tone == "error" else { return [] }
+        submitting = false
+        guard notice.tone == "ok" else {
+            answer = notice
+            return []
+        }
+        if let action {
+            storedAction = action
+            draft = [:]
+            opened = action.from
+            self.action = nil
+        } else if let opened, Self.asks(opened) {
+            // A page that asks, opened by itself (not from an action): it closes too.
+            storedAction = Action(from: nil)
+            draft = [:]
+            self.opened = nil
+        }
+        return []
+    }
+
     private mutating func page(_ page: PageMessage, _ reason: Reason) -> [Effect] {
         if let effects = pageForPhase() { return effects }
         // Control's reply to a submit: the page it was stored or refused on.
         if reason == .stored || reason == .refused { submitting = false }
+        let stored = storedAction
+        if reason != .hint, reason != .reconcile, reason != .pending { storedAction = nil }
 
         if expected != nil {
             // Only `open` answers an `open` (the TUI's rule); pushes and other replies wait.
@@ -527,7 +771,7 @@ public struct SessionState: Sendable, Equatable {
 
         if reason == .open || reason == .stored || reason == .refused {
             // Stored: the action is done, and its pages close; the page stored is shown.
-            if reason == .stored, action != nil {
+            if reason == .stored, action != nil || stored != nil {
                 action = nil
                 if page.path == index?.path { opened = nil }
             }
@@ -572,6 +816,7 @@ public struct SessionState: Sendable, Equatable {
     }
 
     private mutating func show(_ page: PageMessage, _ reason: Reason, in column: Column) {
+        if reason != .hint, reason != .reconcile, reason != .pending { answer = nil }
         switch column {
         case .index:
             index = page
@@ -636,6 +881,8 @@ public struct SessionState: Sendable, Equatable {
         expected = target
         expectedColumn = column
         openFailure = nil
+        answer = nil
+        storedAction = nil
         guard inFlight == nil else { return [] }
         inFlight = target
         return [.send(.open(OpenRequest(to: target)))]

@@ -10,14 +10,19 @@ import SwiftUI
 /// greeting (when it has one) as its subtitle, the environment and the index page's own
 /// actions (`PageActions.ofPage`); the status bar below. The opened page shows its own
 /// actions next to its title, at its top. An action's page (its confirm, form or more
-/// actions) is a sheet over them; the keys of the shown page's actions take them.
+/// actions) is a sheet over them; the keys of the shown page's actions take them. What is
+/// done and not answered yet shows at once: on its button, on the sheet and in the status
+/// bar. The agent's plan, from an `agent:<intent>` action, is a sheet over all of it.
 struct ShellView: View {
     let session: Session
     let updater: Updater
     @State private var keys = ActionKeys()
 
+    /// A submit, with what it is in the words of the page that declares it.
     private func submit(_ call: CallModel, _ values: [String: String]) {
-        session.submit(call, values: values)
+        let shell = ShellViewModel(session.state)
+        session.submit(call, values: values,
+                       label: PageActions.label(of: call, on: [shell.sheet, shell.opened, shell.index]))
     }
 
     var body: some View {
@@ -48,11 +53,19 @@ struct ShellView: View {
             }
         }
         .onChange(of: session.state.isEditing) { updater.pageChanged() }
-        .sheet(isPresented: Binding(get: { shell.sheet != nil }, set: { if !$0 { session.leave() } })) {
-            if let page = shell.sheet {
-                ActionPageView(page: page, draft: shell.draft, submitting: shell.submitting,
-                               act: session.act, submit: submit, edit: session.edit, leave: session.leave)
+        .sheet(isPresented: Binding(get: { shell.sheet != nil || shell.plan != nil },
+                                    set: { if !$0 { shell.plan != nil ? session.closePlan() : session.leave() } })) {
+            Group {
+                if let plan = shell.plan {
+                    PlanView(plan: plan, dropped: shell.droppedSteps, run: session.runPlan,
+                             toggle: session.togglePlanStep, stop: session.stopPlan, close: session.closePlan)
+                } else if let page = shell.sheet {
+                    ActionPageView(page: page, draft: shell.draft, submitting: shell.submitting, answer: shell.answer,
+                                   act: session.act, submit: submit, edit: session.edit, leave: session.leave)
+                }
             }
+            .environment(\.pendingAction, shell.pending)
+            .environment(\.typingFocus, keys.typing)
         }
         .navigationTitle(shell.title ?? "")
         .greeting(shell.greeting)
@@ -75,6 +88,8 @@ struct ShellView: View {
                 EndedView(ending: ending, env: session.state.settings.env, updater: updater)
             }
         }
+        .environment(\.pendingAction, shell.pending)
+        .environment(\.typingFocus, keys.typing)
     }
 }
 

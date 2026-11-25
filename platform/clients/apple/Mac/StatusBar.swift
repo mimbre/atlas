@@ -4,8 +4,8 @@ import ControlSession
 import SwiftUI
 
 /// Below the columns: connected or not, the position of the page on screen, how and when
-/// it last changed, the last hint, the reconcile interval, the app's update and the last
-/// notice.
+/// it last changed, the last hint, the reconcile interval, what is being sent and not
+/// answered yet, the app's update and the last notice.
 struct StatusBar: View {
     let status: StatusViewModel
     let shell: ShellViewModel
@@ -35,6 +35,13 @@ struct StatusBar: View {
                 Text("\(failure.path) could not be read (\(failure.reason))").foregroundStyle(.red)
             }
             Spacer(minLength: 8)
+            // What is being sent (or opened, or asked), at once, until Control answers.
+            if let pending = status.pending {
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.mini)
+                    Text(pending).foregroundStyle(.orange).lineLimit(1).truncationMode(.middle)
+                }
+            }
             if let update {
                 Text(update.text)
                     .foregroundStyle(tone(update.tone.rawValue))

@@ -7,10 +7,11 @@ import Foundation
 final class Harness {
     let connector = FakeConnector()
     let clock = FakeClock()
+    let steer = FakeSteerConnector()
     let session: Session
 
     init(settings: SessionSettings = SessionSettings(env: "test", host: "127.0.0.1", port: 7001)) {
-        session = Session(settings: settings, connector: connector, clock: clock)
+        session = Session(settings: settings, connector: connector, clock: clock, agent: steer)
     }
 
     var connection: FakeConnection { connector.last }
