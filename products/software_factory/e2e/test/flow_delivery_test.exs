@@ -14,7 +14,7 @@ defmodule AtlasE2E.FlowDeliveryTest do
   @root Path.expand("../../../..", __DIR__)
   @bin AtlasE2E.Instance.rela_bin()
   @moduletag skip:
-               if(@bin == nil, do: "set ATLAS_E2E_RELA_BIN to pinned Rela 26.11.3", else: false)
+               if(@bin == nil, do: "set ATLAS_E2E_RELA_BIN to pinned Rela 26.11.9", else: false)
   @moduletag timeout: 120_000
   @moduletag :tmp_dir
 

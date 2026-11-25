@@ -1,6 +1,6 @@
 defmodule AtlasFacts.Rela.Http do
   @moduledoc """
-  The current rela (upstream v26.11.3) over HTTP. `config` is its API base URL, for
+  The current rela (upstream v26.11.9) over HTTP. `config` is its API base URL, for
   example `http://127.0.0.1:7690/api/v1`. With `config :atlas_facts, rela_token:` (on Fly,
   where rela's edge lets only the core in, IS-Atlas-80) every request carries it as
   `Authorization: Bearer`.
