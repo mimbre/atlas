@@ -17,7 +17,7 @@ defmodule AtlasFlow.Runs.Store do
   """
 
   require Logger
-  alias AtlasFlow.{Dispatch, Results, Supervision}
+  alias AtlasFlow.{Dispatch, Supervision}
   alias AtlasFlow.Runs.{HandOver, Run}
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
@@ -852,11 +852,8 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  defp cancel_task(run, cause, now) do
-    with %{"key" => task} <- run["pending"]["task"] do
-      Dispatch.cancel(task, cause)
-      Results.unpin(task, now)
-    end
+  defp cancel_task(run, cause, _now) do
+    with %{"key" => task} <- run["pending"]["task"], do: Dispatch.cancel(task, cause)
   end
 
   defp activity?(run, flow), do: run["status"] == "active" and flow.mechanism(run["state"]) != nil
@@ -1446,9 +1443,8 @@ defmodule AtlasFlow.Runs.Store do
   # The task a run held when it left its state other than by the task's result (a retry, a
   # plain branch, its subject completed): Dispatch drops it now, and its fact says so once
   # the run is stored (`cancelled`, a write of the run's next entry).
-  defp dropped(run, %{"key" => key} = intent, {:task, spec}, cause, now) do
+  defp dropped(run, %{"key" => key} = intent, {:task, spec}, cause, _now) do
     Dispatch.cancel(key, cause)
-    Results.unpin(key, now)
     update_in(run, ["pending", "writes"], &[Task.cancelled(intent, spec) | &1])
   end
 
@@ -1679,6 +1675,7 @@ defmodule AtlasFlow.Runs.Store do
       now: now,
       parents: config["parents"] || %{},
       ids: config["ids"] || %{},
+      producer: producer(config),
       read_first: config["read_first"]
     }
 
@@ -1696,6 +1693,18 @@ defmodule AtlasFlow.Runs.Store do
       # A ladder task's outcome is the ladder's step; its ladder is kept (F2).
       {:result, outcome, result, writes, ladder} ->
         Run.task_result(run, flow, subject, now, outcome, result, writes, ladder)
+    end
+  end
+
+  # The relation from an item to its producer (SC-Atlas-09), as the model's supervision
+  # names it (`supervision.producer`), with the kinds it leads from: `{relation, kinds}`,
+  # or nil. What a task's proposal makes of those kinds is linked to the run's supervisor.
+  defp producer(config) do
+    with relation when is_binary(relation) <- get_in(config, ["supervision", "producer"]),
+         %{"from" => from} <- (config["relations"] || %{})[relation] do
+      {relation, from}
+    else
+      _ -> nil
     end
   end
 

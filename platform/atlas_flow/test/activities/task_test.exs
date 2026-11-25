@@ -127,7 +127,7 @@ defmodule AtlasFlow.Activities.TaskTest do
   The `task` activity on Flow's work source (plan m3 §3.5, §4 A4): a bin assigned to a
   robot, whose run is supervised by a clerk, becomes a version-2 intent and a task fact,
   is offered to that clerk's Runtime with its base, and ends as the task fact Delivery
-  wrote says. The real Dispatch, Delivery, result store and Bases (on `FakeCode`), with
+  wrote says. The real Dispatch, Delivery and Bases (on `FakeCode`), with
   `FakeFacts` and a manual clock; asserted on run fields, fact values, lease fields, calls
   and outcome tags, never on wording.
   """
@@ -135,12 +135,12 @@ defmodule AtlasFlow.Activities.TaskTest do
   @moduletag :capture_log
 
   alias AtlasFlow.{Bases, Delivery, Dispatch, Engine, FakeCode, FakeFacts, ManualClock}
-  alias AtlasFlow.{Results, WorkSource}
+  alias AtlasFlow.WorkSource
   alias AtlasFlow.Activities.Task
   alias AtlasFlow.Activities.TaskTest.Bench
   alias AtlasFlow.FakeFacts.Leasing, as: L
   alias AtlasFlow.Runs.{Run, Store}
-  alias AtlasFlow.WorkSource.{Leases, Translate}
+  alias AtlasFlow.WorkSource.Translate
 
   @epoch ~U[2026-11-17 12:00:00Z]
   @repository "example.org/acme/bench"
@@ -158,9 +158,6 @@ defmodule AtlasFlow.Activities.TaskTest do
     start_supervised!(FakeFacts)
     {:ok, clock} = ManualClock.start_link(@epoch)
     clock = {ManualClock, clock}
-
-    results = [dir: dir, clock: clock, sweep_ms: 86_400_000, pins: fn -> [] end]
-    start_supervised!(Supervisor.child_spec({Results, results}, id: Results))
 
     code = start_supervised!({FakeCode, %{}}, id: :code)
     FakeCode.put(code, @repository, "develop", "rev_1", %{"README.md" => @readme})
@@ -465,33 +462,19 @@ defmodule AtlasFlow.Activities.TaskTest do
       assert task_values("TK-B-2-1")["check_ending"] == "timed_out"
     end
 
-    test "a result is taken only once it is complete: its blobs, then its csf_", c do
+    test "a change set an older Runtime still reports is not read: no blob is asked (IS-Atlas-100)",
+         c do
       source(c)
       intended(c)
       %{lease_id: lease} = lease!(@mini)
-      base_id = task_values()["base_id"]
-      bytes = "fn main() {}\n"
-      change_set = L.change_set([{"main.rs", bytes}], base_id)
+      change_set = L.change_set([{"main.rs", "fn main() {}\n"}], task_values()["base_id"])
 
-      assert {:recorded, %{missing: [sha]}} =
+      assert {:recorded, %{missing: []}} =
                work(@mini, lease, L.ended(change_set, check: check(0)))
 
-      assert task_values()["result_state"] == "incomplete"
-
-      # Ended, but incomplete: the run waits.
-      held = reconcile(c)
-      assert {held["state"], held["pending"]["task"]["key"]} == {"loading", @task}
-
-      assert :stored =
-               WorkSource.put_blob(@mini, %{
-                 lease_id: lease,
-                 sha256: sha,
-                 size: byte_size(bytes),
-                 content: [bytes]
-               })
-
       delivered()
-      assert task_values()["result_state"] == "complete"
+      refute Map.has_key?(task_values(), "result_state")
+      refute Map.has_key?(task_values(), "result_manifest")
       assert reconcile(c)["state"] == "done"
     end
 
@@ -580,18 +563,11 @@ defmodule AtlasFlow.Activities.TaskTest do
       assert %{work: %{work_key: "TK-B-1-2"}} = lease!(@mini)
     end
 
-    test "an assignment moved away abandons the task and unpins its result; a late end is ignored",
-         c do
+    test "an assignment moved away abandons the task; a late end is ignored", c do
       source(c)
       intended(c)
       %{lease_id: lease} = lease!(@mini)
-      bytes = "abc\n"
-      change_set = L.change_set([{"a.txt", bytes}], task_values()["base_id"])
-
-      assert {:recorded, %{missing: [sha]}} =
-               work(@mini, lease, L.ended(change_set, check: check(0)))
-
-      assert {:ok, _} = Results.manifest(@task)
+      assert {:recorded, _} = report(@mini, lease, 1, %{state: :accepted})
 
       # Its flow no longer supervised, the task it made for the robot is abandoned once the
       # bin leaves that robot.
@@ -601,24 +577,14 @@ defmodule AtlasFlow.Activities.TaskTest do
       assert {abandoned["state"], abandoned["status"]} == {"abandoned", "completed"}
       assert [%{"outcome" => "abandoned", "key" => @task}] = abandoned["pending"]["tasks"]
       assert task_values()["state"] == "abandoned"
-      assert Results.manifest(@task) == :not_found
 
       # The late end is recorded on the task, and the run, which no longer holds it, stays.
-      assert :stored =
-               WorkSource.put_blob(@mini, %{
-                 lease_id: lease,
-                 sha256: sha,
-                 size: byte_size(bytes),
-                 content: [bytes]
-               })
+      assert {:recorded, %{missing: []}} =
+               report(@mini, lease, 2, L.ended(nil, check: check(0)))
 
-      assert task_values()["result_state"] == "complete"
+      assert task_values()["lease_state"] == "done"
       bin("B-1", "mini")
       assert reconcile(c) == abandoned
-
-      # A rebuild from Facts does not pin it again.
-      assert :ok = Results.rebuild(Leases.pins())
-      assert Results.manifest(@task) == :not_found
     end
 
     test "the Engine writes a task fact's input once, at its create; Dispatch's grant writes it fenced",
@@ -902,16 +868,14 @@ defmodule AtlasFlow.Activities.TaskTest do
     end
 
     test "configured, the work source starts before the Engine: its first round finds Bases",
-         c do
+         _c do
       keys =
         [atlas: :model, atlas: :actors, atlas_flow: :start, atlas_flow: :tick_seconds] ++
-          [atlas_flow: :work_source, atlas_flow: :results]
+          [atlas_flow: :work_source]
 
       previous = for {app, key} <- keys, do: {app, key, Application.get_env(app, key)}
       :persistent_term.put({Probed, :test}, self())
       bin("B-1", "mini")
-      # The application starts its own result store.
-      stop_supervised!(Results)
 
       try do
         :ok = Application.stop(:atlas_flow)
@@ -920,7 +884,6 @@ defmodule AtlasFlow.Activities.TaskTest do
         Application.put_env(:atlas_flow, :start, true)
         Application.put_env(:atlas_flow, :tick_seconds, 3_600)
         Application.put_env(:atlas_flow, :work_source, sweep_ms: nil, resync_ms: nil)
-        Application.put_env(:atlas_flow, :results, dir: Path.join(c.dir, "app"))
         {:ok, _} = Application.ensure_all_started(:atlas_flow)
 
         assert_receive {:engine_init, true}, 2_000
@@ -954,7 +917,7 @@ defmodule AtlasFlow.Activities.TaskTest do
       refute Task.valid?(Map.put(spec, "profile", "light_work"))
       refute Task.valid?(Map.delete(spec, "records"))
 
-      # Why it failed goes to a field of the subject, for a task outside any ladder only.
+      # Why it failed goes to a field of the subject; no task is a ladder step (IS-Atlas-100).
       assert Task.valid?(Map.put(spec, "failure", "task_failure"))
       refute Task.valid?(Map.put(spec, "failure", ""))
       refute Task.valid?(Map.merge(spec, %{"failure" => "task_failure", "ladder" => true}))

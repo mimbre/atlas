@@ -107,11 +107,6 @@ defmodule AtlasFlow.Backend.ConformanceTest do
     def poll(_c, _i, opts), do: opts[:answer]
     def report(_c, _i, opts), do: opts[:answer]
     def get_blob(_c, _i, opts), do: opts[:answer]
-
-    def put_blob(_c, input, opts) do
-      Stream.run(input["content"])
-      opts[:answer]
-    end
   end
 
   @credentials %{
@@ -237,7 +232,7 @@ defmodule AtlasFlow.Backend.ConformanceTest do
     conforms!(call(:post, "/v1/poll", JSON.encode!(other)), "poll", "rejected", "invalid")
   end
 
-  test "report: recorded, lease_lost and rejected(conflict, invalid); ended's missing", ctx do
+  test "report: recorded, lease_lost and rejected(conflict, invalid); ended's missing is empty" do
     %{task: _} = L.supervised_task("B-1", "ada")
     Dispatch.resync()
 
@@ -282,8 +277,9 @@ defmodule AtlasFlow.Backend.ConformanceTest do
       }
     }
 
+    # An older Runtime's change set is recorded and not read: nothing is missing (IS-Atlas-100).
     conn = conforms!(report.(3, ended, lease), "report", "recorded")
-    assert JSON.decode!(conn.resp_body)["missing"] == [a]
+    assert JSON.decode!(conn.resp_body)["missing"] == []
 
     # A report of a state the contract does not know.
     bad =
@@ -295,9 +291,10 @@ defmodule AtlasFlow.Backend.ConformanceTest do
 
     conforms!(bad, "report", "rejected", "invalid")
 
-    L.advance(ctx, 900)
-    Dispatch.sweep()
-    conforms!(report.(4, %{"state" => "started"}, lease), "report", "lease_lost")
+    # The ended lease is done at once (its result over Git); a lease that is not current
+    # answers lease_lost.
+    stale = "TK-B-1-1~1~AAAAAAAAAAAAAAAAAAAAAA"
+    conforms!(report.(1, %{"state" => "accepted"}, stale), "report", "lease_lost")
   end
 
   test "get_blob: blob and not_found" do
@@ -314,42 +311,20 @@ defmodule AtlasFlow.Backend.ConformanceTest do
     )
   end
 
-  test "put_blob: every outcome" do
+  test "no put_blob (work_source 0.4.0, IS-Atlas-100): its path takes no upload" do
     headers = [{"content-type", "application/octet-stream"}, {"blob-size", "3"}]
-    path = "/v1/leases/L/blobs/#{L.sha256("abc")}"
 
-    for {answer, outcome, reason} <- [
-          {:stored, "stored", nil},
-          {:lease_lost, "lease_lost", nil},
-          {:too_large, "too_large", nil},
-          {:not_referenced, "not_referenced", nil},
-          {{:rejected, :digest_mismatch}, "rejected", "digest_mismatch"},
-          {{:rejected, :invalid}, "rejected", "invalid"}
-        ] do
-      conforms!(
-        call(:put, path, "abc", [headers: headers] ++ stand(answer)),
-        "put_blob",
-        outcome,
-        reason
-      )
-    end
-
-    # The real source: no ended recorded for this lease.
-    conforms!(call(:put, path, "abc", headers: headers), "put_blob", "lease_lost")
+    error!(
+      call(:put, "/v1/leases/L/blobs/#{L.sha256("abc")}", "abc", headers: headers),
+      "no_route"
+    )
   end
 
-  test "the errors: unauthenticated, no_route, invalid, too_large, unsupported_media_type" do
+  test "the errors: unauthenticated, no_route, invalid, too_large" do
     error!(call(:post, "/v1/poll", "{}", auth: false), "unauthenticated")
     error!(call(:get, "/v2/poll", ""), "no_route")
     error!(call(:post, "/v1/poll", "[]"), "invalid")
     error!(call(:post, "/v1/poll", String.duplicate(" ", 1_048_577)), "too_large")
-
-    error!(
-      call(:put, "/v1/leases/L/blobs/abc", "abc",
-        headers: [{"content-type", "text/plain"}, {"blob-size", "3"}]
-      ),
-      "unsupported_media_type"
-    )
   end
 
   ## work_source.json, as a checker of JSON values

@@ -200,7 +200,7 @@ defmodule RelaDSL.SupervisionTest do
       relation :watched_by, label: "watched by", from: [:run], to: [:clerk]#{Keyword.get(parts, :max, ", max_outgoing: 1")}
       flow_runtime(runs: :run, writer: [sender: :flow, by: :flow], inputs: :input#{Keyword.get(parts, :supervision, ", supervision: [relation: :watched_by, operation: :operation, hand_to: :hand_to]")})
       subflow :case, subject: :case do
-        owner default: {:clerk, :desk}
+        owner #{Keyword.get(parts, :case_owner, "default: {:clerk, :desk}")}
         start :create
         initial :open
         #{Keyword.get(parts, :span, "supervise :work, label: \"Work\", states: [:open], with: [:part]")}
@@ -452,6 +452,82 @@ defmodule RelaDSL.SupervisionTest do
     no_default = update_in(shell.("a"), ["shell"], &Map.delete(&1, "default"))
     assert defaults.(no_default) == []
     refute Enum.any?(keys(Check.check(%{}, shell.("a"))), &match?({:unknown_keys, _}, &1))
+  end
+
+  # -- An item's producer (producer, SC-Atlas-09) ------------------------------------------
+
+  # A case's producer: the clerk who supervised the run that made it, set by Flow alone;
+  # and relations that break one rule each.
+  @made_by """
+  relation :made_by, label: "made by", from: [:case, :part], to: [:clerk], max_outgoing: 1, set_by: [:flow]
+  relation :made_by_many, label: "made by many", from: [:case], to: [:clerk], set_by: [:flow]
+  relation :made_by_hand, label: "made by hand", from: [:case], to: [:clerk], max_outgoing: 1
+  relation :made_by_run, label: "made by run", from: [:case], to: [:run], max_outgoing: 1, set_by: [:flow]
+  """
+
+  test "the producer: the relation from an item to the supervisor of the run that made it" do
+    comp = model(concept: @made_by, composition: "producer(relation: :made_by)")
+    assert comp.supervision()["producer"] == "made_by"
+
+    # Without it, supervision holds none, and the subflows are as they were.
+    plain = model(concept: @made_by)
+    refute Map.has_key?(plain.supervision(), "producer")
+    assert Map.delete(comp.supervision(), "producer") == plain.supervision()
+    definitions = &Atlas.definitions(&1.__flows__(), &1.__rela__(:gates))
+    assert definitions.(comp) == definitions.(plain)
+  end
+
+  test "the producer leads to one of the supervisor's kind, set by Flow alone, given once" do
+    problems = &work_problems(decl: @made_by <> &1)
+    assert problems.("producer(relation: :made_by)") == []
+
+    for relation <- [:made_by_many, :made_by_hand, :made_by_run, :ghost] do
+      assert [{:producer_relation, [to_string(relation)]}] ==
+               problems.("producer(relation: #{inspect(relation)})"),
+             "#{relation}"
+    end
+
+    assert [{:producer, []}] = problems.("producer(relation: nil)")
+    assert {:unknown_keys, ["colour"]} in problems.("producer(relation: :made_by, colour: :red)")
+
+    assert [{:given_twice, ["producer"]}] =
+             problems.("producer(relation: :made_by)\nproducer(relation: :made_by)")
+
+    assert {:supervision_undeclared, ["producer"]} in work_problems(
+             decl: @made_by <> "producer(relation: :made_by)",
+             supervision: "",
+             span: ""
+           )
+  end
+
+  test "a state's owner may ask the subject's producer, the configured actor when none" do
+    owner = "default: {:clerk, config: :decider, producer: :made_by}"
+    comp = model(concept: @made_by, case_owner: owner)
+    [flow | _] = comp.__flows__()
+    assert flow.owner.default == %{kind: :clerk, config: :decider, producer: :made_by}
+
+    owned = Atlas.definitions(comp.__flows__(), comp.__rela__(:gates))["case"]["owner"]
+
+    assert owned["default"] == %{
+             "kind" => "clerk",
+             "config" => "decider",
+             "producer" => "made_by"
+           }
+
+    # The relation leads from the subject to one of the default's kind.
+    for {relation, why} <- [
+          {:ghost, "producer ghost does not lead from case to one clerk"},
+          {:made_by_many, "producer made_by_many does not lead from case to one clerk"},
+          {:made_by_run, "producer made_by_run does not lead from case to one clerk"}
+        ] do
+      model_refused(
+        [
+          concept: @made_by,
+          case_owner: "default: {:clerk, config: :decider, producer: #{inspect(relation)}}"
+        ],
+        why
+      )
+    end
   end
 
   # -- A supervisor's running work (supervised_work) ---------------------------------------

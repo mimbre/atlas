@@ -2,9 +2,10 @@ defmodule Model.WorkSourceTimingConfigTest do
   @moduledoc """
   pull-e2e D6: the core's `config/runtime.exs` takes a test environment's short lease
   timing from `flow.work_source` (`lease_ttl`, `poll_max`, `sweep_ms`, `resync_ms` into
-  `config :atlas_flow, :work_source`; `result_cap` into `config :atlas_flow, :results`),
-  only the keys given and only for env `test`. Prod refuses them, so prod keeps Flow's
-  defaults (`AtlasFlow.Dispatch`, `AtlasFlow.Results`); `grace` is refused in either env.
+  `config :atlas_flow, :work_source`), only the keys given and only for env `test`. Prod
+  refuses them, so prod keeps Flow's defaults (`AtlasFlow.Dispatch`); `grace` is refused in
+  either env. Flow keeps no result store (IS-Atlas-100): `config :atlas_flow, :results` is
+  never set, and `result_cap` is no timing key any more.
 
   The first test that reads `runtime.exs`: each case writes a settings file and reads the
   file with `Config.Reader` as a node started by `bin/atlas-ops up` would (`ATLAS_ENV`,
@@ -19,8 +20,7 @@ defmodule Model.WorkSourceTimingConfigTest do
     "lease_ttl" => 180,
     "poll_max" => 5,
     "sweep_ms" => 1_000,
-    "resync_ms" => 5_000,
-    "result_cap" => 12_000_000
+    "resync_ms" => 5_000
   }
 
   setup do
@@ -50,8 +50,7 @@ defmodule Model.WorkSourceTimingConfigTest do
           Map.merge(
             %{
               "port" => 4100,
-              "credentials_env" => "ATLAS_WORK_SOURCE_CREDENTIALS",
-              "results" => Path.join(dir, "results")
+              "credentials_env" => "ATLAS_WORK_SOURCE_CREDENTIALS"
             },
             source
           )
@@ -69,13 +68,9 @@ defmodule Model.WorkSourceTimingConfigTest do
   end
 
   defp work_source(flow), do: Enum.sort(Keyword.fetch!(flow, :work_source))
-  defp results(flow), do: Enum.sort(Keyword.fetch!(flow, :results))
 
   # What runtime.exs configures for a work source with no timing keys.
-  defp base(dir) do
-    {[port: 4100, credentials_env: "ATLAS_WORK_SOURCE_CREDENTIALS"],
-     [dir: Path.join(dir, "results")]}
-  end
+  defp base, do: [port: 4100, credentials_env: "ATLAS_WORK_SOURCE_CREDENTIALS"]
 
   # The settings read without `key`, and raise with it.
   defp refused(dir, env, source, key) do
@@ -83,41 +78,33 @@ defmodule Model.WorkSourceTimingConfigTest do
     assert_raise RuntimeError, fn -> read(dir, env, settings(dir, source)) end
   end
 
-  test "a test environment's timing keys go to Flow's work source and Results", %{dir: dir} do
+  test "a test environment's timing keys go to Flow's work source; no result store", %{dir: dir} do
     flow = read(dir, "test", settings(dir, @timing))
-    {work, res} = base(dir)
 
     assert work_source(flow) ==
-             Enum.sort(work ++ [lease_ttl: 180, poll_max: 5, sweep_ms: 1_000, resync_ms: 5_000])
+             Enum.sort(base() ++ [lease_ttl: 180, poll_max: 5, sweep_ms: 1_000, resync_ms: 5_000])
 
-    assert results(flow) == Enum.sort(res ++ [result_cap: 12_000_000])
+    refute Keyword.has_key?(flow, :results)
+
+    # A results folder left in a settings file is no setting: nothing reads it.
+    old = read(dir, "test", settings(dir, %{"results" => Path.join(dir, "results")}))
+    refute Keyword.has_key?(old, :results)
   end
 
   test "only the timing keys given are set", %{dir: dir} do
-    {work, res} = base(dir)
-
     for {key, value} <- @timing do
       flow = read(dir, "test", settings(dir, %{key => value}))
       atom = String.to_existing_atom(key)
-
-      if key == "result_cap" do
-        assert work_source(flow) == Enum.sort(work)
-        assert results(flow) == Enum.sort(res ++ [{atom, value}])
-      else
-        assert work_source(flow) == Enum.sort(work ++ [{atom, value}])
-        assert results(flow) == Enum.sort(res)
-      end
+      assert work_source(flow) == Enum.sort(base() ++ [{atom, value}])
     end
   end
 
   test "without timing keys nothing is set, in test and in prod: Flow's defaults hold",
        %{dir: dir} do
-    {work, res} = base(dir)
-
     for env <- ~w(test prod) do
       flow = read(dir, env, settings(dir, %{}))
-      assert work_source(flow) == Enum.sort(work)
-      assert results(flow) == Enum.sort(res)
+      assert work_source(flow) == Enum.sort(base())
+      refute Keyword.has_key?(flow, :results)
     end
 
     # Without a work source block, neither is configured at all.
@@ -149,8 +136,7 @@ defmodule Model.WorkSourceTimingConfigTest do
           {"lease_ttl", 0},
           {"lease_ttl", 1.5},
           {"sweep_ms", -1},
-          {"resync_ms", nil},
-          {"result_cap", "12000000"}
+          {"resync_ms", nil}
         ],
         do: refused(dir, "test", %{key => value}, key)
   end

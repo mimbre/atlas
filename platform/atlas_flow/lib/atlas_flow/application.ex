@@ -29,15 +29,12 @@ defmodule AtlasFlow.Application do
   end
 
   @doc """
-  The work source's processes (plan m3 §3.1, A2): the result store, Bases, Dispatch,
-  Delivery and Landing (F3-L: it publishes checked results to Code and marks drafts
-  ready), only when `config :atlas_flow, :work_source` is set; none by default. With the
-  work source set and no result store directory (`config :atlas_flow, :results, dir:`),
-  Flow does not start: every result would be too large.
+  The work source's processes (plan m3 §3.1, A2): Bases, Dispatch and Delivery, only when
+  `config :atlas_flow, :work_source` is set; none by default. A result travels over Git
+  (`refs/atlas/results/<task>`), so Flow keeps no result store (IS-Atlas-100).
 
-  They run under one supervisor, in that order, `rest_for_one`: the store rebuilds its pins
-  from Facts before it serves a call, and Dispatch, Delivery and Landing start after it. That
-  supervisor starts before the Engine, so the Engine's first round finds Bases' table.
+  They run under one supervisor, in that order, `rest_for_one`. That supervisor starts
+  before the Engine, so the Engine's first round finds Bases' table.
 
   The HTTP listener (`AtlasFlow.Backend.Listener`, A3) comes last, and only when the work
   source has a `port`: without one there is no listener. It binds 127.0.0.1 only.
@@ -48,29 +45,18 @@ defmodule AtlasFlow.Application do
         {:ok, []}
 
       settings ->
-        if Keyword.get(Application.get_env(:atlas_flow, :results, []), :dir) do
-          children =
-            [
-              {AtlasFlow.Results, pins: &result_pins/0},
-              AtlasFlow.Bases,
-              AtlasFlow.Dispatch,
-              AtlasFlow.Delivery,
-              AtlasFlow.Landing
-            ] ++ listener(settings)
+        children = [AtlasFlow.Bases, AtlasFlow.Dispatch, AtlasFlow.Delivery] ++ listener(settings)
 
-          {:ok,
-           [
-             %{
-               id: AtlasFlow.WorkSource.Root,
-               type: :supervisor,
-               start:
-                 {Supervisor, :start_link,
-                  [children, [strategy: :rest_for_one, name: AtlasFlow.WorkSource.Root]]}
-             }
-           ]}
-        else
-          {:error, :work_source_without_results}
-        end
+        {:ok,
+         [
+           %{
+             id: AtlasFlow.WorkSource.Root,
+             type: :supervisor,
+             start:
+               {Supervisor, :start_link,
+                [children, [strategy: :rest_for_one, name: AtlasFlow.WorkSource.Root]]}
+           }
+         ]}
     end
   end
 
@@ -82,15 +68,6 @@ defmodule AtlasFlow.Application do
     case Keyword.get(settings, :port) do
       nil -> []
       port -> [{AtlasFlow.Backend.Listener, port: port}]
-    end
-  end
-
-  # The store reads its pins from Facts itself, before it serves anything (§3.4 "Index").
-  @doc false
-  def result_pins do
-    case AtlasBus.attach("flow/results") do
-      :ok -> AtlasFlow.WorkSource.Leases.pins()
-      {:error, why} -> raise "the result store cannot read Facts: #{inspect(why)}"
     end
   end
 end

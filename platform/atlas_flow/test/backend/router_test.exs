@@ -1,7 +1,7 @@
 defmodule AtlasFlow.Backend.RouterTest do
   # Plan m3 A3: the carriage itself. The credential before the router (401), the routes'
   # bodies and their limits (an oversized body, a second poll, too many streams, the
-  # request rate), the streamed put_blob body, a long-poll answered early by a grant and
+  # request rate), no put_blob (IS-Atlas-100), a long-poll answered early by a grant and
   # at poll_max empty, and the loopback-only bind. A stand-in work source records what
   # reaches it; the long-poll cases run on the real Dispatch (FakeFacts, a manual
   # clock). Asserted on statuses, problem types, headers, calls and counts; never on text.
@@ -22,7 +22,6 @@ defmodule AtlasFlow.Backend.RouterTest do
     def poll(client, input, opts), do: answer(:poll, client, input, opts)
     def report(client, input, opts), do: answer(:report, client, input, opts)
     def get_blob(client, input, opts), do: answer(:get_blob, client, input, opts)
-    def put_blob(client, input, opts), do: answer(:put_blob, client, input, opts)
 
     defp answer(capability, client, input, opts) do
       send(opts[:test], {capability, client, input, self()})
@@ -40,7 +39,6 @@ defmodule AtlasFlow.Backend.RouterTest do
 
     defp default(:report), do: {:recorded, %{missing: []}}
     defp default(:get_blob), do: :not_found
-    defp default(:put_blob), do: :stored
   end
 
   @credentials %{
@@ -241,96 +239,16 @@ defmodule AtlasFlow.Backend.RouterTest do
     end
   end
 
-  describe "put_blob's streamed body" do
-    defp put(body, headers, router \\ stub()) do
-      request(:put, "/v1/leases/L/blobs/#{L.sha256("abc")}", body,
-        headers: headers,
-        plug: plug(router)
-      )
-    end
-
-    @octets [{"content-type", "application/octet-stream"}]
-
-    test "it goes to the source as a lazy stream, with the declared size" do
-      read = fn input ->
-        send(self(), {:read, Enum.to_list(input["content"])})
-        :stored
-      end
-
-      conn = put("abc", @octets ++ [{"blob-size", "3"}], stub(put_blob: read))
-      assert conn.status == 200
-      assert JSON.decode!(conn.resp_body) == %{}
-
-      assert_received {:put_blob, {"mini", "ada"},
-                       %{"lease_id" => "L", "size" => 3, "content" => content}, _}
-
-      refute is_binary(content)
-      assert_received {:read, chunks}
-      assert IO.iodata_to_binary(chunks) == "abc"
-      assert Plug.Conn.get_resp_header(conn, "connection") == []
-    end
-
-    test "nothing is read before the source reads; at most Blob-Size + 1 bytes are" do
-      untouched = fn _input -> :lease_lost end
-      conn = put("abc", @octets ++ [{"blob-size", "3"}], stub(put_blob: untouched))
-      assert {conn.status, problem_type(conn)} == {410, "lease-lost"}
-      # Answered before the body was read: the connection is closed.
-      assert Plug.Conn.get_resp_header(conn, "connection") == ["close"]
-
-      greedy = fn input ->
-        send(self(), {:read, IO.iodata_to_binary(Enum.to_list(input["content"]))})
-        {:rejected, :digest_mismatch}
-      end
-
+  describe "no put_blob (work_source 0.4.0, IS-Atlas-100)" do
+    test "a PUT of a blob is no route; nothing reaches the source" do
       conn =
-        put(String.duplicate("x", 100), @octets ++ [{"blob-size", "3"}], stub(put_blob: greedy))
+        request(:put, "/v1/leases/L/blobs/#{L.sha256("abc")}", "abc",
+          headers: [{"content-type", "application/octet-stream"}, {"blob-size", "3"}],
+          plug: plug(stub())
+        )
 
-      # Past Blob-Size the body is too-large, whatever the source made of its bytes.
-      assert {conn.status, problem_type(conn)} == {413, "too-large"}
-      assert Plug.Conn.get_resp_header(conn, "connection") == ["close"]
-      assert_received {:read, read}
-      assert byte_size(read) == 4
-    end
-
-    test "another content type is unsupported-media-type; no or a bad Blob-Size is invalid" do
-      for headers <- [[], [{"content-type", "application/json"}]] do
-        conn = put("abc", headers ++ [{"blob-size", "3"}])
-        assert {conn.status, problem_type(conn)} == {415, "unsupported-media-type"}
-      end
-
-      for size <- [nil, "x", "-1", "3.0"] do
-        headers = if size, do: @octets ++ [{"blob-size", size}], else: @octets
-        conn = put("abc", headers)
-        assert {conn.status, problem_type(conn)} == {400, "invalid"}
-      end
-
-      ok = put("abc", [{"content-type", "Application/Octet-Stream; x=y"}, {"blob-size", "3"}])
-      assert ok.status == 200
-      assert_received {:put_blob, _, _, _}
-      refute_received {:put_blob, _, _, _}
-    end
-
-    test "a declared length past the blob limit is too-large, before the source" do
-      headers = @octets ++ [{"blob-size", "3"}, {"content-length", "20000001"}]
-      conn = put("abc", headers)
-      assert {conn.status, problem_type(conn)} == {413, "too-large"}
-
-      # The Runtime's router's order: 415, then 413 by Content-Length, then 400 (Blob-Size).
-      both = put("abc", @octets ++ [{"blob-size", "x"}, {"content-length", "20000001"}])
-      assert {both.status, problem_type(both)} == {413, "too-large"}
-      refute_received {:put_blob, _, _, _}
-    end
-
-    test "the source's outcomes are their declared statuses and types" do
-      for {answer, status, type} <- [
-            {:too_large, 413, "too-large"},
-            {:not_referenced, 409, "not-referenced"},
-            {:lease_lost, 410, "lease-lost"},
-            {{:rejected, :invalid}, 400, "invalid"}
-          ] do
-        conn = put("abc", @octets ++ [{"blob-size", "3"}], stub(put_blob: fn _ -> answer end))
-        assert {conn.status, problem_type(conn)} == {status, type}
-      end
+      assert {conn.status, problem_type(conn)} == {404, "no-route"}
+      refute_received {_, _, _, _}
     end
   end
 
@@ -576,13 +494,7 @@ defmodule AtlasFlow.Backend.RouterTest do
       test = self()
       name = :"chunked-#{System.unique_integer([:positive])}"
 
-      read = fn input ->
-        bytes = input["content"] |> Enum.to_list() |> IO.iodata_to_binary()
-        send(test, {:blob_read, byte_size(bytes)})
-        if bytes == "abc", do: :stored, else: {:rejected, :digest_mismatch}
-      end
-
-      router = [source: Source, source_opts: [test: test, put_blob: read]]
+      router = [source: Source, source_opts: [test: test]]
 
       start_supervised!(
         {Listener, port: 0, credentials: @credentials, name: name, router: router}
@@ -707,24 +619,6 @@ defmodule AtlasFlow.Backend.RouterTest do
       refute_received {:report, _, _, _}
     end
 
-    test "a put_blob body past Blob-Size + 1 is too-large; the stream stopped there",
-         %{port: port} do
-      octets = [{"content-type", "application/octet-stream"}]
-      path = "/v1/leases/L/blobs/#{L.sha256("abc")}"
-
-      too_large(
-        exchange(port, chunked("PUT", path, octets ++ [{"blob-size", "3"}], bytes(30 * @mib)))
-      )
-
-      assert_received {:blob_read, 4}
-      assert_received {:sent_in_all, sent}
-      assert sent < 30 * @mib
-
-      sized = octets ++ [{"blob-size", "2000000"}]
-      too_large(exchange(port, chunked("PUT", path, sized, bytes(3 * @mib))))
-      assert_received {:blob_read, 2_000_001}
-    end
-
     test "chunked bodies within their caps are served", %{port: port} do
       assert {200, _, _} = exchange(port, chunked("POST", "/v1/poll", [], split(poll_body())))
       assert_received {:poll, {"mini", "ada"}, %{"runtime_id" => "mini"}, _}
@@ -742,17 +636,6 @@ defmodule AtlasFlow.Backend.RouterTest do
                )
 
       assert_received {:report, _, _, _}
-
-      put = [{"content-type", "application/octet-stream"}, {"blob-size", "3"}]
-
-      assert {200, headers, _} =
-               exchange(
-                 port,
-                 chunked("PUT", "/v1/leases/L/blobs/#{L.sha256("abc")}", put, ["a", "bc"])
-               )
-
-      assert_received {:blob_read, 3}
-      refute headers["connection"] == "close"
     end
 
     test "without a credential: 401, and the unread body is not drained", %{port: port} do

@@ -3,7 +3,7 @@ defmodule AtlasRuntime.Sources.LocalTest do
   M2 A5, the built-in local work source (decision §5.4; M2 plan A5) on W7's store: a work
   is checked against the policy when it is added; its client key is the source's (I3, I7);
   the queue is priority, then FIFO; the `local` entry's priority and `max_slots` apply; a
-  local work runs through poll, report and put_blob as a remote one does, and its result is
+  local work runs through poll and report as a remote one does, and its result is
   served from the source's own store; a restart keeps the queue, and a held lease does not
   start before its accept is recorded.
   """
@@ -197,7 +197,7 @@ defmodule AtlasRuntime.Sources.LocalTest do
     assert Work.offer("local") == %{"light_work" => 1}
   end
 
-  test "a local work runs through poll, report and put_blob like a remote one; its result is served from the source's own store",
+  test "a local work runs through poll and report like a remote one; its end is served from the source's own store",
        %{bench: bench, code: code} do
     sources!(bench)
 
@@ -221,22 +221,13 @@ defmodule AtlasRuntime.Sources.LocalTest do
     # The executor ran each under the local source's client, keyed by its lease.
     assert [_, _] = Work.holdings("local")
 
-    assert {:ok, %{ended: ended, result_ref: %{frozen_id: ^base_id}}} = Local.result(base_id)
-    assert %{result: %{kind: :completed}} = ended
-    assert [%{root: "atlas", fingerprint: "csf_" <> _, entries: entries}] = ended.change_set.roots
-    writes = for %{op: :write, sha256: sha} <- entries, do: sha
-    assert length(writes) == 2
-
-    await(fn -> Enum.all?(writes, &match?({:ok, _}, Local.result_blob(&1))) end)
-
-    # C6: served from the local source's store, also once the executor's copy is gone.
+    # Its end, served from the local source's store, also once the executor's copy is gone.
+    # No change set and no blob come with it (work_source 0.5.0, IS-Atlas-100): the frozen
+    # result stays the executor's.
+    assert {:ok, %{ended: ended, result_ref: %{frozen_id: nil}}} = Local.result(base_id)
+    assert %{result: %{kind: :completed}, change_set: nil} = ended
     File.rm_rf!(Path.join(bench.dir, "frozen"))
-
-    assert Enum.sort(for sha <- writes, do: elem(Local.result_blob(sha), 1)) ==
-             ["alpha\n", "beta\n"]
-
     assert {:ok, %{ended: ^ended}} = Local.result(base_id)
-    # A folder work has no frozen result: nothing to serve but its end.
     assert {:ok, %{result_ref: %{frozen_id: nil}}} = Local.result(folder_id)
   end
 

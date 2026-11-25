@@ -46,6 +46,7 @@ defmodule RelaDSL.Description.Build do
   @flow_runtime_keys [:runs, :writer, :inputs, :supervision, :senders]
   @supervision_keys [:relation, :operation, :hand_to]
   @work_keys [:kind, :of, :for, :ended]
+  @producer_keys [:relation]
   @operations ["pickup", "hand_over", "retry"]
   @writer "atlas-flow"
 
@@ -162,6 +163,9 @@ defmodule RelaDSL.Description.Build do
 
       %{kind: :root, value: {:supervised_work, opts}} = i ->
         unknown(i, {"supervised_work"}, opts, @work_keys)
+
+      %{kind: :root, value: {:producer, opts}} = i ->
+        unknown(i, {"producer"}, opts, @producer_keys)
 
       %{kind: :extend_entity, value: {name, rules}} = i ->
         unknown(i, {"extend_entity", name}, rules, Enum.map(@entity_notes, &String.to_atom/1))
@@ -286,6 +290,7 @@ defmodule RelaDSL.Description.Build do
 
   defp fragment(%{kind: :root, value: {:flow_runtime, _}}), do: []
   defp fragment(%{kind: :root, value: {:supervised_work, _}}), do: []
+  defp fragment(%{kind: :root, value: {:producer, _}}), do: []
 
   defp fragment(%{kind: :root, value: {construct, value}}),
     do: [%{RelaDSL.Description.root_key(construct) => Plain.of(value)}]
@@ -433,7 +438,7 @@ defmodule RelaDSL.Description.Build do
                    {"acl", {:ordered, acl}},
                    {"roles", {:ordered, input_roles}}
                  ]}}
-             ] ++ supervision(opts[:supervision], flows, work(items))}}
+             ] ++ supervision(opts[:supervision], flows, work(items), producer(items))}}
          ]}
     end
   end
@@ -502,11 +507,12 @@ defmodule RelaDSL.Description.Build do
   # it: the relation from a run to its human supervisor, which only the run's writer
   # sets; the fields of a pickup or hand-over input (`operation`, `hand_to`); and each
   # running subflow's supervised spans, as its `supervise` gives them; and, when
-  # `supervised_work` gives it, what a supervisor's running work is (`work`). It sits
+  # `supervised_work` gives it, what a supervisor's running work is (`work`); and, when
+  # `producer` gives it, the relation from an item to its producer (`producer`). It sits
   # beside the subflows, never in one.
-  defp supervision(nil, _flows, _work), do: []
+  defp supervision(nil, _flows, _work, _producer), do: []
 
-  defp supervision(opts, flows, work) do
+  defp supervision(opts, flows, work, producer) do
     spans =
       for f <- flows, f.spans != [] do
         {to_string(f.name),
@@ -541,8 +547,17 @@ defmodule RelaDSL.Description.Build do
             w <- [work],
             w != nil,
             do: {"work", {:ordered, for(k <- @work_keys, do: {to_string(k), Plain.of(w[k])})}}
-          )}}
+          ) ++
+          for(p <- [producer], p != nil, do: {"producer", Plain.of(p[:relation])})}}
     ]
+  end
+
+  # The one `producer` the contributions give, or nil.
+  defp producer(items) do
+    Enum.find_value(items, fn
+      %{kind: :root, value: {:producer, opts}} when is_list(opts) -> opts
+      _ -> nil
+    end)
   end
 
   # The one `supervised_work` the contributions give, or nil.
@@ -592,6 +607,7 @@ defmodule RelaDSL.Description.Build do
 
     entries ++
       work_problems(items, flows, schema, declared, supervised?) ++
+      producer_problems(items, schema, declared, supervised?) ++
       case {declared, spanned} do
         {nil, []} ->
           []
@@ -728,6 +744,74 @@ defmodule RelaDSL.Description.Build do
              problem(:supervision_work, [], "supervised_work: takes kind:, of:, for: and ended:")}
           ]
         end
+    end
+  end
+
+  # The relation from an item to its producer (`producer`, SC-Atlas-09), given once and
+  # only with supervision: it leads to the supervisor's kind, to one at most, and only
+  # Flow sets it (`set_by: [:flow]`), as for the run's supervisor itself.
+  defp producer_problems(items, schema, declared, supervised?) do
+    given = for %{kind: :root, value: {:producer, opts}} = i <- items, do: {i, opts}
+
+    case given do
+      [] ->
+        []
+
+      [{i, _} | _] when not supervised? ->
+        [
+          {i.file, i.line,
+           problem(
+             :supervision_undeclared,
+             ["producer"],
+             "producer: no flow_runtime declares supervision: (the relation to a run's human supervisor)"
+           )}
+        ]
+
+      [_, {i, _} | _] ->
+        [
+          {i.file, i.line,
+           problem(:given_twice, ["producer"], "producer is given more than once")}
+        ]
+
+      [{i, opts}] ->
+        if Keyword.keyword?(opts) and is_atom(opts[:relation]) and opts[:relation] != nil do
+          {_, runtime} = declared
+
+          for p <- producer_shape(opts[:relation], runtime[:supervision], items, schema),
+              do: {i.file, i.line, p}
+        else
+          [{i.file, i.line, problem(:producer, [], "producer: takes relation:")}]
+        end
+    end
+  end
+
+  defp producer_shape(name, supervision, items, schema) do
+    relation = get_in(schema, ["relations", to_string(name)])
+
+    supervisor =
+      Keyword.keyword?(supervision) &&
+        get_in(schema, ["relations", to_string(supervision[:relation]), "to"])
+
+    set_by =
+      Enum.find_value(items, [], fn
+        %{kind: :relation, value: {^name, opts}} when is_list(opts) ->
+          List.wrap(opts[:set_by])
+
+        _ ->
+          nil
+      end)
+
+    if relation == nil or relation["max_outgoing"] != 1 or not is_list(supervisor) or
+         relation["to"] != supervisor or set_by != [:flow] do
+      [
+        problem(
+          :producer_relation,
+          [name],
+          "producer: relation #{name} must lead to one of the supervisor's kind (max_outgoing 1), set by Flow alone (set_by: [:flow])"
+        )
+      ]
+    else
+      []
     end
   end
 

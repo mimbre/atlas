@@ -25,7 +25,7 @@ defmodule RelaDSL.Description do
   ## Anywhere (a concept, a module or a composition)
 
   `todo_words`, `runtime`, `guidance`, `start_page`, `progress_order`, `shell`,
-  `read_first`, `about`, `flow_runtime`, `supervised_work`, `review relation,
+  `read_first`, `about`, `flow_runtime`, `supervised_work`, `producer`, `review relation,
   field:, value:, label:`, and `extend_entity kind, rules` / `extend_relation name,
   rules`, which add rules to a kind or relation another file defines. Every leaf has
   one author: two declarations that say the same leaf are refused, even when equal.
@@ -39,6 +39,12 @@ defmodule RelaDSL.Description do
   a span's subject or one of its `with:` subjects), its relation to whom it is done for
   (`for`, the supervisor's kind) and the field that holds how it ended (`ended`, empty
   while it runs). It needs `supervision:`, and is given once, where those relations are.
+  `producer relation:` names the relation from an item to its producer (SC-Atlas-09):
+  the human supervisor of the run that made it (`supervision.producer`). Flow links each
+  fact a task's `creates:` makes, of a kind the relation leads from, to the run's
+  supervisor through it, and nobody else sets it: it leads to the supervisor's kind, to
+  one at most, and only Flow sets it (`set_by: [:flow]`). It needs `supervision:`, and is
+  given once.
   `start_page` takes `assigned:`, `open:`, and, with supervision, `open_for_you:` and
   `supervised_by_you:` (each `title:`, `count:`, `empty:`). `assigned:` also takes
   `greeting:`, the text a client greets its viewer with, `{name}` its name (the way
@@ -89,6 +95,7 @@ defmodule RelaDSL.Description do
     read_first: 1,
     flow_runtime: 1,
     supervised_work: 1,
+    producer: 1,
     review: 2,
     extend_entity: 2,
     extend_relation: 2

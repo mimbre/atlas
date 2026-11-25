@@ -4,7 +4,8 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
   machinery kind) whose agent proposes the crate's items in a file of its result; Flow
   makes them under the crate (`in_crate`, the item's parent relation). Labelled, its agent
   writes the crate's note instead (slice 9). Asked, its agent may write its questions about
-  the crate instead of proposing its items (`asks`). A clerk supervises the run.
+  the crate instead of proposing its items (`asks`). A clerk supervises the run, and is
+  the producer of the items it makes (`made_by`, the model's `producer`).
   """
   use RelaDSL.Composition,
     name: "proposal",
@@ -80,6 +81,17 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
       inputs: :slip,
       supervision: [relation: :watched_by, operation: :operation, hand_to: :hand_to]
     )
+
+    # An item's producer: the clerk who supervised the run that made it.
+    relation(:made_by,
+      label: "made by",
+      from: [:item],
+      to: [:clerk],
+      max_outgoing: 1,
+      set_by: [:flow]
+    )
+
+    producer(relation: :made_by)
 
     subflow :sort, label: "Sort", subject: :crate do
       run_as("system:proposal")
@@ -197,14 +209,15 @@ defmodule AtlasFlow.Activities.ProposalTest do
   numbered after those there are, by Flow; with no such file the task ends stuck. Slice
   9: one that writes a field of its subject (`writes`) has Flow put the file's text there.
   UC-Atlas-24: one that may ask (`asks`) and whose result has its questions has Flow put
-  them in the subject's field, makes nothing and ends `asked`.
+  them in the subject's field, makes nothing and ends `asked`. SC-Atlas-09: what a proposal
+  makes is linked to its producer, the run's supervisor (the model's `producer` relation).
   The real Dispatch, Delivery and Bases (on `FakeCode`), with `FakeFacts` and a manual clock.
   """
   use ExUnit.Case, async: false
   @moduletag :capture_log
 
   alias AtlasFlow.{Bases, Delivery, Dispatch, FakeCode, FakeFacts, ManualClock}
-  alias AtlasFlow.{Results, WorkSource}
+  alias AtlasFlow.WorkSource
   alias AtlasFlow.Activities.ProposalTest.Bench
   alias AtlasFlow.FakeFacts.Leasing, as: L
   alias AtlasFlow.Runs.Store
@@ -222,9 +235,6 @@ defmodule AtlasFlow.Activities.ProposalTest do
     start_supervised!(FakeFacts)
     {:ok, clock} = ManualClock.start_link(@epoch)
     clock = {ManualClock, clock}
-
-    results = [dir: dir, clock: clock, sweep_ms: 86_400_000, pins: fn -> [] end]
-    start_supervised!(Supervisor.child_spec({Results, results}, id: Results))
 
     code = start_supervised!({FakeCode, %{}}, id: :code)
     FakeCode.put(code, @repository, "develop", "rev_1", %{"README.md" => "# Proposal\n"})
@@ -349,6 +359,16 @@ defmodule AtlasFlow.Activities.ProposalTest do
     assert run["pending"]["task"]["work"]["instructions"] =~ "its `size`"
     assert one["links"]["in_crate"] == ["C-1"]
     assert FakeFacts.get("item", "IT-09")["values"] == %{"title" => "Two", "origin" => "robot"}
+
+    # Each is produced by the run's supervisor, ada, in the same create, by Flow.
+    for key <- ["IT-08", "IT-09"],
+        do: assert(FakeFacts.get("item", key)["links"]["made_by"] == ["ada"])
+
+    assert FakeFacts.get("item", "IT-07")["links"]["made_by"] == nil
+
+    assert [%{"by" => "flow", "links" => %{"made_by" => ["ada"], "in_crate" => ["C-1"]}} | _] =
+             for(w <- FakeFacts.stored_from_flow(), w["key"] == "IT-08", do: w)
+
     assert FakeFacts.get("item", "IT-10") == nil
   end
 

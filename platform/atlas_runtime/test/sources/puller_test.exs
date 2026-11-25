@@ -120,7 +120,7 @@ defmodule AtlasRuntime.Sources.PullerTest do
     end)
   end
 
-  test "a lease is accepted, recorded, then run; started and ended (with its blobs) reach the source",
+  test "a lease is accepted, recorded, then run; started and ended reach the source, no blob",
        ctx do
     add(ctx, "task-1", "write a.txt alpha")
     puller = puller!(ctx)
@@ -139,7 +139,7 @@ defmodule AtlasRuntime.Sources.PullerTest do
 
     assert :ok = Puller.check_now(puller)
     assert [S.Accepted, S.Started, S.Ended] = states(ctx.source, "task-1")
-    assert Map.has_key?(Source.blobs(ctx.source), Source.sha256("alpha\n"))
+    refute Map.has_key?(Source.blobs(ctx.source), Source.sha256("alpha\n"))
     assert phase(puller) == [:done]
   end
 

@@ -636,6 +636,30 @@ defmodule AtlasFlow.SupervisedOwnerTest do
       assert AtlasFlow.Model.owner(ada, actors, run) == ada
     end
 
+    # A state that asks the subject's producer (SC-Atlas-09): whom the subject links to
+    # through the owner's relation, as the projection passes it; the configured actor when
+    # it links to nobody; never the run's supervisor, in its span or out of it.
+    test "a state that asks the subject's producer goes to them, else to the configured actor" do
+      producer = Map.put(@decider, "producer", "made_by")
+      refute AtlasFlow.Model.supervisable?(producer)
+      assert AtlasFlow.Model.producer(producer) == "made_by"
+      assert AtlasFlow.Model.producer(@decider) == nil
+
+      ann = %{"kind" => "clerk", "key" => "ann"}
+      run = %{"state" => "check", "spans" => @spans, "supervised_by" => @sam}
+      assert AtlasFlow.Model.owner(producer, @actors, Map.put(run, "producer", ann)) == ann
+
+      dee = %{"kind" => "clerk", "key" => "dee"}
+
+      for none <- [Map.put(run, "producer", nil), run, nil] do
+        assert AtlasFlow.Model.owner(producer, @actors, none) == dee
+      end
+
+      # A producer of another kind is none of the owner's.
+      robot = Map.put(run, "producer", %{"kind" => "robot", "key" => "mini"})
+      assert AtlasFlow.Model.owner(producer, @actors, robot) == dee
+    end
+
     # A state that asks the subject's producer, in a span: the configured actor, while the
     # run keeps its supervisor.
     test "the decider that is not the supervisor stays the configured actor in a span" do
