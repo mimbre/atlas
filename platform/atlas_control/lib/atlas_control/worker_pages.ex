@@ -33,12 +33,16 @@ defmodule AtlasControl.WorkerPages do
         # someone meant, and a running turn is fine.
         attention = Enum.count(finished, &(&1["status"] == "failed"))
 
+        # The core's health is a page of its own, one key away (IS-Atlas-117).
         summary =
-          Pages.summary([
-            {"Workers", length(running) + length(finished)},
-            {"Running", length(running)},
-            {"Needs attention", attention}
-          ])
+          Pages.summary(
+            [
+              {"Workers", length(running) + length(finished)},
+              {"Running", length(running)},
+              {"Needs attention", attention}
+            ],
+            [health_action()]
+          )
 
         {details, markup} =
           Pages.technical_details(
@@ -99,6 +103,9 @@ defmodule AtlasControl.WorkerPages do
         error(reason, "/workers")
     end
   end
+
+  defp health_action,
+    do: Blocks.action(label: "Health", key: "h", to: Pages.path({:worker_page, :health, %{}}))
 
   defp worker_row(worker, detail) do
     execution = worker["execution"]

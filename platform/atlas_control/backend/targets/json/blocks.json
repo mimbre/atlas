@@ -330,6 +330,17 @@
     },
     {
       "call": "open",
+      "name": "health",
+      "page": "health",
+      "params": [],
+      "path": "/health",
+      "replies": {
+        "page": "view model"
+      },
+      "wire": "open"
+    },
+    {
+      "call": "open",
       "name": "worker",
       "page": "worker",
       "params": [
@@ -3205,6 +3216,12 @@
       "name": "workers",
       "params": [],
       "path": "/workers",
+      "returns": "view model"
+    },
+    {
+      "name": "health",
+      "params": [],
+      "path": "/health",
       "returns": "view model"
     },
     {
