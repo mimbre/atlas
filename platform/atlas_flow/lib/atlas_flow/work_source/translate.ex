@@ -294,10 +294,11 @@ defmodule AtlasFlow.WorkSource.Translate do
   Why an `ended` report brings no result (§3.5, Q8, D-0102): `"returned"`; `"interrupted"`
   (any interruption: a Runtime stop, a crash, a restart of its machine); `"check_interrupted"`
   (completed, but its after-check gave no exit status: a stop or restart cut it short);
-  `"supervision"` (cancelled after Flow asked for it because the supervisor changed); or nil
-  when it brings one. `cancel_cause` is the lease's `lease_end_cause` when Flow asked for
-  the cancel. A result-less ending's work is offered again as a fresh attempt of the same
-  step.
+  `"supervision"` (cancelled after Flow asked for it because the supervisor changed);
+  `"restart"` (cancelled after Flow asked for it because the work was running when Flow
+  booted: an update or an outage, `AtlasFlow.Dispatch`); or nil when it brings one.
+  `cancel_cause` is the lease's `lease_end_cause` when Flow asked for the cancel. A
+  result-less ending's work is offered again as a fresh attempt of the same step.
   """
   def result_less(%{"result" => result}, cancel_cause) do
     check = result["check"]
@@ -309,9 +310,9 @@ defmodule AtlasFlow.WorkSource.Translate do
   @doc """
   Whether a task fact's ending brought no result (§3.5): the same rule as `result_less/2`,
   decided from the stored ending (`result_kind`, `check_ending`), with `lease_end_cause`
-  used only to tell a supervision `cancelled` from any other. A cancel request alone never
-  makes an ending result-less: an `ended(completed)` after `cancel_requested` keeps its
-  result. Delivery, `outcome/2` and Dispatch's grant all decide by this rule.
+  used only to tell a supervision or restart `cancelled` from any other. A cancel request
+  alone never makes an ending result-less: an `ended(completed)` after `cancel_requested`
+  keeps its result. Delivery, `outcome/2` and Dispatch's grant all decide by this rule.
   """
   def no_result?(values) do
     v = values || %{}
@@ -322,6 +323,7 @@ defmodule AtlasFlow.WorkSource.Translate do
   defp no_result_cause("interrupted", _check_ending, _cause), do: "interrupted"
   defp no_result_cause("completed", "no_exit_status", _cause), do: "check_interrupted"
   defp no_result_cause("cancelled", _check_ending, "supervision"), do: "supervision"
+  defp no_result_cause("cancelled", _check_ending, "restart"), do: "restart"
   defp no_result_cause(_kind, _check_ending, _cause), do: nil
 
   @doc """
@@ -329,11 +331,11 @@ defmodule AtlasFlow.WorkSource.Translate do
   is ended): `"silent"` when its lease ran out unrenewed (`lost` at expiry: its Runtime,
   or the turn on it, went silent; the Runtime fences such a lease itself), `"empty"` when
   it ended `crashed` with no answer and no result, nil otherwise. A lease lost for any
-  other cause, or an ending without a result by rule (`no_result?/1`, every `interrupted`
-  among them), is no empty turn: it is offered again as always. Flow starts an empty
-  turn's task once more on a fresh attempt, and the second in a row ends it `abandoned`
-  (`AtlasFlow.Activities.Task`); Dispatch grants such a task again only for an attempt
-  its run counted (`retried/1`).
+  other cause (a `restart` among them), or an ending without a result by rule
+  (`no_result?/1`, every `interrupted` among them), is no empty turn: it is offered again
+  as always. Flow starts an empty turn's task once more on a fresh attempt, and the second
+  in a row ends it `abandoned` (`AtlasFlow.Activities.Task`); Dispatch grants such a task
+  again only for an attempt its run counted (`retried/1`).
   """
   def empty(values) do
     v = values || %{}
@@ -493,8 +495,8 @@ defmodule AtlasFlow.WorkSource.Translate do
     check, if any, exited 0 with no ending), `check_failed` (completed otherwise), `stuck`
     (refused, too large, invalid, or any other kind; `detail["reason"]` says which);
   - `:retry`: the lease ended without a result (`no_result?/1`: returned, any
-    interruption, a check that gave no exit status, a `cancelled` after a supervision
-    cancel request); the work is offered again as a fresh attempt of the same step;
+    interruption, a check that gave no exit status, a `cancelled` after a supervision or
+    restart cancel request); the work is offered again as a fresh attempt of the same step;
   - `{:empty, why, attempt}`: attempt `attempt` was an empty turn (`empty/1`, `why`
     `silent` or `empty`); the run decides whether it is started again;
   - `:waiting`: no result yet (no lease, a live one, or a result still incomplete).

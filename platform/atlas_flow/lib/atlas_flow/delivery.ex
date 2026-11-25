@@ -306,7 +306,7 @@ defmodule AtlasFlow.Delivery do
   defp follows?("started", next), do: next == "ended"
   defp follows?(_, _), do: false
 
-  # The lease keeps a supervision cancel request until its work ends.
+  # The lease keeps a cancel request (supervision, restart) until its work ends.
   defp live_state(fact, to) do
     if Leases.value(fact, "lease_state") == "cancel_requested", do: "cancel_requested", else: to
   end
@@ -365,9 +365,9 @@ defmodule AtlasFlow.Delivery do
         ended_with_result(fact, lease, report, result, state)
 
       cause ->
-        # No result (returned, any interruption, a check cut short, a supervision cancel):
-        # the stored result is unpinned and the same step is offered again as a fresh
-        # attempt (Q8, D-0102).
+        # No result (returned, any interruption, a check cut short, a supervision or
+        # restart cancel): the stored result is unpinned and the same step is offered
+        # again as a fresh attempt (Q8, D-0102).
         values =
           Map.merge(result, %{
             "lease_state" => "done",
