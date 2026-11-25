@@ -10,14 +10,13 @@ defmodule AtlasFlow.WorkSource.Translate do
         "work" => %{"title", "instructions", "profile", "cost_class",
                     "after_check" => %{"command" => [...]} (only with a check),
                     "input" => %{"base" => %{"base_id", "manifest"},
-                                 "change_set" => %{"manifest", "fingerprints"} (F2 only),
                                  "permissions" => "workspace-write" | "read-only",
-                                 "result_ref" => "refs/atlas/results/<key>" (a subject's only)}}}
+                                 "result_ref" => "refs/atlas/results/<key>" (a writable task's)}}}
 
   Title and instructions are built as `AtlasFlow.Activities.Task.request/3` builds them;
-  the base comes from `AtlasFlow.Bases`. A review, fix or diagnose (F2) also gets a frozen
-  change set: the reviewed task's `result_manifest` and `result_fingerprints`, whose blobs
-  Delivery scopes the lease to (`get_blob`, from the result store). No `slot`, `folder`,
+  the base comes from `AtlasFlow.Bases`. A result travels over Git only: a writable task's
+  Runtime pushes its result commit to `result_ref`, and a later task starts from that
+  commit as its base; no change set is ever an input. No `slot`, `folder`,
   `resume_from`, `repository` or path is ever in it, so none can reach `offered_work/1`.
 
   **Reports.** A report arrives in contract terms (atom keys, atoms, structs or plain
@@ -34,26 +33,17 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   # -- Task → offered work ---------------------------------------------------------------
 
-  @doc "The version-2 intent of task `key` without a change set: `intent/7` with nil."
-  def intent(spec, subject, key, base, machinery, %DateTime{} = now),
-    do: intent(spec, subject, key, base, nil, machinery, now)
-
   @doc """
   The version-2 intent of task `key` (`spec`, the subject fact, its `base`
-  (`%{base_id, manifest, snapshot_id}`), its `change_set` or nil, the machinery name and
-  when it was made). `change_set` is `%{manifest, fingerprints}` (atom or string keys):
-  the sha256 of a stored result manifest and its roots' `csf_` fingerprints (a list of
-  `%{root, fingerprint}`, or the task fact's `result_fingerprints` JSON).
+  (`%{base_id, manifest, snapshot_id}`), the machinery name and when it was made).
   """
-  def intent(spec, subject, key, base, change_set, machinery, %DateTime{} = now) do
+  def intent(spec, subject, key, base, machinery, %DateTime{} = now) do
     request = Task.request(spec, subject, key)
 
-    input =
-      %{
-        "base" => %{"base_id" => base.base_id, "manifest" => base.manifest},
-        "permissions" => permissions(spec)
-      }
-      |> put_change_set(change_set)
+    input = %{
+      "base" => %{"base_id" => base.base_id, "manifest" => base.manifest},
+      "permissions" => permissions(spec)
+    }
 
     work =
       request
@@ -68,32 +58,6 @@ defmodule AtlasFlow.WorkSource.Translate do
       "base_snapshot" => base.snapshot_id,
       "work" => work
     }
-  end
-
-  defp put_change_set(input, nil), do: input
-
-  defp put_change_set(input, change_set) do
-    change_set = normal(change_set)
-
-    fingerprints =
-      case change_set["fingerprints"] do
-        text when is_binary(text) ->
-          case JSON.decode(text) do
-            {:ok, list} when is_list(list) -> list
-            _ -> []
-          end
-
-        list when is_list(list) ->
-          list
-
-        _ ->
-          []
-      end
-
-    Map.put(input, "change_set", %{
-      "manifest" => change_set["manifest"],
-      "fingerprints" => for(%{} = f <- fingerprints, do: Map.take(f, ["root", "fingerprint"]))
-    })
   end
 
   @doc """
@@ -123,19 +87,16 @@ defmodule AtlasFlow.WorkSource.Translate do
   @doc """
   The intent of task `key` with its result over Git: `input.result_ref`, the ref
   `refs/atlas/results/<key>` the Runtime pushes its result commit to in the base's Code
-  repository, instead of a change set. Only for a task outside any ladder and without an
-  after-check (a subject's task): nothing publishes or reworks its result from a change set.
+  repository. Every writable task's: a result travels over Git only, never as a change set.
   The Runtime makes such a task's folder a Git checkout of its base; a subject's review gets one
   too, and the result it pushes is never read; a subject's fix too, its result on the author's.
+  A read-only task (`permissions/1`) brings back its answer only.
   """
-  def result_ref(intent, key, true) do
-    if get_in(intent, ["work", "after_check"]) == nil and
-         get_in(intent, ["work", "input", "permissions"]) == "workspace-write",
-       do: put_in(intent, ["work", "input", "result_ref"], result_ref(key)),
-       else: intent
+  def result_ref(intent, key) do
+    if get_in(intent, ["work", "input", "permissions"]) == "workspace-write",
+      do: put_in(intent, ["work", "input", "result_ref"], result_ref(key)),
+      else: intent
   end
-
-  def result_ref(intent, _key, false), do: intent
 
   @doc "The ref the result commit of task `key` is pushed to: `refs/atlas/results/<key>`."
   def result_ref(key), do: "refs/atlas/results/" <> key
@@ -169,8 +130,8 @@ defmodule AtlasFlow.WorkSource.Translate do
   end
 
   @doc """
-  The permissions a task's work runs with: read-only for a review or a diagnose of the
-  loop's latest result. A subject's review or fix (`input` a repository and the latest result)
+  The permissions a task's work runs with: read-only for a review or a diagnose on a
+  base. A subject's review or fix (`input` a repository and the latest result)
   works in a Git checkout of that result it may build in (bin/check): writable.
   """
   def permissions(%{"input" => %{"repository" => _, "result" => "latest"}}),
@@ -185,7 +146,6 @@ defmodule AtlasFlow.WorkSource.Translate do
     text?(key) and text?(intent["created_at"]) and text?(work["title"]) and
       text?(work["instructions"]) and text?(work["profile"]) and text?(work["cost_class"]) and
       base?(get_in(work, ["input", "base"])) and
-      change_set_input?(Map.get(work["input"], "change_set", :none)) and
       get_in(work, ["input", "permissions"]) in ["read-only", "workspace-write"]
   end
 
@@ -193,15 +153,6 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   defp base?(%{"base_id" => id, "manifest" => manifest}), do: text?(id) and text?(manifest)
   defp base?(_), do: false
-
-  defp change_set_input?(:none), do: true
-
-  defp change_set_input?(%{"manifest" => manifest, "fingerprints" => [_ | _] = fingerprints}),
-    do:
-      text?(manifest) and
-        Enum.all?(fingerprints, &(text?(&1["root"]) and text?(&1["fingerprint"])))
-
-  defp change_set_input?(_), do: false
 
   @doc """
   The `offered_work` of an intent (atom keys, the contract's fields only): `work_key` is
@@ -231,20 +182,7 @@ defmodule AtlasFlow.WorkSource.Translate do
       permissions: input["permissions"]
     }
 
-    offered =
-      if ref = input["result_ref"], do: Map.put(offered, :result_ref, ref), else: offered
-
-    case input["change_set"] do
-      %{"manifest" => manifest, "fingerprints" => fingerprints} ->
-        Map.put(offered, :change_set, %{
-          manifest: manifest,
-          fingerprints:
-            for(f <- fingerprints, do: %{root: f["root"], fingerprint: f["fingerprint"]})
-        })
-
-      _ ->
-        offered
-    end
+    if ref = input["result_ref"], do: Map.put(offered, :result_ref, ref), else: offered
   end
 
   @doc "The lease's input as the task fact keeps it (`input`, JSON): what `get_blob` scopes by."
@@ -288,7 +226,24 @@ defmodule AtlasFlow.WorkSource.Translate do
   def state(_), do: nil
 
   @doc "The sha256 of a report's canonical JSON (keys sorted): how a replay is recognised."
-  def digest(report), do: sha256(AtlasFlow.Results.canonical(report))
+  def digest(report), do: sha256(canonical(report))
+
+  @doc "Canonical JSON: string keys in sorted order, `nil` values and struct tags left out."
+  def canonical(term), do: term |> normal() |> encode() |> IO.iodata_to_binary()
+
+  defp encode(map) when is_map(map) do
+    pairs =
+      map
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.map(fn {k, v} -> [JSON.encode!(k), ?:, encode(v)] end)
+
+    [?{, Enum.intersperse(pairs, ?,), ?}]
+  end
+
+  defp encode(list) when is_list(list),
+    do: [?[, Enum.intersperse(Enum.map(list, &encode/1), ?,), ?]]
+
+  defp encode(value), do: JSON.encode!(value)
 
   @doc """
   Why an `ended` report brings no result (§3.5, Q8, D-0102): `"returned"`; `"interrupted"`
@@ -345,7 +300,7 @@ defmodule AtlasFlow.WorkSource.Translate do
         "silent"
 
       v["lease_state"] == "done" and v["result_kind"] == "crashed" and
-        not text?(v["answer"]) and v["result_state"] != "complete" ->
+          not text?(v["answer"]) ->
         "empty"
 
       true ->
@@ -361,11 +316,11 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   @doc """
   The task fact's result fields of an `ended` report: `result_kind`, `reason`, `answer`
-  (at most 8 KB), the check (`check_exit_status`, `check_ending`, `check_output_tail`) and
-  `result_fingerprints` (the roots' fingerprints, JSON). Every field is given, nil when the
-  report has none, so a field of an earlier attempt is cleared.
+  (at most 8 KB) and the check (`check_exit_status`, `check_ending`, `check_output_tail`).
+  Every field is given, nil when the report has none, so a field of an earlier attempt is
+  cleared. A change set an older Runtime still reports is not read: results travel over Git.
   """
-  def ended_values(%{"result" => result} = ended) do
+  def ended_values(%{"result" => result}) do
     check = result["check"]
 
     %{
@@ -374,8 +329,7 @@ defmodule AtlasFlow.WorkSource.Translate do
       "answer" => answer(result["answer"]),
       "check_exit_status" => check && check["exit_status"],
       "check_ending" => check && ending(check),
-      "check_output_tail" => check && check["output_tail"],
-      "result_fingerprints" => fingerprints(ended["change_set"])
+      "check_output_tail" => check && check["output_tail"]
     }
   end
 
@@ -396,76 +350,6 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   defp answer(text) when is_binary(text), do: text
   defp answer(_), do: nil
-
-  defp fingerprints(%{"roots" => [_ | _] = roots}),
-    do:
-      JSON.encode!(for r <- roots, do: %{"root" => r["root"], "fingerprint" => r["fingerprint"]})
-
-  defp fingerprints(_), do: nil
-
-  @doc "Whether an `ended` report carries a change set with at least one root."
-  def change_set?(%{"change_set" => %{"roots" => [_ | _]}}), do: true
-  def change_set?(_), do: false
-
-  @doc """
-  Whether a report's change set, when it has one, declares its `base` as text (work_source
-  0.2.0: required). A report without a change set has nothing to declare.
-  """
-  def base_declared?(%{"change_set" => %{} = change_set}), do: text?(change_set["base"])
-  def base_declared?(%{"change_set" => _}), do: false
-  def base_declared?(_report), do: true
-
-  @doc """
-  The change set Flow stores as the result's manifest: the report's roots on the base the
-  report declares, **as reported** (Main's ruling, option A), each root without its
-  `fingerprint`. That base is the Runtime's content-derived id of the baseline it imported
-  and froze on, not the lease's `base_id`; every root's `csf_` is computed on it, and a
-  later work's input must sit on it again. The stored manifest is the plain change set
-  (`root` and `entries` per root), because a later work gets these bytes as its input
-  manifest, which the Runtime validates with `AtlasChangeset.validate/1` (work_source
-  `change_set_ref`); the fingerprints go beside it (`result_fingerprints`).
-  """
-  def manifest(%{"change_set" => %{"base" => base, "roots" => roots}}),
-    do: %{"base" => base, "roots" => Enum.map(roots, &Map.delete(&1, "fingerprint"))}
-
-  @doc "Every blob a change set references: the sha256 of each write entry, sorted."
-  def references(%{"roots" => roots}) when is_list(roots) do
-    for %{"entries" => entries} <- roots,
-        %{"op" => "write", "sha256" => sha} <- List.wrap(entries),
-        is_binary(sha),
-        uniq: true,
-        do: sha
-  end
-
-  def references(_), do: []
-
-  @doc """
-  Whether every root's reported `csf_` fingerprint is the one `AtlasChangeset` computes
-  for its entries on the manifest's base (the base the report declared, `manifest/1`).
-  `reported` is the roots' fingerprints: a list of `%{"root", "fingerprint"}` or the task
-  fact's `result_fingerprints` (JSON of that list).
-  """
-  def fingerprints_hold?(manifest, reported) when is_binary(reported) do
-    case JSON.decode(reported) do
-      {:ok, list} when is_list(list) -> fingerprints_hold?(manifest, list)
-      _ -> false
-    end
-  end
-
-  def fingerprints_hold?(%{"base" => base, "roots" => roots}, [_ | _] = reported)
-      when is_binary(base) do
-    plain = %{"base" => base, "roots" => roots}
-
-    with :ok <- AtlasChangeset.validate(plain) do
-      computed = Enum.map(AtlasChangeset.fingerprints(plain), &{&1.root, &1.fingerprint})
-      reported = for %{} = r <- reported, do: {r["root"], r["fingerprint"]}
-      Enum.sort(computed) == Enum.sort(reported)
-    else
-      _ -> false
-    end
-  end
-
-  def fingerprints_hold?(_manifest, _reported), do: false
 
   @doc """
   The `task_attempt` values of a report (§3.5), no nil values: `state` and, for an
@@ -493,13 +377,13 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   - `{:result, outcome, detail}` once the lease is done: `completed` (completed, and its
     check, if any, exited 0 with no ending), `check_failed` (completed otherwise), `stuck`
-    (refused, too large, invalid, or any other kind; `detail["reason"]` says which);
+    (refused, or any other kind; `detail["reason"]` says which);
   - `:retry`: the lease ended without a result (`no_result?/1`: returned, any
     interruption, a check that gave no exit status, a `cancelled` after a supervision or
     restart cancel request); the work is offered again as a fresh attempt of the same step;
   - `{:empty, why, attempt}`: attempt `attempt` was an empty turn (`empty/1`, `why`
     `silent` or `empty`); the run decides whether it is started again;
-  - `:waiting`: no result yet (no lease, a live one, or a result still incomplete).
+  - `:waiting`: no result yet (no lease, or a live one).
   """
   def outcome(fact, checked?) do
     v = (fact || %{})["values"] || %{}
@@ -516,12 +400,6 @@ defmodule AtlasFlow.WorkSource.Translate do
 
       v["result_kind"] == "refused" ->
         {:result, "stuck", %{"reason" => "refused: #{v["reason"]}", "kind" => "refused"}}
-
-      v["result_state"] in ~w(too_large invalid) ->
-        {:result, "stuck", %{"reason" => v["result_state"], "kind" => v["result_kind"]}}
-
-      v["result_state"] not in [nil, "complete"] ->
-        :waiting
 
       v["result_kind"] == "completed" ->
         check = check(v)

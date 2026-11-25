@@ -11,7 +11,7 @@ defmodule Model.IssueRunsTest do
   """
   use ExUnit.Case, async: false
 
-  alias AtlasFlow.{Bases, Delivery, Dispatch, FakeCode, FakeFacts, ManualClock, Results}
+  alias AtlasFlow.{Bases, Delivery, Dispatch, FakeCode, FakeFacts, ManualClock}
   alias AtlasFlow.WorkSource
   alias AtlasFlow.FakeFacts.Leasing, as: L
   alias AtlasFlow.Runs.{Run, Store}
@@ -54,7 +54,6 @@ defmodule Model.IssueRunsTest do
 
     code = start_supervised!({FakeCode, %{}}, id: :code)
     FakeCode.put(code, @repository, "develop", "rev_1", %{"README.md" => "# Atlas\n"})
-    start_supervised!({Results, dir: dir, clock: clock, sweep_ms: 86_400_000, pins: fn -> [] end})
     start_supervised!({Bases, client: FakeCode.client(code), clock: clock})
 
     start_supervised!(

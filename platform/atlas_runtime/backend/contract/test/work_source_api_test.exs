@@ -10,7 +10,7 @@ defmodule AtlasRuntimeBackend.WorkSourceTest do
 
   test "carries the work source boundary, every capability exposed" do
     assert @schema.boundary == AtlasRuntimeBoundary.WorkSource
-    assert @schema.exposed == [:poll, :report, :get_blob, :put_blob]
+    assert @schema.exposed == [:poll, :report, :get_blob]
     assert @schema.not_exposed == []
     assert Version.compare(@schema.version, "0.2.0") != :lt
     assert [%{name: :rest, carries: :entities}] = @schema.targets
@@ -35,8 +35,7 @@ defmodule AtlasRuntimeBackend.WorkSourceTest do
                 :configuration_refused
               ]},
              {:post, "/v1/leases/:lease_id/reports", :report, [:revision, :report]},
-             {:get, "/v1/leases/:lease_id/blobs/:sha256", :get_blob, nil},
-             {:put, "/v1/leases/:lease_id/blobs/:sha256", :put_blob, nil}
+             {:get, "/v1/leases/:lease_id/blobs/:sha256", :get_blob, nil}
            ]
 
     statuses = Map.new(@rest.statuses, &{&1.outcome, &1})
@@ -48,33 +47,17 @@ defmodule AtlasRuntimeBackend.WorkSourceTest do
     assert @rest.streams == []
   end
 
-  # M3 plan §9 Q2: the source serves put_blob; the bytes are the body, streamed, and the
-  # declared size is the Blob-Size header, so a source can refuse before reading.
-  test "put_blob: a streamed octet-stream body with Blob-Size, sha256 and lease in the path" do
-    put = Enum.find(@rest.resources, &(&1.capability == :put_blob))
-    assert put.params == [:lease_id, :sha256]
-    assert put.headers == [{"blob-size", :size}]
-    assert put.query == []
-
-    assert %{field: :content, content_type: "application/octet-stream", max_bytes: {m, f}} =
-             put.upload
-
-    assert is_integer(apply(m, f, [])) and apply(m, f, []) > 0
-
+  # 0.4.0 (IS-Atlas-100): a result travels over Git; there is no upload of blobs.
+  test "no put_blob: no upload route, none of its outcomes" do
+    refute Enum.any?(@rest.resources, &(&1.method == :put))
     statuses = Map.new(@rest.statuses, &{&1.outcome, &1})
-    assert %{status: 200, type: nil} = statuses.stored
-    assert %{status: 409, type: "not-referenced"} = statuses.not_referenced
-    assert %{status: 413, type: "too-large"} = statuses.too_large
-    assert %{by: :reason} = rejected = statuses.rejected
-    assert %{status: 422} = Enum.find(rejected.cases, &(&1.value == :digest_mismatch))
 
-    # A body refused before it is read answers as the outcome too_large does.
-    errors = Map.new(@rest.errors, &{&1.kind, &1})
+    for outcome <- [:stored, :not_referenced, :too_large],
+        do: refute(Map.has_key?(statuses, outcome))
 
-    assert Map.take(errors.too_large, [:status, :type]) ==
-             Map.take(statuses.too_large, [:status, :type])
-
-    assert errors.unsupported_media_type.status == 415
+    assert Enum.map(statuses.rejected.cases, & &1.value) == [:invalid, :conflict]
+    refute Enum.any?(@rest.errors, &(&1.kind == :unsupported_media_type))
+    assert Version.compare(@schema.version, "0.4.0") != :lt
   end
 
   test "routes.json is generated for implementers; no OpenAPI yet (deferred, §5)" do
@@ -82,15 +65,7 @@ defmodule AtlasRuntimeBackend.WorkSourceTest do
     assert routes["x-comment"] =~ "backend/contract/lib/work_source_api.ex"
     assert routes["version"] == @schema.version
 
-    assert Enum.map(routes["routes"], & &1["capability"]) ==
-             ["poll", "report", "get_blob", "put_blob"]
-
-    put = Enum.find(routes["routes"], &(&1["capability"] == "put_blob"))
-    assert put["method"] == "PUT"
-    assert put["path"] == "/v1/leases/{lease_id}/blobs/{sha256}"
-    assert put["headers"] == %{"blob-size" => %{"field" => "size", "required" => true}}
-    assert put["upload"]["field"] == "content"
-    assert put["upload"]["content_type"] == "application/octet-stream"
+    assert Enum.map(routes["routes"], & &1["capability"]) == ["poll", "report", "get_blob"]
     refute File.exists?(Path.join(@dir, "openapi.json"))
   end
 end

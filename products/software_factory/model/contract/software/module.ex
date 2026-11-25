@@ -1,6 +1,6 @@
 defmodule Model.Software do
   @moduledoc """
-  Software: issues, their packages and their pull requests, the reviews and tests of those, and the
+  Software: issues and their pull requests, the reviews and tests of those, and the
   pull requests of other issues that also did one. Its subflows build them, and follow
   an accepted decision through until work carries it out.
   """
@@ -8,7 +8,6 @@ defmodule Model.Software do
     path: "modules/software/schema.yaml",
     concepts: [
       Model.Issue,
-      Model.Package,
       Model.PullRequest,
       Model.PrReview,
       Model.PrTest,

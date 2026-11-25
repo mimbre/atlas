@@ -15,7 +15,8 @@ defmodule Model.FlowsTest do
     conditions = Regex.scan(~r/when: "([^"]*)"/, generated(), capture: :all_but_first)
     assert conditions != []
     assert for([c] <- conditions, String.contains?(c, "!"), do: c) == []
-    assert ["not (entity.instructions == '')"] in conditions
+    # No subflow negates a condition since the package's retired (IS-Atlas-100); none may
+    # use `!` once one does.
   end
 
   test "flows.json holds the compiled composition, and Flow loads it" do

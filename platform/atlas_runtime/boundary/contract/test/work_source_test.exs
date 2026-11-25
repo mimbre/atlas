@@ -13,7 +13,7 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
   defp fields(name), do: for(f <- model(name).fields, do: f.name)
   defp field(model, name), do: Enum.find(model(model).fields, &(&1.name == name))
 
-  test "§5.2: four capabilities, the Runtime's right lease, and their outcomes" do
+  test "§5.2: three capabilities, the Runtime's right lease, and their outcomes; no put_blob (0.5.0)" do
     assert for(
              c <- @schema.capabilities,
              do: {c.name, c.input, c.right, Enum.map(c.outcomes, &{&1.name, &1.model})}
@@ -23,16 +23,12 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
                {:report, :report_input, :lease,
                 [recorded: :recorded, lease_lost: nil, rejected: :rejected]},
                {:get_blob, :get_blob_input, :lease,
-                [blob: :blob, not_found: nil, rejected: :rejected]},
-               {:put_blob, :put_blob_input, :lease,
-                [
-                  stored: nil,
-                  lease_lost: nil,
-                  too_large: nil,
-                  not_referenced: nil,
-                  rejected: :rejected
-                ]}
+                [blob: :blob, not_found: nil, rejected: :rejected]}
              ]
+
+    # IS-Atlas-100: a result travels over Git; nothing uploads a blob.
+    refute model(:put_blob_input)
+    assert field(:rejected, :reason).type == {:enum, [:invalid, :conflict]}
 
     assert field(:client, :rights).type == {:list, {:enum, [:lease]}}
 
@@ -161,10 +157,8 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
 
   defp typed(_models, _f, _v, at), do: [{:type, at}]
 
-  test "§5.2 blobs: a download and an upload, each a :stream" do
+  test "§5.2 blobs: a download, a :stream" do
     assert field(:blob, :content) == %{name: :content, type: :stream, required: true}
-    assert field(:put_blob_input, :content) == %{name: :content, type: :stream, required: true}
-    assert fields(:put_blob_input) == [:lease_id, :sha256, :size, :content]
   end
 
   test "the JSON target carries the contract's capabilities (mix runtime_boundary.gen)" do
@@ -174,8 +168,7 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
     assert Enum.map(json["capabilities"], & &1["name"]) == [
              "poll",
              "report",
-             "get_blob",
-             "put_blob"
+             "get_blob"
            ]
   end
 end

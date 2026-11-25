@@ -28,13 +28,13 @@ defmodule Model.Delivery do
   the same pull request (`update_pushing`); one update per conflict (`pr_updates`), then
   its supervisor decides (`update_failing`). A result without changes against develop
   opens no pull request: Code refuses it (`no_changes`) and the issue goes to its
-  supervisor (`unchanged`). No second review; its supervisor decides. No package.
+  supervisor (`unchanged`). No second review; its supervisor decides.
 
   No item gets stuck (IS-Atlas-60, IS-Atlas-18): an agent task that ends without a result
   (`stuck` or `abandoned`), or Code refusing its pull request, keeps the issue in its span
   with its supervisor (`stuck`), with why: Flow writes which task ended how, and its
   reason (`task_failure`, the task's `failure:`). Each task state records its step as it is
-  entered (`retry_step`, as the package subflow's held state reads it), so Retry goes back
+  entered (`retry_step`, which its supervisor states read), so Retry goes back
   to that state for a fresh task: the author on a fresh base of develop, any other on the
   latest result that has one. A review that ends so leaves its author's result complete in
   Code (`review_stuck`): its supervisor may also publish it without a review, its pull
@@ -45,17 +45,17 @@ defmodule Model.Delivery do
   no result, is an empty turn. The first starts the same task once more on its own, on a
   fresh attempt, with nobody asked; the second in a row ends it `abandoned`, which goes
   to that state's supervisor state with why ("its agent went silent twice") and Retry.
-  Flow keeps that count in the run, by the package ladder's rule (`AtlasFlow.Ladder`).
+  Flow keeps that count in the run (`AtlasFlow.Ladder.again?/2`).
   Work interrupted by an update, a Runtime stop or crash, or a restart of its machine is
   no empty turn: it runs again by itself from the step it was in, as often as it happens.
 
   Every task reads the issue's title and description, and those of its use case and its
   scene (`parents:`): why it is to be done.
 
-  The span `build` holds until the pull request is merged; the runs of its packages
-  (`package`, under it through `package_of`) and of pull requests linked to it
-  (`pull_request`, through `in_issue`) belong to it: a person item of theirs goes to its
-  supervisor (rule S3).
+  The span `build` holds until the pull request is merged; the runs of pull requests linked
+  to it (`pull_request`, through `in_issue`) belong to it: a person item of theirs goes to
+  its supervisor (rule S3). Its result travels over Git only: each task's Runtime pushes its
+  result commit to `refs/atlas/results/<task>` in Code.
   """
   use RelaDSL
 
@@ -101,7 +101,7 @@ defmodule Model.Delivery do
         :stuck,
         :review_stuck
       ],
-      with: [:package, :pull_request]
+      with: [:pull_request]
 
     state :working, label: "Working" do
       set retry_step: :author, task_failure: :none

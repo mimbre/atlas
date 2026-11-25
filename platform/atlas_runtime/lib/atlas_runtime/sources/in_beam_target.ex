@@ -14,15 +14,14 @@ defmodule AtlasRuntime.Sources.InBeamTarget do
   `report/2` maps `Upload`'s ended report onto the contract's `ended`:
   - the result's kind, reason, retry advice, `never_started`, answer (already redacted by
     `Upload`) and after-check (its output tail);
-  - the attempt's provenance, one record per turn (none for an attempt that never ran);
-  - the frozen result as the `change_set`: its `base` (the baseline snapshot id the attempt
-    froze on, which every root's `csf_` covers; required since `work_source` 0.2.0) and its
-    roots, each with its `csf_` fingerprint and entries.
+  - the attempt's provenance, one record per turn (none for an attempt that never ran).
 
-  Answers: `recorded` → `{:recorded, missing}`; `lease_lost` → `:lease_lost`; `put_blob`'s
-  `stored`, `too_large` and `not_referenced` as they are. `rejected` (a revision conflict, an
-  invalid input or a digest mismatch) has no word in `Upload`'s seam: it is logged and the
-  upload stops as for a lost lease, sending nothing more.
+  No `change_set`: a result travels over Git (`work_source` 0.5.0, IS-Atlas-100), and there
+  is no `put_blob`.
+
+  Answers: `recorded` → `{:recorded, missing}`; `lease_lost` → `:lease_lost`. `rejected` (a
+  revision conflict or an invalid input) has no word in `Upload`'s seam: it is logged and
+  the upload stops as for a lost lease, sending nothing more.
 
   It is also the puller's target (`AtlasRuntime.Sources.Puller.Target`, M2 plan A2) with
   the ref `%{facade: target, client: client}`: `poll/2`, `send_report/2` and `get_blob/3`
@@ -102,20 +101,6 @@ defmodule AtlasRuntime.Sources.InBeamTarget do
     end
   end
 
-  @impl AtlasRuntime.Sources.Upload
-  def put_blob(%{facade: facade, client: client}, blob) do
-    input = Map.take(blob, [:lease_id, :sha256, :size, :content])
-
-    outcome = facade.put_blob(client, input)
-
-    case name(outcome) do
-      "Stored" -> :stored
-      "TooLarge" -> :too_large
-      "NotReferenced" -> :not_referenced
-      _ -> stop_on(outcome, blob.lease_id, "put_blob #{blob.sha256}")
-    end
-  end
-
   @doc false
   # Upload's ended result (plain maps, nil fields dropped) as the contract's ended; also the
   # HTTP target's.
@@ -123,8 +108,7 @@ defmodule AtlasRuntime.Sources.InBeamTarget do
     %{
       state: :ended,
       result: result(result),
-      provenance: provenance(ended[:provenance]),
-      change_set: change_set(ended[:manifest])
+      provenance: provenance(ended[:provenance])
     }
     |> drop_nil()
   end
@@ -182,17 +166,6 @@ defmodule AtlasRuntime.Sources.InBeamTarget do
   end
 
   defp datetime(other), do: other
-
-  defp change_set(nil), do: nil
-
-  # base: the frozen result's own (Upload's manifest/3), never invented here; a manifest
-  # without one stays without one and the contract refuses it as invalid.
-  defp change_set(%{roots: roots} = manifest),
-    do:
-      drop_nil(%{
-        base: manifest[:base],
-        roots: for(root <- roots, do: Map.take(root, [:root, :fingerprint, :entries]))
-      })
 
   defp stop_on(outcome, lease_id, call) do
     case name(outcome) do

@@ -165,7 +165,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
   @moduletag :capture_log
 
   alias AtlasFlow.{Bases, Delivery, Dispatch, FakeCode, FakeFacts, ManualClock}
-  alias AtlasFlow.{Results, WorkSource}
+  alias AtlasFlow.WorkSource
   alias AtlasFlow.Activities.ProposalTest.Bench
   alias AtlasFlow.FakeFacts.Leasing, as: L
   alias AtlasFlow.Runs.Store
@@ -183,9 +183,6 @@ defmodule AtlasFlow.Activities.ProposalTest do
     start_supervised!(FakeFacts)
     {:ok, clock} = ManualClock.start_link(@epoch)
     clock = {ManualClock, clock}
-
-    results = [dir: dir, clock: clock, sweep_ms: 86_400_000, pins: fn -> [] end]
-    start_supervised!(Supervisor.child_spec({Results, results}, id: Results))
 
     code = start_supervised!({FakeCode, %{}}, id: :code)
     FakeCode.put(code, @repository, "develop", "rev_1", %{"README.md" => "# Proposal\n"})

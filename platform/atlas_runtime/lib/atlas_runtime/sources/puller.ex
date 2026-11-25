@@ -89,8 +89,9 @@ defmodule AtlasRuntime.Sources.Puller do
   **Reports.** The revision of a lease's report follows from its attempt, so nothing more is
   persisted and a restart sends the same revisions again (each is idempotent at the source):
   `accepted` 1; `started` 2, once the attempt reached `running`; `ended` 3 after a start, 2
-  for an attempt that never started (cancelled, returned). `ended` and the result's blobs go
-  through `AtlasRuntime.Sources.Upload` once the attempt is terminal and quiescent.
+  for an attempt that never started (cancelled, returned). `ended` goes through
+  `AtlasRuntime.Sources.Upload` once the attempt is terminal and quiescent: a writable
+  lease's result is first pushed over Git to its `result_ref`; no blob is ever uploaded.
   A report the source could not be reached for is sent again at the next check. An
   `accepted` that is not `recorded` within the accept deadline (30 s, §5.3 item 1) is given
   up: the attempt is cancelled and never starts.
@@ -1129,7 +1130,8 @@ defmodule AtlasRuntime.Sources.Puller do
   end
 
   # A lease whose input names a result_ref: the result goes back to the source's Code as a
-  # commit on the base, pushed from the source's Git cache, instead of as a change set.
+  # commit on the base, pushed from the source's Git cache (IS-Atlas-100: the only way a
+  # result travels).
   defp git_result(state, id, work_id) do
     name = state.name
 

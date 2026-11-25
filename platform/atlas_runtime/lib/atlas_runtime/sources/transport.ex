@@ -24,7 +24,7 @@ defmodule AtlasRuntime.Sources.Transport do
     long poll) plus a margin. `opts` (the client's `transport:` option) may set `timeout:`,
     `connect_timeout:` (default 5 s) and, for a stream, `idle_timeout:` (default 35 s
     without a byte);
-  - a streamed request body (the client's enumerable of binaries, as for `put_blob`) is
+  - a streamed request body (the client's enumerable of binaries) is
     sent `transfer-encoding: chunked`, one chunk per element, read only as it is sent, and
     never with a `Content-Length`: for a chunked body `:httpc` itself sets
     `transfer-encoding: chunked` over any the caller gave and drops a `content-length`

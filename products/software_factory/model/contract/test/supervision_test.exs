@@ -55,7 +55,7 @@ defmodule Model.SupervisionTest do
 
   @links [
     {"flow_run", "RUN-1", "supervised_by"},
-    {"task", "TK-PK-IS-Atlas-01-1-1", "done_for"}
+    {"task", "TK-IS-Atlas-01-1", "done_for"}
   ]
 
   defp check(kind, change, env), do: AtlasEyra.check(kind, change, env, lookup())
@@ -142,13 +142,13 @@ defmodule Model.SupervisionTest do
     assert supervision["relation"] == "supervised_by"
   end
 
-  test "the issue build is the one span: its states until merged, with its packages' runs" do
+  test "the issue build is the one span: its states until merged, with its pull requests' runs" do
     states =
       ~w(working reviewing fixing publishing checking ci_fixing ci_fixing_again ci_pushing ci_failing updating update_pushing update_failing merging unchanged stuck review_stuck)
 
     assert %{
              "issue" => [
-               %{"name" => "build", "states" => ^states, "with" => ["package", "pull_request"]}
+               %{"name" => "build", "states" => ^states, "with" => ["pull_request"]}
              ]
            } =
              AtlasEyra.supervision()["spans"]

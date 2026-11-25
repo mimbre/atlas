@@ -1,24 +1,18 @@
 defmodule Model.Task do
   @moduledoc """
   One unit of work Flow defines for an assignee (the Flow Engine plan, §3.1 and §3.2).
-  Flow names it `TK-<package>-<n>`; that key is also the Runtime work's client key. It
-  belongs to a package or an issue (`task_of`, in the composition, since both are
-  software's) and has its attempts (`task_attempt`, `attempt_of`). It is done for the
-  human supervisor of its flow (`done_for`), whom Flow copies onto it.
+  Flow names it `TK-<subject>-<n>`; that key is also the Runtime work's client key. It
+  belongs to the issue, use case or scene it works on (`task_of`, in the composition) and
+  has its attempts (`task_attempt`, `attempt_of`). It is done for the human supervisor of
+  its flow (`done_for`), whom Flow copies onto it.
 
   A record: Flow writes every field (`set_by: [:flow]`), and no state of a subflow reads
   it; branches read the run's own task results.
 
-  F2 adds the `diagnose` kind (an `investigator` finds out why work keeps failing, and
-  changes nothing) and a task's two revisions in Code (plan F2/F3 rev 3 §3.2): the one
-  its result was published as (`published_revision`, an author or fix), and the one a
-  review reviewed (`reviewed_revision`: that task's, once it is published).
-
-  F3 adds what Flow's Landing records of a publication (plan F2/F3 rev 3 §3.2, F3-L):
-  the Code change it was published as (`code_change_id`), the review it is on
-  (`review_id`, and its link as Code gave it, `review_url`), the change's `fpr_`
-  fingerprint (`published_fingerprint`), the review's CI at that revision (`review_ci`),
-  and when Landing marked the review ready (`marked_ready_at`).
+  Its result travels over Git (IS-Atlas-100): a writable task's Runtime pushes its result
+  commit to `refs/atlas/results/<key>` in Code, which `result_ref` names once it ended. No
+  change set, published revision or Code review is kept on it: the review → fix ladder,
+  Flow's Landing and its per-file upload were retired with the package kind.
   """
   use RelaDSL
 
@@ -44,7 +38,7 @@ defmodule Model.Task do
     id_prefix: "TK-",
     description: """
     One unit of work Flow defines for an assignee and submits to its machinery as
-    Runtime work. Flow names it TK-<package>-<n>; the key is the work's client key.
+    Runtime work. Flow names it TK-<subject>-<n>; the key is the work's client key.
     """ do
     field(:kind, :task_kind,
       required: true,
@@ -61,7 +55,7 @@ defmodule Model.Task do
     )
 
     field(:input, :string,
-      description: "What it starts from: the base, or the result of a task, read or write (JSON)",
+      description: "What it starts from: a base, or the run's latest result, in Code (JSON)",
       set_by: [:flow],
       multiline: true
     )
@@ -120,66 +114,6 @@ defmodule Model.Task do
       multiline: true
     )
 
-    field(:result_fingerprints, :string,
-      description: "The fingerprints of its frozen result (JSON)",
-      set_by: [:flow],
-      label: "Result fingerprints"
-    )
-
-    field(:based_on, :string,
-      description: "The fingerprint of the result a review task reviewed",
-      set_by: [:flow],
-      label: "Based on"
-    )
-
-    field(:published_revision, :string,
-      description: "The revision in Code its result was published as: an author's or a fix's",
-      set_by: [:flow],
-      label: "Published revision"
-    )
-
-    field(:reviewed_revision, :string,
-      description: "The revision a review task reviewed: the published revision of that result",
-      set_by: [:flow],
-      label: "Reviewed revision"
-    )
-
-    field(:code_change_id, :string,
-      description: "The Code change its result was published as",
-      set_by: [:flow],
-      label: "Code change id"
-    )
-
-    field(:review_id, :string,
-      description: "The Code review its result was published on",
-      set_by: [:flow],
-      label: "Review id"
-    )
-
-    field(:review_url, :string,
-      description: "The link of that review, as Code gave it",
-      set_by: [:flow],
-      label: "Review URL"
-    )
-
-    field(:published_fingerprint, :string,
-      description: "The fpr_ fingerprint of the change it was published as",
-      set_by: [:flow],
-      label: "Published fingerprint"
-    )
-
-    field(:review_ci, :string,
-      description: "The review's CI at its published revision: success, failure, pending or none",
-      set_by: [:flow],
-      label: "Review CI"
-    )
-
-    field(:marked_ready_at, :datetime,
-      description: "When Flow marked the review ready",
-      set_by: [:flow],
-      label: "Marked ready at"
-    )
-
     field(:base_id, :string,
       description: "The Runtime base it started from",
       set_by: [:flow],
@@ -190,12 +124,6 @@ defmodule Model.Task do
       description: "The Code snapshot its base was made from",
       set_by: [:flow],
       label: "Base snapshot"
-    )
-
-    field(:base_revision, :string,
-      description: "The revision of that snapshot",
-      set_by: [:flow],
-      label: "Base revision"
     )
 
     # The lease Flow, as the Runtime's work source, holds the task under (decision
@@ -248,18 +176,6 @@ defmodule Model.Task do
       description: "The sha256 of the last recorded report",
       set_by: [:flow],
       label: "Lease report"
-    )
-
-    field(:result_manifest, :string,
-      description: "The sha256 of its result's stored manifest",
-      set_by: [:flow],
-      label: "Result manifest"
-    )
-
-    field(:result_state, :string,
-      description: "Whether its result is stored: incomplete, complete, too large or invalid",
-      set_by: [:flow],
-      label: "Result state"
     )
 
     field(:result_ref, :string,
