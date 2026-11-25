@@ -50,7 +50,8 @@
         "build",
         "policy_version",
         "offer",
-        "holdings"
+        "holdings",
+        "configuration_refused"
       ],
       "capability": "poll",
       "headers": {},
@@ -261,5 +262,5 @@
     }
   ],
   "target": "rest",
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

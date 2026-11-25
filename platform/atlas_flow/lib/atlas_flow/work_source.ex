@@ -8,7 +8,7 @@ defmodule AtlasFlow.WorkSource do
 
   | Capability   | Outcomes                                                           |
   |--------------|--------------------------------------------------------------------|
-  | `poll/2`     | `{:polled, %{leases, cancel, lease_lost, timing}}`, `{:rejected, :invalid}` |
+  | `poll/2`     | `{:polled, %{leases, cancel, lease_lost, timing, configuration?}}`, `{:rejected, :invalid}` |
   | `report/2`   | `{:recorded, %{missing}}`, `:lease_lost`, `{:rejected, :conflict \\| :invalid}`, `:unavailable` |
   | `get_blob/2` | `{:blob, %{sha256, size, content}}`, `:not_found`, `{:rejected, :invalid}` |
   | `put_blob/2` | `:stored`, `:lease_lost`, `:too_large`, `:not_referenced`, `{:rejected, :digest_mismatch \\| :invalid}`, `:unavailable` |
@@ -40,9 +40,22 @@ defmodule AtlasFlow.WorkSource do
   @doc "The client a bearer token stands for: `{:ok, client}` or `:unauthenticated`."
   def authenticate(credentials, token), do: Credentials.lookup(credentials, token)
 
-  @doc "`poll`: renew holdings, grant leases within the offer, name cancels and lost leases."
-  def poll(client, input, opts \\ []),
-    do: Dispatch.poll(client, input, Keyword.get(opts, :dispatch, Dispatch))
+  @doc """
+  `poll`: renew holdings, grant leases within the offer, name cancels and lost leases; and
+  the Runtime's configuration (IS-Atlas-27, `AtlasFlow.WorkSource.Configuration`), recorded
+  first and served in the answer while the Runtime runs another version.
+  """
+  def poll(client, input, opts \\ []) do
+    configuration = Delivery.configuration(client, input, Keyword.get(opts, :delivery, Delivery))
+
+    case {Dispatch.poll(client, input, Keyword.get(opts, :dispatch, Dispatch)), configuration} do
+      {{:polled, polled}, {:serve, document}} ->
+        {:polled, Map.put(polled, :configuration, document)}
+
+      {answer, _} ->
+        answer
+    end
+  end
 
   @doc "`report`: a state change of a lease."
   def report(client, input, opts \\ []),

@@ -97,17 +97,22 @@ defmodule Model.FlowFactsTest do
              Enum.sort(~w(title instructions acceptance after state task_result question
                retry_step answer))
 
-    assert Map.keys(entities["machinery"]["properties"]) == ["name"]
+    # IS-Atlas-27: the Runtime's configuration, and what the Runtime did with it.
+    assert Enum.sort(Map.keys(entities["machinery"]["properties"])) ==
+             ~w(applied_version configuration name refused_reason refused_version)
   end
 
   test "every field and link of the new kinds is Flow's alone" do
     # Its supervisor sets a package's answer (F2-P), as a person sets a pull request's
-    # integration: no set_by.
-    assert get_in(extension(), ["entities", "package", "properties", "answer", "set_by"]) == nil
+    # integration, and a Runtime's configuration (IS-Atlas-27): no set_by.
+    by_hand = [{"package", "answer"}, {"machinery", "configuration"}]
+
+    for {kind, name} <- by_hand,
+        do: assert(get_in(extension(), ["entities", kind, "properties", name, "set_by"]) == nil)
 
     for kind <- @new_kinds,
         {name, _} <- schema()["entities"][kind]["properties"],
-        {kind, name} != {"package", "answer"} do
+        {kind, name} not in by_hand do
       assert get_in(extension(), ["entities", kind, "properties", name, "set_by"]) == ["flow"],
              "#{kind}.#{name} is not set_by: [:flow]"
     end
@@ -125,7 +130,7 @@ defmodule Model.FlowFactsTest do
 
     for kind <- @new_kinds,
         {name, _} <- schema()["entities"][kind]["properties"],
-        {kind, name} != {"package", "answer"} do
+        {kind, name} not in by_hand do
       assert {:refuse, [why]} = check(create(kind, "X-1", %{name => "x"}), @someone),
              "#{kind}.#{name} is written by someone other than Flow"
 
@@ -138,8 +143,9 @@ defmodule Model.FlowFactsTest do
     assert {:refuse, [why]} = check(linked, @someone)
     assert why =~ "only a flow sets task_of"
 
-    # The supervisor may write the answer.
+    # The supervisor may write the answer, and a Runtime's configuration.
     assert check(create("package", "X-1", %{"answer" => "fresh"}), @someone) == :ok
+    assert check(create("machinery", "X-1", %{"configuration" => "{}"}), @someone) == :ok
   end
 
   test "F2: a diagnose task by an investigator, and a task's revisions, are Flow's to write" do

@@ -203,7 +203,7 @@ func preferences(dir string, args []string) (map[string]any, error) {
 		return nil, errors.New("preferences does not accept positional arguments")
 	}
 	if len(removed) != 0 {
-		return nil, fmt.Errorf("preferences no longer sets the policy: edit policy.json in the Runtime home (%s) and raise its version",
+		return nil, fmt.Errorf("preferences no longer sets the policy: set the configuration of this Runtime's machinery through Control (atlas set MACHINERY configuration=@policy.json), or without Control edit policy.json in the Runtime home (%s) and raise its version",
 			filepath.Join(dir, "policy.json"))
 	}
 	if !visited(flags)["reenable"] {
