@@ -599,6 +599,32 @@ defmodule Model.IssueRunsTest do
     assert intent(c)["state"] == "reviewing"
   end
 
+  # Code cannot tell whether its result changes anything (IS-Atlas-64: its copy lacks the
+  # base and GitHub refused the compare): it refuses the publication `changes_unknown`, and
+  # no pull request is opened. The issue reaches its supervisor (`stuck`) with Retry.
+  test "a publication whose changes Code cannot tell goes to its supervisor, no pull request opened",
+       c do
+    refuse_with("changes_unknown", %{"base" => "develop", "why" => "compare_refused"})
+    started(c)
+    finish(answer: "Done.")
+    author_result(c)
+    assert intent(c)["state"] == "reviewing"
+    finish(answer: verdict("approved", [], []))
+
+    stuck = until(c, "stuck")
+    assert_received {:published, %{"name" => "publish"}}
+    assert {stuck["status"], stuck["supervised_by"]} == {"active", "ada"}
+    assert stuck["pending"]["task"] == nil
+    assert owner(c, stuck) == "ada"
+    assert answers("stuck") == ["Retry", "Close it"]
+
+    # Refused, not published: no pull request, and what failed is no task.
+    values = FakeFacts.get("issue", @key)["values"]
+    assert values["publication"] == "refused"
+    assert values["task_failure"] == "none"
+    assert values["pr_url"] in [nil, ""]
+  end
+
   test "Nothing to merge: Close it ends it", c do
     unchanged(c)
     decide("close")
@@ -668,19 +694,22 @@ defmodule Model.IssueRunsTest do
   end
 
   # Code's effect receiver on the Bus, refusing every publication `no_changes`.
-  defp refuse_no_changes do
+  defp refuse_no_changes, do: refuse_with("no_changes", %{"base" => "develop"})
+
+  # Code's effect receiver on the Bus, refusing every publication with `reason`.
+  defp refuse_with(reason, details) do
     test = self()
 
     spawn_link(fn ->
       :ok = AtlasBus.attach("code/effects")
       send(test, :attached)
-      refuse(test)
+      refuse(test, reason, details)
     end)
 
     assert_receive :attached
   end
 
-  defp refuse(test) do
+  defp refuse(test, reason, details) do
     receive do
       {:atlas_bus, %AtlasBus.Envelope{class: "request"} = e, %{"request" => r} = body} ->
         send(test, {:published, r})
@@ -691,12 +720,12 @@ defmodule Model.IssueRunsTest do
           "digest" => body["digest"],
           "fingerprint" => r["fingerprint"],
           "status" => "refused",
-          "reason" => "no_changes",
-          "details" => %{"base" => "develop"}
+          "reason" => reason,
+          "details" => details
         })
     end
 
-    refuse(test)
+    refuse(test, reason, details)
   end
 
   # The lease accepted and started on the mac-mini: its attempt runs.
