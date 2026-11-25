@@ -141,10 +141,6 @@
           "final": false,
           "label": "Waiting for its use cases",
           "owner": {
-            "default": {
-              "config": "decider",
-              "kind": "person"
-            },
             "relation": "assigned_to",
             "via": "assignment"
           },

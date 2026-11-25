@@ -185,7 +185,7 @@ Prod runs `RELEASE_DISTRIBUTION=none`, so nobody attaches to its node to see a s
 | Row | From | Late past |
 |---|---|---|
 | Flow | `AtlasFlow.Health`: when the round stepping now (or one whose timer is due) was due, else the last finished round's due and end | 2 min |
-| Facts' queue | the messages waiting at Facts' endpoint, counted on the Bus (`AtlasBus.waiting/1`) | no limit yet: shown only |
+| Facts' queue | the messages waiting at Facts' endpoint, counted on the Bus (`AtlasBus.waiting/1`): writes, rela's change feed and the few reads Facts answers itself; most reads are answered where they are sent and never wait there (IS-Atlas-85) | no limit yet: shown only |
 | each Runtime | its last poll of Dispatch, noted in `AtlasFlow.Health` | 10 min |
 | rela syncs | rela; Atlas keeps no run history of its own (D-0100) | 15 min, once rela reports runs; until then "not reported by rela" |
 

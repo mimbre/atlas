@@ -3,7 +3,7 @@
   "subflows": {
     "accept_scene": {
       "prod": {
-        "digest": "6665318f148389f993ac80245461a63666bfa50507b6071a2ab3db4e6563b77e",
+        "digest": "e29d7958e2bc428682016e5901cc5b3a49e65b6e58502fda6a3d3d1f7960b2db",
         "history": [
           {
             "digest": "0b7d903c06f4bfcc82b632475f3274cb32542868402a7e8959ea5407affe0d10",
@@ -40,6 +40,15 @@
               "building",
               "rework",
               "to_test"
+            ]
+          },
+          {
+            "digest": "e29d7958e2bc428682016e5901cc5b3a49e65b6e58502fda6a3d3d1f7960b2db",
+            "states": [
+              "accepted",
+              "breaking_down",
+              "building",
+              "to_accept"
             ]
           }
         ],
@@ -51,7 +60,7 @@
         ]
       },
       "test": {
-        "digest": "6665318f148389f993ac80245461a63666bfa50507b6071a2ab3db4e6563b77e",
+        "digest": "e29d7958e2bc428682016e5901cc5b3a49e65b6e58502fda6a3d3d1f7960b2db",
         "history": [
           {
             "digest": "0b7d903c06f4bfcc82b632475f3274cb32542868402a7e8959ea5407affe0d10",
@@ -88,6 +97,15 @@
               "building",
               "rework",
               "to_test"
+            ]
+          },
+          {
+            "digest": "e29d7958e2bc428682016e5901cc5b3a49e65b6e58502fda6a3d3d1f7960b2db",
+            "states": [
+              "accepted",
+              "breaking_down",
+              "building",
+              "to_accept"
             ]
           }
         ],

@@ -8,7 +8,8 @@ defmodule AtlasBus do
   | Class      | From      | Goes to                                                     |
   |------------|-----------|-------------------------------------------------------------|
   | `fact`     | any layer | the store (Facts), to be stored                             |
-  | `read`     | any layer | the store (Facts), to be answered                           |
+  | `read`     | any layer | the store (Facts), to be answered; or answered where it is  |
+  |            |           | sent, by the store's reader (`answer_reads/1`)              |
   | `request`  | any layer | its address only, without storage or hints                 |
   | `stored`   | the store | its address, the sender of the fact (acknowledgement), and  |
   |            |           | every listener of its kind (hint): one message, both jobs   |
@@ -48,6 +49,17 @@ defmodule AtlasBus do
       if AtlasBus.Link.client?(), do: AtlasBus.Link.Client.sync(self()), else: :ok
     end
   end
+
+  @doc """
+  Let reads be answered where they are sent, so they do not wait behind the store's other
+  work: called by the store's endpoint, with `{module, arg}`. A read is then answered in
+  the sending process by `module.answer(arg, envelope, content)`, which returns
+  `{:answer, content}` (sent back as the store's `answer`) or `:pass` (the read goes to the
+  store, as without a reader). A read waits for the store as before while a fact its sender
+  sent is not answered yet, so a sender always reads after its own facts. The reader goes
+  with the endpoint. `{:error, :not_the_store}` when the caller is not the store.
+  """
+  defdelegate answer_reads(reader), to: Router
 
   @doc "The attached endpoint names (envelopes only, no layer knowledge)."
   def endpoints do
