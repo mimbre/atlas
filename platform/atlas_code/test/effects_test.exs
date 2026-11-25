@@ -326,7 +326,10 @@ defmodule AtlasCode.EffectsTest do
   end
 
   test "a result without changes against its base opens no pull", c do
-    repo = Path.join(c.dir, "repo")
+    # In the temp folder, not the project's tmp/: an agent's sandbox refuses writes to a .git/config
+    # under its checkout, and `git init` writes one.
+    repo = Path.join(System.tmp_dir!(), "no-changes-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(repo) end)
     git = fn args -> System.cmd("git", ["-C", repo | args]) |> elem(0) |> String.trim() end
     File.mkdir_p!(repo)
     git.(["init", "-q", "-b", "main"])
