@@ -33,8 +33,7 @@
   "flow": {
     "work_source": {
       "port": 7596,
-      "credentials_env": "ATLAS_WORK_SOURCE_CREDENTIALS",
-      "results": "/data/flow-results"
+      "credentials_env": "ATLAS_WORK_SOURCE_CREDENTIALS"
     }
   },
   "code": {

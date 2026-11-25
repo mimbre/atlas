@@ -110,15 +110,15 @@ defmodule Model.FlowRun do
   # Flow's work source leaser and its report receiver (decision 2026-11-17 §6.4, Flow plan
   # decision 11) are the same writer from their own endpoints: they may write Flow's own
   # task fields (the leaser and the receiver) and task_attempt fields (the receiver),
-  # nothing else, and never a run. Flow's Landing (F3-L) is too: Flow's own task fields
-  # only (what it published, CI, ready), never a run.
+  # nothing else, and never a run. (Flow's Landing, which published results to Code, was
+  # retired with the package kind: IS-Atlas-100.)
   flow_runtime(
     runs: :flow_run,
     writer: [sender: :flow, by: :flow],
     inputs: :flow_input,
     supervision: [relation: :supervised_by, operation: :operation, hand_to: :hand_to],
     senders: [
-      task: [:"flow/dispatch", :"flow/delivery", :"flow/landing"],
+      task: [:"flow/dispatch", :"flow/delivery"],
       task_attempt: [:"flow/delivery"]
     ]
   )

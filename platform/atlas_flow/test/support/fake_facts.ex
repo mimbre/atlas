@@ -563,7 +563,7 @@ defmodule AtlasFlow.FakeFacts.Leasing do
   """
   import ExUnit.Callbacks, only: [start_supervised!: 1]
 
-  alias AtlasFlow.{Delivery, Dispatch, FakeFacts, ManualClock, Results}
+  alias AtlasFlow.{Delivery, Dispatch, FakeFacts, ManualClock}
   alias AtlasFlow.Runs.{Run, Store}
   alias AtlasFlow.WorkSource.Translate
 
@@ -605,23 +605,15 @@ defmodule AtlasFlow.FakeFacts.Leasing do
   def config, do: AtlasFlow.Model.load(Model, :prod).config
 
   @doc """
-  Starts FakeFacts, the clock, the result store (in `dir`), Dispatch and Delivery
-  (Delivery casts to the test process as its Engine). Options go to Dispatch (`poll_wait`
-  0, no sweep or resync timer by default) and `results:` to the store.
+  Starts FakeFacts, the clock, Dispatch and Delivery (Delivery casts to the test process as
+  its Engine). Options go to Dispatch (`poll_wait` 0, no sweep or resync timer by
+  default). `dir` is the test's own folder, given back; Flow keeps no result store.
   """
   def start(dir, opts \\ []) do
     Application.put_env(:atlas_bus, :store, "lease-#{System.unique_integer([:positive])}")
     start_supervised!(FakeFacts)
     {:ok, clock} = ManualClock.start_link(@epoch)
     clock = {ManualClock, clock}
-
-    results =
-      Keyword.merge(
-        [dir: dir, clock: clock, sweep_ms: 86_400_000, pins: fn -> [] end],
-        Keyword.get(opts, :results, [])
-      )
-
-    start_supervised!(Supervisor.child_spec({Results, results}, id: Results))
     start_dispatch(clock, opts)
     start_supervised!({Delivery, model: Model, clock: clock, engine: self()})
     %{clock: clock, dir: dir}
@@ -632,7 +624,7 @@ defmodule AtlasFlow.FakeFacts.Leasing do
     opts =
       Keyword.merge(
         [model: Model, clock: clock, poll_wait: 0, sweep_ms: nil, resync_ms: nil],
-        Keyword.drop(opts, [:results])
+        opts
       )
 
     start_supervised!(Supervisor.child_spec({Dispatch, opts}, id: Dispatch))

@@ -17,7 +17,7 @@ defmodule AtlasFlow.Runs.Store do
   """
 
   require Logger
-  alias AtlasFlow.{Dispatch, Results, Supervision}
+  alias AtlasFlow.{Dispatch, Supervision}
   alias AtlasFlow.Runs.{HandOver, Run}
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
@@ -844,11 +844,8 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  defp cancel_task(run, cause, now) do
-    with %{"key" => task} <- run["pending"]["task"] do
-      Dispatch.cancel(task, cause)
-      Results.unpin(task, now)
-    end
+  defp cancel_task(run, cause, _now) do
+    with %{"key" => task} <- run["pending"]["task"], do: Dispatch.cancel(task, cause)
   end
 
   defp activity?(run, flow), do: run["status"] == "active" and flow.mechanism(run["state"]) != nil
@@ -1436,7 +1433,6 @@ defmodule AtlasFlow.Runs.Store do
     case {run["pending"]["task"], flow.mechanism(run["state"])} do
       {%{"key" => key} = intent, {:task, spec}} ->
         Dispatch.cancel(key, "retry")
-        Results.unpin(key, now)
         {:ok, update_in(retried, ["pending", "writes"], &[Task.cancelled(intent, spec) | &1])}
 
       _ ->

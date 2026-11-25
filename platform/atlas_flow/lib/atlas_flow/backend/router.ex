@@ -2,7 +2,7 @@ defmodule AtlasFlow.Backend.Router do
   @moduledoc """
   The HTTP carriage of Flow's work source (plan m3 §3.6; ADR 0006; decision 2026-11-17
   §6.2): exactly the routes, outcomes, statuses and problem types of the Runtime's
-  `work_source` backend contract (its route description, `routes.json`, version 0.3.0),
+  `work_source` backend contract (its route description, `routes.json`, version 0.4.0),
   and nothing else. `__routes__/0` and `__errors__/0` are that table as data; the router
   answers from it.
 
@@ -11,7 +11,8 @@ defmodule AtlasFlow.Backend.Router do
   | `POST /v1/poll`                          | `poll`     | JSON, at most 1 MiB               |
   | `POST /v1/leases/{lease_id}/reports`     | `report`   | JSON, at most 8 MiB               |
   | `GET /v1/leases/{lease_id}/blobs/{sha256}` | `get_blob` | none; the answer is chunked     |
-  | `PUT /v1/leases/{lease_id}/blobs/{sha256}` | `put_blob` | the blob's bytes, streamed      |
+
+  There is no `put_blob`: a result travels over Git, never as blobs (IS-Atlas-100).
 
   The client is `conn.assigns.client`, `{runtime_id, holder}`, set by
   `AtlasFlow.Backend.Listener` from the request's credential before the router runs; the
@@ -20,17 +21,10 @@ defmodule AtlasFlow.Backend.Router do
 
   **Bodies.** A JSON body holds only its route's body fields (`AtlasFlow.Backend.Codec`);
   anything else is the `invalid` error, and a body past its limit the `too_large` error.
-  A `put_blob` body must be `application/octet-stream` (else `unsupported_media_type`),
-  with `Blob-Size` its size; it is handed to the work source as a lazy stream of the
-  body's chunks, read only as the result store takes them, at most `Blob-Size` + 1
-  bytes and never past `blob_max_bytes` (20 MB, the per-result cap) + 1. A body that runs
-  past `Blob-Size` is the `too_large` error, whatever the source answered to its bytes
-  (it saw one byte too many and keeps nothing). Every body is read by `AtlasBodyLimit`,
-  which counts the bytes itself whatever the transfer encoding: Bandit keeps `length:`
-  only for a `Content-Length` body and reads a chunked one whole. Answered before the
-  body was read to its end, the response says `connection: close` (`AtlasBodyLimit.guard/1`),
-  so Bandit does not drain it either. The blob of `get_blob` goes out chunked as it is
-  read, with `Blob-Sha256` and `Blob-Size`.
+  The blob of `get_blob` goes out chunked as it is read, with `Blob-Sha256` and
+  `Blob-Size`. Every body is read by `AtlasBodyLimit`, which counts the bytes itself
+  whatever the transfer encoding; answered before the body was read to its end, the
+  response says `connection: close` (`AtlasBodyLimit.guard/1`).
 
   **Limits** (protection 5; Q9), kept by the listener's `AtlasFlow.Backend.Listener.Limits`:
   at most `rate` requests a second per credential (10), past which the answer is delayed,
@@ -38,14 +32,14 @@ defmodule AtlasFlow.Backend.Router do
   per Runtime (4), past which a blob request waits for one to end. One open poll per
   Runtime is Dispatch's: a second poll answers the first at once.
 
-  **Unavailable.** A report or `put_blob` that Facts could not answer (the source's
+  **Unavailable.** A report that Facts could not answer (the source's
   `:unavailable`, `AtlasFlow.Delivery`) is 503 `unavailable`. The contract names no such
   answer, so the Runtime's client takes it as unreachable and the puller sends the same
   request again; never `lease-lost`, which makes a Runtime drop the work.
 
   Options (`init/1`): `source` (the work source module, `AtlasFlow.WorkSource`),
   `source_opts` (its servers), `limits` (the limits server; none: no limits),
-  `poll_max_bytes`, `report_max_bytes`, `blob_max_bytes`, and `sleep` (how a delayed
+  `poll_max_bytes`, `report_max_bytes`, and `sleep` (how a delayed
   request waits, `Process.sleep/1`).
   """
   @behaviour Plug
@@ -56,8 +50,7 @@ defmodule AtlasFlow.Backend.Router do
 
   @rejected [
     %{value: :invalid, status: 400, type: "invalid"},
-    %{value: :conflict, status: 409, type: "revision-conflict"},
-    %{value: :digest_mismatch, status: 422, type: "digest-mismatch"}
+    %{value: :conflict, status: 409, type: "revision-conflict"}
   ]
 
   @routes [
@@ -98,20 +91,6 @@ defmodule AtlasFlow.Backend.Router do
         %{outcome: :not_found, status: 404, type: "not-found"},
         %{outcome: :rejected, cases: @rejected}
       ]
-    },
-    %{
-      capability: :put_blob,
-      method: "PUT",
-      path: "/v1/leases/{lease_id}/blobs/{sha256}",
-      headers: %{"blob-size" => :size},
-      upload: %{field: :content, content_type: "application/octet-stream"},
-      outcomes: [
-        %{outcome: :stored, status: 200},
-        %{outcome: :lease_lost, status: 410, type: "lease-lost"},
-        %{outcome: :too_large, status: 413, type: "too-large"},
-        %{outcome: :not_referenced, status: 409, type: "not-referenced"},
-        %{outcome: :rejected, cases: @rejected}
-      ]
     }
   ]
 
@@ -120,8 +99,7 @@ defmodule AtlasFlow.Backend.Router do
     %{kind: :not_permitted, status: 403, type: "not-permitted"},
     %{kind: :no_route, status: 404, type: "no-route"},
     %{kind: :unauthenticated, status: 401, type: "unauthenticated"},
-    %{kind: :too_large, status: 413, type: "too-large"},
-    %{kind: :unsupported_media_type, status: 415, type: "unsupported-media-type"}
+    %{kind: :too_large, status: 413, type: "too-large"}
   ]
 
   @mib 1_048_576
@@ -131,7 +109,6 @@ defmodule AtlasFlow.Backend.Router do
     limits: nil,
     poll_max_bytes: @mib,
     report_max_bytes: 8 * @mib,
-    blob_max_bytes: 20_000_000,
     sleep: &Process.sleep/1
   ]
   @read [read_timeout: 60_000]
@@ -216,37 +193,6 @@ defmodule AtlasFlow.Backend.Router do
           answer(conn, :get_blob, outcome)
       end
     end)
-  end
-
-  defp serve(:put_blob, conn, params, client, opts) do
-    {runtime_id, _} = client
-
-    # The Runtime's generated router's order: 415, then 413 by Content-Length, then 400.
-    with :ok <- media_type(conn),
-         :ok <- length_fits(conn, opts.blob_max_bytes),
-         {:ok, size} <- blob_size(conn) do
-      stream(opts, runtime_id, fn ->
-        {ref, body} = AtlasBodyLimit.stream(conn, min(size, opts.blob_max_bytes), @read)
-
-        input = Map.merge(params, %{"size" => size, "content" => body})
-        answer = opts.source.put_blob(client, input, opts.source_opts)
-
-        case AtlasBodyLimit.streamed(ref) do
-          {conn, :ended} ->
-            answer(conn, :put_blob, Codec.outcome(:put_blob, answer))
-
-          {conn, :too_large} ->
-            conn |> put_resp_header("connection", "close") |> error(:too_large)
-
-          {conn, _open_or_failed} ->
-            conn
-            |> put_resp_header("connection", "close")
-            |> answer(:put_blob, Codec.outcome(:put_blob, answer))
-        end
-      end)
-    else
-      {:error, kind} -> conn |> put_resp_header("connection", "close") |> error(kind)
-    end
   end
 
   defp json_route(capability, conn, params, limit, client, opts) do
@@ -335,29 +281,7 @@ defmodule AtlasFlow.Backend.Router do
     end)
   end
 
-  ## A streamed request body
-
-  defp media_type(conn) do
-    case get_req_header(conn, "content-type") do
-      [value] ->
-        if value |> String.split(";") |> hd() |> String.trim() |> String.downcase() ==
-             "application/octet-stream",
-           do: :ok,
-           else: {:error, :unsupported_media_type}
-
-      _ ->
-        {:error, :unsupported_media_type}
-    end
-  end
-
-  defp blob_size(conn) do
-    with [text] <- get_req_header(conn, "blob-size"),
-         {size, ""} when size >= 0 <- Integer.parse(String.trim(text)) do
-      {:ok, size}
-    else
-      _ -> {:error, :invalid}
-    end
-  end
+  ## A request body
 
   defp length_fits(conn, limit) do
     with [text] <- get_req_header(conn, "content-length"),

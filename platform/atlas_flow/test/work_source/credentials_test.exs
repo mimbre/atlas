@@ -78,67 +78,41 @@ defmodule AtlasFlow.WorkSource.CredentialsTest do
     end
   end
 
-  test "the work source refuses to start without a result store (rev 3, N7)" do
-    previous =
-      {Application.get_env(:atlas_flow, :work_source), Application.get_env(:atlas_flow, :results)}
+  test "the work source starts with no result store: results travel over Git (IS-Atlas-100)" do
+    previous = Application.get_env(:atlas_flow, :work_source)
 
     try do
       Application.put_env(:atlas_flow, :work_source, lease_ttl: 900)
-      Application.delete_env(:atlas_flow, :results)
-      assert {:error, :work_source_without_results} = AtlasFlow.Application.start(:normal, [])
-
-      Application.put_env(:atlas_flow, :results, dir: System.tmp_dir!())
       assert {:ok, [_root]} = AtlasFlow.Application.work_source()
 
       Application.delete_env(:atlas_flow, :work_source)
       assert {:ok, []} = AtlasFlow.Application.work_source()
     after
-      {source, results} = previous
-
-      if source,
-        do: Application.put_env(:atlas_flow, :work_source, source),
+      if previous,
+        do: Application.put_env(:atlas_flow, :work_source, previous),
         else: Application.delete_env(:atlas_flow, :work_source)
-
-      if results,
-        do: Application.put_env(:atlas_flow, :results, results),
-        else: Application.delete_env(:atlas_flow, :results)
     end
   end
 
-  test "configured, the work source's processes boot: the store reads its pins from Facts first" do
+  test "configured, the work source's processes boot: Bases, Dispatch and Delivery" do
     previous =
-      for {app, key} <- [atlas_flow: :work_source, atlas_flow: :results, atlas: :model],
+      for {app, key} <- [atlas_flow: :work_source, atlas: :model],
           do: {app, key, Application.get_env(app, key)}
 
-    dir = Path.join(System.tmp_dir!(), "boot-#{System.unique_integer([:positive])}")
     Application.put_env(:atlas_bus, :store, "boot-#{System.unique_integer([:positive])}")
     start_supervised!(AtlasFlow.FakeFacts)
-
-    # A complete result stored before the boot: the booted store must pin it again (n2).
-    start_supervised!({AtlasFlow.Results, name: :boot_seed, dir: dir})
-    {:ok, sha} = AtlasFlow.Results.put_manifest(%{"roots" => []}, :boot_seed)
-    :ok = stop_supervised(:boot_seed)
-
-    AtlasFlow.FakeFacts.put("task", %{
-      "key" => "TK-B-1-1",
-      "values" => %{"result_state" => "complete", "result_manifest" => sha}
-    })
 
     try do
       Application.put_env(:atlas, :model, AtlasFlow.FakeFacts.Leasing.Model)
       Application.put_env(:atlas_flow, :work_source, sweep_ms: nil, resync_ms: nil)
-      Application.put_env(:atlas_flow, :results, dir: dir)
       {:ok, [root]} = AtlasFlow.Application.work_source()
       start_supervised!(root)
 
-      for name <- [AtlasFlow.Results, AtlasFlow.Bases, AtlasFlow.Dispatch, AtlasFlow.Delivery],
+      for name <- [AtlasFlow.Bases, AtlasFlow.Dispatch, AtlasFlow.Delivery],
           do: assert(is_pid(Process.whereis(name)))
 
       assert %{leases: []} = AtlasFlow.Dispatch.status()
-      # A call is served only after the store's boot read its pins.
-      assert is_integer(AtlasFlow.Results.room(0))
-      assert {:ok, %{"roots" => []}} = AtlasFlow.Results.manifest("TK-B-1-1")
-      assert "flow/results" in AtlasBus.endpoints()
+      refute "flow/results" in AtlasBus.endpoints()
     after
       for {app, key, value} <- previous,
           do:
@@ -146,8 +120,6 @@ defmodule AtlasFlow.WorkSource.CredentialsTest do
               do: Application.put_env(app, key, value),
               else: Application.delete_env(app, key)
             )
-
-      File.rm_rf!(dir)
     end
   end
 end

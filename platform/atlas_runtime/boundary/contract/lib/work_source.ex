@@ -12,28 +12,32 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   the **holdings** are the leases a Runtime holds, from its persisted state.
 
   Capabilities (§5.2): `poll` (a long-poll, at most `poll_max` seconds; the heartbeat and
-  the cancel channel at once), `report`, `get_blob` and `put_blob`. The caller is the
-  Runtime, received as an opaque `client` holding the right `lease`.
+  the cancel channel at once), `report` and `get_blob`. The caller is the Runtime,
+  received as an opaque `client` holding the right `lease`.
 
   Fencing (§5.3): every write is conditional on the lease being the work's current,
-  unexpired one. A stale lease's `report` or `put_blob` answers `lease_lost`, and so does
+  unexpired one. A stale lease's `report` answers `lease_lost`, and so does
   an `accepted` that arrives after the source's accept deadline (30 s). `poll` renews
   only the current, unexpired leases among the holdings and answers every other one in
   `lease_lost`.
 
-  Blobs (§3 F6, §5.2, §6.2): `get_blob` serves only blobs the current lease's input names
-  (its manifests and the blobs their write entries name); `put_blob` takes only blobs the
-  lease's recorded `ended` manifest references (`not_referenced` otherwise) and answers
-  `too_large` past the source's caps, counted while the bytes stream in. Visibility is per
-  source: a Runtime downloads every input blob from the source that names it, and never
-  reuses one another source supplied.
+  Blobs (§3 F6, §5.2): `get_blob` serves only blobs the current lease's input names (its
+  manifests and the blobs their write entries name). Visibility is per source: a Runtime
+  downloads every input blob from the source that names it, and never reuses one another
+  source supplied.
+
+  Results (0.5.0, IS-Atlas-100): a result travels over Git, never as blobs. A writable
+  work's input names a `result_ref`; the Runtime commits its folder on the base's commit
+  and pushes it to the source's Code under that ref before it reports `ended`. There is no
+  `put_blob`: `recorded.missing` is always empty, and a source reads no `ended.change_set`
+  (a Runtime before 0.5.0 may still send one). A source offers no `change_set` input.
 
   The request offered has no `slot`, `folder`, `resume_from` or `repository`: those are
   for the local source only, which adds them through the Runtime CLI, not through this
   contract. No path on the Runtime's machine crosses it.
 
   Declarations only: the generator (`AtlasRuntimeBoundary.Generator.Schema`) turns them
-  into `__schema__/0`. `put_blob` takes its bytes as a `:stream` input field (an upload).
+  into `__schema__/0`.
   """
   use AtlasRuntimeBoundary.Generator.Schema
 
@@ -41,8 +45,10 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   # needs back on import. 0.3.0: a work's input may name a result_ref (the result over Git).
   # 0.4.0: the Runtime's configuration (IS-Atlas-27): polled may carry it, and a poll may
   # report one the Runtime refused (both optional, so 0.3.0 peers are not affected).
-  # 0.5.0: a supervised upgrade (IS-Atlas-26): polled may carry an upgrade order, and a
-  # poll may report the upgrade's progress (both optional, so 0.4.0 peers are not affected).
+  # 0.5.0: put_blob is gone (IS-Atlas-100): results travel over Git only. An older Runtime
+  # calls it only for the blobs recorded names as missing, and a 0.5.0 source names none.
+  # Also a supervised upgrade (IS-Atlas-26): polled may carry an upgrade order, and a poll
+  # may report the upgrade's progress (both optional, so 0.4.0 peers are not affected).
   version("0.5.0")
 
   # The Runtime's own enumerations (as in the work contract, which this one does not name).
@@ -177,10 +183,11 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     field(:after_check, :after_check)
   end
 
-  # A base, optionally with a frozen change set on top (from_work across machines). Its
-  # blobs come from the same source (F6). result_ref: when given, the result goes back over
-  # Git, not as a change set: the Runtime commits its folder on the base's commit and pushes
-  # it to the source's Code under this ref, and its ended report carries no change set.
+  # A base; its blobs come from the same source (F6). result_ref: when given, the result
+  # goes back over Git: the Runtime commits its folder on the base's commit and pushes it to
+  # the source's Code under this ref, and its ended report carries no change set.
+  # change_set: a frozen change set on top (from_work across machines), which no source
+  # offers since 0.5.0; kept so the Runtime's import still reads an older lease.
   defmodel :work_input do
     field(:base, :base_ref, required: true)
     field(:change_set, :change_set_ref)
@@ -254,8 +261,8 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   defmodel :started do
   end
 
-  # change_set: the attempt's frozen result, when it produced one. Its write entries'
-  # blobs are what put_blob may upload.
+  # change_set: a Runtime before 0.5.0 may send the attempt's frozen result; a source does
+  # not read it (IS-Atlas-100), and a 0.5.0 Runtime sends none.
   defmodel :ended do
     field(:result, :result, required: true)
     # One record per turn.
@@ -350,8 +357,8 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     field(:target, :string)
   end
 
-  # missing: for ended, the referenced blobs the source does not hold yet, each to be
-  # sent with put_blob; empty for every other report.
+  # missing: always empty since 0.5.0 (results travel over Git). Kept, required, so a
+  # Runtime before 0.5.0 still reads the answer it expects and uploads nothing.
   defmodel :recorded do
     field(:missing, {:list, :string}, required: true)
   end
@@ -370,22 +377,12 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     field(:content, :stream, required: true)
   end
 
-  # size: the bytes the stream will carry, so a source can refuse too_large before reading;
-  # it still counts while reading.
-  defmodel :put_blob_input do
-    field(:lease_id, :string, required: true)
-    field(:sha256, :string, required: true)
-    field(:size, :integer, required: true, range: 0..9_007_199_254_740_991)
-    field(:content, :stream, required: true)
-  end
-
   ## Outcomes shared by several capabilities
 
   # invalid: the input does not fit the contract. conflict: a report revision that is
   # neither the last recorded nor the next, or the same revision with another report.
-  # digest_mismatch: put_blob's bytes do not have the given sha256 or size.
   defmodel :rejected do
-    field(:reason, {:enum, [:invalid, :conflict, :digest_mismatch]}, required: true)
+    field(:reason, {:enum, [:invalid, :conflict]}, required: true)
     field(:detail, :string)
   end
 
@@ -412,21 +409,6 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   defcapability(:get_blob,
     input: :get_blob_input,
     outcomes: [blob: :blob, not_found: nil, rejected: :rejected],
-    right: :lease
-  )
-
-  # Fenced first (lease_lost), then the reference (not_referenced: no recorded ended of
-  # this lease references the blob), then the caps (too_large: past the per-result or the
-  # store cap, also while the bytes stream in). Stored again is stored.
-  defcapability(:put_blob,
-    input: :put_blob_input,
-    outcomes: [
-      stored: nil,
-      lease_lost: nil,
-      too_large: nil,
-      not_referenced: nil,
-      rejected: :rejected
-    ],
     right: :lease
   )
 end

@@ -9,7 +9,7 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
   use ExUnit.Case, async: false
   @moduletag :capture_log
 
-  alias AtlasFlow.{Delivery, Dispatch, FakeFacts, Results, WorkSource}
+  alias AtlasFlow.{Delivery, Dispatch, FakeFacts, WorkSource}
   alias AtlasFlow.FakeFacts.Leasing, as: L
   alias AtlasFlow.WorkSource.Translate
 
@@ -47,7 +47,8 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
   defp attempt_writes(task), do: Enum.filter(FakeFacts.sent(), &(&1["key"] == "TA-#{task}-1"))
 
   # Four leases of ada's: the bin's own task offered, and three crates' accepted, started
-  # and ended.
+  # and ended. The ended one is done at once (its result over Git, IS-Atlas-100), so the
+  # Runtime holds the other three (`held`); its reconcile cast is taken here.
   defp leases(ctx) do
     %{run: run, task: bin} = L.supervised_task("B-1", "ada", at: ~U[2026-11-17 10:00:00Z])
     c1 = L.crate_task("C-1", "B-1", at: ~U[2026-11-17 10:01:00Z])
@@ -64,37 +65,36 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
     assert {:recorded, _} = report(@mini, l3, 1, %{state: :accepted})
     files = [{"a.txt", "a\n"}]
 
-    assert {:recorded, %{missing: [_]}} =
+    assert {:recorded, %{missing: []}} =
              report(@mini, l3, 2, L.ended(L.change_set(files, L.base().base_id)))
 
-    Map.merge(ctx, %{run: run, tasks: [bin, c1, c2, c3], leases: [l0, l1, l2, l3]})
+    assert casts() == [{"crate", "C-3"}]
+
+    Map.merge(ctx, %{
+      run: run,
+      tasks: [bin, c1, c2, c3],
+      leases: [l0, l1, l2, l3],
+      held: [l0, l1, l2]
+    })
   end
 
   test "the supervisor cleared: offered → lost, accepted and started → cancel, ended stands",
        ctx do
-    %{run: run, tasks: [bin, c1, c2, c3], leases: [l0, l1, l2, l3] = all} = leases(ctx)
+    %{run: run, tasks: [bin, c1, c2, c3], leases: [l0, l1, l2, _l3], held: held} = leases(ctx)
 
     L.supervise(run, nil)
     Dispatch.sweep()
 
-    assert {:polled, %{lease_lost: [^l0], cancel: [^l1, ^l2]}} = poll(@mini, all)
+    assert {:polled, %{lease_lost: [^l0], cancel: [^l1, ^l2]}} = poll(@mini, held)
     assert %{"lease_state" => "lost", "lease_end_cause" => "supervision"} = L.values(bin)
 
     assert %{"lease_state" => "cancel_requested", "lease_end_cause" => "supervision"} =
              L.values(c1)
 
     assert L.values(c2)["lease_state"] == "cancel_requested"
-    assert L.values(c3)["lease_state"] == "ended"
-
-    assert :stored =
-             WorkSource.put_blob(@mini, %{
-               lease_id: l3,
-               sha256: L.sha256("a\n"),
-               size: 2,
-               content: ["a\n"]
-             })
-
-    assert L.values(c3)["result_state"] == "complete"
+    # Ended: its result is recorded at once (over Git, IS-Atlas-100) and stands.
+    assert L.values(c3)["lease_state"] == "done"
+    refute Map.has_key?(L.values(c3), "lease_end_cause")
   end
 
   test "after ended(cancelled) nothing is offered until a pickup; then only to the new supervisor",
@@ -122,8 +122,7 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
 
   # B1 (review m3-a2, plan §3.5; D-0102): only returned, any interruption, a check cut short
   # and a cancelled after the cancel request are result-less. A result that arrives after
-  # cancel_requested stands: the run gets it, it stays pinned, and the work is not offered
-  # again.
+  # cancel_requested stands: the run gets it, and the work is not offered again.
   describe "a result that arrives after the cancel request" do
     defp handed_over(started?) do
       %{run: run, task: task} = L.supervised_task("B-1", "ada")
@@ -162,29 +161,20 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
       not_offered_again(run, task)
     end
 
-    test "ended(completed) with a change set: completed by put_blob, pinned, not re-offered",
+    test "ended(completed) with a change set: the change set is not read; completed, not re-offered",
          _ctx do
       %{run: run, task: task, lease: lease, next: next} = handed_over(false)
       files = [{"a.txt", "a\n"}]
 
-      assert {:recorded, %{missing: [_]}} =
+      assert {:recorded, %{missing: []}} =
                report(@mini, lease, next, L.ended(L.change_set(files, L.base().base_id)))
 
-      assert :stored =
-               WorkSource.put_blob(@mini, %{
-                 lease_id: lease,
-                 sha256: L.sha256("a\n"),
-                 size: 2,
-                 content: ["a\n"]
-               })
-
-      assert %{"lease_state" => "done", "result_state" => "complete"} = v = L.values(task)
+      assert %{"lease_state" => "done"} = v = L.values(task)
       assert v["lease_end_cause"] == nil
+      refute Map.has_key?(v, "result_state")
       assert {:result, "completed", _} = Translate.outcome(FakeFacts.get("task", task), false)
       assert {"bin", "B-1"} in casts()
-      assert {:ok, _} = Results.manifest(task)
       not_offered_again(run, task)
-      assert {:ok, _} = Results.manifest(task)
     end
 
     test "F10: cancel_requested ends no attempt; the Runtime's ended(completed) records it with its provenance",
@@ -246,18 +236,18 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
   end
 
   test "a hand-over and a pickup by the same holder within one sweep cancel nothing", ctx do
-    %{run: run, leases: all} = leases(ctx)
+    %{run: run, held: held} = leases(ctx)
     L.supervise(run, nil)
     L.supervise(run, "ada")
     Dispatch.sweep()
-    assert {:polled, %{lease_lost: [], cancel: []}} = poll(@mini, all)
+    assert {:polled, %{lease_lost: [], cancel: []}} = poll(@mini, held)
   end
 
   test "a state outside the span cancels as a cleared supervisor does", ctx do
-    %{tasks: [_, c1 | _], leases: [_, l1 | _] = all} = leases(ctx)
+    %{tasks: [_, c1 | _], leases: [_, l1 | _], held: held} = leases(ctx)
     L.run("bin", "B-1", supervisor: "ada", state: "open")
     Dispatch.sweep()
-    assert {:polled, %{cancel: [^l1 | _]}} = poll(@mini, all)
+    assert {:polled, %{cancel: [^l1 | _]}} = poll(@mini, held)
     assert L.values(c1)["lease_state"] == "cancel_requested"
   end
 end

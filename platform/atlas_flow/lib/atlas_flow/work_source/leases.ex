@@ -151,25 +151,4 @@ defmodule AtlasFlow.WorkSource.Leases do
       end
     end
   end
-
-  @doc """
-  The pins a result store rebuilds from (§3.4 "Index"): `{task_key, result_manifest}` of
-  every task whose `result_state` is complete and whose `state` is not abandoned. Raises
-  when Facts does not answer, so a store never rebuilds from nothing.
-  """
-  @spec pins() :: [{String.t(), String.t()}]
-  def pins do
-    case all() do
-      {:ok, facts} ->
-        for fact <- facts,
-            value(fact, "result_state") == "complete",
-            value(fact, "state") != "abandoned",
-            sha = value(fact, "result_manifest"),
-            is_binary(sha),
-            do: {fact["key"], sha}
-
-      {:error, why} ->
-        raise "the result store cannot rebuild its pins: #{inspect(why)}"
-    end
-  end
 end

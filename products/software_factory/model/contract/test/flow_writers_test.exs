@@ -5,7 +5,8 @@ defmodule Model.FlowWritersTest do
   (`by: "flow"`), from their own Bus endpoints. Facts stores what they write on Flow's own
   `task` fields (both) and `task_attempt` fields (the receiver only), and nothing else:
   never a run, never another kind, never with another `by`. Flow's Landing
-  (`flow/landing`, F3-L) is the same writer on Flow's own `task` fields only. Asserted on
+  (`flow/landing`, F3-L) was retired with the package kind (IS-Atlas-100): its endpoint
+  writes nothing any more. Asserted on
   `:ok` or `{:refuse, _}` through the composed model, as Facts holds a write to it.
   """
   use ExUnit.Case, async: true
@@ -39,7 +40,7 @@ defmodule Model.FlowWritersTest do
 
   # A lease write on a task, as the leaser grants it.
   defp task,
-    do: create("task", "TK-PK-1-1", %{"lease_id" => "TK-PK-1-1~1~x", "lease_state" => "offered"})
+    do: create("task", "TK-IS-1-1", %{"lease_id" => "TK-IS-1-1~1~x", "lease_state" => "offered"})
 
   test "the run mapping names the endpoints, per kind, beside the single writer" do
     assert description().flow_runtime
@@ -48,7 +49,7 @@ defmodule Model.FlowWritersTest do
              "sender" => "flow",
              "by" => "flow",
              "senders" => %{
-               "task" => [@dispatch, @delivery, @landing],
+               "task" => [@dispatch, @delivery],
                "task_attempt" => [@delivery]
              }
            }
@@ -59,21 +60,8 @@ defmodule Model.FlowWritersTest do
         do: assert(check(task(), as(sender)) == :ok, sender)
   end
 
-  test "1b. what Landing records of a publication, by Flow, from Landing (F3-L)" do
-    published =
-      create("task", "TK-PK-1-1", %{
-        "code_change_id" => "c-1",
-        "review_id" => "r-1",
-        "review_url" => "https://example.invalid/r/1",
-        "published_revision" => "rev_1",
-        "published_fingerprint" => "fpr_1",
-        "review_ci" => "success",
-        "marked_ready_at" => "2026-11-17T12:00:00Z",
-        "reviewed_revision" => "rev_1"
-      })
-
-    assert check(published, as(@landing)) == :ok
-    assert refused?(check(published, as(@landing, "someone")))
+  test "1b. Landing's endpoint is no writer any more: results travel over Git (IS-Atlas-100)" do
+    assert refused?(check(task(), as(@landing)))
   end
 
   test "2. the same write from another endpoint, or with another by, is refused" do
@@ -87,9 +75,9 @@ defmodule Model.FlowWritersTest do
     attempt =
       create(
         "task_attempt",
-        "TA-TK-PK-1-1-1",
-        %{"lease_id" => "TK-PK-1-1~1~x", "state" => "running", "turn_id" => "t-1"},
-        %{"attempt_of" => ["TK-PK-1-1"], "ran_on" => ["mac-mini"]}
+        "TA-TK-IS-1-1-1",
+        %{"lease_id" => "TK-IS-1-1~1~x", "state" => "running", "turn_id" => "t-1"},
+        %{"attempt_of" => ["TK-IS-1-1"], "ran_on" => ["mac-mini"]}
       )
 
     assert check(attempt, as(@delivery)) == :ok

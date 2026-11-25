@@ -100,18 +100,6 @@ defmodule AtlasRuntime.WorkSource.FencingTest do
     {lease, missing}
   end
 
-  # A stream that tells the test each chunk it gives.
-  defp watched(chunks), do: Stream.map(chunks, &(send(self(), {:read, &1}) && &1))
-
-  defp put(client, lease, bytes, opts \\ []) do
-    F.put_blob(client, %{
-      lease_id: lease,
-      sha256: Keyword.get(opts, :sha256, Source.sha256(bytes)),
-      size: Keyword.get(opts, :size, byte_size(bytes)),
-      content: Keyword.get(opts, :content, watched([bytes]))
-    })
-  end
-
   describe "accept (§5.3 item 1)" do
     test "an accepted within the accept deadline is recorded; the lease's work is the offer",
          %{source: source} do
@@ -232,119 +220,18 @@ defmodule AtlasRuntime.WorkSource.FencingTest do
     end
   end
 
-  describe "result upload (§5.2, §6.2)" do
-    test "ended answers the missing blobs; put_blob stores each, and a replay answers fewer",
+  describe "results (work_source 0.5.0, IS-Atlas-100)" do
+    test "ended is recorded with nothing missing; no blob is uploaded, there is no put_blob",
          %{source: source} do
       add(source)
-      {lease, missing} = ended_lease!(@mini, [{"a.txt", "a\n"}, {"README.md", @readme}])
-
-      # README.md's blob is the base's, which this source holds already.
-      assert missing == [Source.sha256("a\n")]
-      assert %F.Outcome.Stored{} = put(@mini, lease, "a\n")
+      {lease, missing} = ended_lease!(@mini, [{"a.txt", "a\n"}])
+      assert missing == []
 
       assert %F.Outcome.Recorded{missing: []} =
-               report(@mini, lease, 3, ended([{"a.txt", "a\n"}, {"README.md", @readme}]))
-
-      # Stored again is stored.
-      assert %F.Outcome.Stored{} = put(@mini, lease, "a\n")
-    end
-
-    test "a stale put_blob gets lease_lost, and none of its bytes is read", %{source: source} do
-      add(source)
-      {lease, [_]} = ended_lease!(@mini, [{"a.txt", "a\n"}])
-
-      Source.advance(source, 900)
-      assert %F.Outcome.LeaseLost{} = put(@mini, lease, "a\n")
-      refute_received {:read, _}
-      refute Map.has_key?(Source.blobs(source), Source.sha256("a\n"))
-
-      # Another Runtime's put_blob on this lease is lost too.
-      Source.advance(source, -900)
-      assert %F.Outcome.LeaseLost{} = put(@laptop, lease, "a\n")
-    end
-
-    test "a lease lost while its put_blob streams gets lease_lost, and the blob is not stored",
-         %{source: source} do
-      add(source)
-      {lease, [_]} = ended_lease!(@mini, [{"a.txt", "a\n"}])
-
-      # The checks before reading pass; the lease expires while the bytes are read.
-      expiring = Stream.map(watched(["a\n"]), &(Source.advance(source, 900) && &1))
-      assert %F.Outcome.LeaseLost{} = put(@mini, lease, "a\n", content: expiring)
-      assert_received {:read, "a\n"}
-      refute Map.has_key?(Source.blobs(source), Source.sha256("a\n"))
-    end
-
-    test "an unreferenced put_blob is refused: not in the ended manifest, or before ended",
-         %{source: source} do
-      add(source, "task-1")
-      add(source, "task-2")
-      {lease, _} = ended_lease!(@mini, [{"a.txt", "a\n"}])
-
-      assert %F.Outcome.NotReferenced{} = put(@mini, lease, "b\n")
-
-      # Before its ended is recorded, a lease references nothing.
-      other = lease!(@mini)
-      assert %F.Outcome.Recorded{} = report(@mini, other, 1, accepted())
-      assert %F.Outcome.NotReferenced{} = put(@mini, other, "a\n")
-
-      refute_received {:read, _}
-      refute Map.has_key?(Source.blobs(source), Source.sha256("b\n"))
-    end
-
-    test "over the cap gets too_large: by its size before reading, and while it streams" do
-      source = Source.start(result_cap: 10, store_cap: 1_000)
-      Source.use(source)
-      add(source)
-      big = String.duplicate("x", 11)
-
-      {lease, _} =
-        ended_lease!(@mini, [{"big.bin", big}, {"small.bin", "12345678"}, {"c.txt", "abc"}])
-
-      # Its declared size is past the per-result cap: refused before a byte is read.
-      assert %F.Outcome.TooLarge{} = put(@mini, lease, big)
-      refute_received {:read, _}
-
-      # A size that understates: the cap holds while the bytes stream in, and reading
-      # stops at the chunk that passes it.
-      stream = watched(["xxxxxx", "xxxxx", "never read"])
-      assert %F.Outcome.TooLarge{} = put(@mini, lease, big, size: 5, content: stream)
-      assert_received {:read, "xxxxxx"}
-      assert_received {:read, "xxxxx"}
-      refute_received {:read, "never read"}
-      refute Map.has_key?(Source.blobs(source), Source.sha256(big))
-
-      # Within the cap it is stored, and the cap counts what the result already holds.
-      assert %F.Outcome.Stored{} = put(@mini, lease, "12345678")
-      assert %F.Outcome.TooLarge{} = put(@mini, lease, "abc", sha256: Source.sha256("abc"))
-    end
-
-    test "the store cap counts every blob the source holds, not only this result's" do
-      # The base's blobs are in the store already; 20 bytes are left.
-      base = byte_size(@base_manifest) + byte_size(@readme)
-      source = Source.start(result_cap: 1_000, store_cap: base + 20)
-      Source.use(source)
-      add(source)
-      big = String.duplicate("c", 21)
-      fits = String.duplicate("d", 20)
-      {lease, _} = ended_lease!(@mini, [{"c.bin", big}, {"d.bin", fits}])
-
-      assert %F.Outcome.TooLarge{} = put(@mini, lease, big)
-      assert %F.Outcome.Stored{} = put(@mini, lease, fits)
-    end
-
-    test "bytes that do not match their sha256 or size are rejected and not stored",
-         %{source: source} do
-      add(source)
-      {lease, _} = ended_lease!(@mini, [{"a.txt", "a\n"}])
-
-      assert %F.Outcome.Rejected{reason: :digest_mismatch} =
-               put(@mini, lease, "a\n", content: ["b\n"])
-
-      assert %F.Outcome.Rejected{reason: :digest_mismatch} =
-               put(@mini, lease, "a\n", size: 1, content: ["a\n"])
+               report(@mini, lease, 3, ended([{"a.txt", "a\n"}]))
 
       refute Map.has_key?(Source.blobs(source), Source.sha256("a\n"))
+      refute function_exported?(F, :put_blob, 2)
     end
   end
 

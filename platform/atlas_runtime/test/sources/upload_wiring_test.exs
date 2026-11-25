@@ -12,7 +12,6 @@ defmodule AtlasRuntime.Sources.UploadWiringTest do
 
   import AtlasRuntime.WorkHarness
 
-  alias AtlasRuntime.Boundary.Work, as: B
   alias AtlasRuntime.Sources.{InBeamTarget, Rights, Upload}
   alias AtlasRuntime.Test.FakeWorkSource, as: Source
   alias AtlasRuntime.Test.ImportedBase
@@ -96,18 +95,15 @@ defmodule AtlasRuntime.Sources.UploadWiringTest do
 
   defp target(revision), do: {InBeamTarget, %{facade: S, client: @runtime, revision: revision}}
 
-  defp json(entries),
-    do: entries |> Enum.map(&Map.from_struct/1) |> JSON.encode!() |> JSON.decode!()
-
   defp reports(source, lease_id), do: Agent.get(source, & &1.leases[lease_id].reports)
 
   @two "write a.txt alpha; write b.txt beta; delete old.md"
 
-  test "a leased work's result reaches the source complete: change set, csf_ and every blob",
+  test "a leased work's result reaches the source: its result and provenance, no change set or blob",
        %{bench: bench, code: code, source: source} do
     {lease_id, work} = leased_and_ended!(code, source, @two)
 
-    assert {:ok, %{uploaded: uploaded, skipped: []}} =
+    assert {:ok, %{uploaded: [], skipped: []}} =
              Upload.run(@client, target(3), lease_id, work.work_id)
 
     assert [_accepted, _started, %S.Ended{} = ended] = reports(source, lease_id)
@@ -117,22 +113,9 @@ defmodule AtlasRuntime.Sources.UploadWiringTest do
     # Nothing of this machine's Runtime home crosses the contract (D44).
     refute inspect(ended, limit: :infinity) =~ Path.expand(bench.dir)
 
-    # The source recomputes each root's csf_ from the base and the entries, as JSON has them.
-    frozen = B.get_frozen(@client, %{work_id: work.work_id})
-
-    assert [%S.ChangeRoot{root: "atlas", fingerprint: "csf_" <> _} = root] =
-             ended.change_set.roots
-
-    assert root.fingerprint ==
-             AtlasChangeset.fingerprint(frozen.base, root.root, json(root.entries))
-
-    assert root.fingerprint == hd(frozen.roots).fingerprint
-
-    writes = for %{op: :write, sha256: sha} <- root.entries, do: sha
-    blobs = Source.blobs(source)
-    assert Enum.sort(uploaded) == Enum.sort(writes)
-    assert Enum.sort(writes) == Enum.sort([Source.sha256("alpha\n"), Source.sha256("beta\n")])
-    for sha <- writes, do: assert(Source.sha256(blobs[sha]) == sha)
+    # IS-Atlas-100: a result travels over Git; the frozen result stays the Runtime's.
+    assert ended.change_set == nil
+    refute Map.has_key?(Source.blobs(source), Source.sha256("alpha\n"))
 
     # A repeat (after a restart): the same report again, nothing uploaded twice.
     assert {:ok, %{uploaded: []}} = Upload.run(@client, target(3), lease_id, work.work_id)

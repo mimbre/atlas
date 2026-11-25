@@ -1,8 +1,8 @@
 defmodule Model.RepositoryAllowlistTest do
   @moduledoc """
   Every allow-list of Code's integrate receiver (`code.repositories`) holds the repository the
-  model's work tasks build from (the package's `author` task, `input: [repository: …]` in
-  `model/contract/software/package.ex`), read from the compiled model's flows, per
+  model's work tasks build from (the issue's `author` task, `input: [repository: …]` in
+  `model/contract/software/delivery.ex`), read from the compiled model's flows, per
   environment. Otherwise Atlas builds
   on one repository and its receiver refuses every pull request of it as
   `repository_not_allowed` (`AtlasCode.Effects`, an exact owner/repo match).
@@ -38,7 +38,7 @@ defmodule Model.RepositoryAllowlistTest do
   defp owner_repo(input), do: github_repo(input) || flunk("#{input} names no GitHub repository")
 
   # The owner/repo of a repository input: Code's repository name, `github.com/<owner>/<repo>`
-  # (the keys of Code's config.json, as the package task names it), or a GitHub HTTPS URL of it.
+  # (the keys of Code's config.json, as the issue's tasks name it), or a GitHub HTTPS URL of it.
   # nil for anything else.
   defp github_repo(input) do
     case Regex.run(
@@ -82,12 +82,12 @@ defmodule Model.RepositoryAllowlistTest do
     end
   end
 
-  test "the package task names the repository it builds from, in every environment" do
+  test "the issue's tasks name the repository they build from, in every environment" do
     built = built()
 
     for env <- model_environments() do
-      assert Enum.any?(built, fn {e, flow, _} -> e == env and flow == "package" end),
-             "#{env} has no package task with a repository input"
+      assert Enum.any?(built, fn {e, flow, _} -> e == env and flow == "issue" end),
+             "#{env} has no issue task with a repository input"
     end
   end
 

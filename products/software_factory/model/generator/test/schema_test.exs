@@ -684,7 +684,7 @@ defmodule RelaDSL.SchemaTest do
       refused(
         task_source(~s(failure: "task_failure",)),
         6,
-        "state a: task author: failure: is a field of the subject, for a task outside any ladder"
+        "state a: task author: failure: is a field of the subject"
       )
 
       refused(
@@ -736,75 +736,15 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
-    # F2: a ladder task (the review → fix loop). Structural: branches, tags, lines.
-    test "a ladder task maps the ladder's steps, not the four results" do
-      module = compile!(ladder_source())
-      [%{states: states}] = module.__flows__()
-      by_name = Map.new(states, &{&1.name, &1})
+    # IS-Atlas-100: results travel over Git; no task is a step of a review → fix ladder,
+    # and none starts from the loop's change set.
+    test "a task is no ladder step: ladder: and the loop's [result:, access:] input are refused" do
+      refused_at(task_source("ladder: true,"), 6)
 
-      assert {:task, %{kind: :review, ladder: true, input: [result: :latest, access: :read]}} =
-               by_name[:reviewing].mechanism
-
-      assert {:task, %{kind: :diagnose, role: :investigator}} = by_name[:diagnosing].mechanism
-      assert {:task, %{profile: :deep_coding_max}} = by_name[:stronger].mechanism
-
-      assert for(b <- by_name[:authoring].branches, do: {b.to, b.roles, b.when}) ==
-               for(
-                 {step, to} <- [
-                   author: :authoring,
-                   review: :reviewing,
-                   fix: :fixing,
-                   diagnose: :diagnosing,
-                   fresh: :fresh,
-                   stronger: :stronger,
-                   ready: :ready,
-                   held: :held,
-                   escalate: :escalated,
-                   abandon: :stuck
-                 ],
-                 do: {to, ["atlas-flow"], "entity.task_result == '#{step}'"}
-               )
-
-      # A task that is no ladder's has no `ladder` in its spec.
-      {:task, spec} = hd(hd(compile!(task_source("")).__flows__()).states).mechanism
-      refute Map.has_key?(spec, :ladder)
-    end
-
-    test "a ladder task that maps the four results, or a ladder that is not true" do
-      refused_at(ladder_source(%{6 => {~r/on: \[.*\]$/, four()}}), 6)
-      refused_at(ladder_source(%{6 => {"ladder: true", "ladder: :yes"}}), 6)
-    end
-
-    test "only a review, fix or diagnose starts from the latest result, read or written as its kind" do
-      for {kind, access} <- [review: :read, diagnose: :read, fix: :write],
-          do: assert(RelaDSL.Schema.input_problem(kind, result_input(access)) == nil)
-
-      for kind <- [:author, :plan],
-          do:
-            assert(RelaDSL.Schema.input_problem(kind, result_input(:read)) == :input_result_kind)
-
-      for {kind, access} <- [review: :write, diagnose: :write, fix: :read, review: :none],
-          do: assert(RelaDSL.Schema.input_problem(kind, result_input(access)) == :input_access)
-
-      # Every other input is judged as before, whatever the kind.
-      for kind <- [:author, :review] do
-        assert RelaDSL.Schema.input_problem(kind, repository: "example.invalid/r", base: "d") ==
-                 nil
-
-        assert RelaDSL.Schema.input_problem(kind, result: :latest) == :input_shape
-        assert RelaDSL.Schema.input_problem(kind, result: :first, access: :read) == :input_shape
+      for kind <- [:review, :fix, :author] do
+        assert RelaDSL.Schema.input_problem(kind, result: :latest, access: :read) == :input_shape
       end
 
-      refused_at(
-        ladder_source(%{6 => {repository_input(), "input: " <> inspect(result_input(:read))}}),
-        6
-      )
-
-      refused_at(ladder_source(%{9 => {"access: :read", "access: :write"}}), 9)
-      refused_at(ladder_source(%{12 => {"access: :write", "access: :read"}}), 12)
-    end
-
-    test "the latest result is the loop's: a task that starts from it needs ladder: true" do
       review =
         String.replace(
           task_source("input: [result: :latest, access: :read],"),
@@ -813,39 +753,10 @@ defmodule RelaDSL.SchemaTest do
         )
 
       refused_at(review, 6)
-    end
 
-    test "lesson 7: a ladder fix or author without check fails to compile; a review or diagnose needs none" do
-      no_check = {~s(check: ["bin/check"], ), ""}
-
-      # The fix, and the first, fresh and stronger authors: each refused at its own line.
-      for line <- [12, 6, 18, 21], do: refused_at(ladder_source(%{line => no_check}), line)
-
-      # The read-only steps run no check: the loop compiles with none on them.
-      module = compile!(ladder_source())
-      by_name = Map.new(hd(module.__flows__()).states, &{&1.name, &1})
-
-      for state <- [:authoring, :fixing, :fresh, :stronger],
-          do: assert({:task, %{check: ["bin/check"]}} = by_name[state].mechanism)
-
-      for state <- [:reviewing, :diagnosing] do
-        assert {:task, spec} = by_name[state].mechanism
-        refute Map.has_key?(spec, :check)
-      end
-    end
-
-    test "a ladder step leads to a ladder task of its kind (a rule of its own); a stronger author on deep_coding_max" do
-      # Reported at the state whose task's step leads astray.
-      refused_at(ladder_source(%{6 => {"review: :reviewing", "review: :fixing"}}), 5)
-      refused_at(ladder_source(%{9 => {"fix: :fixing", "fix: :ready"}}), 8)
-      refused_at(ladder_source(%{12 => {"fresh: :fresh", "fresh: :diagnosing"}}), 11)
-
-      refused_at(
-        ladder_source(%{
-          21 => {"profile: :deep_coding_max, cost_class: :high", "profile: :deep_coding"}
-        }),
-        5
-      )
+      # A task that is no ladder's has no `ladder` in its spec.
+      {:task, spec} = hd(hd(compile!(task_source("")).__flows__()).states).mechanism
+      refute Map.has_key?(spec, :ladder)
     end
 
     test "two mechanisms in one state" do
@@ -1453,85 +1364,6 @@ defmodule RelaDSL.SchemaTest do
     |> then(
       &if(extra =~ "profile:", do: String.replace(&1, "profile: :deep_coding, ", ""), else: &1)
     )
-  end
-
-  defp repository_input, do: ~s(input: [repository: "example.invalid/r", base: "develop"])
-  defp four, do: "on: [completed: :ready, check_failed: :held, stuck: :held, abandoned: :held]"
-
-  defp steps,
-    do:
-      "on: [author: :authoring, review: :reviewing, fix: :fixing, diagnose: :diagnosing, " <>
-        "fresh: :fresh, stronger: :stronger, ready: :ready, held: :held, escalate: :escalated, " <>
-        "abandon: :stuck]"
-
-  defp result_input(access), do: [result: :latest, access: access]
-
-  # The review → fix loop as a subflow f, one state per ladder step, each task on its own
-  # line (6, 9, 12, 15, 18, 21). `changes`: a line's `{pattern, replacement}`.
-  defp ladder_source(changes \\ %{}) do
-    task = fn kind, opts ->
-      ~s(    task :#{kind}, ladder: true, #{opts}, records: [kind: "task", relation: "task_of"], ) <>
-        ~s(machinery: "machinery", #{steps()})
-    end
-
-    author =
-      ~s(role: :developer, profile: :deep_coding, #{repository_input()}, check: ["bin/check"], instructions: "Do it.")
-
-    lines = [
-      "subflow :f, subject: :t do",
-      ~s(  run_as "system:x"),
-      "  start :create",
-      "  initial :authoring",
-      "  state :authoring do",
-      task.(:author, author),
-      "  end",
-      "  state :reviewing do",
-      task.(
-        :review,
-        ~s(role: :developer, profile: :independent_review, input: [result: :latest, access: :read], instructions: "Review it.")
-      ),
-      "  end",
-      "  state :fixing do",
-      task.(
-        :fix,
-        ~s(role: :developer, profile: :deep_coding, input: [result: :latest, access: :write], check: ["bin/check"], instructions: "Fix it.")
-      ),
-      "  end",
-      "  state :diagnosing do",
-      task.(
-        :diagnose,
-        ~s(role: :investigator, profile: :deep_coding, input: [result: :latest, access: :read], instructions: "Find out why.")
-      ),
-      "  end",
-      "  state :fresh do",
-      task.(:author, author),
-      "  end",
-      "  state :stronger do",
-      task.(
-        :author,
-        String.replace(
-          author,
-          "profile: :deep_coding",
-          "profile: :deep_coding_max, cost_class: :high"
-        )
-      ),
-      "  end",
-      "  final :ready",
-      "  final :held",
-      "  final :escalated",
-      "  final :stuck",
-      "end"
-    ]
-
-    lines
-    |> Enum.with_index(1)
-    |> Enum.map_join("\n", fn {line, n} ->
-      case changes[n] do
-        {pattern, replacement} -> String.replace(line, pattern, replacement)
-        nil -> line
-      end
-    end)
-    |> Kernel.<>("\n")
   end
 
   # The change breaks exactly the one rule the message names.

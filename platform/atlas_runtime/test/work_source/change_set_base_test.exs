@@ -30,9 +30,6 @@ defmodule AtlasRuntime.WorkSource.ChangeSetBaseTest.Capture do
 
   @impl true
   def get_blob(_client, _input), do: %F.Outcome.NotFound{}
-
-  @impl true
-  def put_blob(_client, _input), do: %F.Outcome.NotReferenced{}
 end
 
 defmodule AtlasRuntime.WorkSource.ChangeSetBaseTest.Rest do

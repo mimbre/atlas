@@ -6,32 +6,26 @@ defmodule AtlasRuntime.Sources.Upload do
   For one leased work whose attempt has ended and is quiescent:
 
   1. It reads the work as the **source's client** through `AtlasRuntime.Boundary.Work`
-     (`get_work`, `get_frozen`, `get_frozen_blob`), with the right `:read` only. Whatever
+     (`get_work`), with the right `:read` only. Whatever
      rights the caller's client holds, `choose_path` is never used here, so the facade's
      projection cuts every path on the Runtime's machine (D44) before anything is sent.
      The agent's `answer`, which the projection passes as stored, is redacted here by the
      core's rule for a check's output tail (protection 6, H2): the work folder becomes `.`
      and any other path under the Runtime home `<runtime-home>`.
-  2. It sends `report(ended)` with the result, the provenance and the change-set manifest
-     (the frozen result's roots and entries), fenced by the `lease_id`.
-  3. On `recorded(missing)` it sends `put_blob` only for the missing blobs that the
-     manifest references, each once, streamed from the frozen store.
+  2. With the option `git` (a lease whose input names a `result_ref`), it first commits the
+     work's folder on the base's commit and pushes it to the source's Code under that ref:
+     the result travels over Git (IS-Atlas-100).
+  3. It sends `report(ended)` with the result and the provenance, fenced by the
+     `lease_id`. It sends no change set and never uploads a blob (`work_source` 0.5.0 has
+     no `put_blob`); a `missing` the source names anyway is logged and ignored.
 
-  Stops:
-  - `lease_lost` (from `report` or any `put_blob`): stop at once, nothing more is sent;
-  - `too_large` (from `put_blob`), or the missing blobs exceeding `:max_result_bytes`
-    before any is sent: stop and log; the source holds the task;
-  - `not_referenced` (from `put_blob`): stop and log.
-
-  A source that cannot be reached (`{:error, reason}` from `report` or any `put_blob`) is
-  not a stop: `report`'s error is answered as it is, a `put_blob`'s as
-  `{:error, :unreachable}`, nothing more is sent, and the puller tries again.
-
-  A repeat (after a restart or an unreachable source) sends the same report again, at the
-  same revision, and uploads what the source still names as missing. Both steps are
+  Stops: `lease_lost` from `report`: stop at once, nothing more is sent. A source that
+  cannot be reached (`{:error, reason}` from `report`) is not a stop: it is answered as it
+  is, and the puller tries again. A repeat (after a restart or an unreachable source) pushes
+  the same commit again and sends the same report again, at the same revision; both are
   idempotent at the source.
 
-  The source is reached through the `{module, ref}` seam below (`report/2`, `put_blob/2`).
+  The source is reached through the `{module, ref}` seam below (`report/2`).
   The M1 `work_source` contract's in-BEAM and HTTP client targets are adapted to it by the
   puller (assembly A3).
   """
@@ -49,30 +43,18 @@ defmodule AtlasRuntime.Sources.Upload do
           lease_id: String.t(),
           revision: non_neg_integer(),
           state: :ended,
-          result: %{result: map() | nil, provenance: map() | nil, manifest: map() | nil}
-        }
-
-  @type put_blob :: %{
-          lease_id: String.t(),
-          sha256: String.t(),
-          size: non_neg_integer(),
-          content: Enumerable.t()
+          result: %{result: map() | nil, provenance: map() | nil}
         }
 
   @callback report(ref :: term(), report()) ::
               {:recorded, [String.t()]} | :lease_lost | {:error, term()}
-  @callback put_blob(ref :: term(), put_blob()) ::
-              :stored | :lease_lost | :too_large | :not_referenced | {:error, term()}
 
-  # The contract's per-result cap (decision §6.2), 20 000 000: read from the contract, so
-  # the two cannot drift.
-  @default_max_result_bytes AtlasRuntimeBackend.WorkSource.blob_max_bytes()
   @terminal [:completed, :failed, :crashed, :interrupted, :cancelled, :returned]
 
   @type outcome ::
-          {:ok, %{uploaded: [String.t()], skipped: [String.t()]}}
-          | {:stopped, :lease_lost | :too_large | {:not_referenced, String.t()}}
-          | {:error, :not_found | :not_ended | :unreachable | {:blob_unavailable, String.t()}}
+          {:ok, %{uploaded: [], skipped: [String.t()]}}
+          | {:stopped, :lease_lost}
+          | {:error, :not_found | :not_ended | term()}
 
   @doc """
   Uploads the ended attempt of `work_id` under `lease_id` to `source`, reading as `client`.
@@ -81,9 +63,7 @@ defmodule AtlasRuntime.Sources.Upload do
   - `:attempt`: the attempt to upload (default: the work's current one);
   - `:home`: the Runtime home whose paths the answer must not name (default: the running
     core's, `AtlasRuntime.Work.runtime/0`);
-  - `:max_result_bytes`: the most bytes of missing blobs one upload sends (default
-    20 000 000, the contract's per-result cap, §6.2).
-  - `:git`: the result over Git instead of a change set: `%{url, env, dir, base, ref, tree}`;
+  - `:git`: the result over Git: `%{url, env, dir, base, ref, tree}`;
     the folder `tree` is committed on the base's commit under Code's prepared `base` in the
     Git cache `dir`, without the dependencies `base` adds, and pushed to `url` as `ref`,
     `env` a function that answers Git's environment (the source's token).
@@ -95,10 +75,10 @@ defmodule AtlasRuntime.Sources.Upload do
     with {:ok, work} <- read_work(reader, work_id),
          {:ok, attempt} <- ended_attempt(work, Keyword.get(options, :attempt)),
          {:ok, redact} <- redaction(client, work_id, options),
-         manifest = manifest(reader, work_id, attempt.attempt, options[:git]),
-         report = report(lease_id, work, attempt, manifest, redact),
+         :ok <- push(work_id, options[:git]),
+         report = report(lease_id, work, attempt, redact),
          {:recorded, missing} <- call(source, :report, report) do
-      upload(reader, source, lease_id, work_id, attempt.attempt, manifest, missing, options)
+      recorded(lease_id, missing)
     else
       :lease_lost -> stop(:lease_lost, lease_id)
       {:error, _} = error -> error
@@ -108,10 +88,11 @@ defmodule AtlasRuntime.Sources.Upload do
   # The result over Git (option `git`): the work's root as it ended, every file Git does not
   # ignore, less the dependencies Code's prepared base added, committed on the base's commit
   # under it, and pushed to the source's Code as `ref`: it diffs against the repository's base
-  # with the agent's changes only. The report then carries no manifest, so no blob is sent.
-  defp manifest(reader, work_id, attempt, nil), do: manifest(reader, work_id, attempt)
+  # with the agent's changes only. A lease without a result_ref (a read-only work) pushes
+  # nothing: its result is its answer.
+  defp push(_work_id, nil), do: :ok
 
-  defp manifest(_reader, work_id, _attempt, git) do
+  defp push(work_id, git) do
     index = Path.join(git.dir, "index-" <> work_id)
 
     env =
@@ -151,7 +132,7 @@ defmodule AtlasRuntime.Sources.Upload do
         )
 
       git_cmd.(["push", "--quiet", git.url, "+#{commit}:#{git.ref}"])
-      nil
+      :ok
     after
       File.rm(index)
       File.rm(index <> ".paths")
@@ -181,64 +162,28 @@ defmodule AtlasRuntime.Sources.Upload do
     end
   end
 
-  defp manifest(reader, work_id, attempt) do
-    case F.get_frozen(reader, %{work_id: work_id, attempt: attempt}) do
-      %F.Outcome.Frozen{} = frozen -> plain(%{base: frozen.base, roots: frozen.roots})
-      _ -> nil
-    end
-  end
-
-  defp report(lease_id, work, attempt, manifest, redact) do
+  defp report(lease_id, work, attempt, redact) do
     %{
       lease_id: lease_id,
       revision: work.revision,
       state: :ended,
       result: %{
         result: attempt.result |> plain() |> redact_answer(redact),
-        provenance: plain(attempt.provenance),
-        manifest: manifest
+        provenance: plain(attempt.provenance)
       }
     }
   end
 
-  defp upload(reader, source, lease_id, work_id, attempt, manifest, missing, options) do
-    sizes = referenced(manifest)
-    {wanted, skipped} = missing |> Enum.uniq() |> Enum.split_with(&Map.has_key?(sizes, &1))
+  # A source of work_source 0.5.0 names no missing blob; one that does is logged, and
+  # nothing is uploaded: a result travels over Git only.
+  defp recorded(lease_id, missing) do
+    skipped = Enum.uniq(missing)
 
     if skipped != [],
       do:
-        Logger.warning("upload #{lease_id}: source named unreferenced blobs #{inspect(skipped)}")
+        Logger.warning("upload #{lease_id}: source named blobs #{inspect(skipped)}; none is sent")
 
-    cap = Keyword.get(options, :max_result_bytes, @default_max_result_bytes)
-
-    if wanted |> Enum.map(&sizes[&1]) |> Enum.sum() > cap do
-      stop(:too_large, lease_id)
-    else
-      put_all(reader, source, lease_id, work_id, attempt, wanted, skipped)
-    end
-  end
-
-  defp put_all(reader, source, lease_id, work_id, attempt, wanted, skipped) do
-    Enum.reduce_while(wanted, {:ok, %{uploaded: [], skipped: skipped}}, fn sha256, {:ok, done} ->
-      input = %{work_id: work_id, attempt: attempt, sha256: sha256}
-
-      case F.get_frozen_blob(reader, input) do
-        %F.Outcome.Blob{sha256: ^sha256, size: size, content: content} ->
-          blob = %{lease_id: lease_id, sha256: sha256, size: size, content: content}
-
-          case call(source, :put_blob, blob) do
-            :stored -> {:cont, {:ok, %{done | uploaded: done.uploaded ++ [sha256]}}}
-            :lease_lost -> {:halt, stop(:lease_lost, lease_id)}
-            :too_large -> {:halt, stop(:too_large, lease_id)}
-            :not_referenced -> {:halt, stop({:not_referenced, sha256}, lease_id)}
-            {:error, reason} -> {:halt, unreachable(lease_id, sha256, reason)}
-          end
-
-        _ ->
-          Logger.warning("upload #{lease_id}: frozen blob #{sha256} is unavailable")
-          {:halt, {:error, {:blob_unavailable, sha256}}}
-      end
-    end)
+    {:ok, %{uploaded: [], skipped: skipped}}
   end
 
   defp redact_answer(%{answer: answer} = result, redact) when is_binary(answer),
@@ -288,28 +233,10 @@ defmodule AtlasRuntime.Sources.Upload do
   end
 
   defp call({module, ref}, :report, input), do: module.report(ref, input)
-  defp call({module, ref}, :put_blob, input), do: module.put_blob(ref, input)
-
-  # The source was not reached for one blob: as a failed report, the puller tries again,
-  # and the repeat uploads what the source still names as missing.
-  defp unreachable(lease_id, sha256, reason) do
-    Logger.warning("upload #{lease_id}: put_blob #{sha256} not done (#{inspect(reason)})")
-    {:error, :unreachable}
-  end
 
   defp stop(reason, lease_id) do
     Logger.warning("upload #{lease_id}: stopped (#{inspect(reason)})")
     {:stopped, reason}
-  end
-
-  # sha256 => size for every written entry of the manifest (deletes carry no blob).
-  defp referenced(nil), do: %{}
-
-  defp referenced(%{roots: roots}) do
-    for %{entries: entries} <- roots,
-        %{sha256: sha} = e when is_binary(sha) <- entries,
-        into: %{},
-        do: {sha, e.size || 0}
   end
 
   # The contract's structs as plain maps, nil fields dropped.
