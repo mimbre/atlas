@@ -14,6 +14,10 @@ defmodule AtlasFlow.Dispatch.Sweep do
   write (the fact changed since its read) is read and decided again, at most 3 times, as
   `AtlasFlow.WorkSource.Leases.update/3` does.
 
+  A live lease `ended` with its result still `incomplete` is cast to Delivery
+  (`AtlasFlow.Delivery.result_pending/3`), which completes it once its blobs are all held
+  (IS-Atlas-112).
+
   What the sweep learns without a write (a lease gone, accepted in time, or cancel
   requested already) it casts to Dispatch, in order, and `{:swept, ref}` once done.
   """
@@ -31,7 +35,7 @@ defmodule AtlasFlow.Dispatch.Sweep do
   def start_link(dispatch), do: GenServer.start_link(__MODULE__, dispatch)
 
   @doc """
-  Sweeps `job` (`ref`, `now`, `deadline`, `grace`, `runner`, `leases`, `booted`); Dispatch
+  Sweeps `job` (`ref`, `now`, `deadline`, `grace`, `runner`, `leases`, `booted`, `delivery`); Dispatch
   gets `{:swept, ref}` once done.
   """
   def run(sweep, job), do: GenServer.cast(sweep, {:sweep, job})
@@ -139,6 +143,8 @@ defmodule AtlasFlow.Dispatch.Sweep do
 
   # A lease not due, on its task fact as read now.
   defp current(job, seen, id, lease, fact) do
+    pending_result(job, id, fact)
+
     cond do
       # Ended (Delivery's), lost, or another lease took the task: Dispatch holds it no
       # more, so its task may be granted again.
@@ -225,6 +231,14 @@ defmodule AtlasFlow.Dispatch.Sweep do
     else
       _ -> :unavailable
     end
+  end
+
+  # Ended with its result still incomplete: Delivery completes it when its blobs are all
+  # held, as a completion write Facts missed leaves it (IS-Atlas-112). A cast, as fences are.
+  defp pending_result(job, id, fact) do
+    if Leases.value(fact, "lease_id") == id and Leases.value(fact, "lease_state") == "ended" and
+         Leases.value(fact, "result_state") == "incomplete",
+       do: AtlasFlow.Delivery.result_pending(fact["key"], id, job.delivery)
   end
 
   defp learnt(job, id, what), do: GenServer.cast(job.dispatch, {:swept, id, what})
