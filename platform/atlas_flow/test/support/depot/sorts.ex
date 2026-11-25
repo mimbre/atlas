@@ -86,6 +86,31 @@ defmodule AtlasFlow.Sorts.Written do
     end
   end
 
+  defmodule Unowned do
+    @moduledoc "The depot's sort, its waiting state naming the relation but no default: nobody owns it."
+    use RelaDSL.Schema
+
+    subflow :sort, label: "Sort", subject: :box do
+      run_as("system:depot")
+      owner(default: {:clerk, :ada})
+      start(:create)
+      initial(:waiting)
+
+      state :waiting, label: "Sort it" do
+        owner(relation: :owned_by)
+        set(mark: "entered")
+        branch(to: :done, when: "entity.result == 'ok'")
+        branch(to: :discarded, when: "entity.result == 'no'")
+        wait_for([:clerk], on: :choice, reset: false, yes: :done)
+        timer(:retry, "5m", to: :waiting)
+        present(expected: "Sort it")
+      end
+
+      final(:done, label: "Done")
+      final(:discarded, label: "Discarded")
+    end
+  end
+
   defmodule Twice do
     @moduledoc "Two branches hold on the same change: the first written is taken."
     use RelaDSL.Schema
@@ -614,6 +639,11 @@ end
 defmodule AtlasFlow.Sorts.Presented do
   @moduledoc false
   use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Presented
+end
+
+defmodule AtlasFlow.Sorts.Unowned do
+  @moduledoc false
+  use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Unowned
 end
 
 defmodule AtlasFlow.Sorts.Twice do

@@ -24,6 +24,24 @@ defmodule AtlasFlow.Runs.PresentationMigrationTest do
       }
   end
 
+  # The same, its waiting state now owned by nobody.
+  defmodule Unowning do
+    use AtlasFlow.TestModel,
+      subflows: [AtlasFlow.Sorts.Unowned],
+      selection: %{
+        "sort" =>
+          AtlasFlow.Depot.selection("sort")
+          |> Map.put("migrations", [
+            %{
+              "from" => AtlasFlow.TestModel.sort().digest(),
+              "to" => AtlasFlow.Sorts.Unowned.digest(),
+              "states" => %{"waiting" => "waiting"},
+              "preserve_entry" => true
+            }
+          ])
+      }
+  end
+
   test "restart migrates live waits without resetting entries or deadlines, then repairs ownership" do
     Application.put_env(:atlas_bus, :store, "presentation-#{System.unique_integer([:positive])}")
     flow = Sorts.Presented
@@ -93,5 +111,33 @@ defmodule AtlasFlow.Runs.PresentationMigrationTest do
 
     assert FakeFacts.get("box", "B-empty")["values"]["due"] in [nil, ""]
     stop_supervised!(Engine)
+  end
+
+  test "a migrated wait whose state names no owner loses the owner Flow gave, not one set by hand" do
+    Application.put_env(:atlas_bus, :store, "unowned-#{System.unique_integer([:positive])}")
+    config = TestModel.config(Unowning)
+    start_supervised!(FakeFacts)
+    for key <- ["ada", "bob"], do: FakeFacts.put("clerk", %{"key" => key})
+    clock = start_supervised!({ManualClock, @now})
+
+    for {key, owner, by} <- [{"B-flow", "ada", "flow"}, {"B-hand", "bob", "operator"}] do
+      subject = %{
+        "key" => key,
+        "values" => %{"phase" => "first", "todo" => "Sort it"},
+        "links" => %{"owned_by" => [owner]},
+        "origins" => %{"owned_by" => %{"by" => by}}
+      }
+
+      FakeFacts.put("box", subject)
+      old = Run.new("sort", TestModel.sort(), subject, [], @now)
+      FakeFacts.put("cursor", %{"key" => old["key"], "values" => Store.encode(config, old)})
+    end
+
+    start_supervised!({Engine, clock: {ManualClock, clock}, model: Unowning})
+    |> Engine.round()
+
+    assert FakeFacts.get("box", "B-flow")["links"]["owned_by"] == []
+    assert FakeFacts.get("box", "B-flow")["values"]["todo"] == "Sort it"
+    assert FakeFacts.get("box", "B-hand")["links"]["owned_by"] == ["bob"]
   end
 end

@@ -222,9 +222,9 @@ defmodule Model.DeciderTest do
       accept = Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == "accept_scene"))
       assert AtlasFlow.Model.owner(accept.owner("to_accept")["default"], actors) == decider
 
-      # While its use cases are not all accepted, it waits with its producer, not the
-      # coordinator: nothing is built on it, and it gives nobody a to-do.
-      assert AtlasFlow.Model.owner(accept.owner("building")["default"], actors) == decider
+      # While its use cases are not all accepted, it waits assigned to nobody, not its
+      # producer nor the coordinator: nothing is built on it, and it gives nobody a to-do.
+      assert accept.owner("building")["default"] == nil
 
       assert %{"expected" => "Waiting for its use cases"} =
                waiting = accept.present("building", %{})
