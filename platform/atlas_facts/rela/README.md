@@ -1,6 +1,6 @@
 # Versioned description
 
-`schema.yaml` selects native rela 26.11.3 includes. Foundation owns actors,
+`schema.yaml` selects native rela 26.11.9 includes. Foundation owns actors,
 Assignments and turns; optional foundation audit owns requests/steps; module
 `software` owns Issue/PR and compatibility fields; module `eyra` owns Scene/Use Case and
 hierarchy/acceptance. The composition owns the complete `assignment` relation.
@@ -91,7 +91,7 @@ Scene, Use Case or accepted_by. Its e2e uses private stores, Control, a GitHub s
 and Runtime stub only. Existing populated `eyra` stores cannot switch to these fixtures;
 fits must continue refusing stranded data.
 
-Atlas pins Rela 26.11.3: the headless SQLite archive supplies `rela-server-headless-sqlite`, the generic archive supplies `rela` for validation/schema generation, and the SQLite archive supplies `rela-sqlite` for private exports. Only those three executables are extracted; both UI-server variants are excluded. Archive and executable SHA-256 hashes are checked on Darwin arm64 and Linux amd64. Missing or different executables are reinstalled even at the same version; download/checksum failures stop startup. PID/log names remain `rela-server.pid` and `rela-server.log`.
+Atlas pins Rela 26.11.9: the headless SQLite archive supplies `rela-server-headless-sqlite`, the generic archive supplies `rela` for validation/schema generation, and the SQLite archive supplies `rela-sqlite` for private exports. Only those three executables are extracted; both UI-server variants are excluded. Archive and executable SHA-256 hashes are checked on Darwin arm64 and Linux amd64. Missing or different executables are reinstalled even at the same version; download/checksum failures stop startup. PID/log names remain `rela-server.pid` and `rela-server.log`.
 
 `scripts/data.sh` provides the shared data view for fits and transfer counts. An existing `.rela/rela.db` takes precedence over markdown. For SQLite it uses native `sqlite3 -readonly` online backup, copies original configuration without live DB/WAL/SHM, and invokes `rela-sqlite db dump --data` from that private project's **cwd**. Export must succeed completely before validation begins. The proposed flat description is applied only to a separate exported-data copy; the generic CLI validates it, scans populated orphan fields, and checks removed kinds/relations. Offline startup checks compatibility before replacing configuration too. The old Python fits implementation is removed; callers use `description.sh fits` (or the shared flat `scripts/fits.sh` for old-image preflight).
 

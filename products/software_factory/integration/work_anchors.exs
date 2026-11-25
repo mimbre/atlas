@@ -32,7 +32,7 @@ defmodule WorkAnchorsTest do
     Application.put_env(:atlas_bus, :store, "anchors-#{System.unique_integer([:positive])}")
     project = Path.join(dir, "rela")
     File.mkdir_p!(project)
-    # rela 26.11.3 resolves the includes natively: the selected files are the whole project.
+    # rela 26.11.9 resolves the includes natively: the selected files are the whole project.
     for name <- ["schema.yaml", "data-entry.yaml", "modules", "compositions"],
         do: File.cp_r!(Path.join([@root, "products/software_factory/model/targets/rela", name]), Path.join(project, name))
 

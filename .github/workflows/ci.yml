@@ -342,7 +342,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .rela-bin
-          key: rela-26.11.3-linux_amd64
+          key: rela-26.11.9-linux_amd64
       - run: platform/atlas_facts/rela/scripts/start-test.sh install
         working-directory: .
       # The Rela scripts' own tests, against the pinned rela above (ATLAS_RELA_BIN): the closure
