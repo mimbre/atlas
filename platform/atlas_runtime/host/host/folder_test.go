@@ -66,7 +66,7 @@ func homePath(t *testing.T, user, home, dest string) []string {
 	t.Setenv("PATH", strings.Join([]string{filepath.Join(user, ".asdf", "shims"), filepath.Join(user, "linkbin"), "/usr/bin", user,
 		filepath.Join(home, "bin"), filepath.Join(dest, "bin"), filepath.Join(user, ".config"), "bin", filepath.Join(user, ".asdf", "shims")}, ":"))
 	readable := []string{filepath.Join(user, ".asdf", "shims"), filepath.Join(user, "tools", "bin"), filepath.Join(user, ".config")}
-	for _, name := range []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod"} {
+	for _, name := range []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod", ".cache/atlas"} {
 		readable = append(readable, filepath.Join(user, name))
 	}
 	return readable
