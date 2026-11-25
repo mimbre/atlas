@@ -284,7 +284,11 @@ defmodule AtlasFlow.Activities.Task do
 
   @doc """
   The number of the next task on the run's subject: one past the highest of its task
-  records and the tasks its run holds, `{:ok, n}`; `:unavailable` when Facts did not say.
+  records, the tasks its run holds and those of its generations before
+  (`pending.former_tasks`, IS-Atlas-77), `{:ok, n}`; `:unavailable` when Facts did not
+  say. A key is never used again for the same subject key: a subject made again under a
+  removed one's key gets a task key of its own, never one Facts may still hold back after
+  its delete.
   """
   def number(spec, run) do
     subject = run["subject_key"]
@@ -296,7 +300,7 @@ defmodule AtlasFlow.Activities.Task do
          }) do
       %{"facts" => facts} when is_list(facts) ->
         held = for t <- run["pending"]["tasks"] || [], do: t["key"]
-        keys = Enum.map(facts, & &1["key"]) ++ held
+        keys = Enum.map(facts, & &1["key"]) ++ held ++ (run["pending"]["former_tasks"] || [])
         prefix = "TK-#{subject}-"
 
         n =
@@ -433,7 +437,7 @@ defmodule AtlasFlow.Activities.Task do
         |> Translate.result_ref(key)
 
       record =
-        write(key, ["intent"], spec["records"]["kind"], %{
+        write(run, key, ["intent"], spec["records"]["kind"], %{
           "op" => "create",
           "key" => key,
           "values" =>
@@ -726,7 +730,7 @@ defmodule AtlasFlow.Activities.Task do
           else: result
 
       {:result, next, result,
-       [change(intent, spec, ["result"], values) | made ++ follow_ups] ++
+       [change(run, intent, spec, ["result"], values) | made ++ follow_ups] ++
          failure(spec, next, result, run), nil}
     else
       :unavailable -> :none
@@ -746,7 +750,7 @@ defmodule AtlasFlow.Activities.Task do
         if(is_binary(why) and why != "", do: ": #{why}.", else: ".")
 
     [
-      write(result["key"], ["failure"], run["subject_kind"], %{
+      write(run, result["key"], ["failure"], run["subject_kind"], %{
         "op" => "change",
         "key" => run["subject_key"],
         "values" => %{field => text},
@@ -809,7 +813,7 @@ defmodule AtlasFlow.Activities.Task do
 
           {"asked",
            [
-             write(intent["key"], ["asks"], run["subject_kind"], %{
+             write(run, intent["key"], ["asks"], run["subject_kind"], %{
                "op" => "change",
                "key" => run["subject_key"],
                "values" => %{field => String.trim(text)},
@@ -879,7 +883,7 @@ defmodule AtlasFlow.Activities.Task do
 
       {"completed",
        [
-         write(intent["key"], ["writes"], run["subject_kind"], %{
+         write(run, intent["key"], ["writes"], run["subject_kind"], %{
            "op" => "change",
            "key" => run["subject_key"],
            "values" => %{field => String.trim(text)},
@@ -950,11 +954,17 @@ defmodule AtlasFlow.Activities.Task do
 
       made =
         for {entry, i} <- Enum.with_index(entries) do
-          key = prefix <> String.pad_leading(Integer.to_string(first + i), digits, "0")
+          mark = %{
+            "task" => intent["key"],
+            "tag" => tag,
+            "index" => i,
+            "prefix" => prefix,
+            "digits" => digits,
+            "number" => first + i
+          }
 
-          write(intent["key"], [tag, Integer.to_string(i)], kind, %{
+          made(run, mark, kind, %{
             "op" => "create",
-            "key" => key,
             "values" => Map.merge(ids["defaults"] || %{}, entry),
             "links" => Map.merge(%{relation => [under]}, produced(tag, kind, supervisor, ctx)),
             "by" => "flow",
@@ -967,6 +977,67 @@ defmodule AtlasFlow.Activities.Task do
       _ -> :unavailable
     end
   end
+
+  # One create a proposal or a review's follow-ups make, numbered as its mark says, under
+  # an id of the run, the task, the tag, its place among them and its key: one renumbered
+  # past a key that is held back (`renumber/3`) is another write, never the refused one.
+  defp made(run, mark, kind, content) do
+    key =
+      mark["prefix"] <> String.pad_leading(Integer.to_string(mark["number"]), mark["digits"], "0")
+
+    run
+    |> write(
+      mark["task"],
+      [mark["tag"], Integer.to_string(mark["index"]), key],
+      kind,
+      Map.put(content, "key", key)
+    )
+    |> Map.put("numbered", mark)
+  end
+
+  @doc """
+  `run`'s pending writes with the create `refused` (one a proposal or a review's
+  follow-ups make, `"numbered"`; Facts refused it because its key is taken or held back
+  after a delete, IS-Atlas-38) and every create made with it after it numbered from
+  `first` on, in their order, each under the id of its new key. The creates before it keep
+  theirs; the run's last task result names the keys they are made under now (`made`), so a
+  discard deletes those. `run` as it is when `refused` is none of its.
+  """
+  def renumber(run, %{"numbered" => %{"task" => task, "tag" => tag, "index" => from}}, first) do
+    renamed =
+      for %{"numbered" => %{"task" => ^task, "tag" => ^tag, "index" => i} = mark} = w <-
+            run["pending"]["writes"],
+          i >= from,
+          into: %{} do
+        moved = made(run, Map.put(mark, "number", first + i - from), w["kind"], w["content"])
+        {w["content"]["key"], moved}
+      end
+
+    writes =
+      for w <- run["pending"]["writes"] do
+        with %{"numbered" => %{"task" => ^task, "tag" => ^tag}} <- w,
+             %{} = moved <- renamed[w["content"]["key"]] do
+          moved
+        else
+          _ -> w
+        end
+      end
+
+    keys = Map.new(renamed, fn {old, w} -> {old, w["content"]["key"]} end)
+
+    tasks =
+      for t <- run["pending"]["tasks"] || [] do
+        if t["key"] == task and is_list(t["made"]),
+          do: Map.put(t, "made", for([kind, key] <- t["made"], do: [kind, keys[key] || key])),
+          else: t
+      end
+
+    run
+    |> put_in(["pending", "writes"], writes)
+    |> then(&if(run["pending"]["tasks"], do: put_in(&1, ["pending", "tasks"], tasks), else: &1))
+  end
+
+  def renumber(run, _refused, _first), do: run
 
   # The link from a fact a proposal (`creates`) makes to its producer, the run's human
   # supervisor, through the model's producer relation when it leads from the fact's kind;
@@ -1057,23 +1128,31 @@ defmodule AtlasFlow.Activities.Task do
   The write that says `intent`'s task is cancelled, sent once the run that no longer holds
   it is stored: Dispatch's sweep then cancels its lease (`AtlasFlow.Dispatch.cancel/3`).
   """
-  def cancelled(intent, spec), do: change(intent, spec, ["result"], %{"state" => "cancelled"})
+  def cancelled(run, intent, spec),
+    do: change(run, intent, spec, ["result"], %{"state" => "cancelled"})
 
-  defp change(intent, spec, tag, values),
+  defp change(run, intent, spec, tag, values),
     do:
-      write(intent["key"], tag, spec["records"]["kind"], %{
+      write(run, intent["key"], tag, spec["records"]["kind"], %{
         "op" => "change",
         "key" => intent["key"],
         "values" => compact(values),
         "by" => "flow"
       })
 
-  defp write(key, tag, kind, content),
+  # A write's stable id names the run (its key is a digest of its subflow, subject and
+  # generation), the task and the write's tag (IS-Atlas-77): a resend of it is answered
+  # from Facts' ledger, and a write of another run, or of a new generation on a subject
+  # made again under a removed one's key, is never taken for one already stored.
+  defp write(run, key, tag, kind, content),
     do: %{
-      "id" => Digest.of_term([key | tag]) |> String.replace_prefix("sha256:", ""),
+      "id" => id(run, key, tag),
       "kind" => kind,
       "content" => content
     }
+
+  defp id(run, key, tag),
+    do: Digest.of_term([run["key"], key | tag]) |> String.replace_prefix("sha256:", "")
 
   defp compact(map), do: Map.reject(map, fn {_, v} -> v == nil end)
 end
