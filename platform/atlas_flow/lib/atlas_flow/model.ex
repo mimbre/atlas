@@ -128,7 +128,9 @@ defmodule AtlasFlow.Model do
 
   Except one: the `decider` role, on a `run` whose state lies in one of its subflow's
   supervised `spans` and that has a human supervisor (`supervised_by`, `%{"kind",
-  "key"}`) of the owner's kind, is that supervisor. With no supervisor, outside every
+  "key"}`) of the owner's kind, is that supervisor, unless the owner says it is not
+  (`"supervisor" => false`: a state that asks someone else, such as the subject's
+  producer, while its run keeps its supervisor). With no supervisor, outside every
   span, or with no run, it is the configured actor. The projection passes the run with
   its subflow's `spans` and its supervisor as the run's fact links it, of the
   supervision relation's holder kind (`AtlasFlow.Runs.Projection`). A run of a subflow a
@@ -154,7 +156,8 @@ defmodule AtlasFlow.Model do
   def owner(owner, _actors, _run), do: owner
 
   @doc "Whether `owner` (a state's default) may go to a run's human supervisor (`owner/3`)."
-  def supervisable?(owner), do: match?(%{"config" => @supervised_role}, owner)
+  def supervisable?(owner),
+    do: match?(%{"config" => @supervised_role}, owner) and owner["supervisor"] != false
 
   defp supervisor(
          %{"kind" => kind} = owner,
