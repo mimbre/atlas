@@ -1,12 +1,14 @@
 #if os(macOS)
 import AppKit
+import AppUpdate
 import ControlSession
 import SwiftUI
 
 /// The macOS app (docs/design/apple-clients.md §2, "The shell"): one window with three
 /// columns, the title bar and the status bar. It connects only where its launch arguments
-/// say (`--env`, `--host`, `--port`, from the launcher, §5); without them it says how to
-/// start it and asks for nothing.
+/// say (`--env`, `--host`, `--port`, from the launcher, §5) or, a release opened from the
+/// Finder, where its bundle says (`AtlasControl`); without either it says how to start it
+/// and asks for nothing. A release updates itself from the feed its bundle names.
 @main
 struct AtlasMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
@@ -16,8 +18,8 @@ struct AtlasMacApp: App {
         Window("Atlas", id: "shell") {
             Group {
                 switch launch {
-                case .ready(let session):
-                    ShellView(session: session)
+                case .ready(let session, let updater):
+                    ShellView(session: session, updater: updater)
                         .task { session.start() }
                 case .notLaunched(let problem):
                     NotLaunchedView(problem: problem)
@@ -26,23 +28,37 @@ struct AtlasMacApp: App {
             .frame(minWidth: 900, minHeight: 500)
         }
         .commands {
-            if case .ready(let session) = launch {
+            if case .ready(let session, _) = launch {
                 TabCommands(session: session)
             }
         }
     }
 }
 
-/// What the app was started with: a session, or why there is none.
+/// What the app was started with: a session and the app's update, or why there is none.
 enum Launch {
-    case ready(Session)
+    case ready(Session, Updater)
     case notLaunched(SessionSettings.Problem)
 
     @MainActor
     init(arguments: [String]) {
+        let info = Bundle.main.infoDictionary
         do {
-            let settings = try SessionSettings.launch(Array(arguments.dropFirst()))
-            self = .ready(Session(settings: settings, connector: NetworkLineConnector(), clock: DispatchSessionClock()))
+            let settings = try SessionSettings.launch(Array(arguments.dropFirst()), bundle: info)
+            let session = Session(settings: settings, connector: NetworkLineConnector(), clock: DispatchSessionClock())
+            let installer = BundleInstaller(app: Bundle.main.bundleURL) { page in
+                var next = settings
+                next.startPage = page
+                return next.arguments
+            }
+            let updater = Updater(installed: InstalledApp(info: info), feed: URLSessionReleaseFeed(),
+                                  installer: installer) { seconds, action in
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(seconds))
+                    action()
+                }
+            }
+            self = .ready(session, updater)
         } catch {
             self = .notLaunched(error)
         }
