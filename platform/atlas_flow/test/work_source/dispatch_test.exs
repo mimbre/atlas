@@ -463,9 +463,9 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
   end
 
   describe "decision 2: expiry, grace and re-lease (acceptance 4)" do
-    test "expired after lease_ttl without renewal; offered again at + grace to the same holder only",
+    test "expired after lease_ttl without renewal; offered again at + grace, once its run counted it, to the same holder only",
          ctx do
-      %{task: task} = L.supervised_task("B-1", "ada")
+      %{task: task, run: run} = L.supervised_task("B-1", "ada")
       ready(ctx)
       lease = lease!(@mini)
       assert {:recorded, _} = report(@mini, lease, 1, :accepted)
@@ -482,6 +482,13 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
       L.advance(ctx, 1)
       Dispatch.sweep()
       assert L.values(task)["lease_state"] == "lost"
+
+      # A silent turn: Dispatch offers it again only once its run counted that attempt (the
+      # Engine decides whether it is started once more or ends abandoned).
+      assert {:polled, %{leases: []}} = poll(@mini2)
+      :ok = L.retried(run, [2])
+      assert {:polled, %{leases: []}} = poll(@mini2)
+      :ok = L.retried(run, [1])
 
       # Lost work goes only to the same holder's Runtimes, never to another holder's.
       assert {:polled, %{leases: []}} = poll(@laptop)
@@ -598,6 +605,7 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
     test "Facts down at boot: no holding is lost meanwhile, and a silent lease still expires once Facts is back",
          ctx do
       {task, lease} = started(ctx, "B-1")
+      run = AtlasFlow.Runs.Run.key("watch", "bin", "B-1", 1)
       leases_read = {:block_read, "task", %{"plain" => true}}
 
       :ok = stop_supervised(Dispatch)
@@ -610,12 +618,14 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
       :ok = GenServer.call(FakeFacts, put_elem(leases_read, 0, :allow_read))
       Dispatch.sweep()
 
-      # Its Runtime gone silent, the lease ends and the task is offered again.
+      # Its Runtime gone silent, the lease ends, and the task is offered again once its run
+      # counted that attempt.
       L.advance(ctx, 900)
       Dispatch.sweep()
       L.advance(ctx, 120)
       Dispatch.sweep()
       assert L.values(task)["lease_state"] == "lost"
+      :ok = L.retried(run, [1])
       assert {:polled, %{leases: [%{lease_id: fresh}]}} = poll(@mini)
       assert fresh != lease
     end

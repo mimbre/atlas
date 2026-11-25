@@ -40,6 +40,13 @@ defmodule Model.Delivery do
   Code (`review_stuck`): its supervisor may also publish it without a review, its pull
   request's body saying no review was made. Either may be closed (`done`).
 
+  A silent turn is ended (UC-Atlas-03): in every task state, a task whose lease runs out
+  unrenewed (its agent, or its Runtime, went silent), or that ends with no result and no
+  outcome, is an empty turn. The first starts the same task once more on its own, on a
+  fresh attempt, with nobody asked; the second in a row ends it `abandoned`, which goes
+  to that state's supervisor state with why ("its agent went silent twice") and Retry.
+  Flow keeps that count in the run, by the package ladder's rule (`AtlasFlow.Ladder`).
+
   Every task reads the issue's title and description, and those of its use case and its
   scene (`parents:`): why it is to be done.
 
