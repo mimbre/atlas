@@ -75,6 +75,9 @@ defmodule AtlasRuntime.Sandbox.Spec do
   # (claudeTemporaryRoots, claude.go:476-479).
   @child_temp_limit 44
 
+  # A folder repository's own Git entries an agent reads but never writes (repositoryGitNames).
+  @repository_git_names ["config", "hooks"]
+
   @claude_repository_denies [".agents", ".codex", ".aws", ".claude", ".git/config", ".git/hooks"]
 
   @folder_caches [
@@ -347,7 +350,7 @@ defmodule AtlasRuntime.Sandbox.Spec do
         [[record, "read"], [baseline, "read"], [clean(Path.join(root, ".git")), "none"]]
 
     entries = entries ++ for path <- present_markers(facts, home, root), do: [path, "read"]
-    entries = entries ++ for path <- repositories, do: [repository_git(root, path), "none"]
+    entries = entries ++ Enum.flat_map(repositories, &repository_git_entries(root, &1))
     denied = denied_entries(home, user, [], paths ++ [scratch], facts)
     none = for [path, "none"] <- entries ++ denied, path != user, do: path
     readable = home_readable(user, none, paths ++ [scratch], facts)
@@ -385,6 +388,17 @@ defmodule AtlasRuntime.Sandbox.Spec do
 
   defp repository_git(root, path) when is_binary(path), do: clean(Path.join([root, path, ".git"]))
   defp repository_git(_root, _path), do: refuse("Materialized folder scope is incomplete")
+
+  # repositoryGitEntries (codex.go): a repository's own .git is the agent's (IS-Atlas-14), in
+  # the writable folder, so it may stage and commit there; its configuration and hooks stay
+  # read-only. A repository that is the folder itself keeps the folder's .git denied.
+  defp repository_git_entries(root, path) do
+    git = repository_git(root, path)
+
+    if git == clean(Path.join(root, ".git")),
+      do: [[git, "none"]],
+      else: for(name <- @repository_git_names, do: [join(git, name), "read"])
+  end
 
   # A folder worker's environment (host.go:287-302): the inspector first on PATH, this home and
   # inspector, Git without user or system configuration or user excludes file, and temp and
@@ -764,7 +778,8 @@ defmodule AtlasRuntime.Sandbox.Spec do
     writable_inspector(inspector, writable ++ [temporary])
     sockets = for [path, _] <- socket_entries(home, project ++ [temporary]), do: path
 
-    # A repository's own .git is the agent's (claude.go): only the folder's is protected.
+    # A repository's own .git is the agent's (claude.go): only the folder's is protected; its
+    # configuration and hooks are read-only (git_read_only).
     protected = [home] ++ sockets ++ [clean(Path.join(root, ".git"))]
 
     protected =
@@ -804,7 +819,12 @@ defmodule AtlasRuntime.Sandbox.Spec do
       ] ++
         markers
 
-    read_only = frozen ++ [record, baseline] ++ markers
+    git_read_only =
+      for path <- repositories,
+          [entry, "read"] <- repository_git_entries(root, path),
+          do: entry
+
+    read_only = frozen ++ [record, baseline] ++ markers ++ git_read_only
     readable = home_readable(user, protected, project ++ [temporary], facts)
     allow_read = allow_read ++ project ++ [temporary] ++ readable
 

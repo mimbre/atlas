@@ -3,13 +3,14 @@ defmodule AtlasRuntime.Work.GitCheckoutTest do
   A job's lease (its input names a `result_ref`): the work folder's repository is an ordinary
   Git checkout of Code's prepared base, the base's files and their dependencies, so the agent
   can use Git; the work completes without a frozen change set, as its result goes back over
-  Git.
+  Git. An agent that stages and commits there (IS-Atlas-14) has its commit's files in the
+  result the Runtime pushes from its own Git directory.
   """
   use ExUnit.Case, async: false
 
   import AtlasRuntime.WorkHarness
 
-  alias AtlasRuntime.Sources.{Import, Rights}
+  alias AtlasRuntime.Sources.{Import, Rights, Upload}
   alias AtlasRuntime.Test.{FakeWorkSource, GitBase}
   alias AtlasRuntime.Test.WorkSourceFacade, as: S
   alias AtlasRuntime.Work
@@ -20,6 +21,13 @@ defmodule AtlasRuntime.Work.GitCheckoutTest do
   @source "flow-prod"
   @client Rights.client(@source)
   @files %{"README.md" => "base\n"}
+
+  defmodule Reports do
+    @moduledoc false
+    @behaviour AtlasRuntime.Sources.Upload
+    @impl true
+    def report(_ref, _report), do: {:recorded, []}
+  end
 
   test "the folder is a Git checkout of the prepared base, and nothing is frozen" do
     bench = start!(%{}, local: false)
@@ -69,5 +77,28 @@ defmodule AtlasRuntime.Work.GitCheckoutTest do
     assert File.read!(Path.join(repo, dependency)) == content
     assert git.(["status", "--porcelain"]) == "?? a.txt\n"
     refute match?({:ok, _}, FrozenStore.read(bench.dir, id, 1))
+
+    # The agent stages and commits in its checkout, with the identity the checkout names.
+    File.write!(Path.join(repo, "b.txt"), "committed\n")
+    assert {_, 0} = System.cmd("git", ["-C", repo, "add", "a.txt", "b.txt"])
+    assert {_, 0} = System.cmd("git", ["-C", repo, "commit", "-q", "-m", "agent's commit"])
+    assert git.(["log", "-1", "--format=%an %s"]) == "Atlas agent agent's commit\n"
+    assert git.(["status", "--porcelain"]) == ""
+
+    # The Runtime still pushes the result itself, from its source's Git cache: the commit's
+    # files are in it, on the base's own commit, without the dependencies.
+    cache = Path.join(bench.dir, "git-cache")
+    {_, 0} = System.cmd("git", ["init", "--bare", "--quiet", cache])
+    ref = "refs/atlas/bases/base-1"
+    url = served.url <> "/bases/base-1"
+    {_, 0} = System.cmd("git", ["--git-dir", cache, "fetch", "-q", url, "+#{ref}:#{ref}"])
+    result = "refs/atlas/results/TK-1"
+    push = %{url: url, env: served.env, dir: cache, base: ref, ref: result, tree: repo}
+
+    assert {:ok, _} = Upload.run(@client, {Reports, nil}, "lease-1", id, git: push)
+    pushed = fn args -> elem(System.cmd("git", args, cd: url), 0) end
+    assert pushed.(["ls-tree", "-r", "--name-only", result]) == "README.md\na.txt\nb.txt\n"
+    assert pushed.(["show", result <> ":b.txt"]) == "committed\n"
+    assert pushed.(["rev-parse", result <> "^"]) == pushed.(["rev-parse", ref <> "^"])
   end
 end

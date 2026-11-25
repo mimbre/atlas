@@ -331,6 +331,8 @@ defmodule AtlasRuntime.Policy do
     Map.new(policy["profiles"], fn {name, profile} ->
       # The reason, when it is not available: an option that serves none of the profile's
       # permissions counts as unsupported, so none is left without a reason.
+      # An option that was available when skipped (nil) but no longer is when `available?/6`
+      # runs (its harness left in between) gives no reason: it falls to no_permitted_option.
       skipped =
         Enum.map(profile["options"], fn option ->
           if Enum.any?(profile["permissions"], &capable?(option["harness"], &1)),
@@ -346,10 +348,10 @@ defmodule AtlasRuntime.Policy do
           ) ->
             %{available: true}
 
-          Enum.any?(skipped, &(&1.why == "quota")) ->
+          Enum.any?(skipped, &match?(%{why: "quota"}, &1)) ->
             %{available: false, reason: :quota, until: earliest(skipped)}
 
-          Enum.all?(skipped, &(&1.why == "not_installed")) ->
+          Enum.all?(skipped, &match?(%{why: "not_installed"}, &1)) ->
             %{available: false, reason: :not_installed}
 
           true ->

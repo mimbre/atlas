@@ -57,15 +57,30 @@ selected = ARGV.empty? ? own.keys + linux.keys : ARGV
 unknown = selected - linux.keys - own.keys
 abort "bin/check: unknown job(s): #{unknown.join(', ')} (see bin/check --list)" unless unknown.empty?
 
-# Workers run without network: Hex must resolve from its local registry cache, never the registry.
+# Workers run without network: Hex must resolve from a local registry cache, never the registry.
 # Hex rewrites that cache after resolving, and a worker's sandbox reads the user's Hex home but
-# cannot write it, so Hex works in a temporary home holding a copy of the cache.
+# cannot write it, so Hex works in a temporary home holding a copy of the cache. A base Code
+# prepared carries the registry entries of its locked packages in .atlas/hex/cache.ets
+# (AtlasCode.Dependencies, IS-Atlas-13), so a package the lockfile pins resolves on a machine
+# whose own cache never saw it. The copy is that registry, with the entries only the machine's
+# cache has added (for a lockfile the work changed); either alone when the other is missing.
 hex_home = nil
 at_exit { FileUtils.rm_rf(hex_home) if hex_home }
 offline_hex = lambda do
   hex_home ||= Dir.mktmpdir('hex').tap do |dir|
-    cache = File.join(ENV['HEX_HOME'] || File.join(Dir.home, '.hex'), 'cache.ets')
-    FileUtils.cp(cache, dir) if File.exist?(cache)
+    target = File.join(dir, 'cache.ets')
+    machine = File.join(ENV['HEX_HOME'] || File.join(Dir.home, '.hex'), 'cache.ets')
+    shipped = File.join(root, '.atlas/hex/cache.ets')
+    caches = [shipped, machine].select { |cache| File.exist?(cache) }
+    if caches.size == 2
+      merge = '[S, M, T] = init:get_plain_arguments(), {ok, A} = ets:file2tab(S), ' \
+              '{ok, B} = ets:file2tab(M), ets:foldl(fun(O, _) -> ets:insert_new(A, O) end, ok, B), ' \
+              'ok = ets:tab2file(A, T), halt().'
+      _, status = Open3.capture2e('erl', '-noshell', '-eval', merge, '-extra', *caches, target)
+      FileUtils.cp(shipped, target) unless status.success?
+    elsif caches.size == 1
+      FileUtils.cp(caches.first, target)
+    end
   end
   { 'HEX_OFFLINE' => '1', 'HEX_HOME' => hex_home }
 end
