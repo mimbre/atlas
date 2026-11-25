@@ -1,9 +1,9 @@
 defmodule Mix.Tasks.AtlasCode.PrBody do
-  @shortdoc "Rewrites a pull request description so merging it closes nothing"
+  @shortdoc "Rewrites a pull's description so merging it closes nothing"
   @moduledoc """
-  Rewrites the pull request description in FILE in place with every GitHub closing reference
-  defused (`AtlasCode.ClosingKeywords.defuse/1`), so merging the pull closes no other pull
-  request or issue (IS-Atlas-136):
+  Rewrites the pull's description in FILE in place with every GitHub closing reference
+  defused (`AtlasCode.ClosingKeywords.defuse/1`), so merging the pull closes nothing else on
+  GitHub (IS-Atlas-136):
 
       (cd platform/atlas_code && mix atlas_code.pr_body /absolute/body.md)
       gh pr create --body-file /absolute/body.md ...

@@ -194,7 +194,7 @@ defmodule AtlasCode.EffectsTest do
   # space, then `#n` or `owner/repo#n`.
   @github_closes ~r/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+(?:[\w.-]+\/[\w.-]+)?#\d+/i
 
-  test "a published pull's body closes no other pull or issue on merge (IS-Atlas-136)", c do
+  test "a published pull's body closes nothing else on GitHub on merge (IS-Atlas-136)", c do
     result = FakeGitHub.sha("closing")
     ref = "refs/atlas/results/TK-JB-1-4"
 
@@ -241,7 +241,7 @@ defmodule AtlasCode.EffectsTest do
     body = FakeGitHub.get_pull(c.gh, number)["body"]
 
     refute Regex.match?(@github_closes, body), body
-    # A person still reads every reference; one without a keyword is untouched.
+    # A reader still sees every reference; one without a keyword is untouched.
     for reference <- ["#12", "owner/repo#3", "#512/#514", "#7", "#9"],
         do: assert(body =~ reference)
 

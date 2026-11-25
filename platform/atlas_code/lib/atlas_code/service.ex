@@ -1901,7 +1901,7 @@ defmodule AtlasCode.Service do
          %{"target" => base, "title" => title, "body" => body} = request
        ) do
     body_file = file <> ".body.tmp"
-    # Merging the pull closes no other pull or issue (IS-Atlas-136).
+    # Merging the pull closes nothing else on GitHub (IS-Atlas-136).
     File.write!(body_file, AtlasCode.ClosingKeywords.defuse(body))
 
     try do

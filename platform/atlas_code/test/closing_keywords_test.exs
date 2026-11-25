@@ -26,7 +26,7 @@ defmodule AtlasCode.ClosingKeywordsTest do
           "fixed the typo",
           "fixes (#12)",
           "Fixes#12",
-          "closes issue #1"
+          "closes ticket #1"
         ],
         do: assert(ClosingKeywords.defuse(text) == text)
 

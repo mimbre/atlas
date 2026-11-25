@@ -1,21 +1,22 @@
 defmodule AtlasCode.ClosingKeywords do
   @moduledoc """
-  Keeps a pull request description from closing other pull requests or issues when it is
-  merged into the default branch (IS-Atlas-136).
+  Keeps a pull's description from closing anything else on GitHub when the pull is merged
+  into the default branch (IS-Atlas-136).
 
-  GitHub closes an issue or pull request when a merged pull's description puts a closing
-  keyword (close, closes, closed, fix, fixes, fixed, resolve, resolves, resolved, in any case,
-  optionally followed by a colon) before a reference: `#n`, `owner/repo#n` or the web address
-  of an issue or pull. `defuse/1` puts the reference in parentheses, so the keyword no longer
-  stands right before it: GitHub ignores it, a person still reads (and GitHub still links) the
+  GitHub closes what a merged pull's description references when it puts a closing keyword
+  (close, closes, closed, fix, fixes, fixed, resolve, resolves, resolved, in any case,
+  optionally followed by a colon) before the reference: `#n`, `owner/repo#n` or its web
+  address. `defuse/1` puts the reference in parentheses, so the keyword no longer stands
+  right before it: GitHub ignores it, a reader still sees (and GitHub still links) the
   reference. "fixes #12" becomes "fixes (#12)", "closed #512/#514" becomes
   "closed (#512/#514)"; "see #12" is left alone, and so is a text already defused.
 
-  Every pull request body Atlas writes goes through it: Code's publication body and the
+  Every pull's body Atlas writes goes through it: Code's publication body and the
   review an orchestrator asks Code to open. Agents that write a body themselves run it
   through the same function with `mix atlas_code.pr_body` (see its documentation).
   """
 
+  # `issues` and `pull` are GitHub's own URL paths.
   @reference ~S"(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#\d+|https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:issues|pull)/\d+"
   @closing Regex.compile!(
              ~S"\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)(:?)(\s+)((?:" <>
