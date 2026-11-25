@@ -1457,7 +1457,7 @@ defmodule AtlasFlow.Runs.Store do
     # Reopened work starts a new generation only when the selection declares it.
     opts = [reopen: config["selection"][run["flow"]]["reopen"]]
 
-    # A completed subject (a merged pull request linked to it, say) ends its run from any
+    # A completed subject (its change merged elsewhere, say) ends its run from any
     # open state, ahead of its mechanism; a plain branch that holds takes a task's state
     # the same way, whether its task waits, runs or ended. Either cancels the task it held.
     completed = Run.completed(run, flow, subject, completed_state(config, run), now)

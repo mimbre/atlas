@@ -211,7 +211,7 @@ defmodule AtlasFlow.Runs.Run do
   `{:ok, run, intent}`, `intent` the task it held (nil when none was made yet), which the
   caller cancels; `:stay` when none holds or its entry writes are not acknowledged yet. A
   plain branch takes the run whether its task waits, runs or ended: what the subject says
-  now (its pull request closed, say) outranks the work, whose result is never taken.
+  now (an effect it waits on undone elsewhere, say) outranks the work, whose result is never taken.
   """
   def unheld(run, flow, subject, now) do
     with "active" <- run["status"],
