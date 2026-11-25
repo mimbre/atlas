@@ -3,8 +3,9 @@ defmodule Model.SupervisionTest do
   M3a of the work-acquisition decision (2026-11-17, §5.6–5.8, §6.6): "you supervise a
   flow; you never own an item". Additive only: a run's human supervisor
   (`supervised_by`, written by Flow alone), the pickup and hand-over inputs, the issue
-  build's span, a task's `done_for`, and the two start page entries. Existing kinds
-  and relations stay as they were. Structure, not wording.
+  build's span, a task's `done_for`, an item's producer (`produced_by`, SC-Atlas-09), and
+  the two start page entries. Existing kinds and relations stay as they were. Structure,
+  not wording.
   """
   use ExUnit.Case, async: true
 
@@ -55,7 +56,10 @@ defmodule Model.SupervisionTest do
 
   @links [
     {"flow_run", "RUN-1", "supervised_by"},
-    {"task", "TK-PK-IS-Atlas-01-1-1", "done_for"}
+    {"task", "TK-IS-Atlas-01-1", "done_for"},
+    {"scene", "SC-Atlas-01", "produced_by"},
+    {"use_case", "UC-Atlas-01", "produced_by"},
+    {"issue", "IS-Atlas-01", "produced_by"}
   ]
 
   defp check(kind, change, env), do: AtlasEyra.check(kind, change, env, lookup())
@@ -83,6 +87,37 @@ defmodule Model.SupervisionTest do
     end
   end
 
+  # SC-Atlas-09: every item records its producer, the human supervisor of the run that
+  # made it; Flow links it on what a proposal makes, and declares it beside the supervision.
+  test "an item has at most one producer, a person, whom only Flow sets" do
+    assert %{"from" => from, "to" => ["person"], "max_outgoing" => 1} =
+             schema()["relations"]["produced_by"]
+
+    assert Enum.sort(from) == ~w(issue scene use_case)
+    assert get_in(extension(), ["relations", "produced_by", "set_by"]) == ["flow"]
+
+    supervision = AtlasEyra.supervision()
+    assert supervision["producer"] == "produced_by"
+
+    # Of the supervisor's kind, so the supervisor is who it links to.
+    assert schema()["relations"][supervision["relation"]]["to"] == ["person"]
+    refute Map.has_key?(Model.Profiles.Foundation.supervision(), "producer")
+  end
+
+  test "Plan's and Design's questions go to the producer, the decider when there is none" do
+    for flow <- ~w(break_down_scene break_down_use_case) do
+      subflow = Enum.find(AtlasEyra.subflows(:prod), &(&1.name() == flow))
+
+      assert %{"kind" => "person", "config" => "decider", "producer" => "produced_by"} =
+               subflow.owner("clarifying")["default"]
+
+      # Never the run's supervisor, though the state lies in the span.
+      refute AtlasFlow.Model.supervisable?(subflow.owner("clarifying")["default"])
+
+      assert "clarifying" in hd(AtlasEyra.supervision()["spans"][flow])["states"]
+    end
+  end
+
   test "Flow sets and clears a run's supervisor and a task's done_for" do
     for {kind, key, relation} <- @links do
       assert check(kind, create_with(key, relation), @flow) == :ok, relation
@@ -90,7 +125,7 @@ defmodule Model.SupervisionTest do
     end
   end
 
-  test "only Flow sets a run's supervisor or a task's done_for: Facts refuses anyone else" do
+  test "only Flow sets a run's supervisor, a task's done_for or an item's producer: Facts refuses anyone else" do
     for {kind, key, relation} <- @links, env <- @not_flow do
       assert {:refuse, [why]} = check(kind, create_with(key, relation), env), relation
       assert why =~ relation
@@ -142,13 +177,13 @@ defmodule Model.SupervisionTest do
     assert supervision["relation"] == "supervised_by"
   end
 
-  test "the issue build is the one span: its states until merged, with its packages' runs" do
+  test "the issue build is the one span: its states until merged, with its pull requests' runs" do
     states =
       ~w(working reviewing fixing publishing checking ci_fixing ci_fixing_again ci_pushing ci_failing updating update_pushing update_failing merging unchanged stuck review_stuck)
 
     assert %{
              "issue" => [
-               %{"name" => "build", "states" => ^states, "with" => ["package", "pull_request"]}
+               %{"name" => "build", "states" => ^states, "with" => ["pull_request"]}
              ]
            } =
              AtlasEyra.supervision()["spans"]

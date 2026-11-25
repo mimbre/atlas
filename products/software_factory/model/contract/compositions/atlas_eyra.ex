@@ -35,7 +35,6 @@ defmodule Model.AtlasEyra do
     Decision,
     Delivery,
     FollowThrough,
-    Package,
     PrReview,
     PrTest,
     PullRequest,
@@ -66,7 +65,7 @@ defmodule Model.AtlasEyra do
   relation(:assignment,
     label: "assignment",
     description: "What belongs to being assigned, for one fact; made and deleted with it.",
-    from: [:scene, :use_case, :issue, :package, :pull_request, :decision, :to_do],
+    from: [:scene, :use_case, :issue, :pull_request, :decision, :to_do],
     to: [:assignment],
     max_outgoing: 1,
     inverse: {:assignment_of, "assignment of"}
@@ -80,20 +79,35 @@ defmodule Model.AtlasEyra do
     inverse: {:work, "work"}
   )
 
-  # A task Flow defines belongs to a package or, for a plan task, to an issue (the Flow
-  # Engine plan, §3.2), or to the use case or scene it breaks down (slices 7 and 8); Flow
-  # alone links it.
+  # A task Flow defines belongs to the issue it builds (the Flow Engine plan, §3.2), or to
+  # the use case or scene it breaks down (slices 7 and 8); Flow alone links it.
   relation(:task_of,
     label: "task of",
-    description:
-      "A task belongs to one package, issue, use case or scene; they have their tasks.",
+    description: "A task belongs to one issue, use case or scene; they have their tasks.",
     from: [:task],
-    to: [:package, :issue, :use_case, :scene],
+    to: [:issue, :use_case, :scene],
     max_outgoing: 1,
     inverse: {:tasks, "tasks"},
     parent: true,
     set_by: [:flow]
   )
+
+  # Every item records its producer (SC-Atlas-09): the human supervisor of the run that
+  # made it. Flow links what a task's proposal makes (`creates:`) to its run's supervisor;
+  # nobody else sets it. A scene made by hand, and an item from before, records none: a
+  # state that asks its producer then asks the configured decider.
+  relation(:produced_by,
+    label: "produced by",
+    description:
+      "Its producer: the human supervisor of the run that made it; at most one. Only Flow sets it.",
+    from: [:scene, :use_case, :issue],
+    to: [:person],
+    max_outgoing: 1,
+    inverse: {:produced, "produced"},
+    set_by: [:flow]
+  )
+
+  producer(relation: :produced_by)
 
   relation(:about,
     label: "about",
@@ -125,7 +139,7 @@ defmodule Model.AtlasEyra do
   )
 
   # What a supervisor's running work is (decision 2026-11-17 §6.3, M3b): the tasks
-  # Flow defines for the issue or its packages (task_of), done for the supervisor
+  # Flow defines for the issue (task_of), done for the supervisor
   # (done_for), running while they have no result (result_kind). Supervised by you
   # counts them, and Hand over… lists those that will stop.
   supervised_work(kind: :task, of: :task_of, for: :done_for, ended: :result_kind)
@@ -289,7 +303,6 @@ defmodule Model.AtlasEyra do
       :flow_input,
       :flow_run,
       :issue,
-      :package,
       :pull_request,
       :pr_review,
       :pr_test,
@@ -334,7 +347,6 @@ defmodule Model.AtlasEyra do
       Decision,
       FollowThrough,
       ToDo,
-      Package,
       RuntimeUpgrade
     ])
 

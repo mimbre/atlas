@@ -51,12 +51,10 @@ defmodule AtlasRuntime.Sources.Local do
   the work ends `failed`.
 
   **Reports and results** (C6) come through the contract (`AtlasRuntime.Sources.LocalFacade`):
-  `report` (fenced on the current, unexpired lease; idempotent by revision) and `put_blob`
-  (only the blobs the recorded `ended` references). An `ended` is kept under
-  `local-source/results/` (the contract's `ended`, as JSON), with its blobs under
-  `local-source/blobs/`, so `result/1` and
-  `result_blob/1` serve it from this source's own store, also after the executor pruned
-  its copy. The contract's `poll` renews and answers `cancel`, `lease_lost` and `timing`
+  `report` (fenced on the current, unexpired lease; idempotent by revision). An `ended` is
+  kept under `local-source/results/` (the contract's `ended`, as JSON), so `result/1`
+  serves it from this source's own store. No blob is uploaded (`work_source` 0.5.0,
+  IS-Atlas-100): the frozen result stays the executor's (`get_frozen`). The contract's `poll` renews and answers `cancel`, `lease_lost` and `timing`
   only: no local work can be given in its shape. `get_blob` finds nothing: a local work
   names no input blob.
 
@@ -108,12 +106,9 @@ defmodule AtlasRuntime.Sources.Local do
 
   @doc """
   The result of an ended work from this source's own store (C6): `{:ok, %{result_ref,
-  ended}}` with the `ended` report as recorded (its `change_set` included), or `:not_found`.
+  ended}}` with the `ended` report as recorded, or `:not_found`.
   """
   def result(work_id, server \\ __MODULE__), do: call(server, {:result, work_id})
-
-  @doc "A result blob from this source's own store: `{:ok, bytes}` or `:not_found`."
-  def result_blob(sha256, server \\ __MODULE__), do: call(server, {:result_blob, sha256})
 
   @doc """
   Cancels a work (M2 A6, the CLI's stop and kill): a queued one ends `cancelled` here at
@@ -179,24 +174,6 @@ defmodule AtlasRuntime.Sources.Local do
   @impl AtlasRuntime.Sources.LocalFacade.Implementation
   def get_blob(_client, %F.GetBlobInput{}), do: %F.Outcome.NotFound{}
 
-  @impl AtlasRuntime.Sources.LocalFacade.Implementation
-  def put_blob(_client, %F.PutBlobInput{lease_id: id, sha256: sha} = input) do
-    case call(__MODULE__, {:may_put, id, sha}) do
-      :ok -> receive_blob(input)
-      :not_running -> %F.Outcome.LeaseLost{}
-      outcome -> outcome
-    end
-  end
-
-  # Read in the caller (the bytes are its stream), then stored by the source.
-  defp receive_blob(input) do
-    bytes = input.content |> Enum.to_list() |> IO.iodata_to_binary()
-
-    if byte_size(bytes) != input.size or sha256(bytes) != input.sha256,
-      do: %F.Outcome.Rejected{reason: :digest_mismatch},
-      else: call(__MODULE__, {:put_blob, input.lease_id, input.sha256, bytes})
-  end
-
   ## Process
 
   @impl true
@@ -244,8 +221,7 @@ defmodule AtlasRuntime.Sources.Local do
       accepted: false,
       lost: false,
       cancel: false,
-      reports: [],
-      referenced: MapSet.new()
+      reports: []
     }
   end
 
@@ -307,17 +283,6 @@ defmodule AtlasRuntime.Sources.Local do
            {:ok, map} <- JSON.decode(bytes),
            {:ok, ended} <- F.Ended.new(map) do
         {:ok, %{result_ref: ref, ended: ended}}
-      else
-        _ -> :not_found
-      end
-
-    {:reply, reply, state}
-  end
-
-  def handle_call({:result_blob, sha}, _from, state) do
-    reply =
-      with true <- sha256?(sha), {:ok, bytes} <- File.read(blob_path(state.home, sha)) do
-        {:ok, bytes}
       else
         _ -> :not_found
       end
@@ -437,30 +402,6 @@ defmodule AtlasRuntime.Sources.Local do
     else
       :late -> {:reply, %F.Outcome.LeaseLost{}, lose(state, id)}
       _ -> {:reply, %F.Outcome.LeaseLost{}, state}
-    end
-  end
-
-  def handle_call({:may_put, id, sha}, _from, state) do
-    reply =
-      case live(state, id) do
-        {:ok, lease} ->
-          if MapSet.member?(lease.referenced, sha), do: :ok, else: %F.Outcome.NotReferenced{}
-
-        _ ->
-          %F.Outcome.LeaseLost{}
-      end
-
-    {:reply, reply, state}
-  end
-
-  def handle_call({:put_blob, id, sha, bytes}, _from, state) do
-    case live(state, id) do
-      {:ok, _lease} ->
-        write!(blob_path(state.home, sha), bytes)
-        {:reply, %F.Outcome.Stored{}, state}
-
-      _ ->
-        {:reply, %F.Outcome.LeaseLost{}, state}
     end
   end
 
@@ -585,15 +526,8 @@ defmodule AtlasRuntime.Sources.Local do
     {lease, finish(state, lease.work_id, %{kind: :failed}, nil)}
   end
 
-  defp apply_report(state, _id, lease, %F.Ended{} = ended) do
-    referenced =
-      for %{entries: entries} <- (ended.change_set && ended.change_set.roots) || [],
-          %{op: :write, sha256: sha} when is_binary(sha) <- entries,
-          into: MapSet.new(),
-          do: sha
-
-    {%{lease | referenced: referenced}, finish(state, lease.work_id, ended.result, ended)}
-  end
+  defp apply_report(state, _id, lease, %F.Ended{} = ended),
+    do: {lease, finish(state, lease.work_id, ended.result, ended)}
 
   defp finish(state, work_id, result, ended) do
     work = state.loaded.entries[work_id]
@@ -602,7 +536,7 @@ defmodule AtlasRuntime.Sources.Local do
     ref = %{
       kind: result.kind,
       attempt: work.attempt || 1,
-      frozen_id: if(ended && ended.change_set, do: work_id),
+      frozen_id: nil,
       ended_at: DateTime.utc_now()
     }
 
@@ -621,23 +555,8 @@ defmodule AtlasRuntime.Sources.Local do
     end
   end
 
-  defp recorded(state, lease) do
-    missing =
-      case lease.reports do
-        [_ | _] = reports ->
-          if match?(%F.Ended{}, List.last(reports)),
-            do:
-              lease.referenced
-              |> Enum.reject(&File.exists?(blob_path(state.home, &1)))
-              |> Enum.sort(),
-            else: []
-
-        _ ->
-          []
-      end
-
-    %F.Outcome.Recorded{missing: missing}
-  end
+  # Nothing is ever missing: no blob is uploaded (IS-Atlas-100).
+  defp recorded(_state, _lease), do: %F.Outcome.Recorded{missing: []}
 
   # Lost: no longer current; a work that has not ended is queued again for a fresh lease.
   defp lose(state, id) do
@@ -692,12 +611,6 @@ defmodule AtlasRuntime.Sources.Local do
     name = work_id <> ".json"
     Path.join([Store.folder(home), "results", name])
   end
-
-  defp blob_path(home, sha), do: Path.join([Store.folder(home), "blobs", sha])
-
-  defp sha256?(sha), do: is_binary(sha) and Regex.match?(~r/\A[0-9a-f]{64}\z/, sha)
-
-  defp sha256(bytes), do: :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)
 
   defp write!(path, bytes) do
     for folder <- [Path.dirname(Path.dirname(path)), Path.dirname(path)] do

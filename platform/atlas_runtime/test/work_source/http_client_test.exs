@@ -3,7 +3,7 @@ defmodule AtlasRuntime.WorkSource.HttpClientTest do
   # client target (AtlasRuntimeBackend.Generator.Targets.Client on
   # AtlasRuntimeBackend.WorkSource) against the router generated from the same backend
   # contract, on the in-test source. The fencing answers reach the Runtime as typed
-  # outcomes. put_blob (a streamed request body) has its own tests, http_put_blob_test.exs.
+  # outcomes. There is no put_blob (work_source 0.4.0, IS-Atlas-100).
   use ExUnit.Case, async: true
 
   alias AtlasRuntime.Test.FakeWorkSource, as: Source
@@ -54,7 +54,7 @@ defmodule AtlasRuntime.WorkSource.HttpClientTest do
     do: Client.report(%{lease_id: lease, revision: revision, report: report}, @as)
 
   test "the client's calls are the exposed capabilities" do
-    assert Client.__capabilities__() == [:poll, :report, :get_blob, :put_blob]
+    assert Client.__capabilities__() == [:poll, :report, :get_blob]
   end
 
   test "poll leases the work, decoded into the contract's values" do
@@ -92,7 +92,7 @@ defmodule AtlasRuntime.WorkSource.HttpClientTest do
     assert report(lease, 2, %{state: :started}) == :lease_lost
   end
 
-  test "ended answers the missing blobs" do
+  test "an ended with an older Runtime's change set is recorded with nothing missing (0.5.0)" do
     {:polled, %{leases: [%{lease_id: lease}]}} = poll()
     assert {:recorded, _} = report(lease, 1, %{state: :accepted})
 
@@ -129,8 +129,7 @@ defmodule AtlasRuntime.WorkSource.HttpClientTest do
       }
     }
 
-    assert {:recorded, %{missing: [missing]}} = report(lease, 2, ended)
-    assert missing == Source.sha256("a\n")
+    assert {:recorded, %{missing: []}} = report(lease, 2, ended)
   end
 
   test "get_blob streams a named blob with its sha256 and size; any other is not_found",

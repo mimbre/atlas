@@ -1,8 +1,8 @@
 defmodule AtlasFlow.Backend.RuntimeClientContractTest do
   # Plan m3 A3: the Runtime's own generated client (AtlasRuntimeBackend.Generator.Targets
-  # .Client on the backend contract AtlasRuntimeBackend.WorkSource, 0.2.0 with put_blob)
-  # against Flow's listener and router, end to end on the real work source (Dispatch,
-  # Delivery, the result store, Bases on FakeCode; FakeFacts and a manual clock). The
+  # .Client on the backend contract AtlasRuntimeBackend.WorkSource, 0.4.0: no put_blob,
+  # IS-Atlas-100) against Flow's listener and router, end to end on the real work source
+  # (Dispatch, Delivery, Bases on FakeCode; FakeFacts and a manual clock). The
   # transport goes through Plug.Test, in the calling process, and carries the bearer
   # credential as a header, so the listener checks it. A streamed request body is pulled
   # from the client's enumerable one element per server read. Asserted on the client's
@@ -139,7 +139,7 @@ defmodule AtlasFlow.Backend.RuntimeClientContractTest do
   setup do
     dir = Path.join(System.tmp_dir!(), "contract-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
-    ctx = L.start(dir, results: [result_cap: 64])
+    ctx = L.start(dir)
     for clerk <- ~w(ada bea), do: FakeFacts.put("clerk", %{"key" => clerk})
 
     fake = start_supervised!({FakeCode, %{}}, id: :fake)
@@ -219,37 +219,8 @@ defmodule AtlasFlow.Backend.RuntimeClientContractTest do
     {lease, missing}
   end
 
-  # The bytes as a stream that tells the test each element it makes.
-  defp watched(chunks), do: Stream.map(chunks, &(send(self(), {:made, &1}) && &1))
-
-  defp put(lease, bytes, opts \\ []) do
-    Client.put_blob(
-      %{
-        lease_id: lease,
-        sha256: Keyword.get(opts, :sha256, L.sha256(bytes)),
-        size: Keyword.get(opts, :size, byte_size(bytes)),
-        content: Keyword.get(opts, :content, watched(chunks(bytes)))
-      },
-      @mini
-    )
-  end
-
-  defp chunks(bytes), do: for(<<c::binary-size(1) <- bytes>>, do: c)
-
-  defp made do
-    receive do
-      {:made, c} -> [c | made()]
-    after
-      0 -> []
-    end
-  end
-
-  test "the client's calls are the contract's four capabilities" do
-    assert Client.__capabilities__() == [:poll, :report, :get_blob, :put_blob]
-  end
-
-  test "the router's blob cap is the contract's blob_max_bytes" do
-    assert Router.init([]).blob_max_bytes == AtlasRuntimeBackend.WorkSource.blob_max_bytes()
+  test "the client's calls are the contract's three capabilities: no put_blob" do
+    assert Client.__capabilities__() == [:poll, :report, :get_blob]
   end
 
   test "poll leases the work, decoded into the contract's values", ctx do
@@ -361,9 +332,10 @@ defmodule AtlasFlow.Backend.RuntimeClientContractTest do
     assert {:polled, %{lease_lost: []}} = poll([lease])
   end
 
-  test "ended answers the missing blobs", ctx do
+  test "ended asks for no blob: a result travels over Git (IS-Atlas-100)", ctx do
     {_lease, missing} = ended_lease!(ctx, [{"a.txt", "a\n"}, {"README.md", @readme}])
-    assert Enum.sort(missing) == Enum.sort([L.sha256("a\n"), L.sha256(@readme)])
+    assert missing == []
+    assert L.values(ctx.task)["lease_state"] == "done"
   end
 
   test "get_blob streams a named blob with its sha256 and size; any other is not_found", ctx do
@@ -390,77 +362,6 @@ defmodule AtlasFlow.Backend.RuntimeClientContractTest do
     assert Client.get_blob(%{lease_id: lease, sha256: sha}, @mini) == :not_found
   end
 
-  describe "put_blob, streamed" do
-    test "a referenced blob is stored, its bytes pulled as the server reads; again is stored",
-         ctx do
-      {lease, [missing]} = ended_lease!(ctx, [{"a.txt", "abc"}])
-      assert missing == L.sha256("abc")
-
-      assert put(lease, "abc") == :stored
-      assert made() == ["a", "b", "c"]
-      assert put(lease, "abc") == :stored
-      assert L.values(ctx.task)["result_state"] == "complete"
-    end
-
-    test "fenced first, then the reference, then the room: none of them reads a byte", ctx do
-      {lease, _} = ended_lease!(ctx, [{"a.txt", "abc"}])
-
-      assert put(lease, "zzz") == :not_referenced
-      assert made() == []
-
-      assert put("TK-B-1-1~1~AAAAAAAAAAAAAAAAAAAAAA", "abc") == :lease_lost
-      assert made() == []
-
-      # 65 bytes declared against the 64 a result may hold.
-      assert put(lease, "abc", size: 65, content: watched([String.duplicate("x", 65)])) ==
-               :too_large
-
-      assert made() == []
-    end
-
-    test "too large by the declared size reads nothing", ctx do
-      big = String.duplicate("y", 65)
-      {lease, _} = ended_lease!(ctx, [{"big.txt", big}])
-      assert put(lease, big) == :too_large
-      assert made() == []
-      assert L.values(ctx.task)["result_state"] == "too_large"
-    end
-
-    test "more bytes than Blob-Size: the server reads one past it, keeps nothing, too_large",
-         ctx do
-      {lease, _} = ended_lease!(ctx, [{"a.txt", "abc"}])
-      more = watched(chunks(String.duplicate("a", 40)))
-      # A body past its cap is too_large (the contract's body-limit answer), not the source's
-      # answer to the bytes it saw.
-      assert put(lease, "abc", content: more) == :too_large
-      assert length(made()) == 4
-      assert put(lease, "abc") == :stored
-    end
-
-    test "bytes that do not match the sha256 or the size are rejected(digest_mismatch)", ctx do
-      {lease, _} = ended_lease!(ctx, [{"a.txt", "abc"}])
-      assert {:rejected, %{reason: :digest_mismatch}} = put(lease, "abd", sha256: L.sha256("abc"))
-      assert {:rejected, %{reason: :digest_mismatch}} = put(lease, "abc", size: 4)
-      assert L.values(ctx.task)["result_state"] != "complete"
-    end
-
-    test "a lease expired by the sweep is lease_lost, and nothing is read", ctx do
-      {lease, _} = ended_lease!(ctx, [{"a.txt", "abc"}])
-      L.advance(ctx, 900)
-      Dispatch.sweep()
-      assert put(lease, "abc") == :lease_lost
-      assert made() == []
-    end
-
-    test "a binary content is refused by the client, without a request" do
-      assert {:error, {:invalid, _}} =
-               Client.put_blob(
-                 %{lease_id: "L", sha256: L.sha256("a"), size: 1, content: "a"},
-                 @mini
-               )
-    end
-  end
-
   test "without a valid credential the listener answers 401 to every capability" do
     for opts <- [[transport: []], [transport: [credential: "nope"]]] do
       assert poll([], opts) == {:error, :unauthenticated}
@@ -470,24 +371,12 @@ defmodule AtlasFlow.Backend.RuntimeClientContractTest do
 
       assert Client.get_blob(%{lease_id: "L", sha256: L.sha256("a")}, opts) ==
                {:error, :unauthenticated}
-
-      assert Client.put_blob(
-               %{lease_id: "L", sha256: L.sha256("a"), size: 1, content: watched(["a"])},
-               opts
-             ) == {:error, :unauthenticated}
-
-      assert made() == []
     end
   end
 
   test "the listener and router are Flow's: no Runtime module serves these answers" do
     assert Listener.module_info(:module) == AtlasFlow.Backend.Listener
 
-    assert Router.__routes__() |> Enum.map(& &1.capability) == [
-             :poll,
-             :report,
-             :get_blob,
-             :put_blob
-           ]
+    assert Router.__routes__() |> Enum.map(& &1.capability) == [:poll, :report, :get_blob]
   end
 end

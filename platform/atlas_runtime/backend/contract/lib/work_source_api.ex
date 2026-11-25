@@ -17,17 +17,10 @@ defmodule AtlasRuntimeBackend.WorkSource do
   `work_source.json` that is what a source implements against. An OpenAPI document is
   deferred until a second implementer exists (§5).
 
-  `put_blob` (M3 plan §9 Q2) is `PUT /v1/leases/:lease_id/blobs/:sha256`, which the source
-  serves: the bytes are the streamed request body (`application/octet-stream`, S5c
-  #290/#293), and `Blob-Size` carries the size the Runtime declares, so a source can
-  answer `too_large` before it reads a byte. The Runtime sends the body as it reads it and
-  never holds a blob whole. The answers: `stored` (200), `lease_lost` (410),
-  `not_referenced` (409 `not-referenced`), `too_large` (413 `too-large`, the same answer as
-  a body past the source's limit) and `rejected` `digest_mismatch` (422, bytes that do not
-  have the path's sha256 or the declared size).
+  There is no `put_blob` route (0.4.0, IS-Atlas-100): a result travels over Git, pushed to
+  the source's Code under the work's `result_ref`, never uploaded as blobs.
 
-  Declarations only, and `blob_max_bytes/0`, the most bytes a source's router takes for
-  one blob body (`max_bytes:` of the route). The generator
+  Declarations only. The generator
   (`AtlasRuntimeBackend.Generator.Schema`) turns the declarations into `__schema__/0`,
   which its targets read.
   """
@@ -35,20 +28,15 @@ defmodule AtlasRuntimeBackend.WorkSource do
 
   # 0.2.0: put_blob is carried (an added route; nothing earlier changed). 0.3.0: the poll
   # body may carry configuration_refused (boundary 0.4.0, IS-Atlas-27), sent only when the
-  # Runtime has a refusal to report, so a 0.2.0 source never receives it. 0.4.0: the poll
-  # body may carry upgrade (boundary 0.5.0, IS-Atlas-26), sent only while a source ordered
-  # an upgrade, so a 0.3.0 source never receives it.
+  # Runtime has a refusal to report, so a 0.2.0 source never receives it. 0.4.0: put_blob is
+  # gone (boundary 0.5.0, IS-Atlas-100); a 0.3.0 Runtime calls it only for blobs a source
+  # names as missing, and a 0.4.0 source names none. The poll body may also carry upgrade
+  # (boundary 0.5.0, IS-Atlas-26), sent only while a source ordered an upgrade, so a 0.3.0
+  # source never receives it.
   version "0.4.0"
   boundary AtlasRuntimeBoundary.WorkSource
 
-  expose [:poll, :report, :get_blob, :put_blob]
-
-  @doc """
-  The most bytes one `put_blob` body may have: the per-result cap (20 MB, decision §6.2),
-  since a blob is never larger than the result that references it. A source applies its
-  own caps below it (`too_large`); a router may cap every body lower still.
-  """
-  def blob_max_bytes, do: 20_000_000
+  expose [:poll, :report, :get_blob]
 
   ## Listener: the source's TLS listener, a client being its per-Runtime credential.
 
@@ -62,14 +50,6 @@ defmodule AtlasRuntimeBackend.WorkSource do
     # The lease is in the path; the body is the revision and the report.
     resource :post, "/v1/leases/:lease_id/reports", capability: :report, body: :input
     resource :get, "/v1/leases/:lease_id/blobs/:sha256", capability: :get_blob
-    # The bytes are the body, streamed; their declared size is a header, so the source
-    # can refuse before it reads (it still counts while reading).
-    resource :put, "/v1/leases/:lease_id/blobs/:sha256",
-      capability: :put_blob,
-      header: ["Blob-Size": :size],
-      body: {:stream, :content},
-      content_type: "application/octet-stream",
-      max_bytes: {AtlasRuntimeBackend.WorkSource, :blob_max_bytes}
 
     ## Status codes: every error body is application/problem+json with a type; a success
     ## body is the outcome's fields.
@@ -86,21 +66,11 @@ defmodule AtlasRuntimeBackend.WorkSource do
 
     status :not_found, 404, type: "not-found"
 
-    # put_blob: the blob is held (stored again is stored). 200 with an empty object, as
-    # every outcome below 400 has a JSON body.
-    status :stored, 200
-    # No recorded ended of this lease references the blob.
-    status :not_referenced, 409, type: "not-referenced"
-    # Past the source's caps, declared or counted while reading: the same answer as the
-    # body-limit error below, so a Runtime sees one too_large either way.
-    status :too_large, 413, type: "too-large"
-
     status :rejected,
       by: :reason,
       cases: [
         invalid: {400, "invalid"},
-        conflict: {409, "revision-conflict"},
-        digest_mismatch: {422, "digest-mismatch"}
+        conflict: {409, "revision-conflict"}
       ]
 
     error :invalid, 400, type: "invalid"
@@ -108,8 +78,7 @@ defmodule AtlasRuntimeBackend.WorkSource do
     error :no_route, 404, type: "no-route"
     # The listener's refusal before the router runs: no valid credential.
     error :unauthenticated, 401, type: "unauthenticated"
-    # A streamed body's refusals, before the source reads it.
+    # A body past the source's limit, before the source reads it.
     error :too_large, 413, type: "too-large"
-    error :unsupported_media_type, 415, type: "unsupported-media-type"
   end
 end

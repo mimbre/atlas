@@ -1,19 +1,23 @@
 defmodule Model.FlowFactsTest do
   @moduledoc """
   F1.2 of the Flow Engine plan (§3.2): the records Flow keeps of the tasks it defines.
-  Additive only: `machinery`, `task`, `task_attempt` and `package` are new, every field
+  Additive only: `machinery`, `task` and `task_attempt` are new, every field
   and link of them is Flow's alone (`set_by: [:flow]`), `assigned_to` may also target a
   machinery, and the `turn` kind Runtime's Lifecycle keeps stays exactly as it was.
 
   M3 P2 adds the lease fields Flow keeps as the Runtime's work source (decision
   2026-11-17 §6.2), additive as well: Flow's alone, on `task` and `task_attempt` only.
+
+  IS-Atlas-100 retired the `package` kind, its `package_of` relation, and the task fields
+  of the review → fix ladder, Landing's publication and the stored change set: a result
+  travels over Git (`result_ref`).
   """
   use ExUnit.Case, async: true
 
   alias Model.AtlasEyra
 
-  @new_kinds ~w(machinery task task_attempt package)
-  @new_relations ~w(task_of attempt_of ran_on package_of)
+  @new_kinds ~w(machinery task task_attempt)
+  @new_relations ~w(task_of attempt_of ran_on)
 
   defp description, do: AtlasEyra.__rela__(:description)
   defp schema, do: description().schema
@@ -40,8 +44,6 @@ defmodule Model.FlowFactsTest do
     "lease_end_cause" => "string",
     "lease_revision" => "integer",
     "lease_report" => "string",
-    "result_manifest" => "string",
-    "result_state" => "string",
     "result_ref" => "string"
   }
   @attempt_lease %{"lease_id" => "string"}
@@ -64,7 +66,7 @@ defmodule Model.FlowFactsTest do
     assert entities["task"]["id_type"] == "manual"
     assert entities["task"]["id_prefix"] == "TK-"
     assert entities["task_attempt"]["id_prefix"] == "TA-"
-    assert entities["package"]["id_prefix"] == "PK-"
+    refute Map.has_key?(entities, "package")
     assert entities["machinery"]["id_type"] == "manual"
 
     assert entities["task"]["properties"]["kind"]["type"] == "task_kind"
@@ -73,15 +75,13 @@ defmodule Model.FlowFactsTest do
     assert schema()["types"]["task_role"]["values"] == ~w(architect developer investigator)
     assert schema()["types"]["task_verdict"]["values"] == ~w(approved changes_required)
 
-    # §3.2's fields, M3's lease fields, F2's two revisions and what F3-L's Landing records
-    # of a publication (change id, review id and link, fpr_, CI, marked ready), no more.
+    # §3.2's fields and M3's lease fields, no more: nothing of the ladder, Landing or a
+    # stored change set (IS-Atlas-100).
     assert Enum.sort(Map.keys(entities["task"]["properties"])) ==
              Enum.sort(
                ~w(kind role profile input client_key work_id attempt state result_kind
                reason check_exit_status check_ending check_output_tail verdict answer
-               result_fingerprints based_on base_id base_snapshot base_revision
-               published_revision reviewed_revision code_change_id review_id review_url
-               published_fingerprint review_ci marked_ready_at) ++
+               base_id base_snapshot) ++
                  Map.keys(@task_lease)
              )
 
@@ -89,13 +89,6 @@ defmodule Model.FlowFactsTest do
              Enum.sort(~w(turn_id state result_kind provider harness harness_version
                configured_model reported_model selection_reason conversation_id machine slot
                started_at ended_at) ++ Map.keys(@attempt_lease))
-
-    # F1.4 adds the result field its subflow's task branches read (never written); F2-P
-    # the review → fix loop's: what its supervisor is asked, the step retry goes back to,
-    # and their answer.
-    assert Enum.sort(Map.keys(entities["package"]["properties"])) ==
-             Enum.sort(~w(title instructions acceptance after state task_result question
-               retry_step answer))
 
     # IS-Atlas-27: the Runtime's configuration, and what the Runtime did with it;
     # IS-Atlas-116: the digest of its credential, and the build and incarnation it polls from.
@@ -123,11 +116,9 @@ defmodule Model.FlowFactsTest do
   end
 
   test "every field and link of the new kinds is Flow's alone" do
-    # Its supervisor sets a package's answer (F2-P), as a person sets a pull request's
-    # integration, and a Runtime's configuration (IS-Atlas-27); and makes a machinery,
-    # naming it, with its credential's digest (IS-Atlas-116): no set_by.
+    # A person sets a Runtime's configuration (IS-Atlas-27), and makes a machinery, naming
+    # it, with its credential's digest (IS-Atlas-116): no set_by.
     by_hand = [
-      {"package", "answer"},
       {"machinery", "configuration"},
       {"machinery", "name"},
       {"machinery", "credential_sha256"}
@@ -149,7 +140,7 @@ defmodule Model.FlowFactsTest do
     end
 
     # Facts holds it so: Flow writes a task; anyone else is refused, field and link.
-    task = create("task", "TK-PK-IS-Atlas-01-1-1", %{"kind" => "author", "state" => "waiting"})
+    task = create("task", "TK-IS-Atlas-01-1", %{"kind" => "author", "state" => "waiting"})
     assert check(task, @flow) == :ok
     assert {:refuse, [why]} = check(task, @someone)
     assert why =~ "protected fields"
@@ -163,41 +154,25 @@ defmodule Model.FlowFactsTest do
       assert why == "protected fields: #{name}"
     end
 
-    linked =
-      create("task", "TK-PK-IS-Atlas-01-1-1", %{}, %{"task_of" => ["PK-IS-Atlas-01-1"]})
+    linked = create("task", "TK-IS-Atlas-01-1", %{}, %{"task_of" => ["IS-Atlas-01"]})
 
     assert {:refuse, [why]} = check(linked, @someone)
     assert why =~ "only a flow sets task_of"
 
-    # The supervisor may write the answer, and a Runtime's configuration.
-    assert check(create("package", "X-1", %{"answer" => "fresh"}), @someone) == :ok
+    # Anyone may write a Runtime's configuration.
     assert check(create("machinery", "X-1", %{"configuration" => "{}"}), @someone) == :ok
   end
 
-  test "F2: a diagnose task by an investigator, and a task's revisions, are Flow's to write" do
-    props = schema()["entities"]["task"]["properties"]
-
-    for field <- ~w(published_revision reviewed_revision) do
-      assert props[field]["type"] == "string"
-      refute props[field]["required"] == true
-    end
-
+  test "F2: a diagnose task by an investigator is Flow's to write" do
     diagnose =
-      create("task", "TK-PK-IS-Atlas-01-1-4", %{
+      create("task", "TK-IS-Atlas-01-4", %{
         "kind" => "diagnose",
         "role" => "investigator",
         "profile" => "deep_coding"
       })
 
     assert check(diagnose, @flow) == :ok
-
-    for values <- [%{"published_revision" => "rev_a"}, %{"reviewed_revision" => "rev_a"}] do
-      change =
-        {"task", %{"op" => "change", "key" => "TK-PK-IS-Atlas-01-1-2", "values" => values}}
-
-      assert check(change, @flow) == :ok
-      assert {:refuse, [_]} = check(change, @someone)
-    end
+    assert {:refuse, [_]} = check(diagnose, @someone)
   end
 
   test "the lease fields: on task and task_attempt, typed, optional, Flow's alone" do
@@ -237,19 +212,17 @@ defmodule Model.FlowFactsTest do
     end
   end
 
-  test "a package is a child of an issue; a task of a package or an issue; an attempt of a task" do
+  test "a task of an issue, a use case or a scene; an attempt of a task; no package" do
     relations = schema()["relations"]
 
-    assert %{"from" => ["package"], "to" => ["issue"], "max_outgoing" => 1} =
-             relations["package_of"]
-
+    refute Map.has_key?(relations, "package_of")
     assert %{"from" => ["task"], "to" => to, "max_outgoing" => 1} = relations["task_of"]
-    assert "package" in to and "issue" in to
+    assert Enum.sort(to) == ~w(issue scene use_case)
 
     assert %{"from" => ["task_attempt"], "to" => ["task"]} = relations["attempt_of"]
     assert %{"from" => ["task_attempt"], "to" => ["machinery"]} = relations["ran_on"]
 
-    for relation <- ~w(package_of task_of attempt_of),
+    for relation <- ~w(task_of attempt_of),
         do: assert(get_in(extension(), ["relations", relation, "parent"]) == true, relation)
 
     # in_issue stays the pull request's alone: its limit and the issue's completion read

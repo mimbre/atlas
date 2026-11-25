@@ -235,8 +235,28 @@ defmodule RelaDSL.Description.Subflows do
 
         _ ->
           []
-      end
+      end ++ producer(o[:default], kind, schema, here)
   end
+
+  # A default that asks the subject's producer: its relation leads from the subject to one
+  # fact of the default's kind.
+  defp producer(%{producer: name, kind: k}, kind, schema, here) do
+    r = relation(schema, name) || %{}
+
+    if kind in (r["from"] || []) and to_string(k) in (r["to"] || []) and r["max_outgoing"] == 1,
+      do: [],
+      else: [
+        here.(
+          problem(
+            :owner_producer,
+            [name, kind, k],
+            "owner default's producer #{name} does not lead from #{kind} to one #{k} (max_outgoing 1)"
+          )
+        )
+      ]
+  end
+
+  defp producer(_default, _kind, _schema, _here), do: []
 
   defp present(nil, _kind, _schema, _here), do: []
 
