@@ -936,9 +936,11 @@ defmodule AtlasControl.Session do
   defp submit({:answer, kind, key, name} = route, raw, state) do
     answers = page_answers(route, state.model)
     item = Pages.answer_item(state.model, kind, answers)
-    viewer = %{key: state.by, kind: state.by_kind}
+    viewer = %{key: state.by, kind: state.by_kind, assists: viewer(state).assists}
     state = %{state | route: route, form: Map.put(state.form, :values, raw)}
 
+    # An agent may give the answers of whom it assists, on their behalf (IS-Atlas-47): the
+    # change is the agent's, its cause says for whom.
     with {:write, answer} <- state.model.module.answer(kind, name, item, viewer),
          {:ok, content, cause} <-
            AtlasControl.Answers.change(answer, key, state.by, raw["note"], DateTime.utc_now()) do

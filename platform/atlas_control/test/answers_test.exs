@@ -34,4 +34,14 @@ defmodule AtlasControl.AnswersTest do
     assert content["links"] == %{}
     assert cause == "Filed it"
   end
+
+  test "an answer an agent gives on behalf of whom it assists is the agent's; its cause says so" do
+    answer = %{"label" => "Accept", "values" => %{"verdict" => "accept"}, "on_behalf" => "ada"}
+
+    assert {:ok, %{"links" => %{}}, "Accept by clerk on behalf of ada"} =
+             Answers.change(answer, "B-1", "clerk", "", @now)
+
+    assert {:ok, _, "Done (clerk on behalf of ada)"} =
+             Answers.change(%{answer | "label" => "Close"}, "B-1", "clerk", "Done", @now)
+  end
 end

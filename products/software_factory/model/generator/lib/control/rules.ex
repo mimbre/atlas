@@ -73,8 +73,11 @@ defmodule RelaDSL.Control.Rules do
   presentation of its work says (`"presentation"` on the fact or, for work presented `on`
   a component, on that part, `parts` by kind): what is expected, why, and the state's
   todo. Nil for anyone else, or when the presentation offers nothing to do (no state, or
-  one whose projection Flow has not written yet). While its run ended and the work was
-  reopened, it says so to anyone (`reopened`, when the model words it), with no answers.
+  one whose projection Flow has not written yet). An agent that assists the owner
+  (`viewer.assists`) is offered the owner's answers on their behalf, but never one that
+  links the one who answers (`self`: who accepted or decided is a person's own). While
+  its run ended and the work was reopened, it says so to anyone (`reopened`, when the
+  model words it), with no answers.
 
   `%{title, expected, why, instructions, section, answers, words}`: `why` is `%{text,
   since, by}`; `section` what the state shows of a fact's field (`%{heading, text}`):
@@ -83,8 +86,8 @@ defmodule RelaDSL.Control.Rules do
   """
   def todo(flow, fact, parts, viewer) do
     case owner_view(flow, fact, parts, viewer) do
-      {written, %{"todo" => %{} = todo} = view} ->
-        todo = decision_todo(flow, fact, todo)
+      {written, %{"todo" => %{} = todo} = view, on_behalf} ->
+        todo = decision_todo(flow, fact, todo) |> for_whom(on_behalf)
         origin = get_in(written, ["origins", flow.owner_relation]) || %{}
 
         section = shown_section(todo["section"], fact)
@@ -148,19 +151,24 @@ defmodule RelaDSL.Control.Rules do
 
   @doc """
   The change the owner's answer `name` writes (`{:write, %{"values", "self", "label",
-  "note"}}`: the values, `"$now"` for the moment it is given and `"$note"` for the note
-  it is given with (trimmed), the relation that links it to the one who answers, and
-  whether a note is required), for an `item` (`%{"fact",
-  "parts"}`) whose owner `viewer` is, in a state that offers it. `{:refuse, why}` else.
+  "note", "on_behalf"}}`: the values, `"$now"` for the moment it is given and `"$note"`
+  for the note it is given with (trimmed), the relation that links it to the one who
+  answers, whether a note is required, and whom an assisting agent answers for (nil when
+  the viewer answers for itself)), for an `item` (`%{"fact", "parts"}`) whose owner
+  `viewer` is, or assists, in a state that offers it. `{:refuse, why}` else.
   """
   def answer(flow, name, item, viewer) do
     found =
       with %{} <- flow,
            %{"fact" => %{} = fact} <- item,
-           {_written, %{"todo" => %{} = todo}} <-
-             owner_view(flow, fact, item["parts"] || %{}, viewer) do
-        todo = decision_todo(flow, fact, todo)
-        Enum.find(answers(todo), &(&1["key"] == name and is_map(&1["change"])))
+           {_written, %{"todo" => %{} = todo}, on_behalf} <-
+             owner_view(flow, fact, item["parts"] || %{}, viewer),
+           %{} = answer <-
+             Enum.find(
+               answers(for_whom(decision_todo(flow, fact, todo), on_behalf)),
+               &(&1["key"] == name and is_map(&1["change"]))
+             ) do
+        Map.put(answer, "on_behalf", on_behalf)
       else
         _ -> nil
       end
@@ -172,7 +180,8 @@ defmodule RelaDSL.Control.Rules do
            "values" => change["values"] || %{},
            "self" => change["self"],
            "label" => answer["label"],
-           "note" => answer["note"] == true
+           "note" => answer["note"] == true,
+           "on_behalf" => answer["on_behalf"]
          }}
 
       nil ->
@@ -267,14 +276,27 @@ defmodule RelaDSL.Control.Rules do
       remove: if(is_binary(a["remove"]), do: a["remove"])
     }
 
-  # The fact the work is presented on and its presentation, when `viewer` owns the work
-  # and the presentation offers something to do.
+  # An agent answering on behalf of whom it assists gets no answer that links the one who
+  # answers: that answer is the person's own.
+  defp for_whom(todo, nil), do: todo
+
+  defp for_whom(todo, _person),
+    do:
+      Map.update(todo, "answers", [], fn answers ->
+        Enum.reject(answers, &is_binary(get_in(&1, ["change", "self"])))
+      end)
+
+  # The fact the work is presented on, its presentation and whom the viewer answers for
+  # (nil: itself), when `viewer` owns the work, or assists its owner, and the presentation
+  # offers something to do.
   defp owner_view(flow, fact, parts, viewer) do
     with {written, view} <- written_view(flow, fact, parts),
          by when is_binary(by) <- viewer && viewer[:key],
-         true <- by in (view["owner"] || []),
+         owner = view["owner"] || [],
+         on_behalf = if(by in owner, do: nil, else: viewer[:assists]),
+         true <- by in owner or (is_binary(on_behalf) and on_behalf in owner),
          true <- view["actionable"] == true do
-      {written, view}
+      {written, view, on_behalf}
     else
       _ -> nil
     end
