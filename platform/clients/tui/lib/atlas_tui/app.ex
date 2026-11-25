@@ -30,7 +30,7 @@ defmodule AtlasTui.App do
   @root Path.expand("../../../../..", __DIR__)
 
   @doc """
-  Runs until the person quits (`:ok`) or Control closes this build as too old and it can
+  Runs until its user quits (`:ok`) or Control closes this build as too old and it can
   take a newer one (`{:too_old, page, control spec}`). Options: `release` (see
   `AtlasTui.Model`) and `to`, the page to open instead of Control's start page.
   """

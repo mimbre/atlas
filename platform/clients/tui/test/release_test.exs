@@ -119,7 +119,7 @@ defmodule AtlasTui.ReleaseTest do
     refute narrow =~ "First"
   end
 
-  test "a TUI not started by bin/atlas tells the person to run atlas" do
+  test "a TUI not started by bin/atlas tells its user to run atlas" do
     assert {%{notice: %{text: text}, closed: true}, []} = Console.receive(model(nil), too_old())
 
     assert text ==
