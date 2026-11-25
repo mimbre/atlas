@@ -145,7 +145,8 @@
           {"from":"1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f","to":"171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147","states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"preserve_entry":true,"reason":"Build: its agent asks rela first (D-0100)"},
           {"from":"171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147","to":"6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce","preserve_entry":true,"states":{"done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"The CI gate: CI is waited for before the merge, and red is fixed at most twice"},
           {"from":"6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce","to":"67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66","preserve_entry":true,"states":{"checking":"checking","ci_failing":"ci_failing","ci_fixing":"ci_fixing","ci_fixing_again":"ci_fixing_again","ci_pushing":"ci_pushing","done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","working":"working"},"reason":"Mergeable and green only: a conflict with develop is updated by an agent"},
-          {"from":"67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66","to":"87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e","preserve_entry":true,"states":{"checking":"checking","ci_failing":"ci_failing","ci_fixing":"ci_fixing","ci_fixing_again":"ci_fixing_again","ci_pushing":"ci_pushing","done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","update_failing":"update_failing","update_pushing":"update_pushing","updating":"updating","working":"working"},"reason":"Build: its supervisor's pickup starts the work; texts only"}
+          {"from":"67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66","to":"87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e","preserve_entry":true,"states":{"checking":"checking","ci_failing":"ci_failing","ci_fixing":"ci_fixing","ci_fixing_again":"ci_fixing_again","ci_pushing":"ci_pushing","done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","update_failing":"update_failing","update_pushing":"update_pushing","updating":"updating","working":"working"},"reason":"Build: its supervisor's pickup starts the work; texts only"},
+          {"from":"87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e","to":"59755bfb4a34101d408bb5c0ebce2bdc93252ad04a024f10a8931160ade7aa33","preserve_entry":true,"reopen":["stuck"],"states":{"checking":"checking","ci_failing":"ci_failing","ci_fixing":"ci_fixing","ci_fixing_again":"ci_fixing_again","ci_pushing":"ci_pushing","done":"done","fixing":"fixing","merging":"merging","publishing":"publishing","reviewing":"reviewing","stuck":"stuck","unchanged":"unchanged","update_failing":"update_failing","update_pushing":"update_pushing","updating":"updating","working":"working"},"reason":"No item gets stuck: a stuck issue stays with its supervisor, who may retry it"}
         ],
         "subject": "issue",
         "projection": {
@@ -635,7 +636,9 @@
               "update_pushing",
               "update_failing",
               "merging",
-              "unchanged"
+              "unchanged",
+              "stuck",
+              "review_stuck"
             ],
             "with": [
               "package",

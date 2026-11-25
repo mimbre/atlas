@@ -59,21 +59,86 @@ defmodule AtlasFlow.Runs.Run do
     end
   end
 
-  def migrate(run, flow, migrations, now) do
+  @doc """
+  The run on the subflow's current digest, along the approved migration from its own
+  (`{:ok, run}`), or `{:error, :definition_changed}` when none moves it safely.
+
+  A completed run stays completed: its final state maps to a final state. Only a
+  migration that names its state in `reopen` (a final state of `from` that maps to an open
+  one) takes it back: the run is entered there again, active, with nothing pending, and
+  with the supervisor `opts[:supervisor]` names (its key, or nil), so a state in a span is
+  its supervisor's again.
+  """
+  def migrate(run, flow, migrations, now, opts \\ []) do
     if run["definition_sha256"] == flow.digest() do
       {:ok, run}
     else
-      migrate_changed(run, flow, migrations, now)
+      migrate_changed(run, flow, migrations, now, opts)
     end
   end
 
-  defp migrate_changed(run, flow, migrations, now) do
-    mapping =
+  @doc """
+  The approved migration of `run` to the subflow's current digest when it reopens the
+  completed run (its state is in the migration's `reopen`), else nil.
+  """
+  def reopening(run, flow, migrations) do
+    with %{} = mapping <- mapping(run, flow, migrations),
+         true <- run["status"] == "completed" and run["state"] in (mapping["reopen"] || []),
+         state when is_binary(state) <- mapping["states"][run["state"]],
+         true <- state in flow.states() and not flow.final?(state) do
+      mapping
+    else
+      _ -> nil
+    end
+  end
+
+  defp mapping(run, flow, migrations),
+    do:
       Enum.find(
         migrations,
         &(&1["from"] == run["definition_sha256"] and &1["to"] == flow.digest())
       )
 
+  defp migrate_changed(run, flow, migrations, now, opts) do
+    mapping = mapping(run, flow, migrations)
+
+    if reopening(run, flow, migrations),
+      do: reopen(run, flow, mapping, now, opts[:supervisor]),
+      else: migrate_mapped(run, flow, mapping, now)
+  end
+
+  # A completed run taken back into the open state its final one maps to: entered there,
+  # active, nothing of its last entry pending (a final state holds no activity), and its
+  # migration in its audit.
+  defp reopen(run, flow, mapping, now, supervisor) do
+    state = mapping["states"][run["state"]]
+
+    migration = %{
+      "from" => run["definition_sha256"],
+      "to" => flow.digest(),
+      "state" => run["state"],
+      "entry" => run["entry"],
+      "at" => DateTime.to_iso8601(now),
+      "reason" => mapping["reason"] || "explicit state migration",
+      "reopened" => true
+    }
+
+    reopened =
+      run
+      |> Map.put("definition_sha256", flow.digest())
+      |> update_in(["pending"], fn pending ->
+        Map.update(pending, "migrations", [migration], &(&1 ++ [migration]))
+      end)
+      |> enter(flow, state, now, true)
+
+    {:ok,
+     if(is_binary(supervisor) and supervisor != "",
+       do: Map.put(reopened, "supervised_by", supervisor),
+       else: Map.delete(reopened, "supervised_by")
+     )}
+  end
+
+  defp migrate_mapped(run, flow, mapping, now) do
     state = mapping && mapping["states"][run["state"]]
     preserve? = mapping != nil and (mapping["rekey"] == true or mapping["preserve_entry"] == true)
     {run, retired} = if preserve?, do: retire_passes(run), else: {run, %{}}

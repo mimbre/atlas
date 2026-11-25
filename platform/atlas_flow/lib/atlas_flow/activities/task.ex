@@ -59,6 +59,12 @@ defmodule AtlasFlow.Activities.Task do
   A fix whose spec names a field of the subject, `findings`, ends with that field's text
   instead (what failed in the result's CI, say), not the review's.
 
+  **Why it ended without a result.** A task outside any ladder whose spec names a field
+  of the subject, `failure`, has Flow write there, when it ends `stuck` or `abandoned`,
+  which task it was (its kind and key), the run's state it ran in, how it ended and its
+  reason, so the person its run then goes to sees why. A later task whose state resets
+  that field (`set`) leaves no stale reason behind.
+
   **An update of an open pull.** A fix may name `input: %{"repository",
   "base", "update" => field}`, `field` the subject's field holding the web address of a
   pull the service opened: its base is `refs/atlas/updates/<number>/<base>`, which Code
@@ -188,6 +194,7 @@ defmodule AtlasFlow.Activities.Task do
       not (spec["creates"] != nil and spec["writes"] != nil) and
       (spec["follow_ups"] == nil or text?(spec["follow_ups"])) and
       (spec["findings"] == nil or (spec["kind"] == "fix" and text?(spec["findings"]))) and
+      (spec["failure"] == nil or (spec["ladder"] == nil and text?(spec["failure"]))) and
       records?(spec["records"]) and text?(spec["machinery"])
   end
 
@@ -889,12 +896,37 @@ defmodule AtlasFlow.Activities.Task do
       result =
         if next == run_outcome, do: result, else: Map.put(result, "reason", "no proposal")
 
-      {:result, next, result, [change(intent, spec, ["result"], values) | made ++ follow_ups],
-       nil}
+      {:result, next, result,
+       [change(intent, spec, ["result"], values) | made ++ follow_ups] ++
+         failure(spec, next, result, run), nil}
     else
       :unavailable -> :none
     end
   end
+
+  # A task that ended without a result (`stuck` or `abandoned`) whose spec names a field
+  # of its subject, `failure`: Flow writes there which task it was, in which state of the
+  # run, how it ended and why, for the one who decides what follows. One write, under an
+  # id of the task's key; nothing for any other end.
+  defp failure(%{"failure" => field} = spec, outcome, result, run)
+       when outcome in ["stuck", "abandoned"] do
+    why = result["reason"] || result["kind"]
+
+    text =
+      "The #{spec["kind"]} task #{result["key"]} (in #{run["state"]}) ended #{outcome}" <>
+        if(is_binary(why) and why != "", do: ": #{why}.", else: ".")
+
+    [
+      write(result["key"], ["failure"], run["subject_kind"], %{
+        "op" => "change",
+        "key" => run["subject_key"],
+        "values" => %{field => text},
+        "by" => "flow"
+      })
+    ]
+  end
+
+  defp failure(_spec, _outcome, _result, _run), do: []
 
   # What a task that proposes facts (`creates`) or writes a field of its subject
   # (`writes`) asks its agent: the file, at the top of the repository, and its form.

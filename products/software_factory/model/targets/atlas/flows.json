@@ -1175,10 +1175,19 @@
             {
               "field": "ci_fixes",
               "value": "one"
+            },
+            {
+              "field": "retry_step",
+              "value": "ci_fix"
+            },
+            {
+              "field": "task_failure",
+              "value": "none"
             }
           ],
           "spec": {
             "cost_class": "standard",
+            "failure": "task_failure",
             "field": "task_result",
             "fields": ["title", "description"],
             "findings": "pr_checks_failure",
@@ -1239,10 +1248,19 @@
             {
               "field": "ci_fixes",
               "value": "two"
+            },
+            {
+              "field": "retry_step",
+              "value": "ci_fix_again"
+            },
+            {
+              "field": "task_failure",
+              "value": "none"
             }
           ],
           "spec": {
             "cost_class": "standard",
+            "failure": "task_failure",
             "field": "task_result",
             "fields": ["title", "description"],
             "findings": "pr_checks_failure",
@@ -1366,9 +1384,19 @@
             },
             "why": "its review asks for changes"
           },
-          "set": [],
+          "set": [
+            {
+              "field": "retry_step",
+              "value": "fix"
+            },
+            {
+              "field": "task_failure",
+              "value": "none"
+            }
+          ],
           "spec": {
             "cost_class": "standard",
+            "failure": "task_failure",
             "field": "task_result",
             "fields": ["title", "description"],
             "input": {
@@ -1502,6 +1530,85 @@
           "timers": [],
           "waiting_for": []
         },
+        "review_stuck": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "done",
+              "when": "entity.gate_result == 'close'"
+            },
+            {
+              "roles": [],
+              "to": "reviewing",
+              "when": "entity.gate_result == 'retry'"
+            },
+            {
+              "roles": [],
+              "to": "publishing",
+              "when": "entity.gate_result == 'publish'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Its review failed",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Decide what to do with it",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "gate_result": "retry"
+                    }
+                  },
+                  "key": "r",
+                  "label": "Retry"
+                },
+                {
+                  "change": {
+                    "values": {
+                      "gate_result": "publish"
+                    }
+                  },
+                  "key": "p",
+                  "label": "Publish without review"
+                },
+                {
+                  "change": {
+                    "values": {
+                      "gate_result": "close"
+                    }
+                  },
+                  "key": "c",
+                  "label": "Close it"
+                }
+              ],
+              "instructions": "The agent reviewing its author's result ended without a verdict; what failed says how and why. Its author's result is complete in Code. Retry runs a fresh review of it; Publish without review has Code open its pull request from it, its body saying no review was made; or close it.",
+              "section": {
+                "field": "task_failure",
+                "label": "What failed"
+              }
+            },
+            "why": "its review ended without a result"
+          },
+          "set": [
+            {
+              "field": "gate_result",
+              "value": "none"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
         "reviewing": {
           "awaits": [],
           "branches": [
@@ -1522,12 +1629,12 @@
             },
             {
               "roles": ["atlas-flow"],
-              "to": "stuck",
+              "to": "review_stuck",
               "when": "entity.task_result == 'stuck'"
             },
             {
               "roles": ["atlas-flow"],
-              "to": "stuck",
+              "to": "review_stuck",
               "when": "entity.task_result == 'abandoned'"
             }
           ],
@@ -1542,9 +1649,19 @@
             },
             "why": "its agent's work is done"
           },
-          "set": [],
+          "set": [
+            {
+              "field": "retry_step",
+              "value": "review"
+            },
+            {
+              "field": "task_failure",
+              "value": "none"
+            }
+          ],
           "spec": {
             "cost_class": "standard",
+            "failure": "task_failure",
             "field": "task_result",
             "fields": ["title", "description"],
             "follow_ups": "issue",
@@ -1568,11 +1685,91 @@
         },
         "stuck": {
           "awaits": [],
-          "branches": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "done",
+              "when": "entity.gate_result == 'close'"
+            },
+            {
+              "roles": [],
+              "to": "done",
+              "when": "entity.pr_state == 'merged'"
+            },
+            {
+              "roles": [],
+              "to": "reviewing",
+              "when": "entity.gate_result == 'retry' and entity.retry_step == 'review'"
+            },
+            {
+              "roles": [],
+              "to": "fixing",
+              "when": "entity.gate_result == 'retry' and entity.retry_step == 'fix'"
+            },
+            {
+              "roles": [],
+              "to": "ci_fixing",
+              "when": "entity.gate_result == 'retry' and entity.retry_step == 'ci_fix'"
+            },
+            {
+              "roles": [],
+              "to": "ci_fixing_again",
+              "when": "entity.gate_result == 'retry' and entity.retry_step == 'ci_fix_again'"
+            },
+            {
+              "roles": [],
+              "to": "working",
+              "when": "entity.gate_result == 'retry'"
+            }
+          ],
           "creates": [],
-          "final": true,
+          "final": false,
           "label": "Stuck",
-          "set": [],
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Decide what to do with it",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "gate_result": "retry"
+                    }
+                  },
+                  "key": "r",
+                  "label": "Retry"
+                },
+                {
+                  "change": {
+                    "values": {
+                      "gate_result": "close"
+                    }
+                  },
+                  "key": "c",
+                  "label": "Close it"
+                }
+              ],
+              "instructions": "An agent task of its build ended without a result, or Code refused to open or push its pull request (its publication says why; then what failed is none). What failed names the task, how it ended and why. Retry runs that step again with a fresh task: its author on a fresh base of develop, any other on its latest result. Or close it.",
+              "section": {
+                "field": "task_failure",
+                "label": "What failed"
+              }
+            },
+            "why": "its agent's work ended without a result"
+          },
+          "set": [
+            {
+              "field": "gate_result",
+              "value": "none"
+            }
+          ],
           "timers": [],
           "waiting_for": []
         },
@@ -1836,9 +2033,19 @@
             },
             "why": "it is not built"
           },
-          "set": [],
+          "set": [
+            {
+              "field": "retry_step",
+              "value": "author"
+            },
+            {
+              "field": "task_failure",
+              "value": "none"
+            }
+          ],
           "spec": {
             "cost_class": "standard",
+            "failure": "task_failure",
             "field": "task_result",
             "fields": ["title", "description"],
             "input": {
@@ -3339,6 +3546,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "cefa100018a4a4e8d36ff811654d74e48186524793005546d949a0532f0ab1df",
+  "rela_flows_sha256": "5df0ff2d8d61a984e7e1a5250ea7c0c909a1c36da53f35f83d58ef8172f7c0e9",
   "writer": "system:atlas-flow"
 }

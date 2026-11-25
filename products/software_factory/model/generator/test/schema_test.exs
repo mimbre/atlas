@@ -673,6 +673,20 @@ defmodule RelaDSL.SchemaTest do
 
       refused(task_source("slot: \"s1\","), 6, "state a: task author: knows no slot")
 
+      # Why it ended without a result goes to a field of the subject.
+      assert {:task, %{failure: :task_failure}} =
+               compile!(task_source("failure: :task_failure,")).__flows__()
+               |> hd()
+               |> Map.fetch!(:states)
+               |> hd()
+               |> Map.fetch!(:mechanism)
+
+      refused(
+        task_source(~s(failure: "task_failure",)),
+        6,
+        "state a: task author: failure: is a field of the subject, for a task outside any ladder"
+      )
+
       refused(
         String.replace(task_source(""), "task :author", "task :ship"),
         6,

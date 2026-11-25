@@ -20,6 +20,7 @@ defmodule AtlasFlow.Runs.Store do
   alias AtlasFlow.{Dispatch, Results, Supervision}
   alias AtlasFlow.Runs.{HandOver, Run}
   alias AtlasFlow.Talk
+  alias AtlasFlow.WorkSource.Leases
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Effect
   alias AtlasFlow.Activities.Task
@@ -596,19 +597,26 @@ defmodule AtlasFlow.Runs.Store do
     if run["definition_sha256"] != flow.digest() do
       migrations = config["selection"][run["flow"]]["migrations"] || []
 
-      case Run.migrate(run, flow, migrations, now) do
-        {:ok, ^run} ->
+      case reopened_by(config, run, flow, migrations) do
+        {:ok, supervisor} ->
+          case Run.migrate(run, flow, migrations, now, supervisor: supervisor) do
+            {:ok, ^run} ->
+              finish(config, d, run, flow, now, remaining)
+
+            {:ok, updated} ->
+              step(config, d, run, updated, flow, now, remaining)
+
+            _ ->
+              blocked = Run.block_definition(run, flow)
+
+              if blocked == run,
+                do: finish(config, d, run, flow, now, remaining),
+                else: step(config, d, run, blocked, flow, now, remaining)
+          end
+
+        # Facts did not say who supervised it: the run is left as it is, for the next round.
+        :unavailable ->
           finish(config, d, run, flow, now, remaining)
-
-        {:ok, updated} ->
-          step(config, d, run, updated, flow, now, remaining)
-
-        _ ->
-          blocked = Run.block_definition(run, flow)
-
-          if blocked == run,
-            do: finish(config, d, run, flow, now, remaining),
-            else: step(config, d, run, blocked, flow, now, remaining)
       end
     else
       resume(config, d, run, flow, now, remaining)
@@ -837,6 +845,39 @@ defmodule AtlasFlow.Runs.Store do
       other ->
         {:error, {:subject_unavailable, other}}
     end
+  end
+
+  # Who supervised a completed run that its migration reopens (`Run.reopening/3`), so its
+  # open state is its supervisor's again: the human its last task was done for (the task
+  # fact's `done_for`, which Dispatch writes when it grants a lease), as a holder of the
+  # model's supervision relation; nil for any other run, or when there is no such task or
+  # no supervision. Leaving its span cleared the run's own.
+  defp reopened_by(config, run, flow, migrations) do
+    with %{} = supervision <- config["supervision"],
+         %{} <- Run.reopening(run, flow, migrations),
+         key when is_binary(key) <- last_task(run) do
+      case Leases.read(key) do
+        {:ok, fact} ->
+          holder = List.first(Leases.links(fact, "done_for"))
+
+          case is_binary(holder) && holder?(supervision, holder) do
+            :unavailable -> :unavailable
+            true -> {:ok, holder}
+            _ -> {:ok, nil}
+          end
+
+        {:error, _} ->
+          :unavailable
+      end
+    else
+      _ -> {:ok, nil}
+    end
+  end
+
+  defp last_task(run) do
+    (run["pending"]["tasks"] || [])
+    |> Enum.reverse()
+    |> Enum.find_value(&(is_binary(&1["key"]) and &1["key"]))
   end
 
   # One transition taken: the next one from it, or the end of the reaction when it
