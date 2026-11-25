@@ -54,6 +54,15 @@ public struct ShellViewModel: Sendable, Equatable {
     public var draft: [String: String]
     /// A submit waits for Control's reply.
     public var submitting: Bool
+    /// What the user did that is not answered yet: its button, the sheet and the status
+    /// bar show it at once.
+    public var pending: SessionState.Pending?
+    /// Why the sheet's submit was not stored, when Control said so only in a notice.
+    public var answer: NoticeMessage?
+    /// The agent's plan, shown over the columns (over an action's sheet too); nil when none.
+    public var plan: PlanBlock?
+    /// The steps of the proposed plan the user dropped.
+    public var droppedSteps: Set<Int>
 
     /// The row selected: the page asked for in the right column while it is on its way (the
     /// clicked row stays selected while its page loads, as the sidebar's group does), else
@@ -96,6 +105,10 @@ public struct ShellViewModel: Sendable, Equatable {
         }
         draft = state.draft
         submitting = state.submitting
+        pending = state.pending
+        answer = state.answer
+        plan = state.plan
+        droppedSteps = state.droppedSteps
         let asked = state.expectedColumn == .opened ? state.expected : nil
         selectedPath = asked ?? (opened ?? index)?.path
         let middle = state.expectedColumn == .index ? state.expected ?? index?.path : index?.path
