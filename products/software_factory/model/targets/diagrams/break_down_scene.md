@@ -7,11 +7,14 @@ The state diagram as `rela flow show break_down_scene` draws it. Rela flow versi
 stateDiagram-v2
     state "break_down" as s0
     state "accepting" as s1
-    state "broken_down" as s2
+    state "clarifying" as s2
+    state "broken_down" as s3
     [*] --> s0
     s0 --> s1: change by atlas-flow when entity.task_result == 'completed'
     s0 --> s1: change by atlas-flow when entity.task_result == 'check_failed'
     s0 --> s1: change by atlas-flow when entity.task_result == 'stuck'
     s0 --> s1: change by atlas-flow when entity.task_result == 'abandoned'
-    s1 --> s2: change when entity.verdict == 'accept'
+    s0 --> s2: change by atlas-flow when entity.task_result == 'asked'
+    s1 --> s3: change when entity.verdict == 'accept'
+    s2 --> s0: change when entity.verdict == 'answered'
 ```
