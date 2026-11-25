@@ -2,22 +2,27 @@ defmodule Model.DescriptionTest do
   use ExUnit.Case, async: true
 
   alias Model.AtlasEyra
-  alias RelaDSL.{DefinitionDigest, Project}
+  alias RelaDSL.{Project, Rela}
 
-  @rela "../targets/rela"
-
-  defp committed(path), do: File.read!(Path.join(@rela, path))
   defp description, do: AtlasEyra.__rela__(:description)
 
-  defp files,
-    do: Project.files(description(), committed("data-entry.yaml"), committed("flows.yaml"))
+  defp flows_yaml,
+    do:
+      Rela.flows_yaml(
+        RelaDSL.Limits.resolve(AtlasEyra.__flows__(), AtlasEyra.__rela__(:gates), :prod)
+      )
 
-  # The safety net of the cutover (Rela DSL design, slice 2): what the model generates is
-  # what targets/rela/ holds, byte for byte. mix model.gen --check says the same in CI.
-  test "every file of the Rela project is what the model generates, byte for byte" do
-    files = files()
+  # The Rela project as the model describes it, with the hand-written data-entry.yaml.
+  defp files do
+    data_entry = File.read!("../targets/rela/data-entry.yaml")
 
-    assert Enum.map(files, &elem(&1, 0)) == [
+    Map.new([
+      {"data-entry.yaml", data_entry} | Project.files(description(), data_entry, flows_yaml())
+    ])
+  end
+
+  test "the Rela project holds the root, module and bindings files, the additions and the manifest" do
+    assert Enum.map(Project.files(description(), "", flows_yaml()), &elem(&1, 0)) == [
              "schema.yaml",
              "modules/foundation/schema.yaml",
              "modules/foundation/audit/schema.yaml",
@@ -30,37 +35,18 @@ defmodule Model.DescriptionTest do
              "flows.yaml",
              "atlas.manifest.json"
            ]
-
-    for {path, body} <- files, do: assert(body == committed(path), path)
-  end
-
-  test "nothing else in the project's generated folders, and only data-entry.yaml and schedules.yaml are hand-written" do
-    generated = Enum.map(files(), &elem(&1, 0))
-
-    on_disk =
-      for folder <- Project.owned_folders(),
-          path <- Path.wildcard(Path.join([@rela, folder, "**", "*"])),
-          File.regular?(path),
-          do: Path.relative_to(path, @rela)
-
-    assert on_disk -- generated == []
-
-    assert Path.wildcard(Path.join(@rela, "*.{yaml,json}"))
-           |> Enum.map(&Path.basename/1)
-           |> Enum.sort() ==
-             Enum.sort(
-               ["data-entry.yaml", "schedules.yaml"] ++
-                 Enum.filter(generated, &(not String.contains?(&1, "/")))
-             )
   end
 
   test "the manifest names every input that is packaged, and none that is gone" do
-    manifest = JSON.decode!(committed("atlas.manifest.json"))
-    sha = &(:crypto.hash(:sha256, committed(&1)) |> Base.encode16(case: :lower))
-    for {path, digest} <- manifest["inputs"], do: assert(sha.(path) == digest, path)
+    files = files()
+    manifest = JSON.decode!(files["atlas.manifest.json"])
+    sha = &(:crypto.hash(:sha256, &1) |> Base.encode16(case: :lower))
+    for {path, digest} <- manifest["inputs"], do: assert(sha.(files[path]) == digest, path)
+
+    assert Map.has_key?(manifest["inputs"], "data-entry.yaml")
     # atlas.json is a proof only: nothing checks or reads it where Atlas runs.
     refute Map.has_key?(manifest, "output_sha256")
-    assert manifest["flows"] == %{"source" => "flows.yaml", "sha256" => sha.("flows.yaml")}
+    assert manifest["flows"] == %{"source" => "flows.yaml", "sha256" => sha.(flows_yaml())}
 
     refute Enum.any?(
              Map.keys(manifest["inputs"]),
@@ -68,8 +54,8 @@ defmodule Model.DescriptionTest do
            )
   end
 
-  test "each kind's and relation's introspection is its part of the committed atlas.json" do
-    extension = JSON.decode!(committed("atlas.json"))
+  test "each kind's and relation's introspection is its part of atlas.json" do
+    extension = JSON.decode!(files()["atlas.json"])
 
     for kind <- Map.keys(description().schema["entities"]) do
       part = AtlasEyra.__rela__({:entity, kind})
@@ -86,46 +72,6 @@ defmodule Model.DescriptionTest do
 
     # Every kind of the extension is a kind of the schema.
     assert Map.keys(extension["entities"]) -- Map.keys(description().schema["entities"]) == []
-  end
-
-  test "each subflow's compiled digest is that of its committed flows.json entry, per environment" do
-    digests = AtlasEyra.__rela__(:digests)
-    proof = JSON.decode!(File.read!("../targets/proof/digests.json"))
-
-    for {env, target} <- [
-          prod: "../targets/atlas/flows.json",
-          test: "../targets/test/atlas/flows.json"
-        ],
-        {name, definition} <- JSON.decode!(File.read!(target))["flows"] do
-      compiled = digests[env][String.to_atom(name)]
-      assert compiled.digest == DefinitionDigest.of(definition), "#{env} #{name}"
-      assert proof["subflows"][name][to_string(env)]["digest"] == compiled.digest
-      assert compiled.states == Enum.sort(Map.keys(definition["states"]))
-    end
-
-    # The decide pair after slice 7 (the configured decider), as definition_digest_test
-    # pins the ones before it.
-    assert digests.prod.decide.digest ==
-             "06d957cd558f2e2957c4b0542bbef040876a5d426b245537eeedcf4aaa1a04b6"
-
-    assert digests.test.decide.digest ==
-             "ab9c1bdf9b947e32b98bd41dd0ddf3341101f2b4aeab76a3960d0a5ebd5104ae"
-  end
-
-  test "the run migrations of flow-runtime.json are the migrate declarations, in order" do
-    committed =
-      JSON.decode!(committed("flow-runtime.json"))
-      |> get_in(["flow_runtime", "selection", "decide", "migrations"])
-
-    declared =
-      for %{subflow: :decide, opts: o} <- AtlasEyra.__rela__(:migrations), do: {o[:from], o[:to]}
-
-    assert Enum.map(committed, &{&1["from"], &1["to"]}) == declared
-
-    proof = JSON.decode!(File.read!("../targets/proof/digests.json"))["subflows"]["decide"]
-    history = for {_env, e} <- proof, h <- e["history"], do: h["digest"]
-    for {from, to} <- declared, do: assert(from in history and to in history)
-    assert "118c1cf31028979df064344d708a59f8ee19ad97493b47d66ac2d66cbb8dbb00" in history
   end
 
   describe "the profiles (private dependency proofs)" do
@@ -190,7 +136,7 @@ defmodule Model.DescriptionTest do
   # carry every packaged input, so verify.py passes in the image. The core copies no
   # generated JSON (D-0083): the model is compiled in.
   test "both image recipes copy every input the manifest names and the manifest" do
-    manifest = JSON.decode!(committed("atlas.manifest.json"))
+    manifest = JSON.decode!(files()["atlas.manifest.json"])
     needed = Map.keys(manifest["inputs"]) ++ ["atlas.manifest.json"]
 
     copies =
@@ -202,24 +148,25 @@ defmodule Model.DescriptionTest do
         do: refute(Enum.any?(copies, &(&1 =~ proof)), "core.Dockerfile copies #{proof}")
 
     for recipe <- ["core", "rela"] do
-      copied =
+      # Each source of a COPY of the Rela project, below it: a file, or a folder (`x/`).
+      sources =
         for line <-
               String.split(File.read!("../../../../platform/ops/#{recipe}.Dockerfile"), "\n"),
             String.starts_with?(line, "COPY products/software_factory/model/targets/rela/"),
             [_ | args] = String.split(line),
             {sources, [_target]} = Enum.split(args, -1),
             source <- sources,
-            relative =
-              String.replace_prefix(source, "products/software_factory/model/targets/rela/", ""),
-            path <-
-              if(File.dir?(Path.join(@rela, relative)),
-                do: Path.wildcard(Path.join([@rela, relative, "**", "*"])),
-                else: [Path.join(@rela, relative)]
-              ),
-            File.regular?(path),
-            do: Path.relative_to(path, @rela)
+            do:
+              source
+              |> String.replace_prefix("products/software_factory/model/targets/rela/", "")
+              |> String.trim_trailing("/")
 
-      assert needed -- copied == [], "#{recipe}.Dockerfile misses #{inspect(needed -- copied)}"
+      copied? = fn path ->
+        Enum.any?(sources, &(&1 == path or String.starts_with?(path, &1 <> "/")))
+      end
+
+      missed = Enum.reject(needed, copied?)
+      assert missed == [], "#{recipe}.Dockerfile misses #{inspect(missed)}"
     end
   end
 end

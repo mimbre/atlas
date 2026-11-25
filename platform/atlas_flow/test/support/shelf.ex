@@ -23,7 +23,7 @@ defmodule AtlasFlow.Shelf.Stock do
   relation(:on_shelf, label: "on shelf", from: [:jar, :tin], to: [:shelf])
 
   entity :cursor, label: "Cursor", plural: "cursors", id_type: :manual do
-    for f <- ~w(flow subject_kind subject_key definition_sha256 state entered_at status
+    for f <- ~w(flow subject_kind subject_key state entered_at status
                 deadlines pending last_input blocked_reason)a,
         do: field(f, :string)
 

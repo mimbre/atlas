@@ -592,7 +592,7 @@ defmodule AtlasFlow.Dispatch do
   # A task with no lease, or whose last one was lost or ended without a result. "Without a
   # result" is decided from the ending (`Translate.no_result?/1`), never from a cancel
   # request alone: an ended(completed) after cancel_requested is not offered again. An
-  # empty turn (`Translate.empty/1`: its lease ran out silent, or it ended with nothing)
+  # empty turn (`Translate.empty/1`: its lease ran out silent, or it crashed with nothing)
   # is granted again only once its run counted that attempt (`Translate.retried/1`): the
   # run decides whether it is started once more or ends abandoned, never Dispatch.
   defp grantable?(nil, _intent), do: false

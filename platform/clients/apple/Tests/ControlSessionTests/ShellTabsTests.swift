@@ -49,12 +49,16 @@ final class ShellTabsTests: XCTestCase {
         }
     }
 
-    /// The product's generated description (read only): the shell its Control serves.
+    /// The product's description as `bin/generate model` writes it (not kept in git; CI
+    /// generates it before this run): the shell its Control serves.
     func testTheShellTheProductShipsBootsWithAndWithoutItsAssignedTab() throws {
         let product = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("../../../products/software_factory/model/targets/rela/atlas.json")
             .standardizedFileURL
+        guard FileManager.default.fileExists(atPath: product.path) else {
+            return XCTFail("no \(product.path): run bin/generate model first")
+        }
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: product)) as? [String: Any])
         let shell = try XCTUnwrap(root["shell"] as? [String: Any])
         let tabs = try XCTUnwrap(shell["tabs"] as? [[String: Any]])

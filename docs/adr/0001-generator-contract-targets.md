@@ -13,18 +13,17 @@ Prism (github.com/novasoftwarefoundation/prism) separates the same concerns into
 1. **Three parts under `platform/atlas_control/backend/`.**
    - `platform/atlas_control/backend/generator/` is its own Mix project (`atlas_bff`). It holds the DSL (`AtlasBFF.Schema`), the rules of markup (`AtlasBFF.Markup`), the header (`AtlasBFF.Header`), the targets and `mix atlas.gen`, and none of Atlas's values.
    - `platform/atlas_control/backend/contract/` is its own Mix project (`atlas_bff_contract`). It depends on the generator by path. `AtlasBFFContract.Contract` composes separate presentation, payload-model and Control/Runtime wire declarations.
-   - Generated files go under `platform/atlas_control/backend/targets/<target>/`.
+   - Generated files go under `platform/atlas_control/backend/targets/<target>/`. They are build output (D-0102): not kept in git, written by `mix atlas.gen` (`bin/generate atlas`) where a build needs them.
 2. **One data function.** A contract compiles to `__schema__/0`, plain data documented in `AtlasBFF.Schema`. Targets read only that. A test fails when anything but the schema module calls into the DSL.
 3. **Elixir consumers read the contract at compile time.** Control and the TUI depend on the contract by path. `use AtlasBFF.Targets.Server` / `use AtlasBFF.Targets.Client` build their modules when they compile, as prism's Phoenix target does. No Elixir code is generated into files, and changing the contract recompiles them.
 4. **Other languages get files.** `AtlasBFF.Targets.Json` writes `platform/atlas_control/backend/targets/json/blocks.json`. A Swift package for iOS will be the next file target, under `platform/atlas_control/backend/targets/swift/`, with its own ADR.
 5. **Generated files are guarded:**
    - Each one starts with a header naming the command and the contract file (in JSON, the first member `"$comment"`).
    - `mix atlas.gen` never overwrites a file without that header, and removes a file with it that no target writes any more.
-   - `--check` fails on a file that would change and on a left-over one.
 6. **CI keeps the parts apart:**
    - The generator is built and tested on its own, without the contract, on a neutral example contract.
    - A grep refuses Atlas's values in `platform/atlas_control/backend/generator/`.
-   - The contract job runs `mix atlas.gen --check`.
+   - The contract job runs `mix atlas.gen`; nothing compares its output with an earlier one.
    - The JSON target has a golden test on the example contract.
    - The TUI's tests fail when the contract has a block or kind of markup the TUI does not know (`AtlasTui.View.known/0`).
 
@@ -35,7 +34,7 @@ Copied:
 - one documented data function, and the test that targets read only it;
 - the grep for project values in the generator, and the generator compiling and being tested without the contract;
 - the header on every generated file, never overwriting a file without it;
-- `--check` failing on stale and left-over files;
+- removing left-over generated files;
 - a golden test;
 - the unknown-target error;
 - fail on an unknown name, as a TUI test over the contract's names;
@@ -53,7 +52,7 @@ Left out, and why:
 
 ## Consequences
 
-- To change the contract, edit the owning declaration under `platform/atlas_control/backend/contract/lib/` (composed by `contract.ex`), run `mix atlas.gen` in `platform/atlas_control/backend/contract`, and commit `platform/atlas_control/backend/targets/`. Control and the TUI pick the change up when they compile.
+- To change the contract, edit the owning declaration under `platform/atlas_control/backend/contract/lib/` (composed by `contract.ex`) and run `bin/generate atlas` where a client in another language needs the files. Control and the TUI pick the change up when they compile. The Swift package is published to github.com/mimbre/atlas-swift, tagged with the contract's version; Apple clients depend on that.
 - The generator can be reused, or released, without Atlas's blocks.
 - `platform/atlas_control/backend/README.md` keeps the view model, the wire format and the protocol.
 

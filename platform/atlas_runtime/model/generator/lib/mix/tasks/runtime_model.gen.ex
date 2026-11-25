@@ -1,8 +1,7 @@
 defmodule Mix.Tasks.RuntimeModel.Gen do
   @shortdoc "Generate the file targets of the configured model contracts"
   @moduledoc """
-      mix runtime_model.gen           # write them
-      mix runtime_model.gen --check   # fail when one is stale or left over (CI)
+      mix runtime_model.gen
 
   Run in a model contract's project, which configures its contracts and file targets:
 
@@ -20,7 +19,7 @@ defmodule Mix.Tasks.RuntimeModel.Gen do
   Every file starts with an `AtlasRuntimeModel.Generator.Header`. A file without exactly
   that header is hand-written and never overwritten. A file with it, in a target's folder,
   that no target writes any more (a renamed or removed one) is left over: the task removes
-  it, and `--check` fails on it, as on a file that would change.
+  it. The files are build output: they are not kept in git.
   """
   use Mix.Task
 
@@ -35,8 +34,7 @@ defmodule Mix.Tasks.RuntimeModel.Gen do
 
   @impl true
   def run(args) do
-    {opts, rest} = OptionParser.parse!(args, strict: [check: :boolean])
-    if rest != [], do: Mix.raise("unexpected argument #{Enum.join(rest, " ")}")
+    if args != [], do: Mix.raise("unexpected argument #{Enum.join(args, " ")}")
 
     root = Path.expand(Application.get_env(@app, :root, "."))
     targets = targets!()
@@ -52,35 +50,23 @@ defmodule Mix.Tasks.RuntimeModel.Gen do
     stale = for {path, body} <- files, File.read(path) != {:ok, body}, do: path
     leftovers = leftovers(files, targets)
 
-    cond do
-      opts[:check] && (stale != [] or leftovers != []) ->
-        Mix.raise(
-          "out of date, run `mix runtime_model.gen`: " <>
-            Enum.join(stale ++ Enum.map(leftovers, &"#{&1} (left over)"), ", ")
-        )
+    for path <- stale,
+        File.exists?(path),
+        not generated?(path),
+        do: Mix.raise("#{path} has no generated header; it is not overwritten")
 
-      opts[:check] ->
-        Mix.shell().info("generated files are up to date")
-
-      true ->
-        for path <- stale,
-            File.exists?(path),
-            not generated?(path),
-            do: Mix.raise("#{path} has no generated header; it is not overwritten")
-
-        for path <- leftovers do
-          File.rm!(path)
-          Mix.shell().info("removed #{path} (left over)")
-        end
-
-        for {path, body} <- files, path in stale do
-          File.mkdir_p!(Path.dirname(path))
-          File.write!(path, body)
-          Mix.shell().info("wrote #{path}")
-        end
-
-        if stale == [] and leftovers == [], do: Mix.shell().info("generated files are up to date")
+    for path <- leftovers do
+      File.rm!(path)
+      Mix.shell().info("removed #{path} (left over)")
     end
+
+    for {path, body} <- files, path in stale do
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, body)
+      Mix.shell().info("wrote #{path}")
+    end
+
+    if stale == [] and leftovers == [], do: Mix.shell().info("generated files are up to date")
   end
 
   # Files with the header, in a target's folder, that no target writes now.

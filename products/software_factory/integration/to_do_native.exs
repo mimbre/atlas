@@ -1,13 +1,13 @@
 # Isolated real model/Facts/Flow/Control/Rela proof. Never uses an environment service.
-# MIX_ENV=test mix run integration/to_do_native.exs PRIVATE_DIR RELA_BIN_DIR BASE_DIGESTS
-# BASE_DIGESTS is the unchanged slice14 products/software_factory/model/targets/proof/digests.json.
+# MIX_ENV=test mix run integration/to_do_native.exs PRIVATE_DIR RELA_BIN_DIR
+# Run after generation (bin/generate): it serves products/software_factory/model/targets/rela.
 import ExUnit.Assertions
 alias AtlasFlow.{ManualClock, Talk}
 alias AtlasFlow.Runs.{Projection, Store}
 alias AtlasControl.{Answers, Pages}
 alias AtlasControl.Model, as: Catalog
 
-[dir, bin, base_path] = System.argv()
+[dir, bin] = System.argv()
 root = Path.expand("../../..", __DIR__)
 data = Path.join(dir, "rela")
 File.mkdir_p!(data)
@@ -15,11 +15,6 @@ File.mkdir_p!(data)
 # Compile the real clients against the same generated BFF contract, in memory only.
 client_sources = Path.wildcard(Path.join(root, "platform/clients/{agent,tui}/lib/**/*.ex"))
 assert {:ok, _, _} = Kernel.ParallelCompiler.compile(client_sources)
-
-# Compare the generated proof structurally, including every prior history entry.
-base = base_path |> File.read!() |> JSON.decode!()
-proof = Path.join(root, "products/software_factory/model/targets/proof/digests.json") |> File.read!() |> JSON.decode!()
-assert Map.delete(proof["subflows"], "to_do") == base["subflows"]
 
 {out, status} =
   System.cmd(

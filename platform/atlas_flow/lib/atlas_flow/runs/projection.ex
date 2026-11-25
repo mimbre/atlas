@@ -31,7 +31,7 @@ defmodule AtlasFlow.Runs.Projection do
   require Logger
 
   alias AtlasFlow.Talk
-  alias AtlasFlow.Runs.{Presentation, Store}
+  alias AtlasFlow.Runs.{Presentation, Run, Store}
 
   @doc """
   Project `{kind, key}` with `runner` (`AtlasFlow.Model.load/3`): `{:ok, :none}`
@@ -72,7 +72,8 @@ defmodule AtlasFlow.Runs.Projection do
   end
 
   # What the latest generation presents. Preserve the absence of a presentation for
-  # missing, refused or other-definition runs; an unavailable read is a failure.
+  # missing or refused runs and runs in a state their subflow no longer has; an
+  # unavailable read is a failure.
   defp presented(runner, kind, fact, {name, _selection}) do
     %{config: config, flows: flows, refusal: refusal} = runner
     subflow = flows[name]
@@ -80,7 +81,7 @@ defmodule AtlasFlow.Runs.Projection do
     with nil <- refusal,
          true <- subflow != nil,
          {:ok, %{} = run} <- Store.latest(config, name, kind, fact["key"]),
-         true <- run["definition_sha256"] == subflow.digest(),
+         false <- Run.state_removed?(run, subflow),
          {:ok, run} <- supervised(runner, subflow, run) do
       {:ok, Presentation.of_run(run, subflow, fact, &owner(runner, &1, run)) |> entered(run)}
     else

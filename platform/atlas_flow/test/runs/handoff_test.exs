@@ -52,15 +52,13 @@ defmodule AtlasFlow.Runs.HandoffTest do
       "subject" => "box",
       "projection" => @projection,
       "admission" => %{"phase" => ["first"]},
-      "imports" => [],
-      "migrations" => []
+      "imports" => []
     },
     "stack" => %{
       "subject" => "box",
       "projection" => @projection,
       "admission" => %{"phase" => ["second", nil]},
-      "imports" => [%{"when" => %{"phase" => [nil]}, "state" => "stacking"}],
-      "migrations" => []
+      "imports" => [%{"when" => %{"phase" => [nil]}, "state" => "stacking"}]
     }
   }
 

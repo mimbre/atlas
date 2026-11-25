@@ -36,7 +36,7 @@ defmodule AtlasFlow.Activities.TaskTest.Bench do
     relation(:chosen_by, label: "chosen by", from: [:bin], to: [:clerk], max_outgoing: 1)
 
     entity :cursor, label: "Cursor", plural: "cursors", id_type: :manual do
-      for f <- ~w(flow subject_kind subject_key definition_sha256 state entered_at status
+      for f <- ~w(flow subject_kind subject_key state entered_at status
                   deadlines pending last_input blocked_reason)a,
           do: field(f, :string)
 
@@ -891,8 +891,6 @@ defmodule AtlasFlow.Activities.TaskTest do
       def runs, do: Bench.runs()
       @impl true
       def selection(name), do: Bench.selection(name)
-      @impl true
-      def migrations, do: Bench.migrations()
       @impl true
       def composition, do: Bench.composition()
       @impl true

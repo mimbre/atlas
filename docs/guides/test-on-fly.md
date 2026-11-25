@@ -49,9 +49,11 @@ deployment serialization and the deployed read-only smoke remain mandatory.
 When the merged tree already passed every test job (on its pull request), those jobs are
 skipped and test deploys right away; see `docs/guides/prod.md`, "CI tests a tree once".
 
-1. On rela's machine, on a copy of its data: does this build's description describe all of it? When it does not, nothing is deployed and test keeps its build; that data needs a migration first (below).
-2. rela, then the core.
-3. A smoke check that reads only (`platform/ops/smoke.sh test`).
+1. `bin/generate model`: the model's targets (the Rela project both images carry), generated with the pinned rela; they are not kept in git, so every deploy writes them from the tree it deploys.
+2. On rela's machine, on a copy of its data: does this build's description describe all of it? When it does not, nothing is deployed and test keeps its build; that data needs a migration first (below).
+3. The open runs (neither completed nor ended, from rela's own API on loopback): does this build's model keep the flow and state of every one the running core's model has (`platform/ops/runs-fit.py`, the running model from the deployed core, the new one from `mix model.flows --env test`)? A run continues by its flow's and state's names (D-0102), so removing or renaming a flow or a state goes through only once no run is in it. When one is, nothing is deployed and the job lists those runs: let them finish or move on, then deploy again.
+4. rela, then the core.
+5. A smoke check that reads only (`platform/ops/smoke.sh test`).
 
 The test deployment job serializes the entire rela/core pair without cancelling
 an in-flight update. Pending jobs queue instead of replacing one another. After

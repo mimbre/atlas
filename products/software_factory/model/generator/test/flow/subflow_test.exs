@@ -1,7 +1,6 @@
 defmodule RelaDSL.Flow.SubflowTest do
   use ExUnit.Case, async: true
 
-  alias RelaDSL.DefinitionDigest
   alias RelaDSL.Flow.Subflow
 
   defmodule Letter do
@@ -17,8 +16,7 @@ defmodule RelaDSL.Flow.SubflowTest do
         "letter"
       ]
 
-  test "its digest is that of its data, so a run started under it keeps its identity" do
-    assert Letter.digest() == DefinitionDigest.of(definition())
+  test "its name, subject, initial state and states are those of its data" do
     assert Letter.states() == Enum.sort(Map.keys(definition()["states"]))
     assert {Letter.name(), Letter.subject(), Letter.initial()} == {"letter", "letter", "draft"}
   end

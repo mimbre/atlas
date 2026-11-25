@@ -51,8 +51,7 @@ defmodule Model.Package do
       Entering either state resets
       `answer` to `none`, so an earlier answer moves nothing. Flow writes no `decision` (B-4: `follow_through` is not involved).
     * `stuck`: abandoned. A person who takes a stuck package back restarts it or does it
-      by hand. A run that ended `authored` or `check_failed` before the loop (F1.4) is
-      `stuck` now (the migration below).
+      by hand.
 
   Where the work starts is a base, never a path on the machinery's machine (the
   Runtime's D44): `input` names the Code repository (`github.com/mimbre/atlas`, as Code's
@@ -408,53 +407,5 @@ defmodule Model.Package do
     ],
     admission: [],
     imports: []
-  )
-
-  # The approved migrations of the runs of package; each from is a digest the base
-  # branch recorded (RelaDSL.RunIdentity).
-  # M3 A4: the author task's input names a Code repository (no longer a Git URL); its
-  # base is resolved by Flow and the task goes through Flow's work source. No state
-  # changes, so a live run keeps its state, entry and timers. Prod and test share both
-  # digests.
-  migrate(:package,
-    from: "ed9ae978d163fa3b7d7baf396b8fafab0bebbaf06edfe5028fe4f853d9c99d2c",
-    to: "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
-    preserve_entry: true,
-    states: :same,
-    reason: "The author task's input is a Code repository and reference; same states"
-  )
-
-  # F2-P: the review → fix loop. Every task is a ladder step; the states of the loop are
-  # new, and authored and check_failed are gone (nothing leads to them any more). A run
-  # waiting or authoring keeps its state, and is entered again on the new definition (an
-  # author task in flight blocks the run until it is moved by hand: no entry is
-  # preserved, since two of the states change). A run that ended authored or check_failed
-  # ended: a completed run stays in a final state, so it is stuck, which a person takes
-  # back to restart it. Prod and test share both digests.
-  migrate(:package,
-    from: "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747",
-    to: "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214",
-    states: [
-      waiting: :waiting,
-      authoring: :authoring,
-      authored: :stuck,
-      check_failed: :stuck,
-      stuck: :stuck
-    ],
-    reason:
-      "The review and fix loop: each task is a ladder step; a run that ended authored or check_failed is stuck"
-  )
-
-  # Its presentation says its supervisor's pickup starts the work (IS-Atlas-25), and held
-  # and awaiting_decision no longer ask to hand it back to its machinery; texts only, so a
-  # run keeps its state and entry, also with a task in flight. Prod and test share both
-  # digests.
-  migrate(:package,
-    from: "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214",
-    to: "cff1c8ec60ecf670246f9a4455dbc5be6ddc6eb75aab5877616fbe629203db9c",
-    preserve_entry: true,
-    states: :same,
-    reason:
-      "Its supervisor's pickup starts the work; held and awaiting_decision ask no hand-back; texts only"
   )
 end

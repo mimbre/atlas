@@ -1,4 +1,4 @@
-# Disposable actual PR196 -> current admission -> reviewed maintenance migration.
+# Disposable actual PR196 -> current admission -> reviewed maintenance recovery.
 # mix run integration/flow_refused_tally_recovery_native.exs EVIDENCE PR196_WRITES
 import ExUnit.Assertions
 alias AtlasFacts.Rela
@@ -10,7 +10,6 @@ defmodule RecoveryNativeModel do
   defdelegate runs(), to: Model.AtlasEyra
   def selection("follow_through"), do: Model.AtlasEyra.selection("follow_through")
   def selection(_), do: nil
-  defdelegate migrations(), to: Model.AtlasEyra
   defdelegate composition(), to: Model.AtlasEyra
   defdelegate actors(), to: Model.AtlasEyra
   defdelegate relations(), to: Model.AtlasEyra
@@ -282,17 +281,15 @@ for mode <- [
                  )
                end)
 
-      for field <- ~w(generation definition_sha256) do
-        assert {:error, :recovery_snapshot_changed} =
-                 as_flow.(fn ->
-                   Store.recover_refused_tally(
-                     runner.config,
-                     runner.flows,
-                     put_in(plan, ["run", field], "changed"),
-                     now
-                   )
-                 end)
-      end
+      assert {:error, :recovery_snapshot_changed} =
+               as_flow.(fn ->
+                 Store.recover_refused_tally(
+                   runner.config,
+                   runner.flows,
+                   put_in(plan, ["run", "generation"], "changed"),
+                   now
+                 )
+               end)
 
       for config <- [
             put_in(runner.config, ["selection", "follow_through", "choices"], ["answer"]),
@@ -398,7 +395,6 @@ for mode <- [
           assert {:ok, recovered} = result
           assert recovered["entry"] >= original_run["entry"] + 1
           assert recovered["generation"] == original_run["generation"]
-          assert recovered["definition_sha256"] == original_run["definition_sha256"]
           [audit] = recovered["pending"]["migrations"]
           assert audit["retired"]["writes"] == [write] and audit["receipt"] == receipt
           assert audit["retired"]["synthetic"] == original_run["pending"]["synthetic"]
@@ -473,7 +469,7 @@ for mode <- [
           end
 
           # A local Engine call remains usable after a prior failed round; same plan
-          # resumes its committed entry, never schedules another migration.
+          # resumes its committed entry, never schedules another recovery.
           # When the receipt restart above stopped Facts, reopen it for Engine's
           # duplicate call and the final unchanged-history checks.
           if not Process.alive?(facts) do
@@ -513,7 +509,7 @@ for mode <- [
       end
 
       IO.puts(
-        "PASS #{mode}: actual PR196 exact refusal, corrected replay stuck, bounded migration boundary verified, old receipt/history preserved"
+        "PASS #{mode}: actual PR196 exact refusal, corrected replay stuck, bounded recovery boundary verified, old receipt/history preserved"
       )
     after
       if Process.alive?(facts), do: GenServer.stop(facts)

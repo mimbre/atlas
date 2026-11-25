@@ -1,6 +1,6 @@
 defmodule Model.Issue do
   @moduledoc """
-  The issue kind, its gates, selection and migration policy. Model.Delivery declares
+  The issue kind, its gates and selection. Model.Delivery declares
   its `issue` subflow: an agent builds it on its supervisor's Runtime, a second agent
   reviews it, one fix follows changes required, Code opens its pull request (`pr_url`),
   its CI is waited for (`pr_checks` and `pr_checks_failure`, as rela's GitHub sync writes
@@ -251,72 +251,5 @@ defmodule Model.Issue do
       [when: [pr_outcome: [:integrated]], state: :done]
     ],
     order: [within: :in_use_case, by: :order, done: [:done]]
-  )
-
-  # The approved migration of its runs, from the digest the base branch recorded
-  # (RelaDSL.RunIdentity); the same in prod and test. No run had that digest: the
-  # subflow was never selected before slice 9. A run that did would move along it as a
-  # state migration (re-entering its state), never as a re-key: every open state goes to
-  # `author`, the one open state left, and a quiescent run there waits for the merge;
-  # one with a frozen pass, gate or effect is not quiescent and blocks. A `closed` run
-  # is completed and `author` is open, so Flow refuses to move it and it blocks: a
-  # cancelled run is never taken for an integrated one.
-  migrate(:issue,
-    from: "99b406f1da0c908d703acd82c37c2bd07ec5c103e352809afed37b676693ed5e",
-    to: "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
-    states: [
-      author: :author,
-      closed: :author,
-      delivery_gate: :author,
-      done: :done,
-      in_pr: :author,
-      needs_person: :author,
-      publish: :author,
-      review: :author,
-      review_gate: :author,
-      rework: :author
-    ],
-    reason: "Slice 9: selected without its passes, gates and publish effect; built by hand"
-  )
-
-  # Slice 6: an issue is built like the job was (Model.Delivery). An issue still to be
-  # built (`author`, where it waited for a pull request by hand) re-enters `working`
-  # unsupervised, open for anyone to pick up; nothing runs until it is handed to a
-  # machinery. A done one stays done. Its facts are kept as they are.
-  migrate(:issue,
-    from: "6dcb5eefa0dd0aec97748b7280249678cb64d759808b81e2104b3992c7b38052",
-    to: "f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda",
-    states: [author: :working, done: :done],
-    reason: "Slice 6: built by an agent, reviewed, fixed once and merged by its supervisor"
-  )
-
-  # Follow-ups: the review's spec names the kind its follow-ups become (`follow_ups:`).
-  # Nothing else changes, so a live run keeps its state, entry, task and timers; a review
-  # in flight is asked for no follow-ups, and gives none.
-  migrate(:issue,
-    from: "f81c7f5f55988b1a1d9bc8ee4c96ab1ea46cd6981be81bad5143dfd0036a9bda",
-    to: "6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c",
-    preserve_entry: true,
-    states: :same,
-    reason: "The review's follow-ups become new issues under its use case; same states"
-  )
-
-  # A result without changes goes to its supervisor (`unchanged`, IS-Atlas-53): one state
-  # more, none renamed or removed, so a live run keeps its state, entry, task and timers.
-  migrate(:issue,
-    from: "6838fecd81c12bbc52dd138c2d270077a8f3c163c1181d8dda301bc312cedb4c",
-    to: "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
-    preserve_entry: true,
-    states: [
-      done: :done,
-      fixing: :fixing,
-      merging: :merging,
-      publishing: :publishing,
-      reviewing: :reviewing,
-      stuck: :stuck,
-      working: :working
-    ],
-    reason:
-      "A result without changes goes to its supervisor, not to a pull request; one state more"
   )
 end

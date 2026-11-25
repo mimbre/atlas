@@ -86,7 +86,7 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
 
   defp gen(args \\ []), do: Mix.Tasks.RuntimeBackend.Gen.run(args)
 
-  test "writes the contract's file, named after it, with its header; --check passes after",
+  test "writes the contract's file, named after it, with its header; a second run changes nothing",
        %{tmp_dir: dir, json: json} do
     gen()
     assert File.ls!(dir) == ["api.json"]
@@ -95,7 +95,7 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
              _ = File.read!(json)
 
     assert File.read!(json) =~ "test/support/example_api.ex and regenerate."
-    gen(["--check"])
+    gen()
     assert_received {:mix_shell, :info, ["generated files are up to date"]}
   end
 
@@ -105,26 +105,19 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
     assert File.ls!(dir) == ["lending.json"]
   end
 
-  test "--check fails on a stale file and writes nothing", %{json: json} do
+  test "rewrites a file that differs from what the contract generates", %{json: json} do
     gen()
     File.write!(json, String.replace(File.read!(json), "/v1/books", "/v1/bookz"))
-    assert_raise Mix.Error, ~r/out of date.*api.json/, fn -> gen(["--check"]) end
-    assert File.read!(json) =~ "/v1/bookz"
-  end
-
-  test "--check fails on a missing file", %{json: json} do
-    assert_raise Mix.Error, ~r/out of date.*api.json/, fn -> gen(["--check"]) end
-    refute File.exists?(json)
+    gen()
+    refute File.read!(json) =~ "/v1/bookz"
   end
 
   test "a file with the header that no target writes is left over", %{tmp_dir: dir, json: json} do
     gen()
     old = Path.join(dir, "old.json")
     File.write!(old, File.read!(json))
-    assert_raise Mix.Error, ~r/old.json \(left over\)/, fn -> gen(["--check"]) end
     gen()
     refute File.exists?(old)
-    gen(["--check"])
   end
 
   test "a hand-written file is never overwritten nor removed", %{tmp_dir: dir, json: json} do
@@ -183,7 +176,7 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
           assert File.read!(Path.join(dir, "lending.json")) =~
                    ~s(change support/example_api.ex and regenerate.)
 
-          gen(["--check"])
+          gen()
           assert_received {:mix_shell, :info, ["generated files are up to date"]}
         end
       )
@@ -213,7 +206,7 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
         assert File.read!(Path.join(dir, "lending.json")) =~ "change support/example_api.ex"
         assert File.read!(Path.join(dir, "desk.json")) =~ "change support/example_desk.ex"
         assert File.read!(Path.join(dir, "desk.json")) =~ "/v1/desk/open"
-        gen(["--check"])
+        gen()
         assert_received {:mix_shell, :info, ["generated files are up to date"]}
       end)
 
@@ -221,7 +214,8 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
       in_project(
         [contracts: Keyword.take(both, [:lending]), targets: [json: dir], root: "test"],
         fn ->
-          assert_raise Mix.Error, ~r/desk.json \(left over\)/, fn -> gen(["--check"]) end
+          gen()
+          assert File.ls!(dir) == ["lending.json"]
         end
       )
     end
@@ -293,7 +287,7 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
       }
     end
 
-    test "write routes.json and openapi.json with their header; --check passes after",
+    test "write routes.json and openapi.json with their header; a second run changes nothing",
          %{tmp_dir: dir, routes: routes, openapi: openapi} do
       gen()
       assert File.ls!(dir) == ["api"]
@@ -310,49 +304,39 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
       for key <- Map.keys(JSON.decode!(File.read!(openapi))),
           do: assert(key in @openapi_root or String.starts_with?(key, "x-"), key)
 
-      gen(["--check"])
+      gen()
       assert_received {:mix_shell, :info, ["generated files are up to date"]}
     end
 
-    test "--check fails after a hand edit of either file", %{routes: routes, openapi: openapi} do
+    test "rewrites either file after a hand edit", %{routes: routes, openapi: openapi} do
       for path <- [routes, openapi] do
         gen()
         File.write!(path, String.replace(File.read!(path), "/v1/books", "/v1/bookz"))
-        name = Path.basename(path)
-        assert_raise Mix.Error, ~r/out of date.*#{name}/, fn -> gen(["--check"]) end
-        assert File.read!(path) =~ "/v1/bookz"
+        gen()
+        refute File.read!(path) =~ "/v1/bookz"
       end
     end
 
-    test "--check fails after a resource is removed from the contract, until regenerated",
+    test "after a resource is removed from the contract, regenerating follows it",
          %{tmp_dir: dir, routes: routes, openapi: openapi} do
       gen()
       # The contract's name is now fewer: its files go to fewer/, and api/'s are left over.
       Application.put_env(@app, :contract, AtlasRuntimeBackend.Generator.Example.Fewer)
 
-      error = assert_raise Mix.Error, fn -> gen(["--check"]) end
-      assert error.message =~ "fewer/routes.json"
-      assert error.message =~ "fewer/openapi.json"
-      assert error.message =~ "api/openapi.json (left over)"
       assert File.read!(openapi) =~ "/v1/count"
 
       gen()
       refute File.exists?(routes) or File.exists?(openapi)
       refute File.read!(Path.join([dir, "fewer", "routes.json"])) =~ "/v1/count"
       refute File.read!(Path.join([dir, "fewer", "openapi.json"])) =~ "/v1/count"
-      gen(["--check"])
-      assert_received {:mix_shell, :info, ["generated files are up to date"]}
     end
 
-    test "--check fails on a generated file no target writes any more",
+    test "a generated file no target writes any more is removed",
          %{tmp_dir: dir, openapi: openapi} do
       gen()
       Application.put_env(@app, :targets, routes: dir)
-      assert_raise Mix.Error, ~r/openapi.json \(left over\)/, fn -> gen(["--check"]) end
-      assert File.exists?(openapi)
       gen()
       refute File.exists?(openapi)
-      gen(["--check"])
     end
   end
 
@@ -388,7 +372,7 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
       assert desk_doc["info"]["title"] == "Desk"
       refute Map.has_key?(desk_doc["components"], "securitySchemes")
 
-      gen(["--check"])
+      gen()
       assert_received {:mix_shell, :info, ["generated files are up to date"]}
     end)
   end
@@ -414,10 +398,9 @@ defmodule Mix.Tasks.RuntimeBackend.GenTest do
     assert File.ls!(dir) == []
   end
 
-  test "targets: [] writes nothing, and --check passes", %{tmp_dir: dir} do
+  test "targets: [] writes nothing", %{tmp_dir: dir} do
     in_project([contracts: [work: AtlasRuntimeBackend.Generator.Example.Api], targets: []], fn ->
       gen()
-      gen(["--check"])
       assert_received {:mix_shell, :info, ["generated files are up to date"]}
     end)
 

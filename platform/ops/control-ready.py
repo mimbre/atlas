@@ -6,12 +6,24 @@ as an old client contract) to the actual client; restarting a proxy cannot fix
 those. This sends no commands that write data and never replays client requests.
 
 Usage: control-ready.py SETTINGS CONTRACT [TIMEOUT_SECONDS]  (default 3)
+
+CONTRACT is the Control contract's source,
+platform/atlas_control/backend/contract/lib/contract.ex: hello carries the version it
+declares (`version "x.y.z"`), so the check needs no generated file.
 """
 import json
+import re
 import socket
 import sys
 import time
 from pathlib import Path
+
+
+def contract_version(source):
+    match = re.search(r'^\s*version "([^"]+)"', source, re.MULTILINE)
+    if not match:
+        raise ValueError("the contract declares no version")
+    return match.group(1)
 
 
 def probe(settings, version, timeout=3):
@@ -46,9 +58,9 @@ def probe(settings, version, timeout=3):
 if __name__ == "__main__":
     try:
         settings = json.loads(Path(sys.argv[1]).read_text())
-        contract = json.loads(Path(sys.argv[2]).read_text())
+        version = contract_version(Path(sys.argv[2]).read_text())
         timeout = float(sys.argv[3]) if len(sys.argv) > 3 else 3
-        probe(settings, contract["version"], timeout)
+        probe(settings, version, timeout)
     except (OSError, ValueError, KeyError) as error:
         print(f"Control is not reachable: {error}", file=sys.stderr)
         sys.exit(1)

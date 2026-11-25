@@ -127,17 +127,17 @@ defmodule RelaDSL.Description.CompositionDataTest do
              ]
            }
 
-    # flows.json holds the same, beside the subflows: no subflow's digest changes.
+    # flows.json holds the same, beside the subflows: no subflow's definition changes.
     flows = comp.__flows__()
     gates = comp.__rela__(:gates)
-    with = JSON.decode!(Atlas.flows_json(flows, gates, "h", comp.__composition__()))
-    without = JSON.decode!(Atlas.flows_json(flows, gates, "h"))
+    with = JSON.decode!(Atlas.flows_json(flows, gates, comp.__composition__()))
+    without = JSON.decode!(Atlas.flows_json(flows, gates))
     assert with["composition"] == Map.update!(comp.composition(), "links", &drop_nil/1)
     refute Map.has_key?(without, "composition")
     assert with["flows"] == without["flows"]
 
     for module <- comp.subflows(:prod),
-        do: assert(module.digest() == RelaDSL.DefinitionDigest.of(with["flows"][module.name()]))
+        do: assert(module.states() == Enum.sort(Map.keys(with["flows"][module.name()]["states"])))
   end
 
   test "a tally counts what relates to a parent its subflow reads, by a relation that ends there" do

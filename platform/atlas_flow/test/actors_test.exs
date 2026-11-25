@@ -17,8 +17,7 @@ defmodule AtlasFlow.ActorsTest do
           "subject" => "box",
           "projection" => %{"field" => "todo", "owner_relation" => "owned_by"},
           "admission" => %{},
-          "imports" => [],
-          "migrations" => []
+          "imports" => []
         }
       }
   end

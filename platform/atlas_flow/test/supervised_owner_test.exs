@@ -56,8 +56,7 @@ defmodule AtlasFlow.SupervisedOwnerTest do
           "subject" => "box",
           "projection" => %{"field" => "todo", "owner_relation" => "owned_by"},
           "admission" => %{},
-          "imports" => [],
-          "migrations" => []
+          "imports" => []
         }
       }
 
@@ -181,8 +180,7 @@ defmodule AtlasFlow.SupervisedOwnerTest do
         "subject" => subject,
         "projection" => %{"field" => "todo", "owner_relation" => owner_relation},
         "admission" => %{},
-        "imports" => [],
-        "migrations" => []
+        "imports" => []
       }
 
     def selection,

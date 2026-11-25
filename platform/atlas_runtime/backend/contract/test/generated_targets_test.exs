@@ -1,8 +1,8 @@
 defmodule AtlasRuntimeBackend.GeneratedTargetsTest do
   use ExUnit.Case, async: true
 
-  # The checked-in files of the work contract (`mix runtime_backend.gen --check` keeps them
-  # current); each contract of the one router has its own folder.
+  # The files `mix runtime_backend.gen` writes for the work contract (test_helper.exs runs it
+  # first); each contract of the one router has its own folder.
   @dir Path.expand("../../targets/rest/work_api", __DIR__)
   @openapi @dir |> Path.join("openapi.json") |> File.read!() |> JSON.decode!()
   @routes @dir |> Path.join("routes.json") |> File.read!() |> JSON.decode!()
