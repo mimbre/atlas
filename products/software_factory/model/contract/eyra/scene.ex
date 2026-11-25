@@ -459,11 +459,13 @@ defmodule Model.Scene do
   # new, its producer's (`producer: true`: never its supervisor's in their stead), and the
   # producer's Answered takes the run back to its break-down. A run keeps its
   # state and entry: one in its break-down keeps its task, which may now end asked.
+  # Each state of `from` maps to itself, named, not `:same`: `:same` would give `from`
+  # the states of `to`, `clarifying` with them, and so change the base's history.
   migrate(:break_down_scene,
     from: "c7f67e0c0f7dc9247c959f1ccf90fb95ab65ceab1c746d025336b77a1f1b7092",
     to: "8d33bc5f8509d7338016ddf0fa85068574fd4dfe7d3c80708b1f7986d373cc46",
     preserve_entry: true,
-    states: :same,
+    states: [accepting: :accepting, break_down: :break_down, broken_down: :broken_down],
     reason: "Design: its agent asks the scene's producer instead of guessing"
   )
 end
