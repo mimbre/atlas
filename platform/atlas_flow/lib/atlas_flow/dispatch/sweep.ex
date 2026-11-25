@@ -157,6 +157,13 @@ defmodule AtlasFlow.Dispatch.Sweep do
         cancel_lease(job, id, lease, "answer")
         seen
 
+      # Running when Flow booted (an update or an outage, D-0102): its work is stopped and
+      # the task offered again on a fresh attempt. An `ended` one stands.
+      lease.restart and lease.cancel != true and
+          Leases.value(fact, "lease_state") in ~w(offered accepted started) ->
+        cancel_lease(job, id, lease, "restart")
+        seen
+
       lease.subject != nil ->
         {answer, seen} = supervision(job, seen, lease.subject)
         supervise(job, id, lease, answer)

@@ -207,6 +207,7 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
                "check_interrupted"
 
       assert Translate.result_less(ending(:cancelled, :cancel), "supervision") == "supervision"
+      assert Translate.result_less(ending(:cancelled, :cancel), "restart") == "restart"
     end
 
     test "every other ending is a result" do
@@ -296,7 +297,8 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
             {"interrupted", "runtime_stop", nil, "interrupted"},
             {"interrupted", nil, nil, "interrupted"},
             {"completed", nil, "no_exit_status", "check_interrupted"},
-            {"cancelled", "cancel", nil, "supervision"}
+            {"cancelled", "cancel", nil, "supervision"},
+            {"cancelled", "cancel", nil, "restart"}
           ] do
         values = %{
           "lease_state" => "done",

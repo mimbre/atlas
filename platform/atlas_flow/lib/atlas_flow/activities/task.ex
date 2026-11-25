@@ -41,10 +41,11 @@ defmodule AtlasFlow.Activities.Task do
      exited 0), `check_failed` (completed otherwise), `stuck` (refused, too large,
      invalid, or any other end; until F5 none is retried), or `abandoned`. An ending
      without a result (returned, any interruption such as a Runtime stop, a Runtime crash
-     or a restart of its machine, a check that gave no exit status, a supervision cancel)
-     reaches no branch: the same task is offered again as a fresh attempt, as often as it
-     happens. The Engine then writes the task fact's `state` and nothing else: it never
-     writes `input` again after the create (Dispatch writes the lease's input, fenced).
+     or a restart of its machine, a check that gave no exit status, a supervision cancel,
+     work Flow stopped because it was running when Flow booted) reaches no branch: the
+     same task is offered again as a fresh attempt, as often as it happens. The Engine
+     then writes the task fact's `state` and nothing else: it never writes `input` again
+     after the create (Dispatch writes the lease's input, fenced).
   6. **A silent turn is ended (UC-Atlas-03).** A lease that ran out unrenewed (its turn
      went silent past its lease; the Runtime ends such a turn itself), or a `crashed` end
      with no answer and no result, is an empty turn (`Translate.empty/1`). By the
