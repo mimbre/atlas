@@ -34,7 +34,7 @@ defmodule AtlasE2E.FlowRunTest do
   # Required by rela-server-headless-sqlite even though this proof uses only its HTTP API.
   File.write!(Path.join(data, "data-entry.yaml"), "app:\n  name: Private input proof\n")
   fields = ~w(request_id run flow subject_kind subject_key generation entry source_version subject_version actor roles changed_fields links payload_digest status position prepared_at applied_at)
-  run_fields = ~w(flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason)
+  run_fields = ~w(flow subject_kind subject_key generation state entry entered_at status deadlines pending input_cursor last_input blocked_reason)
   schema = fn names, ints -> Map.new(names, &{&1, %{"type" => if(&1 in ints, do: "integer", else: "string")}}) end
   entities = %{
     "box" => %{"label" => "Box", "plural" => "boxes", "id_type" => "manual", "properties" => %{"choice" => %{"type" => "string"}}},

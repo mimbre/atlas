@@ -9,7 +9,7 @@ defmodule AtlasFacts.FlowInputsTest do
     def of do
       fields =
         Map.new(
-          ~w(flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason),
+          ~w(flow subject_kind subject_key generation state entry entered_at status deadlines pending input_cursor last_input blocked_reason),
           &{&1, &1}
         )
 

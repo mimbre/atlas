@@ -522,39 +522,49 @@ defmodule AtlasFlow.WorkSource.DeliveryTest do
   end
 
   describe "retention (acceptance 7)" do
-    test "an ended without a result: unpinned, and the work is offered again as a fresh attempt",
-         ctx do
-      ctx = grant(ctx)
-      assert {:recorded, _} = report(@mini, ctx.lease, 1, state(:accepted))
+    # A Runtime stop, a crash or machine restart (interrupted, no reason), and a restart
+    # during the after-check (completed, its check without an exit status): each is
+    # result-less, so the same step runs again under a fresh lease (D-0102).
+    for {name, ending, cause} <- [
+          {"a Runtime stop", [kind: :interrupted, reason: :runtime_stop], "interrupted"},
+          {"a crash or restart", [kind: :interrupted], "interrupted"},
+          {"a restart during the after-check",
+           [check: %{command: ["bin/check"], timed_out: false, duration_ms: 5, output_tail: ""}],
+           "check_interrupted"}
+        ] do
+      test "#{name}: unpinned, and the work is offered again as a fresh attempt", ctx do
+        ctx = grant(ctx)
+        assert {:recorded, _} = report(@mini, ctx.lease, 1, state(:accepted))
+        change_set = L.change_set([{"a.txt", "a\n"}], L.base().base_id)
 
-      assert {:recorded, %{missing: []}} =
-               report(
-                 @mini,
-                 ctx.lease,
-                 2,
-                 L.ended(nil, kind: :interrupted, reason: :runtime_stop)
-               )
+        assert {:recorded, %{missing: []}} =
+                 report(@mini, ctx.lease, 2, L.ended(change_set, unquote(Macro.escape(ending))))
 
-      assert %{"lease_state" => "done", "lease_end_cause" => "runtime_stop"} = L.values(ctx.task)
-      settle()
-      assert Results.manifest(ctx.task) == :not_found
-      assert :retry = Translate.outcome(FakeFacts.get("task", ctx.task), false)
-      assert casts() == []
+        assert %{"lease_state" => "done", "lease_end_cause" => unquote(cause)} =
+                 L.values(ctx.task)
 
-      assert {:polled, %{leases: [%{lease_id: fresh}]}} = poll(@mini, [ctx.lease])
-      assert L.values(ctx.task)["attempt"] == 2
-      assert fresh != ctx.lease
+        settle()
+        assert Results.manifest(ctx.task) == :not_found
+        assert :retry = Translate.outcome(FakeFacts.get("task", ctx.task), true)
+        assert casts() == []
+
+        assert {:polled, %{leases: [%{lease_id: fresh}]}} = poll(@mini, [ctx.lease])
+        assert L.values(ctx.task)["attempt"] == 2
+        assert fresh != ctx.lease
+      end
     end
 
     test "a later attempt's accepted unpins the earlier result", ctx do
       ctx = ended_lease!(ctx, [{"a.txt", "a\n"}])
       assert {:ok, _} = Results.manifest(ctx.task)
 
-      # The first lease is lost by expiry; the work is leased again.
+      # The first lease is lost by expiry (a silent turn); once its run counted it, the
+      # work is leased again.
       L.advance(ctx, 900)
       Dispatch.sweep()
       L.advance(ctx, 120)
       Dispatch.sweep()
+      :ok = L.retried(AtlasFlow.Runs.Run.key("watch", "bin", "B-1", 1), [1])
       assert {:polled, %{leases: [%{lease_id: fresh}]}} = poll(@mini)
       assert {:ok, _} = Results.manifest(ctx.task)
 

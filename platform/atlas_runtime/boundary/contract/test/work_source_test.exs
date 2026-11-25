@@ -182,7 +182,7 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
     assert fields(:put_blob_input) == [:lease_id, :sha256, :size, :content]
   end
 
-  test "the JSON target is what the contract generates (mix runtime_boundary.gen --check)" do
+  test "the JSON target carries the contract's capabilities (mix runtime_boundary.gen)" do
     json = @json |> File.read!() |> JSON.decode!()
     assert json["$comment"] =~ "boundary/contract/lib/work_source.ex"
 

@@ -579,8 +579,6 @@ defmodule AtlasFlow.FakeFacts.Leasing do
     @impl true
     def selection(name), do: Watch.selection(name)
     @impl true
-    def migrations, do: Watch.migrations()
-    @impl true
     def composition, do: Watch.composition()
     @impl true
     def actors, do: Watch.actors()
@@ -697,7 +695,6 @@ defmodule AtlasFlow.FakeFacts.Leasing do
       "subject_kind" => kind,
       "subject_key" => key,
       "generation" => 1,
-      "definition_sha256" => "test",
       "state" => Keyword.get(opts, :state, "loading"),
       "entry" => 1,
       "entered_at" => DateTime.to_iso8601(@epoch),
@@ -720,6 +717,29 @@ defmodule AtlasFlow.FakeFacts.Leasing do
     })
 
     run_key
+  end
+
+  @doc """
+  The run `run_key`'s intent counts `attempts` as empty turns started again (`retried`), as
+  the Engine stores it; then Dispatch is told, as the Engine's next step tells it.
+  """
+  def retried(run_key, attempts) do
+    config = config()
+    fact = FakeFacts.get(config["kind"], run_key)
+    {:ok, run} = Store.decode(config, fact)
+    run = put_in(run, ["pending", "task", "retried"], attempts)
+
+    FakeFacts.put(
+      config["kind"],
+      Map.merge(fact, %{
+        "values" => Store.encode(config, run),
+        "version" => (fact["version"] || 0) + 1
+      })
+    )
+
+    AtlasFlow.Dispatch.ready(run["pending"]["task"]["key"])
+    :sys.get_state(AtlasFlow.Dispatch)
+    :ok
   end
 
   @doc "Sets (or, with nil, clears) the run's supervisor, as S1's pickup or hand-over writes it."

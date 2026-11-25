@@ -81,25 +81,22 @@ defmodule Mix.Tasks.Model.GenTest do
       assert_received {:mix_shell, :error, ["rela not run (ATLAS_RELA_BIN is not set)" <> _]}
     end
 
-    test "writes flows.json with its header, every gate, and the hash of flows.yaml", c do
+    test "writes flows.json with its header and every gate", c do
       gen()
       json = File.read!(c.json)
       assert RelaDSL.Header.generated?(".json", json)
       assert json =~ "test/support/example.ex"
       data = JSON.decode!(json)
-      assert data["rela_flows_sha256"] == RelaDSL.Atlas.sha256(File.read!(c.yaml))
       assert Map.keys(data["gates"]) == ["proofread", "size_limit"]
       assert Map.keys(data["flows"]) == ["letter"]
     end
 
-    test "--check fails on a hand edit of flows.json", %{json: json, diagram: d} do
+    test "writing again restores a hand edit of flows.json", %{json: json} do
       gen()
-      put_diagram(d)
-      gen(["--check"])
-      File.write!(json, String.replace(File.read!(json), ~s("version": 2), ~s("version": 3)))
-      assert_raise Mix.Error, ~r/out of date.*atlas\/flows.json/, fn -> gen(["--check"]) end
+      written = File.read!(json)
+      File.write!(json, String.replace(written, ~s("version": 2), ~s("version": 3)))
       gen()
-      gen(["--check"])
+      assert File.read!(json) == written
     end
 
     test "a gate the subflows name in another version fails the task", %{json: json} do
@@ -108,19 +105,20 @@ defmodule Mix.Tasks.Model.GenTest do
       refute File.exists?(json)
     end
 
-    test "--check fails on a missing diagram, which it cannot draw", %{diagram: diagram} do
+    test "names a missing diagram, which it cannot draw", %{diagram: diagram} do
       gen()
       refute File.exists?(diagram)
-      assert_raise Mix.Error, ~r/letter.md \(missing\)/, fn -> gen(["--check"]) end
+      assert_received {:mix_shell, :error, [missing]}
+      assert missing =~ "letter.md is missing and was not drawn"
     end
 
-    test "--check passes on what it can check and says what it did not", %{diagram: diagram} do
+    test "writes nothing that is unchanged and says what it did not do", %{diagram: diagram} do
       gen()
       put_diagram(diagram)
-      gen(["--check"])
+      gen()
       assert_received {:mix_shell, :info, ["generated files are up to date"]}
       assert_received {:mix_shell, :error, ["rela not run" <> rest]}
-      assert rest =~ "diagrams were neither drawn nor compared"
+      assert rest =~ "no diagram was drawn"
     end
 
     test "an existing diagram is left as it is", %{diagram: diagram} do
@@ -129,24 +127,12 @@ defmodule Mix.Tasks.Model.GenTest do
       assert File.read!(diagram) =~ "old\n"
     end
 
-    test "--check fails on a hand edit of flows.yaml and writes nothing", %{
-      yaml: yaml,
-      diagram: d
-    } do
+    test "a generated file from an older contract is overwritten", %{yaml: yaml} do
       gen()
-      put_diagram(d)
-      File.write!(yaml, String.replace(File.read!(yaml), "label: Letter", ~s(label: "Letter")))
-      assert_raise Mix.Error, ~r/out of date.*rela\/flows.yaml/, fn -> gen(["--check"]) end
-      assert File.read!(yaml) =~ ~s(label: "Letter")
-    end
-
-    test "--check fails on a stale file from an older contract", %{yaml: yaml, diagram: d} do
-      gen()
-      put_diagram(d)
+      written = File.read!(yaml)
       File.write!(yaml, RelaDSL.Header.put(".yaml", "x.ex", "flows:\n"))
-      assert_raise Mix.Error, ~r/rela\/flows.yaml/, fn -> gen(["--check"]) end
       gen()
-      gen(["--check"])
+      assert File.read!(yaml) == written
     end
 
     test "generated files no subflow needs are left over, in both folders", %{tmp_dir: dir} = c do
@@ -158,11 +144,6 @@ defmodule Mix.Tasks.Model.GenTest do
       File.write!(old_yaml, File.read!(c.yaml))
       File.write!(old_md, File.read!(c.diagram))
       File.write!(old_json, File.read!(c.json))
-
-      assert_raise Mix.Error,
-                   ~r/old.yaml \(left over\).*old.json \(left over\).*gone.md \(left over\)/,
-                   fn -> gen(["--check"]) end
-
       gen()
       refute File.exists?(old_yaml)
       refute File.exists?(old_md)
@@ -259,11 +240,9 @@ defmodule Mix.Tasks.Model.GenTest do
     test "what rela refuses fails the task, in rela's words, and nothing is written", c do
       refusing_rela(c.tmp_dir)
 
-      for args <- [[], ["--check"]] do
-        error = assert_raise Mix.Error, fn -> gen(args) end
-        assert error.message =~ "refused by the stand-in"
-        refute error.message =~ "level=WARN"
-      end
+      error = assert_raise Mix.Error, fn -> gen() end
+      assert error.message =~ "refused by the stand-in"
+      refute error.message =~ "level=WARN"
 
       refute File.exists?(c.yaml)
     end
@@ -278,22 +257,20 @@ defmodule Mix.Tasks.Model.GenTest do
 
     test "a folder without rela is refused", c do
       System.put_env("ATLAS_RELA_BIN", c.tmp_dir)
-      assert_raise Mix.Error, ~r/ATLAS_RELA_BIN: no rela at/, fn -> gen(["--check"]) end
+      assert_raise Mix.Error, ~r/ATLAS_RELA_BIN: no rela at/, fn -> gen() end
     end
 
     @tag :rela
-    test "draws each diagram; --check then fails on a hand edit of it", c do
+    test "draws each diagram, and draws it again over a hand edit", c do
       System.put_env("ATLAS_RELA_BIN", c.real)
       gen()
-      assert File.read!(c.diagram) =~ "```mermaid\nstateDiagram-v2\n"
+      drawn = File.read!(c.diagram)
+      assert drawn =~ "```mermaid\nstateDiagram-v2\n"
       refute_received {:mix_shell, :error, ["rela not run" <> _]}
-      gen(["--check"])
-      assert_received {:mix_shell, :info, ["generated files are up to date"]}
 
-      File.write!(c.diagram, File.read!(c.diagram) <> "extra\n")
-      assert_raise Mix.Error, ~r/diagrams\/letter.md/, fn -> gen(["--check"]) end
+      File.write!(c.diagram, drawn <> "extra\n")
       gen()
-      gen(["--check"])
+      assert File.read!(c.diagram) == drawn
     end
   end
 

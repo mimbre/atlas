@@ -1,7 +1,6 @@
 defmodule AtlasRuntimeModel.FrozenResultTest do
   use ExUnit.Case, async: true
 
-  alias AtlasRuntimeModel.Generator.{Header, Targets.Json}
   alias AtlasRuntimeModel.Test.FrozenResult.{ChangeEntry, FrozenResult, FrozenRoot}
 
   @t0 ~U[2026-11-17 09:00:00.000000Z]
@@ -123,15 +122,6 @@ defmodule AtlasRuntimeModel.FrozenResultTest do
       alias AtlasRuntimeModel.Test.FrozenResult, as: Target
       assert Target.__schema__() == AtlasRuntimeModel.FrozenResult.__schema__()
       assert Enum.map(Target.records(), &elem(&1, 0)) == [:frozen_result]
-    end
-
-    test "targets/json/frozen_result.json is what the contract generates (golden)" do
-      schema = AtlasRuntimeModel.FrozenResult.__schema__()
-      [{"frozen_result.json", body}] = Json.files(:frozen_result, schema)
-      root = Path.expand("../../../..", File.cwd!())
-      source = List.to_string(AtlasRuntimeModel.FrozenResult.module_info(:compile)[:source])
-      expected = Header.put(".json", Path.relative_to(source, root), body)
-      assert File.read!("../targets/json/frozen_result.json") == expected
     end
   end
 

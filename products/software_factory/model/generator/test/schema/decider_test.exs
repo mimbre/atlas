@@ -57,7 +57,7 @@ defmodule RelaDSL.DeciderTest do
     assert fixed[:then] == :person_always
     assert fixed[:cites] == "POL-1"
     assert hd(rest)[:then] == :agent_unverified
-    data = JSON.decode!(RelaDSL.Atlas.flows_json([], [gate], "hash"))["gates"]["g"]
+    data = JSON.decode!(RelaDSL.Atlas.flows_json([], [gate]))["gates"]["g"]
     assert data["fixed_rules"] == Enum.take(data["rule"]["first"], 1)
     assert data["answer_within"] == %{"test" => "5m", "prod" => "48h"}
     assert data["evidence"]["tags"] == ["field", "tags"]

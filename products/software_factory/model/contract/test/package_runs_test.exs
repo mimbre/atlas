@@ -406,15 +406,12 @@ defmodule Model.PackageRunsTest do
       assert owner(@key) == ["mac-mini"]
     end
 
-    test "a failed or unfinished check (acc. 2) is a fix; another end is held, never silently",
-         c do
+    test "a failed check (acc. 2) is a fix; another end is held, never silently", c do
       issue_run(c, "ada")
 
       ends = [
         {"PK-IS-Atlas-01-1", [files: @author, check: 1], "fixing"},
-        {"PK-IS-Atlas-01-2", [files: @author, check: nil], "fixing"},
-        {"PK-IS-Atlas-01-3", [kind: :failed, reason: "time_limit"], "held"},
-        {"PK-IS-Atlas-01-4", [kind: :crashed], "held"}
+        {"PK-IS-Atlas-01-3", [kind: :failed, reason: "time_limit"], "held"}
       ]
 
       for {key, opts, state} <- ends do
@@ -432,6 +429,30 @@ defmodule Model.PackageRunsTest do
           assert owner(key) == ["mac-mini"], key
         end
       end
+
+      # A crash with no answer and no result is an empty turn: the ladder's rule for an
+      # abandoned task starts it once more; the second in a row is held, retry first.
+      key = "PK-IS-Atlas-01-4"
+      started(c, key)
+      finish(key, kind: :crashed)
+      again = settle(c, key)
+      assert {again["state"], again["status"]} == {"authoring", "active"}
+      assert [%{"outcome" => "abandoned"}] = again["pending"]["tasks"]
+      assert %{"key" => "TK-PK-IS-Atlas-01-4-2"} = again["pending"]["task"]
+      assert owner(key) == ["mac-mini"]
+
+      finish(key, kind: :crashed)
+      held = settle(c, key)
+      assert {held["state"], held["status"]} == {"held", "active"}
+
+      assert %{
+               "on" => "held",
+               "reason" => "abandoned",
+               "question" => %{"answers" => ["retry" | _]}
+             } =
+               held["pending"]["ladder"]["awaiting"]
+
+      assert owner(key) == ["ada"]
     end
 
     test "a refused work is held, and its supervisor has it", c do
@@ -449,36 +470,12 @@ defmodule Model.PackageRunsTest do
       assert owner(@key) == ["ada"]
     end
 
-    # F2-P's migration (acc. 3) is history: Flow takes one hop, from a run's digest to the
-    # compiled one, and live runs moved from a4 to the loop's digest then. It stays declared
-    # as it was: waiting and authoring stay; authored and check_failed are stuck.
-    test "a run of the package before the loop (acc. 3) moved on: waiting and authoring stayed; authored and check_failed are stuck" do
-      a4 = "457c90fddd78d1aa85729dee951b6acd6beccdbd9fb109b6adfb89f7686d8747"
-      loop = "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214"
-
-      assert [%{"states" => states} = m] =
-               Enum.filter(Model.AtlasEyra.selection(@name)["migrations"], &(&1["from"] == a4))
-
-      assert m["to"] == loop
-      refute Map.has_key?(m, "preserve_entry")
-
-      assert states == %{
-               "authored" => "stuck",
-               "authoring" => "authoring",
-               "check_failed" => "stuck",
-               "stuck" => "stuck",
-               "waiting" => "waiting"
-             }
-    end
-
     # Its presentation says its supervisor's pickup starts the work, and held and
-    # awaiting_decision ask no hand-back to a machinery: texts only, so a live run on the
-    # loop's digest keeps its state and its entry (nothing is presented again).
-    test "a live run of the loop moves to the new texts, keeping its state and entry", c do
+    # awaiting_decision ask no hand-back to a machinery: texts only. A run of an earlier
+    # definition is matched to the subflow by its state's name, so it keeps its state and
+    # its entry (nothing is presented again).
+    test "a run of an earlier definition keeps its state and entry under the new texts", c do
       issue_run(c, "ada")
-      loop = "ff2820a33b527143185cbdac7dea3d4bb4824b22ac4ce690f00bcba26f82f214"
-      digest = flow(:test).digest()
-      assert digest != loop
 
       for {key, state, status} <- [
             {"PK-IS-Atlas-01-1", "held", "active"},
@@ -487,13 +484,10 @@ defmodule Model.PackageRunsTest do
             {"PK-IS-Atlas-01-4", "waiting", "active"}
           ] do
         package(key, "ada", %{"instructions" => if(state == "waiting", do: nil, else: "Do it.")})
-        old_run(c, key, loop, state, status)
+        old_run(c, key, state, status)
         run = reconcile(c, key)
-        assert run["definition_sha256"] == digest, key
         assert {run["state"], run["status"], run["entry"]} == {state, status, 1}, key
-
-        assert [%{"from" => ^loop, "to" => ^digest, "state" => ^state}] =
-                 run["pending"]["migrations"]
+        assert run["blocked_reason"] in [nil, ""], key
       end
 
       package = Enum.find(Model.AtlasEyra.__flows__(), &(&1.name == :package))
@@ -1076,14 +1070,12 @@ defmodule Model.PackageRunsTest do
   # person's key, or nil): as Flow keeps it once someone picked it up.
   defp issue_run(c, supervisor) do
     config = c.runner.config
-    flow = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "issue"))
 
     run = %{
       "flow" => "issue",
       "subject_kind" => "issue",
       "subject_key" => @issue,
       "generation" => 1,
-      "definition_sha256" => flow.digest(),
       "state" => "working",
       "entry" => 1,
       "entered_at" => DateTime.to_iso8601(@now),
@@ -1266,7 +1258,6 @@ defmodule Model.PackageRunsTest do
       "subject_kind" => "package",
       "subject_key" => key,
       "generation" => 1,
-      "definition_sha256" => flow(:test).digest(),
       "state" => state,
       "entry" => 1,
       "entered_at" => DateTime.to_iso8601(@now),
@@ -1387,14 +1378,15 @@ defmodule Model.PackageRunsTest do
     runs |> Enum.map(& &1["flow"]) |> Enum.uniq() |> Enum.sort()
   end
 
-  # A run of the package on an earlier definition (`digest`), in `state`.
-  defp old_run(c, key, digest, state, status) do
+  # A run of the package as an earlier definition left it, in `state`: it holds the digest
+  # of that definition, which nothing reads any more.
+  defp old_run(c, key, state, status) do
     run = %{
       "flow" => @name,
       "subject_kind" => "package",
       "subject_key" => key,
       "generation" => 1,
-      "definition_sha256" => digest,
+      "definition_sha256" => String.duplicate("0", 64),
       "state" => state,
       "entry" => 1,
       "entered_at" => DateTime.to_iso8601(@now),

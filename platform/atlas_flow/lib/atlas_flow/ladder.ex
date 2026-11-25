@@ -53,7 +53,10 @@ defmodule AtlasFlow.Ladder do
       (`policy_forbids`, `no_permitted_option`): that rung is skipped. A review that did
       not complete → `held`;
     * an abandoned task (a lost lease) is started once more; abandoned again → `held`,
-      asking `retry | stronger | abandon` (Main's ruling 2).
+      asking `retry | stronger | abandon` (Main's ruling 2);
+    * an ending without a result (returned, any interruption such as a Runtime stop,
+      crash or restart, a check that gave no exit status) never reaches the ladder: the
+      same task is offered again as a fresh attempt (`Translate.no_result?/1`, D-0102).
 
   **Red CI** (plan §3.2 item 4, F3-L). Landing records the CI of the review a result is
   published on as that task's `"review_ci"` (with its `"published_revision"` and
@@ -102,6 +105,15 @@ defmodule AtlasFlow.Ladder do
 
   @doc "The fix tasks a rung allows (#297: two)."
   def budget, do: @budget
+
+  @doc """
+  The rule for a task that ended abandoned (its lease lost, its agent silent): started
+  once more while fewer than the limit were (`limits["retries"]`, default 1); else held,
+  its supervisor asked. `retried` is how many times it was started again in a row. The
+  ladder keeps that count as its `"retries"`; a task outside any ladder keeps it in its
+  run (`AtlasFlow.Activities.Task`, a silent turn): one rule, one count.
+  """
+  def again?(retried, limits \\ %{}), do: retried < (limits["retries"] || @retries)
 
   @doc """
   The step after `event`, and the ladder to keep. `ladder` is the run's `pending.ladder`
@@ -158,7 +170,7 @@ defmodule AtlasFlow.Ladder do
   # -- A task ended ------------------------------------------------------------------------
 
   defp ended(%{"outcome" => "abandoned"} = task, ladder, ctx) do
-    if ladder["retries"] < ctx.limits.retries,
+    if again?(ladder["retries"], %{"retries" => ctx.limits.retries}),
       do: {{:task, again(task, ladder, ctx)}, %{ladder | "retries" => ladder["retries"] + 1}},
       else: held("abandoned", task, ladder, ctx)
   end

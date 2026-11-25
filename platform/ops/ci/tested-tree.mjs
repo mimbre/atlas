@@ -1,12 +1,9 @@
 // CI tests a tree once (docs/guides/prod.md, "CI tests a tree once").
 //
-// Two records, both artifacts listed repository-wide by name:
-//   tested-tree-<tree>               every test job passed on this tree (record-tested-tree);
-//   tested-base-<tree>-<base key>    the base check passed on this tree against a base whose
-//                                    base file has this blob (record-tested-base). The base
-//                                    check's result depends on the tree and that file only.
-// On a push to develop or master, and on a pull request into master, `find` looks them up and
-// trusts one only when it comes from a completed, successful run of this same workflow file,
+// One record, an artifact listed repository-wide by name: tested-tree-<tree>, every test job
+// passed on this tree (record-tested-tree). A job's result depends on the tree only.
+// On a push to develop or master, and on a pull request into master, `find` looks it up and
+// trusts it only when it comes from a completed, successful run of this same workflow file,
 // in this repository, not from a fork, not this run, and not expired. Anything else, a lookup
 // error included, means the job runs: `find` and `keys` never exit non-zero.
 //
@@ -20,13 +17,9 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 export const suiteRecord = tree => `tested-tree-${tree}`;
-export const baseRecord = (tree, baseKey) => `tested-base-${tree}-${baseKey}`;
 
 const hashPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 export const isHash = value => hashPattern.test(value || '');
-// A base key is the blob of the base file at the base commit, or `none` when the base has
-// no such file (a distinct result: the check then compares against nothing).
-export const isBaseKey = value => value === 'none' || isHash(value);
 
 // Where a record lets jobs be skipped: develop, master, and the release pull request. A pull
 // request into develop always runs (and records) everything.
@@ -95,11 +88,10 @@ export function workflowPathOf(workflowRef, repository) {
   return workflowRef.slice(prefix.length).split('@')[0] || null;
 }
 
-// Looks up both records. The base check is skipped only together with the suite, so every
-// skipped job of a run is explained by one fact: tested == true.
+// Looks up the record of this tree: every skipped job of a run is explained by one fact,
+// tested == true.
 export async function find(env, api) {
   const tree = (env.TREE || '').trim();
-  const baseKey = (env.BASE_KEY || '').trim();
   const lookup = name => findRecord({
     name,
     repository: env.GITHUB_REPOSITORY,
@@ -108,47 +100,33 @@ export async function find(env, api) {
     currentRunId: Number(env.GITHUB_RUN_ID),
     api
   });
-  let suite, base;
+  let suite;
   try {
     if (!looksUp({ event: env.GITHUB_EVENT_NAME, ref: env.GITHUB_REF, baseRef: env.GITHUB_BASE_REF })) {
-      suite = base = { tested: false, code: 'not-looked-up' };
+      suite = { tested: false, code: 'not-looked-up' };
     } else if (!isHash(tree)) {
-      suite = base = { tested: false, code: 'no-tree' };
+      suite = { tested: false, code: 'no-tree' };
     } else if (!Number.isInteger(Number(env.GITHUB_REPOSITORY_ID)) || !env.GITHUB_REPOSITORY_ID ||
                !workflowPathOf(env.GITHUB_WORKFLOW_REF, env.GITHUB_REPOSITORY)) {
-      suite = base = { tested: false, code: 'no-context' };
+      suite = { tested: false, code: 'no-context' };
     } else {
       suite = await lookup(suiteRecord(tree));
-      if (!suite.tested) base = { tested: false, code: 'suite-runs' };
-      else if (!isBaseKey(baseKey)) base = { tested: false, code: 'no-base' };
-      else base = await lookup(baseRecord(tree, baseKey));
     }
   } catch (error) {
-    suite = base = { tested: false, code: 'lookup-failed', error: error.message };
+    suite = { tested: false, code: 'lookup-failed', error: error.message };
   }
   const outputs = {
     tree: isHash(tree) ? tree : '',
-    base_key: isBaseKey(baseKey) ? baseKey : '',
     tested: String(suite.tested),
-    run_id: suite.runId ? String(suite.runId) : '',
-    base_tested: String(base.tested),
-    base_run_id: base.runId ? String(base.runId) : ''
+    run_id: suite.runId ? String(suite.runId) : ''
   };
-  return { suite, base, outputs };
+  return { suite, outputs };
 }
 
-// `keys`: this checkout's tree, the base commit `base` names, and its base key for `file`.
-// Empty values when Git cannot tell; never throws.
-export function keys({ cwd, base, file, env = process.env, git = gitIn(cwd, env) }) {
+// `keys`: this checkout's tree. Empty when Git cannot tell; never throws.
+export function keys({ cwd, env = process.env, git = gitIn(cwd, env) }) {
   const tree = git(['rev-parse', '--verify', '-q', 'HEAD^{tree}']);
-  const baseCommit = base ? git(['rev-parse', '--verify', '-q', `${base}^{commit}`]) : '';
-  let baseKey = '';
-  if (isHash(baseCommit) && file) baseKey = git(['rev-parse', '--verify', '-q', `${baseCommit}:${file}`]) || 'none';
-  return {
-    tree: isHash(tree) ? tree : '',
-    base_commit: isHash(baseCommit) ? baseCommit : '',
-    base_key: isBaseKey(baseKey) ? baseKey : ''
-  };
+  return { tree: isHash(tree) ? tree : '' };
 }
 
 const gitIn = (cwd, env) => args => {
@@ -160,10 +138,9 @@ const gitIn = (cwd, env) => args => {
 };
 
 // Problems with the scheme in a workflow's text, as {job, code}. Every job is one of:
-//   tested-tree; record-tested-tree and record-tested-base (they keep the implicit success()
-//   condition: no always(), cancelled() or failure());
+//   tested-tree; record-tested-tree (it keeps the implicit success() condition: no always(),
+//   cancelled() or failure());
 //   a deploy-* job: needs tested-tree, and its `if` keeps the clauses below;
-//   a base job: needs tested-tree, skips on base_tested, and record-tested-base needs it;
 //   else a test job: needs tested-tree, skips on tested, and record-tested-tree needs it.
 export const deployClauses = [
   "!cancelled()",
@@ -171,7 +148,7 @@ export const deployClauses = [
   "!contains(needs.*.result, 'cancelled')",
   "(needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped'))"
 ];
-const skipsOn = output => `!cancelled() && needs.tested-tree.outputs.${output} != 'true'`;
+const skipsOnTested = "!cancelled() && needs.tested-tree.outputs.tested != 'true'";
 
 export function parseJobs(text) {
   const lines = text.split('\n');
@@ -212,14 +189,13 @@ export function checkWorkflow(text) {
   if (!jobs) return [{ job: null, code: 'no-jobs' }];
   const problems = [];
   const add = (job, code, extra = {}) => problems.push({ job, code, ...extra });
-  for (const id of ['tested-tree', 'record-tested-tree', 'record-tested-base']) {
+  for (const id of ['tested-tree', 'record-tested-tree']) {
     if (!jobs.has(id)) add(id, 'missing-job');
   }
   const tests = [];
-  const bases = [];
   for (const [id, { needs, condition }] of jobs) {
     if (id === 'tested-tree') continue;
-    if (id === 'record-tested-tree' || id === 'record-tested-base') {
+    if (id === 'record-tested-tree') {
       if (/always\(\)|cancelled\(\)|failure\(\)/.test(condition)) add(id, 'record-condition');
       continue;
     }
@@ -230,15 +206,13 @@ export function checkWorkflow(text) {
       }
       continue;
     }
-    const base = condition.includes(skipsOn('base_tested'));
-    (base ? bases : tests).push(id);
-    if (!needs.includes('tested-tree') || !(base || condition.includes(skipsOn('tested')))) add(id, 'not-joined');
+    tests.push(id);
+    if (!needs.includes('tested-tree') || !condition.includes(skipsOnTested)) add(id, 'not-joined');
   }
-  for (const [record, members] of [['record-tested-tree', tests], ['record-tested-base', bases]]) {
-    if (!jobs.has(record)) continue;
-    const { needs } = jobs.get(record);
-    for (const id of ['tested-tree', ...members]) if (!needs.includes(id)) add(record, 'not-recorded', { need: id });
-    for (const id of needs) if (!jobs.has(id)) add(record, 'unknown-need', { need: id });
+  if (jobs.has('record-tested-tree')) {
+    const { needs } = jobs.get('record-tested-tree');
+    for (const id of ['tested-tree', ...tests]) if (!needs.includes(id)) add('record-tested-tree', 'not-recorded', { need: id });
+    for (const id of needs) if (!jobs.has(id)) add('record-tested-tree', 'unknown-need', { need: id });
   }
   return problems;
 }
@@ -255,26 +229,22 @@ function reason(result) {
     case 'untrusted': return ` (untrusted: ${[...new Set(result.distrust.map(c => distrustWords[c] || c))].join(', ')})`;
     case 'lookup-failed': return ` (lookup failed: ${result.error})`;
     case 'not-looked-up': return ' (not looked up for this event)';
-    case 'suite-runs': return ' (the suite runs, so the base check runs too)';
     default: return ` (${result.code})`;
   }
 }
-export function summaryLines({ suite, base, outputs }) {
+export function summaryLines({ suite, outputs }) {
   const tree = outputs.tree || '(none)';
   return [
     suite.tested
       ? `tests skipped: tree ${tree} passed in run ${suite.runId}`
-      : `full suite: no record for tree ${tree}${reason(suite)}`,
-    base.tested
-      ? `base check skipped: tree ${tree} passed against base file ${outputs.base_key} in run ${base.runId}`
-      : `base check runs: no record for tree ${tree} against base file ${outputs.base_key || '(none)'}${reason(base)}`
+      : `full suite: no record for tree ${tree}${reason(suite)}`
   ];
 }
 const problemWords = {
   'no-jobs': () => 'the workflow has no jobs',
   'missing-job': () => 'this job of the scheme is missing',
   'record-condition': () => 'keep the implicit success() condition: no always(), cancelled() or failure()',
-  'not-joined': () => `add "needs: tested-tree" and "if: \${{ ${skipsOn('tested')} }}" (a test job) or "if: \${{ ${skipsOn('base_tested')} }}" (a base job)`,
+  'not-joined': () => `add "needs: tested-tree" and "if: \${{ ${skipsOnTested} }}"`,
   'deploy-condition': p => `keep the clause ${p.clause} in its if`,
   'not-recorded': p => `add ${p.need} to its needs`,
   'unknown-need': p => `${p.need} is no job`
@@ -302,7 +272,7 @@ const outputText = outputs => Object.entries(outputs).map(([k, v]) => `${k}=${v}
 async function main([command, file]) {
   const env = process.env;
   if (command === 'keys') {
-    const outputs = keys({ cwd: process.cwd(), base: env.CI_BASE, file: env.CI_BASE_FILE, env });
+    const outputs = keys({ cwd: process.cwd(), env });
     process.stdout.write(outputText(outputs));
     if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, outputText(outputs));
     return 0;

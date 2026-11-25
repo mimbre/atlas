@@ -723,7 +723,7 @@ defmodule RelaDSL.SchemaTest do
                  do: {to, ["atlas-flow"], "entity.task_result == '#{step}'"}
                )
 
-      # A task that is no ladder's has no `ladder` in its spec: its digest is unchanged.
+      # A task that is no ladder's has no `ladder` in its spec.
       {:task, spec} = hd(hd(compile!(task_source("")).__flows__()).states).mechanism
       refute Map.has_key?(spec, :ladder)
     end

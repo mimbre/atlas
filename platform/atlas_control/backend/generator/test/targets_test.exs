@@ -134,13 +134,126 @@ defmodule AtlasBFF.TargetsTest do
   end
 
   describe "json (a file target)" do
-    test "the contract as JSON, the same as the golden file" do
+    defp blocks_json do
       assert [{"blocks.json", body}] =
                AtlasBFF.Targets.Json.files(AtlasBFF.Example.__schema__())
 
-      assert body == File.read!("test/golden/blocks.json")
+      body
+    end
+
+    test "keys sorted, indented by two, one trailing newline" do
+      body = blocks_json()
+      assert body == layout(JSON.decode!(body))
+    end
+
+    test "the version, the wire notes and every model, block and kind of markup with its typed fields" do
+      json = JSON.decode!(blocks_json())
+      schema = AtlasBFF.Example.__schema__()
+
+      assert json["version"] == schema.version
+      assert json["protocol"] == []
+      assert Map.keys(json["wire"]) |> Enum.sort() == ["block", "markup", "props", "view_model"]
+
+      for {section, entries} <- [
+            models: schema.models,
+            blocks: schema.blocks,
+            markup: schema.markup
+          ] do
+        assert Enum.map(json[Atom.to_string(section)], & &1["name"]) ==
+                 Enum.map(entries, &Atom.to_string(&1.name))
+      end
+
+      [link, greeting] = json["models"]
+      assert hd(link["fields"]) == %{"name" => "label", "required" => true, "type" => "string"}
+
+      assert List.last(greeting["fields"]) ==
+               %{"name" => "tags", "required" => false, "type" => "map of string"}
+
+      card = hd(json["blocks"])
+
+      assert Enum.map(card["fields"], &{&1["name"], &1["type"], &1["required"]}) == [
+               {"title", "string", true},
+               {"count", "integer", false},
+               {"links", "list of link", false}
+             ]
+    end
+
+    test "pages with their paths and params, and every endpoint with its call and replies" do
+      json = JSON.decode!(blocks_json())
+
+      assert json["pages"] == [
+               %{
+                 "name" => "card",
+                 "params" => ["id"],
+                 "path" => "/cards/:id",
+                 "returns" => "view model"
+               },
+               %{
+                 "name" => "new_card",
+                 "params" => [],
+                 "path" => "/cards/new",
+                 "returns" => "view model"
+               },
+               %{"name" => "home", "params" => [], "path" => "/", "returns" => "view model"}
+             ]
+
+      by = Map.new(json["endpoints"], &{&1["name"], &1})
+
+      assert Enum.map(json["endpoints"], & &1["name"]) == [
+               "card",
+               "new_card",
+               "home",
+               "save_card",
+               "greet"
+             ]
+
+      # A page's open endpoint names its page; a submit takes the form's values.
+      assert %{
+               "call" => "open",
+               "page" => "card",
+               "wire" => "open",
+               "replies" => %{"page" => "view model"}
+             } =
+               by["card"]
+
+      assert by["save_card"] == %{
+               "call" => "submit",
+               "name" => "save_card",
+               "params" => ["id"],
+               "path" => "/cards/:id",
+               "replies" => %{"refused" => "view model", "saved" => "view model"},
+               "takes" => "values",
+               "wire" => nil
+             }
+
+      assert %{
+               "call" => "greet",
+               "path" => "",
+               "takes" => "greeting",
+               "replies" => %{"hi" => "greeting"}
+             } =
+               by["greet"]
+
+      refute Map.has_key?(by["greet"], "page")
     end
   end
+
+  # The layout the file target promises: keys sorted, two spaces per level, a newline at the end.
+  defp layout(value), do: IO.iodata_to_binary(layout(value, "")) <> "\n"
+
+  defp layout(map, at) when is_map(map) and map_size(map) > 0 do
+    inner =
+      for {k, v} <- Enum.sort(map), do: [at, "  ", JSON.encode!(k), ": ", layout(v, at <> "  ")]
+
+    ["{\n", Enum.intersperse(inner, ",\n"), "\n", at, "}"]
+  end
+
+  defp layout(list, at) when is_list(list) and list != [] do
+    inner = for v <- list, do: [at, "  ", layout(v, at <> "  ")]
+    ["[\n", Enum.intersperse(inner, ",\n"), "\n", at, "]"]
+  end
+
+  defp layout(value, _at), do: JSON.encode!(value)
 
   defp compile(call) do
     Code.compile_string("""

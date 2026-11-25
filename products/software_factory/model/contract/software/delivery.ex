@@ -1,7 +1,7 @@
 defmodule Model.Delivery do
   @moduledoc """
   Building an issue: its subflow `issue`, **Build** (Issue → Pull request), on the kind
-  Model.Issue holds with its gates, selection and migration policy.
+  Model.Issue holds with its gates and selection.
 
   A person picks an issue up in the Console and becomes its human supervisor; that pickup
   alone starts its work: one agent task on that supervisor's Runtime (`working`). When the
@@ -39,6 +39,15 @@ defmodule Model.Delivery do
   latest result that has one. A review that ends so leaves its author's result complete in
   Code (`review_stuck`): its supervisor may also publish it without a review, its pull
   request's body saying no review was made. Either may be closed (`done`).
+
+  A silent turn is ended (UC-Atlas-03): in every task state, a task whose lease runs out
+  unrenewed (its agent, or its Runtime, went silent), or that crashes with no answer and
+  no result, is an empty turn. The first starts the same task once more on its own, on a
+  fresh attempt, with nobody asked; the second in a row ends it `abandoned`, which goes
+  to that state's supervisor state with why ("its agent went silent twice") and Retry.
+  Flow keeps that count in the run, by the package ladder's rule (`AtlasFlow.Ladder`).
+  Work interrupted by an update, a Runtime stop or crash, or a restart of its machine is
+  no empty turn: it runs again by itself from the step it was in, as often as it happens.
 
   Every task reads the issue's title and description, and those of its use case and its
   scene (`parents:`): why it is to be done.
@@ -282,7 +291,7 @@ defmodule Model.Delivery do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop", update: :pr_url],
         instructions:
-          "Update the pull request of the issue below with develop, in the repository you are given: a Git checkout of develop merged into its pull request. Its last commit only adds the base's dependencies; under it (HEAD~1) is the merge: its first parent is the pull request's head, its second develop, and its message lists the files that conflict, which hold Git's conflict markers. Resolve every conflict keeping the pull request's intent and develop's changes alike; leave no conflict marker. Generated targets (products/software_factory/model/targets) are never merged by hand: take develop's and regenerate them with mix model.gen (in products/software_factory). Where the pull request's model change has a migrate(…) of a run digest, chain it from develop's current digests, as mix model.gen --check names them. Run bin/check. End your answer with what you resolved and what is left open.",
+          "Update the pull request of the issue below with develop, in the repository you are given: a Git checkout of develop merged into its pull request. Its last commit only adds the base's dependencies; under it (HEAD~1) is the merge: its first parent is the pull request's head, its second develop, and its message lists the files that conflict, which hold Git's conflict markers. Resolve every conflict keeping the pull request's intent and develop's changes alike; leave no conflict marker. Run bin/check. End your answer with what you resolved and what is left open.",
         fields: [:title, :description],
         parents: [:title, :description],
         records: [kind: "task", relation: "task_of"],
@@ -566,123 +575,4 @@ defmodule Model.Delivery do
 
     final :done, label: "Done"
   end
-
-  # "Issue → Pull request": its label is its signature; nothing else changed.
-  migrate(:issue,
-    from: "21b257b9472016e18cd842eada87213987ad5d4ac564b63b0761efdf79213a20",
-    to: "7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182",
-    states: :same,
-    reason: "Issue → Pull request: its label is its signature"
-  )
-
-  # Build: its label was its signature, Issue → Pull request; nothing else changed.
-  migrate(:issue,
-    from: "7442292b63a8bdf89d67dc5863804cff9cc62985d3fa2c005d8bb510e7642182",
-    to: "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
-    states: :same,
-    reason: "Build: renamed from Issue → Pull request"
-  )
-
-  # Build: its agent asks rela what it offers before it builds anything that stores,
-  # syncs, schedules or queries data (D-0100); nothing else changed.
-  migrate(:issue,
-    from: "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
-    to: "171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147",
-    states: :same,
-    preserve_entry: true,
-    reason: "Build: its agent asks rela first (D-0100)"
-  )
-
-  # The CI gate (IS-Atlas-115): its pull request's CI is waited for before its supervisor
-  # is asked to merge it, and red leads to at most two fixes pushed onto it. States are
-  # added, none renamed or removed, so a live run keeps its state, entry, task and timers;
-  # one in `merging` already is asked to merge without a CI gate.
-  migrate(:issue,
-    from: "171f375329cc2a850330e010a219e6f605f21bc0739c5104f913d7c8fade5147",
-    to: "6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce",
-    preserve_entry: true,
-    states: [
-      done: :done,
-      fixing: :fixing,
-      merging: :merging,
-      publishing: :publishing,
-      reviewing: :reviewing,
-      stuck: :stuck,
-      unchanged: :unchanged,
-      working: :working
-    ],
-    reason: "The CI gate: CI is waited for before the merge, and red is fixed at most twice"
-  )
-
-  # Mergeable and green only (IS-Atlas-22): its supervisor is asked to merge it only while
-  # its pull request merges into develop and its CI passed; conflicting, an agent updates
-  # it with develop once, and Merge it gives it back to the CI gate when it conflicts or
-  # is not green. States are added, none renamed or removed, so a live run keeps its
-  # state, entry, task and timers; one in `merging` leaves it once the sync says it
-  # conflicts or is not green.
-  migrate(:issue,
-    from: "6b346bcb642dff8c5adafa827b9e02b0ba65f685949739883c2c1358e32394ce",
-    to: "67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66",
-    preserve_entry: true,
-    states: [
-      checking: :checking,
-      ci_failing: :ci_failing,
-      ci_fixing: :ci_fixing,
-      ci_fixing_again: :ci_fixing_again,
-      ci_pushing: :ci_pushing,
-      done: :done,
-      fixing: :fixing,
-      merging: :merging,
-      publishing: :publishing,
-      reviewing: :reviewing,
-      stuck: :stuck,
-      unchanged: :unchanged,
-      working: :working
-    ],
-    reason: "Mergeable and green only: a conflict with develop is updated by an agent"
-  )
-
-  # Build: its presentation says its supervisor's pickup starts the work (IS-Atlas-25), no
-  # longer that it waits for a machinery; texts only, so a run keeps its state and entry,
-  # also with a task in flight.
-  migrate(:issue,
-    from: "67a9702834aad450f3be96611701bb6b9403a8e254f9af846b85a31dd0179d66",
-    to: "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e",
-    preserve_entry: true,
-    states: :same,
-    reason: "Build: its supervisor's pickup starts the work; texts only"
-  )
-
-  # No item gets stuck (IS-Atlas-60, IS-Atlas-18): `stuck` is no longer final but its
-  # supervisor's, in the span, with Retry and Close; a failed review goes to
-  # `review_stuck`, which may also publish without a review; each task state records its
-  # step (`retry_step`) and each task why it failed (`task_failure`). A live run keeps its
-  # state and entry, also with a task in flight (its step is then not recorded: Retry
-  # builds it again). A run already ended in `stuck` is reopened there, with the supervisor
-  # its last task was done for; its step is not known either, so Retry builds it again.
-  migrate(:issue,
-    from: "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e",
-    to: "59755bfb4a34101d408bb5c0ebce2bdc93252ad04a024f10a8931160ade7aa33",
-    preserve_entry: true,
-    reopen: [:stuck],
-    states: [
-      checking: :checking,
-      ci_failing: :ci_failing,
-      ci_fixing: :ci_fixing,
-      ci_fixing_again: :ci_fixing_again,
-      ci_pushing: :ci_pushing,
-      done: :done,
-      fixing: :fixing,
-      merging: :merging,
-      publishing: :publishing,
-      reviewing: :reviewing,
-      stuck: :stuck,
-      unchanged: :unchanged,
-      update_failing: :update_failing,
-      update_pushing: :update_pushing,
-      updating: :updating,
-      working: :working
-    ],
-    reason: "No item gets stuck: a stuck issue stays with its supervisor, who may retry it"
-  )
 end

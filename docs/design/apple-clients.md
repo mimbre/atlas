@@ -13,15 +13,23 @@ means. Every rule below is about blocks, markup, pages and messages.
 ## 1. What exists: the generated package (slice 0)
 
 `platform/atlas_control/backend/targets/swift/` is the Swift package `AtlasControlKit`, a file target of the contract
-(`AtlasBFF.Targets.Swift`, written by `cd platform/atlas_control/backend/contract && mix atlas.gen`, checked by
-`mix atlas.gen --check`). Platforms `.macOS(.v14)` and `.iOS(.v17)`, Swift 6 language mode,
+(`AtlasBFF.Targets.Swift`, written by `bin/generate atlas`). It is build output, not kept in
+git, except the fixtures it tests on (`Tests/Fixtures`, kept by hand). Platforms `.macOS(.v14)` and `.iOS(.v17)`, Swift 6 language mode,
 Foundation only (no AppKit, UIKit, SwiftUI or Network), so one package serves both apps.
+
+It is published in [github.com/mimbre/atlas-swift](https://github.com/mimbre/atlas-swift),
+one tag per contract version (the `version` of
+`platform/atlas_control/backend/contract/lib/contract.ex`, as `blocks.json` carries it).
+CI's `deploy-swift-package` publishes it on each release (a push to master) when its
+version's tag is not there yet, and otherwise does nothing, with
+`platform/clients/apple/tools/atlas_swift.py`: a tag, once published, stays as it is, so a
+change to the package reaches the app with a new contract version.
 
 ```
 platform/atlas_control/backend/targets/swift/
   Package.swift                      library AtlasControlKit, test target AtlasControlKitTests
   Sources/AtlasControlKit/
-    Contract.swift                   Contract.version ("0.16.0")
+    Contract.swift                   Contract.version, the contract's version
     JSONValue.swift                  any JSON value: untyped fields, what cannot be shown
     Fallback.swift                   a block or markup entry that cannot be shown, and why
     Models.swift                     <Name>Model per model (ActionModel, RowModel, ShellTabModel, …)
@@ -67,9 +75,9 @@ What it gives an app:
 
 Its tests (77) run in `swift test`. A channel's fixtures must be there (a missing file
 fails), and the lines that carry `spec` must carry `Contract.version`, so a new contract
-version fails until the fixtures are recaptured; CI's `swift` job (macos-latest) builds, tests and
-builds it for the iOS Simulator, and refuses a hand-written file in the package. The
-hand-written `platform/clients/apple` package has its own job, `apple` (macos-latest, §2).
+version fails until the fixtures are recaptured; CI's `swift` job (macos-latest) generates
+it, builds, tests and builds it for the iOS Simulator. The hand-written
+`platform/clients/apple` package has its own job, `apple` (macos-latest, §2).
 
 ### Gaps the next slices close
 
@@ -96,7 +104,7 @@ hand-written `platform/clients/apple` package has its own job, `apple` (macos-la
 ## 2. Shared and platform code
 
 ```
-platform/atlas_control/backend/targets/swift/            AtlasControlKit (generated): the contract
+github.com/mimbre/atlas-swift          AtlasControlKit (generated): the contract, by version
 platform/clients/apple/                hand-written Swift package (+ app targets from S8)
   Package.swift               products: ControlSession, BlockViews, AtlasMac (S1);
                               ConsoleKit (S5), WorkerViews (S6)
@@ -116,6 +124,24 @@ S8 makes it an Xcode app target on the local package (an `.xcodeproj` under
 Everything that can be tested without a window is in the package and runs in `swift test`.
 CI's `apple` job (macos-latest) runs `swift build` and `swift test`, and builds
 `ControlSession` and `BlockViews` for the iOS Simulator.
+
+`Package.swift` depends on AtlasControlKit from github.com/mimbre/atlas-swift at exactly
+the contract's version (`contractVersion`; the `apple` job fails when it is not the
+contract's). A contract change in a branch has a version that is published only when it
+is released, so the `apple` job, and a local build of such a branch, build against the
+package generated from the tree instead: `ATLAS_SWIFT_PACKAGE`, a folder, replaces the
+published package.
+
+```
+swift build                                         # the published contract version
+bin/generate atlas model                            # from the repository's root
+ATLAS_SWIFT_PACKAGE=../../atlas_control/backend/targets/swift swift build
+```
+
+`swift test` needs the product's description (`ShellTabsTests` reads
+`products/software_factory/model/targets/rela/atlas.json`): run `bin/generate model` first.
+The release job `deploy-mac-app` builds against the published package, after
+`deploy-swift-package`, and reads the contract version from the contract's source.
 
 **ControlSession** (shared, `@MainActor`-free core with an `@Observable` façade):
 
@@ -339,7 +365,7 @@ not bind.
 **W0 Worker operations as endpoints (contract).** `defendpoint` for the eight worker
 operations the TUI uses, so the package has their messages. Changes `blocks.json` and the
 contract's version notes; reviewed as a contract change.
-*Accepted when* `mix atlas.gen --check` passes, the generated tests cover each worker
+*Accepted when* `bin/generate atlas` writes it, the generated tests cover each worker
 message, and fixtures captured from Control's worker tests decode.
 
 **S6 Worker pages.** In the right column: output stream on its own connection
@@ -453,14 +479,15 @@ private test instance (rela, core and Control on free ports, through `atlas-ops`
   skipped when `ATLAS_ENV_FILE` is unset, so plain `swift test` stays a unit run.
 
 The scenario is `products/software_factory/e2e/scenarios/apple-control.exs`; on a Mac, run it with
-`bin/atlas-dev e2e apple-control`. A skip there is a failure. Network.framework exists only
+`bin/atlas-dev e2e apple-control`. It runs `bin/generate atlas` and builds against that
+package (`ATLAS_SWIFT_PACKAGE`), the contract version the run's Control speaks, published
+or not. A skip there is a failure. Network.framework exists only
 on Apple's platforms, so the scenario runs only on macOS with `swift`; elsewhere it passes
-with a note that it did not run. CI's e2e job is Ubuntu (erlef/setup-beam supports Ubuntu
-and Windows runners, not macOS), so a green e2e job says nothing about the Swift client
-against a real Control. The `apple` job (macOS) runs the unit tests only.
+with a note that it did not run. CI's e2e job is Ubuntu, so a green e2e job says nothing
+about the Swift client against a real Control. The `apple` job (macOS) runs the unit tests only.
 
-*Follow-up:* a macOS integration job that installs Erlang and Elixir with Homebrew and
-rela with `platform/atlas_facts/rela/scripts/start-test.sh install`, and runs the scenario. With it, build the
+*Follow-up:* a macOS integration job that installs Erlang and Elixir (erlef/setup-beam,
+as the `apple` job does) and runs the scenario. With it, build the
 Swift package before the instance starts (or put a timeout on the scenario's
 `System.cmd`), so the build does not run inside the shared instance's time.
 

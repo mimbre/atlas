@@ -141,10 +141,6 @@
           "final": false,
           "label": "Waiting for its use cases",
           "owner": {
-            "default": {
-              "config": "decider",
-              "kind": "person"
-            },
             "relation": "assigned_to",
             "via": "assignment"
           },
@@ -2030,7 +2026,7 @@
               "repository": "github.com/mimbre/atlas",
               "update": "pr_url"
             },
-            "instructions": "Update the pull request of the issue below with develop, in the repository you are given: a Git checkout of develop merged into its pull request. Its last commit only adds the base's dependencies; under it (HEAD~1) is the merge: its first parent is the pull request's head, its second develop, and its message lists the files that conflict, which hold Git's conflict markers. Resolve every conflict keeping the pull request's intent and develop's changes alike; leave no conflict marker. Generated targets (products/software_factory/model/targets) are never merged by hand: take develop's and regenerate them with mix model.gen (in products/software_factory). Where the pull request's model change has a migrate(…) of a run digest, chain it from develop's current digests, as mix model.gen --check names them. Run bin/check. End your answer with what you resolved and what is left open.",
+            "instructions": "Update the pull request of the issue below with develop, in the repository you are given: a Git checkout of develop merged into its pull request. Its last commit only adds the base's dependencies; under it (HEAD~1) is the merge: its first parent is the pull request's head, its second develop, and its message lists the files that conflict, which hold Git's conflict markers. Resolve every conflict keeping the pull request's intent and develop's changes alike; leave no conflict marker. Run bin/check. End your answer with what you resolved and what is left open.",
             "kind": "fix",
             "machinery": "machinery",
             "parents": ["title", "description"],
@@ -3774,6 +3770,5 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "0e89b931358897a4e9834bb0b7dc6195e9de1fadb50aac6ab6268d135b5a7994",
   "writer": "system:atlas-flow"
 }

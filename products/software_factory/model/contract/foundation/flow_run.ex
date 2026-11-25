@@ -37,7 +37,13 @@ defmodule Model.FlowRun do
     field(:subject_kind, :string)
     field(:subject_key, :string)
     field(:generation, :integer)
-    field(:definition_sha256, :string)
+
+    field(:definition_sha256, :string,
+      description:
+        "History only: the digest of the subflow definition an older run started under; " <>
+          "Flow sets it on no run and decides nothing by it (D-0102)"
+    )
+
     field(:state, :string)
     field(:entry, :integer)
     field(:entered_at, :string)

@@ -1,12 +1,12 @@
 """The Mac app's release (IS-Atlas-66), for the release job of .github/workflows/ci.yml.
 
-  contract <Contract.swift>   print the contract version the app speaks (Contract.version)
   bundle ...                  make `Atlas Console.app` of an already-built AtlasMac, with
                               its release in Info.plist (revision, build, contract, feed)
   feed ...                    write the feed naming a release, unless the current feed
                               already names a later one (exit 3)
 
-It builds, signs and publishes nothing itself: the job runs swift build, codesign and gh.
+It builds, signs and publishes nothing itself: the job runs swift build, codesign and gh;
+the contract version comes from tools/atlas_swift.py version.
 """
 import argparse
 import hashlib
@@ -20,13 +20,6 @@ import sys
 IDENTIFIER = "co.eyra.atlas.console"
 NAME = "Atlas Console"
 NOT_NEWER = 3
-
-
-def contract(args):
-    found = re.search(r'static let version = "(\d+\.\d+\.\d+)"', args.file.read_text())
-    if not found:
-        sys.exit(f"{args.file} names no contract version")
-    print(found.group(1))
 
 
 def info(args):
@@ -99,10 +92,6 @@ def feed(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
-
-    c = commands.add_parser("contract")
-    c.add_argument("file", type=Path)
-    c.set_defaults(run=contract)
 
     b = commands.add_parser("bundle")
     b.add_argument("--binary", type=Path, required=True)

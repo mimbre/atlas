@@ -10,7 +10,8 @@ import os
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-# The Rela project the scripts serve: the product's generated description.
+# The Rela project the scripts serve: the product's generated description (bin/generate model
+# writes it before these tests run).
 PROJECT = ROOT.parents[2] / 'products/software_factory/model/targets/rela'
 spec = importlib.util.spec_from_file_location('config', ROOT / 'scripts/config.py')
 config = importlib.util.module_from_spec(spec)
