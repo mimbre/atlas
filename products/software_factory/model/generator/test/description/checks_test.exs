@@ -318,6 +318,22 @@ defmodule RelaDSL.Description.ChecksTest do
     assert subflows(concept(concept: String.replace(@subflow, "on: :state", "on: :colour"))) ==
              [{:unknown_field, ["thing", "colour"]}]
 
+    # The field a task's questions go to (asks:) is the subject's.
+    task = fn field ->
+      String.replace(
+        @subflow,
+        "wait_for [:judge], on: :state, reset: false, done: :closed",
+        ~s(task :plan, role: :architect, profile: :deep_coding, input: [repository: "example.invalid/r", base: "develop"], instructions: "Do it.", asks: [field: :#{field}, file: "questions.md"], records: [kind: "task", relation: "task_of"], machinery: "keeper", on: [completed: :closed, check_failed: :closed, stuck: :closed, abandoned: :closed, asked: :closed])
+      )
+    end
+
+    # (The thing has no task_result either; only the questions' field is new here.)
+    known = [{:unknown_field, ["thing", "task_result"]}]
+    assert subflows(concept(concept: task.(:title))) == known
+
+    assert subflows(concept(concept: task.(:questions))) ==
+             known ++ [{:unknown_field, ["thing", "questions"]}]
+
     assert subflows(concept(concept: String.replace(@subflow, "[:judge]", "[:jury]"))) ==
              [{:unknown_role, ["jury"]}]
 

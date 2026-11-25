@@ -415,6 +415,11 @@
               "roles": ["atlas-flow"],
               "to": "accepting",
               "when": "entity.task_result == 'abandoned'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "clarifying",
+              "when": "entity.task_result == 'asked'"
             }
           ],
           "creates": [],
@@ -434,6 +439,10 @@
           },
           "set": [],
           "spec": {
+            "asks": {
+              "field": "questions",
+              "file": "questions.md"
+            },
             "cost_class": "standard",
             "creates": {
               "fields": ["design", "note"],
@@ -441,12 +450,12 @@
               "kind": "use_case"
             },
             "field": "task_result",
-            "fields": ["title", "description", "note"],
+            "fields": ["title", "description", "note", "questions", "answers"],
             "input": {
               "base": "develop",
               "repository": "github.com/mimbre/atlas"
             },
-            "instructions": "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
+            "instructions": "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay. When the scene is too vague to design use cases from, do not guess: write your questions to questions.md and nothing else; its producer answers them, or rewrites the scene, and you are asked again. When the scene has questions and its producer's answers, they were asked and answered before: design from the current description and the answers.",
             "kind": "plan",
             "machinery": "machinery",
             "profile": "deep_coding",
@@ -470,6 +479,59 @@
             {
               "field": "phase",
               "value": "accept"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "clarifying": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "break_down",
+              "when": "entity.verdict == 'answered'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Answer its questions",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Answer its questions",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "answers": "$note",
+                      "verdict": "answered"
+                    }
+                  },
+                  "key": "a",
+                  "label": "Answered",
+                  "note": true
+                }
+              ],
+              "instructions": "Read its agent's questions below, and the scene's description. Answer them in your note; you may first rewrite the description by hand, and say so. Answered gives it back to Design: a fresh pass of its agent reads the questions, your answers and the current description.",
+              "section": {
+                "field": "questions",
+                "label": "Its agent's questions"
+              }
+            },
+            "why": "its agent cannot design use cases from it without guessing"
+          },
+          "set": [
+            {
+              "field": "verdict",
+              "value": "none"
             }
           ],
           "timers": [],
@@ -3339,6 +3401,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "43401ff748ca1a91cb86692e6797dac566fbd8e1993379b234b6aa1bc5363c66",
+  "rela_flows_sha256": "66e51c2759be5af3bca192f090e4c3ddf4425ae28b51cd5e29e8badd3127c68b",
   "writer": "system:atlas-flow"
 }

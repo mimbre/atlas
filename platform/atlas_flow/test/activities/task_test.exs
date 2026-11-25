@@ -965,6 +965,17 @@ defmodule AtlasFlow.Activities.TaskTest do
           do: refute(Task.valid?(put_in(spec, ["input", key], url)), url)
     end
 
+    test "a task may ask instead (asks): its own result, asked; never a ladder's" do
+      {:task, spec} = Bench.subflows(:prod) |> hd() |> then(& &1.mechanism("loading"))
+      asks = %{"field" => "questions", "file" => "questions.md"}
+      asking = Map.put(spec, "asks", asks)
+      assert Task.valid?(asking)
+      assert Task.results(asking) == Task.results() ++ ["asked"]
+      refute "asked" in Task.results(spec)
+      refute Task.valid?(Map.put(spec, "asks", %{"field" => "questions"}))
+      refute Task.valid?(Map.put(asking, "ladder", true))
+    end
+
     test "the DSL refuses a task input with a folder or path key, or a URL" do
       for input <- [
             ~s([repository: "example.org/acme/x", base: "develop", path: "/w"]),

@@ -3,7 +3,8 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
   A neutral model of a task that proposes facts (slice 7): a crate is sorted by a robot (a
   machinery kind) whose agent proposes the crate's items in a file of its result; Flow
   makes them under the crate (`in_crate`, the item's parent relation). Labelled, its agent
-  writes the crate's note instead (slice 9). A clerk supervises the run.
+  writes the crate's note instead (slice 9). Asked, its agent may ask its questions
+  instead of sorting (`asks`). A clerk supervises the run.
   """
   use RelaDSL.Composition,
     name: "proposal",
@@ -30,6 +31,7 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
       field(:phase, :string)
       field(:task_result, :string)
       field(:note, :string)
+      field(:questions, :string)
     end
 
     entity :item, label: "Item", plural: "items", id_type: :manual, id_prefix: "IT-" do
@@ -132,6 +134,41 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
     end
 
     select(:label, admission: [phase: [:second]], imports: [])
+
+    subflow :ask, label: "Ask", subject: :crate do
+      run_as("system:proposal")
+      owner(relation: :owned_by, default: {:clerk, :desk})
+      start(:predicate, when: "entity.phase == 'third'")
+      initial(:asking)
+      supervise(:ask, label: "Ask", states: [:asking])
+
+      state :asking do
+        task(:plan,
+          role: :architect,
+          profile: :deep_coding,
+          input: [repository: "example.org/acme/proposal", base: "develop"],
+          instructions: "Sort the crate, or ask.",
+          fields: [:title, :questions],
+          creates: [kind: :item, file: "items.json"],
+          asks: [field: :questions, file: "questions.md"],
+          records: [kind: "task", relation: "task_of"],
+          machinery: "robot",
+          on: [
+            completed: :sorted,
+            check_failed: :sorted,
+            stuck: :stuck,
+            abandoned: :stuck,
+            asked: :asked
+          ]
+        )
+      end
+
+      final(:sorted)
+      final(:stuck)
+      final(:asked)
+    end
+
+    select(:ask, admission: [phase: [:third]], imports: [])
   end
 
   defmodule Crates do
@@ -243,7 +280,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
     if reconcile(c, key)["pending"]["task"] == nil,
       do: assert_receive({:reconcile, "crate", ^key}, 2_000)
 
-    flow = if phase == "first", do: "sort", else: "label"
+    flow = %{"first" => "sort", "second" => "label", "third" => "ask"}[phase]
     run_key = AtlasFlow.Runs.Run.key(flow, "crate", key, 1)
     fact = FakeFacts.get(c.runner.config["kind"], run_key)
     links = Map.put(fact["links"] || %{}, "watched_by", ["ada"])
@@ -271,7 +308,9 @@ defmodule AtlasFlow.Activities.ProposalTest do
     assert_receive {:"$gen_cast", {:reconcile, "crate", ^key}}
 
     # Its result is asked of Bases first; nothing moves until Bases has it.
-    assert reconcile(c, key)["state"] == if(phase == "first", do: "sorting", else: "labelling")
+    assert reconcile(c, key)["state"] ==
+             %{"first" => "sorting", "second" => "labelling", "third" => "asking"}[phase]
+
     assert_receive {:reconcile, "crate", ^key}, 2_000
     reconcile(c, key)
   end
@@ -320,5 +359,48 @@ defmodule AtlasFlow.Activities.ProposalTest do
     labelled = finish(c, "C-3", [{"note.md", "# Fragile\n\nHandle with care.\n"}], "second")
     assert {labelled["state"], labelled["status"]} == {"labelled", "completed"}
     assert FakeFacts.get("crate", "C-3")["values"]["note"] == "# Fragile\n\nHandle with care."
+  end
+
+  test "a task that asks: Flow puts its questions in the crate's field, makes nothing, asked",
+       c do
+    run = intended(c, "C-4", "third")
+    assert run["pending"]["task"]["work"]["instructions"] =~ "questions.md"
+
+    proposal = JSON.encode!([%{"title" => "A guess"}])
+    files = [{"questions.md", "Which crate is meant?\n"}, {"items.json", proposal}]
+    asked = finish(c, "C-4", files, "third")
+    assert {asked["state"], asked["status"]} == {"asked", "completed"}
+    assert [%{"outcome" => "completed", "reason" => "asked"}] = asked["pending"]["tasks"]
+
+    crate = FakeFacts.get("crate", "C-4")
+    assert crate["values"]["questions"] == "Which crate is meant?"
+    # Flow wrote them, for the supervisor; the agent wrote nothing into Atlas.
+    assert [written] =
+             for(
+               %{"key" => "C-4", "values" => %{"questions" => _}} = w <- FakeFacts.sent(),
+               do: w
+             )
+
+    assert %{"op" => "change", "by" => "flow", "cause" => "For ada: asked by TK-C-4-1"} =
+             written
+
+    assert FakeFacts.get("item", "IT-01") == nil
+    # The task fact keeps how its work ended.
+    assert FakeFacts.get("task", "TK-C-4-1")["values"]["state"] == "completed"
+  end
+
+  test "a task that may ask but does not: its proposal is made as before", c do
+    intended(c, "C-5", "third")
+    files = [{"questions.md", "  \n"}, {"items.json", JSON.encode!([%{"title" => "One"}])}]
+    sorted = finish(c, "C-5", files, "third")
+    assert {sorted["state"], sorted["status"]} == {"sorted", "completed"}
+    assert FakeFacts.get("item", "IT-01")["values"] == %{"title" => "One"}
+    assert FakeFacts.get("crate", "C-5")["values"]["questions"] == nil
+
+    # With no questions file and no proposal, it is stuck, as before.
+    intended(c, "C-6", "third")
+    stuck = finish(c, "C-6", [{"notes.txt", "nothing\n"}], "third")
+    assert stuck["state"] == "stuck"
+    assert [%{"reason" => "no proposal"}] = stuck["pending"]["tasks"]
   end
 end

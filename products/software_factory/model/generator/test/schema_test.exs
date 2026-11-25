@@ -664,6 +664,45 @@ defmodule RelaDSL.SchemaTest do
       assert compile!(task_source(~s(input: [repository: "example.invalid/r", base: "develop"],)))
     end
 
+    test "a task that may ask instead (asks:) also ends asked, beside what it proposes" do
+      four_and_asked =
+        "on: [completed: :b, check_failed: :c, stuck: :c, abandoned: :c, asked: :c]"
+
+      asks = ~s(asks: [field: :questions, file: "questions.md"],)
+
+      module =
+        compile!(
+          task_source(asks <> ~s( writes: [field: :note, file: "note.md"],), four_and_asked)
+        )
+
+      [%{states: [a | _]}] = module.__flows__()
+      assert {:task, %{asks: [field: :questions, file: "questions.md"]}} = a.mechanism
+
+      assert {:c, ["atlas-flow"], "entity.task_result == 'asked'"} in for(
+               b <- a.branches,
+               do: {b.to, b.roles, b.when}
+             )
+
+      # Its own result, which it maps; one that never asks gives none.
+      refused(task_source(asks), 6, "state a: task author can give asked, which no branch takes")
+      refused(task_source("", four_and_asked), 6, "state a: task author never gives asked")
+
+      refused(
+        task_source(~s(asks: [field: :questions],), four_and_asked),
+        6,
+        "state a: task author: asks: must be [field: field, file: text]"
+      )
+
+      refused(
+        task_source(
+          ~s(asks: [field: :note, file: "note.md"], writes: [field: :note, file: "note.md"],),
+          four_and_asked
+        ),
+        6,
+        "state a: task author: asks: its file is not its proposal's"
+      )
+    end
+
     test "a task with an unknown kind, profile or option" do
       refused(
         task_source("profile: :light_work,"),

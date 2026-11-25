@@ -164,6 +164,111 @@ defmodule Model.PipelineRunsTest do
     end
   end
 
+  # UC-Atlas-24: a question about a scene goes to its producer. Its Design agent asks
+  # instead of guessing; its producer answers (or rewrites it), and Design continues.
+  test "Design asks the scene's producer instead of guessing, and continues once answered" do
+    {:ok, actors} = AtlasBus.Actors.resolve(Model.AtlasEyra.actors(), %{"decider" => "melle"})
+    viewer = %{key: "melle", kind: "person"}
+
+    for env <- @envs do
+      design = flow(env, "break_down_scene")
+      {:task, spec} = design.mechanism("break_down")
+      assert spec["asks"] == %{"field" => "questions", "file" => "questions.md"}
+      assert "asked" in AtlasFlow.Activities.Task.results(spec)
+      assert spec["instructions"] =~ "write your questions to questions.md and nothing else"
+
+      vague = %{"phase" => "break_down", "title" => "Reports", "description" => "Reports."}
+      run = Map.put(new(env, "break_down_scene", "SC-1", vague), "supervised_by", "melle")
+      assert at(run) == {"break_down", "active"}
+
+      # Its agent asked: Flow wrote the questions (in the task's writes), and the run is
+      # its producer's, the configured decider until a scene records who produced it.
+      questions = "Which reports, and for whom?"
+      asked = %{"key" => "TK-SC-1-1", "outcome" => "completed", "reason" => "asked"}
+      flow_wrote = [%{"id" => "w", "content" => %{"values" => %{"questions" => questions}}}]
+      with_questions = Map.put(vague, "questions", questions)
+
+      {:ok, clarifying} =
+        Run.task_result(run, design, fact("SC-1", vague), @now, "asked", asked, flow_wrote)
+
+      assert at(clarifying) == {"clarifying", "active"}
+      assert clarifying["supervised_by"] == "melle"
+      assert written(clarifying) == [%{"questions" => questions}, %{"verdict" => "none"}]
+      decider = actors["decider"]
+      assert AtlasFlow.Model.owner(design.owner("clarifying")["default"], actors) == decider
+
+      # Its To-Do: Answer its questions, showing them, with one answer, Answered, and a note.
+      presentation =
+        design.present("clarifying", with_questions)
+        |> Map.merge(%{"owner" => ["melle"], "actionable" => true})
+
+      scene = %{
+        "key" => "SC-1",
+        "values" => Map.put(with_questions, "verdict", "none"),
+        "links" => %{"assignment" => ["AS-SC-1"]}
+      }
+
+      parts = %{"assignment" => %{"presentation" => presentation}}
+      todo = Model.AtlasEyra.todo("scene", scene, parts, viewer)
+      assert todo.expected == "Answer its questions"
+      assert todo.section == %{heading: "Its agent's questions", text: questions}
+      assert todo.instructions =~ "description"
+      assert [%{label: "Answered", note: true} = answer] = todo.answers
+
+      assert {:write, %{"values" => values, "note" => true}} =
+               Model.AtlasEyra.answer(
+                 "scene",
+                 answer.key,
+                 %{"fact" => scene, "parts" => parts},
+                 viewer
+               )
+
+      assert values == %{"verdict" => "answered", "answers" => "$note"}
+      # Nobody else is asked.
+      assert Model.AtlasEyra.todo("scene", scene, parts, %{key: "x", kind: "person"}) == nil
+
+      # Answered, after a rewrite by hand: back to Design, with fresh work, the same supervisor.
+      answers = "Monthly sales, for the board."
+      rewritten = "Monthly sales reports for the board, as PDF."
+
+      answered =
+        Map.merge(with_questions, %{
+          "verdict" => "answered",
+          "answers" => answers,
+          "description" => rewritten
+        })
+
+      {:ok, again} = step(env, "break_down_scene", sent(clarifying), "SC-1", answered)
+      assert at(again) == {"break_down", "active"}
+      assert again["generation"] == run["generation"]
+      assert again["supervised_by"] == "melle"
+      assert again["pending"]["task"] == nil
+      assert [%{"key" => "TK-SC-1-1"}] = again["pending"]["tasks"]
+
+      # Its next task reads the questions, the answers and the current description.
+      request = AtlasFlow.Activities.Task.request(spec, fact("SC-1", answered), "TK-SC-1-2")
+      assert request["instructions"] =~ "## questions\n\n" <> questions
+      assert request["instructions"] =~ "## answers\n\n" <> answers
+      assert request["instructions"] =~ "## description\n\n" <> rewritten
+
+      # A task that completes with its proposal goes to Accept it, as before.
+      proposed = %{"key" => "TK-SC-1-2", "outcome" => "completed"}
+
+      {:ok, accepting} =
+        Run.task_result(
+          sent(again),
+          design,
+          fact("SC-1", answered),
+          @now,
+          "completed",
+          proposed,
+          []
+        )
+
+      assert at(accepting) == {"accepting", "active"}
+    end
+  end
+
   test "a use case: Plan, then accepted by itself once its issues are done" do
     for env <- @envs do
       new_one = %{"phase" => "break_down"}
