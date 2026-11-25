@@ -11,6 +11,8 @@ flows:
     states:
       working:
         label: Working
+        outputs:
+          - set: { properties: { retry_step: author, task_failure: none } }
         on:
           change:
             - { to: reviewing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
@@ -19,15 +21,19 @@ flows:
             - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
       reviewing:
         label: Reviewing
+        outputs:
+          - set: { properties: { retry_step: review, task_failure: none } }
         on:
           change:
             - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
             - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
             - { to: fixing, roles: [atlas-flow], when: "entity.task_result == 'changes_required'" }
-            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
-            - { to: stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+            - { to: review_stuck, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
+            - { to: review_stuck, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
       fixing:
         label: Fixing
+        outputs:
+          - set: { properties: { retry_step: fix, task_failure: none } }
         on:
           change:
             - { to: publishing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
@@ -87,7 +93,7 @@ flows:
       ci_fixing:
         label: Fixing its CI
         outputs:
-          - set: { properties: { ci_fixes: one } }
+          - set: { properties: { ci_fixes: one, retry_step: ci_fix, task_failure: none } }
         on:
           change:
             - { to: ci_pushing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
@@ -97,7 +103,7 @@ flows:
       ci_fixing_again:
         label: Fixing its CI again
         outputs:
-          - set: { properties: { ci_fixes: two } }
+          - set: { properties: { ci_fixes: two, retry_step: ci_fix_again, task_failure: none } }
         on:
           change:
             - { to: ci_pushing, roles: [atlas-flow], when: "entity.task_result == 'completed'" }
@@ -138,11 +144,30 @@ flows:
         on:
           change:
             - { to: done, when: "entity.gate_result == 'close'" }
-      done:
-        label: Done
-        final: true
       stuck:
         label: Stuck
+        outputs:
+          - set: { properties: { gate_result: none } }
+        on:
+          change:
+            - { to: done, when: "entity.gate_result == 'close'" }
+            - { to: done, when: "entity.pr_state == 'merged'" }
+            - { to: reviewing, when: "entity.gate_result == 'retry' and entity.retry_step == 'review'" }
+            - { to: fixing, when: "entity.gate_result == 'retry' and entity.retry_step == 'fix'" }
+            - { to: ci_fixing, when: "entity.gate_result == 'retry' and entity.retry_step == 'ci_fix'" }
+            - { to: ci_fixing_again, when: "entity.gate_result == 'retry' and entity.retry_step == 'ci_fix_again'" }
+            - { to: working, when: "entity.gate_result == 'retry'" }
+      review_stuck:
+        label: Its review failed
+        outputs:
+          - set: { properties: { gate_result: none } }
+        on:
+          change:
+            - { to: done, when: "entity.gate_result == 'close'" }
+            - { to: reviewing, when: "entity.gate_result == 'retry'" }
+            - { to: publishing, when: "entity.gate_result == 'publish'" }
+      done:
+        label: Done
         final: true
   pull_request:
     label: Pull request

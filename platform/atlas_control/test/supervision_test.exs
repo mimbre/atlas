@@ -354,6 +354,37 @@ defmodule AtlasControl.SupervisionTest do
     end
   end
 
+  test "Retry gives way to the state's own answer of that label: one Retry, the state's" do
+    for m <- @models do
+      retry = Pages.path({:retry, "widget", "W-1", "R-1"})
+      remove = Pages.path({:remove_item, "widget", "W-1", "R-1"})
+      answer = Pages.path({:answer, "widget", "W-1", "r"})
+
+      # Its supervisor owns it, and the state answers Retry itself (back to the step that
+      # failed) beside Close it.
+      todo = %{
+        "answers" => [
+          %{"key" => "r", "label" => "Retry", "change" => %{"values" => %{"retry" => "yes"}}},
+          %{"key" => "c", "label" => "Close it", "change" => %{"values" => %{"close" => "yes"}}}
+        ]
+      }
+
+      presentation = Map.put(presented(supervisor: ["ada"], owner: ["ada"]), "todo", todo)
+      answers = item_answers(m, work(m, "W-1", presentation), [member("ada")])
+      page = Pages.render({:item, "widget", "W-1"}, m, answers, @tui_ada)
+      tos = for %{"to" => to} <- block(page, "item")["props"]["actions"], do: to
+
+      assert answer in tos
+      refute retry in tos
+      assert offered(m, answers, @tui_ada) == {[], [remove]}
+
+      # A state without its own Retry keeps the span's.
+      plain = Map.put(presentation, "todo", %{"answers" => tl(todo["answers"])})
+      plain_answers = item_answers(m, work(m, "W-1", plain), [member("ada")])
+      assert offered(m, plain_answers, @tui_ada) == {[retry], [remove]}
+    end
+  end
+
   test "nothing raw where the flow covers it: no Delete beside Remove, no Create of what it makes" do
     for m <- @models do
       tos = fn m, answers ->

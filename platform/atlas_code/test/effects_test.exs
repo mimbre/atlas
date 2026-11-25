@@ -134,6 +134,7 @@ defmodule AtlasCode.EffectsTest do
     assert pull["body"] =~ "README has a second typo."
     assert pull["body"] =~ "> Fixed the second typo."
     assert pull["body"] =~ "Written by an AI agent"
+    refute pull["body"] =~ "No review was made"
 
     # Repeated, or its record lost: the same pull, never a second one.
     assert call(s, "lookup", r) == first
@@ -149,6 +150,44 @@ defmodule AtlasCode.EffectsTest do
       })
 
     assert %{"status" => "refused", "reason" => "unknown_result"} = call(s, "submit", unknown)
+  end
+
+  test "a result published without a review says that no review was made", c do
+    # Its review ended without a result; its supervisor published the author's result.
+    result = FakeGitHub.sha("unreviewed")
+    ref = "refs/atlas/results/TK-JB-1-1"
+
+    results = fn
+      "github.com/o/r", ^ref -> {:ok, %{"dir" => "/cache.git", "commit" => result}}
+      _, _ -> :error
+    end
+
+    s =
+      Effects.new(
+        dir: c.dir,
+        github: {FakeGitHub, FakeGitHub.config(c.gh)},
+        repositories: ["o/r"],
+        results: results
+      )
+
+    r =
+      request(nil, %{
+        "id" => String.duplicate("9", 64),
+        "name" => "publish",
+        "subject" => "JB-1",
+        "operation" => "publish",
+        "fingerprint_definition" => %{"fields" => ["title"], "relations" => []},
+        "payload" => %{"title" => "Fix the README", "description" => "One typo."},
+        "input" => %{"repository" => "github.com/o/r", "base" => "main", "result" => ref}
+      })
+      |> Map.drop(["target", "approved"])
+
+    assert %{"status" => "done", "outputs" => %{"url" => url}} = call(s, "submit", r)
+    number = url |> String.split("/") |> List.last() |> String.to_integer()
+    body = FakeGitHub.get_pull(c.gh, number)["body"]
+    assert body =~ "One typo."
+    assert body =~ "**Review.** No review was made of this result."
+    refute body =~ "**Fix.**"
   end
 
   test "a result onto an open pull is pushed to its branch, never forced; done with its address",

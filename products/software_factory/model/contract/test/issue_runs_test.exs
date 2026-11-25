@@ -318,6 +318,253 @@ defmodule Model.IssueRunsTest do
     assert until(c, "merging")["state"] == "merging"
   end
 
+  # No item gets stuck (IS-Atlas-60): an agent task that ends without a result keeps the
+  # issue with its supervisor, who is told why and may retry that step.
+  test "a failed author goes to its supervisor with why; Retry builds it again on a fresh base and it goes on to Reviewing",
+       c do
+    started(c)
+    {_, first} = leased = lease!()
+    finish(lease: leased, kind: :failed, reason: "time_limit")
+
+    stuck = until(c, "stuck")
+    assert stuck["status"] == "active"
+    assert stuck["supervised_by"] == "ada"
+    assert stuck["pending"]["task"] == nil
+
+    # Why, on the issue: which task, where, how it ended and its reason.
+    values = FakeFacts.get("issue", @key)["values"]
+    assert values["retry_step"] == "author"
+
+    assert values["task_failure"] ==
+             "The author task #{@author} (in working) ended stuck: time_limit."
+
+    assert values["gate_result"] == "none"
+
+    # Its supervisor's, with Retry and Close.
+    assert owner(c, stuck) == "ada"
+    assert answers("stuck") == ["Retry", "Close it"]
+
+    # develop moved meanwhile: Retry leases a new author on a fresh base of it.
+    FakeCode.put(c.code, @repository, "develop", "rev_3", %{"README.md" => "# Atlas 3\n"})
+    ManualClock.advance(elem(c.clock, 1), 60_000)
+    decide("retry")
+    working = intent(c)
+    assert working["state"] == "working"
+    assert %{"key" => @review} = working["pending"]["task"]
+    {_, again} = leased = lease!()
+    refute again.input.base.base_id == first.input.base.base_id
+    finish(lease: leased, answer: "Done.")
+
+    FakeCode.put(c.code, @repository, "refs/atlas/results/" <> @review, "rev_4", %{
+      "README.md" => "# Atlas 3\n\nChanged.\n"
+    })
+
+    # It goes on to Reviewing, on the new author's result.
+    reviewing = intent(c)
+    assert reviewing["state"] == "reviewing"
+    {:ok, base} = Bases.cached(@repository, "refs/atlas/results/" <> @review)
+    assert reviewing["pending"]["task"]["work"]["input"]["base"]["base_id"] == base.base_id
+    assert FakeFacts.get("issue", @key)["values"]["task_failure"] == "none"
+  end
+
+  test "a failed review goes to its supervisor; Retry reviews the author's result again", c do
+    review_failed(c)
+    decide("retry")
+    again = intent(c)
+    assert again["state"] == "reviewing"
+    assert %{"key" => @fix} = again["pending"]["task"]
+    {:ok, base} = Bases.cached(@repository, "refs/atlas/results/" <> @author)
+    assert again["pending"]["task"]["work"]["input"]["base"]["base_id"] == base.base_id
+  end
+
+  test "a failed review: Publish without review opens its pull request from the author's result, with no review",
+       c do
+    code_answers()
+    review_failed(c)
+    decide("publish")
+    assert until(c, "checking")["state"] == "checking"
+    assert_received {:published, %{"name" => "publish", "input" => input}}
+    assert input["result"] == "refs/atlas/results/" <> @author
+    refute Map.has_key?(input, "review")
+    refute Map.has_key?(input, "fix")
+  end
+
+  test "a failed fix goes back to Fixing on Retry, on the author's result with the review's findings",
+       c do
+    started(c)
+    finish(answer: "Done.")
+    author_result(c)
+    assert intent(c)["state"] == "reviewing"
+    finish(answer: verdict("changes_required", ["A second typo."], []))
+    assert intent(c)["state"] == "fixing"
+    finish(kind: :failed, reason: "time_limit")
+    until(c, "stuck")
+    assert FakeFacts.get("issue", @key)["values"]["retry_step"] == "fix"
+
+    decide("retry")
+    fixing = intent(c)
+    assert fixing["state"] == "fixing"
+    assert %{"key" => "TK-IS-Atlas-01-4"} = task = fixing["pending"]["task"]
+    {:ok, base} = Bases.cached(@repository, "refs/atlas/results/" <> @author)
+    assert task["work"]["input"]["base"]["base_id"] == base.base_id
+    assert task["work"]["instructions"] =~ "A second typo."
+  end
+
+  test "a failed CI fix, and a failed second one, each go back to their own state on Retry", c do
+    published(c)
+
+    for {state, step, n} <- [{"ci_fixing", "ci_fix", 4}, {"ci_fixing_again", "ci_fix_again", 6}] do
+      sync(%{"pr_checks" => "failure", "pr_checks_failure" => @red})
+      assert intent(c)["state"] == state
+      finish(kind: :failed, reason: "time_limit")
+      until(c, "stuck")
+      assert FakeFacts.get("issue", @key)["values"]["retry_step"] == step
+
+      decide("retry")
+      retried = intent(c)
+      assert retried["state"] == state
+      assert retried["pending"]["task"]["key"] == "TK-IS-Atlas-01-#{n}"
+      assert retried["pending"]["task"]["work"]["instructions"] =~ @red
+      finish(answer: "Fixed.")
+
+      FakeCode.put(c.code, @repository, "refs/atlas/results/TK-IS-Atlas-01-#{n}", "rev_#{n}", %{
+        "README.md" => "# Atlas\n"
+      })
+
+      assert until(c, "checking")["state"] == "checking"
+      assert_received {:published, %{"name" => "push", "input" => input}}
+      assert input["result"] == "refs/atlas/results/TK-IS-Atlas-01-#{n}"
+    end
+
+    # Red a third time after its two fixes: its supervisor decides, as before.
+    sync(%{"pr_checks" => "failure", "pr_checks_failure" => @red})
+    assert until(c, "ci_failing")["state"] == "ci_failing"
+  end
+
+  test "Close ends a stuck issue", c do
+    started(c)
+    finish(kind: :failed, reason: "time_limit")
+    until(c, "stuck")
+    decide("close")
+    assert until(c, "done")["status"] == "completed"
+  end
+
+  test "Close ends an issue whose review failed", c do
+    review_failed(c)
+    decide("close")
+    assert until(c, "done")["status"] == "completed"
+  end
+
+  test "a run already ended in stuck is reopened there, its supervisor's again, and Retry builds it again",
+       c do
+    started(c)
+    finish(kind: :failed, reason: "time_limit")
+    stuck = until(c, "stuck")
+
+    # As the previous definition left it: completed in its final stuck, out of the span,
+    # so without a supervisor (its link cleared), and no step recorded.
+    old = "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e"
+    kind = c.runner.config["kind"]
+    fact = FakeFacts.get(kind, stuck["key"])
+
+    ended =
+      stuck
+      |> Map.merge(%{"definition_sha256" => old, "status" => "completed"})
+      |> Map.delete("supervised_by")
+
+    FakeFacts.put(
+      kind,
+      Map.merge(fact, %{
+        "values" => Map.merge(fact["values"], Store.encode(c.runner.config, ended)),
+        "links" => Map.put(fact["links"] || %{}, "supervised_by", []),
+        "version" => fact["version"] + 1
+      })
+    )
+
+    sync(%{"retry_step" => nil, "task_failure" => nil})
+
+    assert {:ok, %{"status" => "completed"}} =
+             Store.decode(c.runner.config, FakeFacts.get(kind, stuck["key"]))
+
+    # The task it ended on was done for ada.
+    assert FakeFacts.get("task", @author)["links"]["done_for"] == ["ada"]
+
+    reopened = until(c, "stuck")
+    assert reopened["status"] == "active"
+    assert reopened["definition_sha256"] == c.runner.flows["issue"].digest()
+    assert reopened["supervised_by"] == "ada"
+    assert reopened["entry"] == stuck["entry"] + 1
+    assert FakeFacts.get(kind, reopened["key"])["links"]["supervised_by"] == ["ada"]
+    assert %{"from" => ^old, "reopened" => true} = List.last(reopened["pending"]["migrations"])
+    assert owner(c, reopened) == "ada"
+
+    # Its step was never recorded: Retry builds it again.
+    decide("retry")
+    working = intent(c)
+    assert working["state"] == "working"
+    assert %{"key" => @review} = working["pending"]["task"]
+  end
+
+  # The issue picked up by ada, its author task made.
+  defp started(c) do
+    issue()
+    reconcile(c)
+    assert_receive {:reconcile, "issue", @key}, 2_000
+    supervise(c, "ada")
+    assert %{"key" => @author} = reconcile(c)["pending"]["task"]
+  end
+
+  defp author_result(c) do
+    FakeCode.put(c.code, @repository, "refs/atlas/results/" <> @author, "rev_2", %{
+      "README.md" => "# Atlas\n\nChanged.\n"
+    })
+  end
+
+  # Its author done, its review ended without a result: with its supervisor, who is told.
+  defp review_failed(c) do
+    started(c)
+    finish(answer: "Done.")
+    author_result(c)
+    assert intent(c)["state"] == "reviewing"
+    finish(kind: :failed, reason: "time_limit")
+    failed = until(c, "review_stuck")
+    assert failed["supervised_by"] == "ada"
+    assert owner(c, failed) == "ada"
+    assert answers("review_stuck") == ["Retry", "Publish without review", "Close it"]
+
+    assert FakeFacts.get("issue", @key)["values"]["task_failure"] ==
+             "The review task #{@review} (in reviewing) ended stuck: time_limit."
+  end
+
+  # Its supervisor's answer, as the Console writes it.
+  defp decide(value), do: sync(%{"gate_result" => value})
+
+  # Who owns the run in its state, as the projection resolves it: the configured decider,
+  # which inside the span is the run's supervisor (a holder of the supervision relation).
+  defp owner(c, run) do
+    supervision = c.runner.config["supervision"]
+    [holder] = supervision["holders"]
+    default = c.runner.flows["issue"].owner(run["state"])["default"]
+    supervisor = Map.new([{"kind", holder}, {"key", run["supervised_by"]}])
+
+    owner =
+      AtlasFlow.Model.owner(default, %{"decider" => %{"key" => "someone"}}, %{
+        "state" => run["state"],
+        "spans" => supervision["spans"]["issue"],
+        "supervised_by" => supervisor
+      })
+
+    assert owner["kind"] == holder
+    owner["key"]
+  end
+
+  # The labels of the answers `state` offers its owner, as the committed target has them.
+  defp answers(state) do
+    path = Path.expand("../../targets/test/atlas/flows.json", __DIR__)
+    flow = JSON.decode!(File.read!(path))["flows"]["issue"]
+    for a <- flow["states"][state]["present"]["todo"]["answers"] || [], do: a["label"]
+  end
+
   # The issue built, its review approving it, and Code's pull request opened (Code
   # answering every publication done, on @url): the run as it waits for CI.
   defp published(c) do
@@ -462,7 +709,10 @@ defmodule Model.IssueRunsTest do
     report = &WorkSource.report(@mini, %{lease_id: lease, revision: &1, report: &2})
     assert {:recorded, _} = report.(1, %{state: :accepted})
     assert {:recorded, _} = report.(2, %{state: :started})
-    assert {:recorded, _} = report.(3, L.ended(nil, Keyword.take(opts, [:answer])))
+
+    assert {:recorded, _} =
+             report.(3, L.ended(nil, Keyword.take(opts, [:answer, :kind, :reason])))
+
     assert_receive {:"$gen_cast", {:reconcile, "issue", @key}}, 2_000
   end
 

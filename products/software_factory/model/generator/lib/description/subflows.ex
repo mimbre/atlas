@@ -81,9 +81,15 @@ defmodule RelaDSL.Description.Subflows do
 
     findings =
       case s.mechanism do
-        {:task, %{findings: name}} when is_atom(name) and name != nil -> [to_string(name)]
-        {:task, %{input: input}} when is_list(input) -> update_field(input)
-        _ -> []
+        {:task, %{} = spec} ->
+          for(
+            name <- [spec[:findings], spec[:failure]],
+            is_atom(name) and name != nil,
+            do: to_string(name)
+          ) ++ if(is_list(spec[:input]), do: update_field(spec[:input]), else: [])
+
+        _ ->
+          []
       end
 
     for name <-

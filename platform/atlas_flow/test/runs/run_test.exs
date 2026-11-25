@@ -98,6 +98,60 @@ defmodule AtlasFlow.Runs.RunTest do
     assert historical["status"] == "completed"
   end
 
+  test "only a migration that names it in reopen takes a completed run back into an open state" do
+    flow = sort()
+    run = new() |> put_in(["pending", "writes"], []) |> put_in(["deadlines", "timers"], [])
+
+    ended =
+      run
+      |> Map.merge(%{
+        "definition_sha256" => "old",
+        "status" => "completed",
+        "state" => "discarded"
+      })
+      |> put_in(["pending", "tasks"], [%{"key" => "TK-B-1-1", "outcome" => "stuck"}])
+
+    mapping = %{
+      "from" => "old",
+      "to" => flow.digest(),
+      "states" => %{"waiting" => "waiting", "done" => "done", "discarded" => "waiting"}
+    }
+
+    # Without reopen a completed run is never taken for an open one: it blocks.
+    assert Run.reopening(ended, flow, [mapping]) == nil
+    assert {:error, :definition_changed} = Run.migrate(ended, flow, [mapping], @now)
+
+    reopen = Map.put(mapping, "reopen", ["discarded"])
+    assert Run.reopening(ended, flow, [reopen]) == reopen
+
+    assert {:ok, reopened} = Run.migrate(ended, flow, [reopen], @now, supervisor: "ada")
+    assert {reopened["state"], reopened["status"]} == {"waiting", "active"}
+    assert reopened["entry"] == ended["entry"] + 1
+    assert reopened["key"] == ended["key"]
+    assert reopened["definition_sha256"] == flow.digest()
+    assert reopened["supervised_by"] == "ada"
+    assert reopened["pending"]["tasks"] == ended["pending"]["tasks"]
+
+    assert [%{"from" => "old", "state" => "discarded", "reopened" => true}] =
+             reopened["pending"]["migrations"]
+
+    # No supervisor known: none.
+    assert {:ok, alone} = Run.migrate(ended, flow, [reopen], @now)
+    refute Map.has_key?(alone, "supervised_by")
+
+    # A completed run in a state reopen does not name, an active run in one it names, and
+    # one whose state maps to a final state: as before.
+    done = Map.put(ended, "state", "done")
+    assert Run.reopening(done, flow, [reopen]) == nil
+
+    assert {:ok, %{"status" => "completed", "state" => "done"}} =
+             Run.migrate(done, flow, [reopen], @now)
+
+    assert Run.reopening(Map.put(ended, "status", "active"), flow, [reopen]) == nil
+    to_final = put_in(reopen, ["states", "discarded"], "discarded")
+    assert Run.reopening(ended, flow, [to_final]) == nil
+  end
+
   test "refuses a subflow whose mechanism this runner cannot run" do
     assert {:error, :unsupported_definition} = Run.validate(Sorts.Unbound)
   end
