@@ -412,7 +412,12 @@ defmodule AtlasFlow.Activities.EffectTest do
 
       inbox = Process.whereis(Effect.Inbox)
       Process.exit(inbox, :kill)
-      wait_until(fn -> Process.whereis(Effect.Inbox) not in [nil, inbox] end)
+      AtlasTestAwait.down(inbox)
+      # The supervisor starts it again when it handles the exit.
+      AtlasTestAwait.until(fn -> Process.whereis(Effect.Inbox) not in [nil, inbox] end,
+        wake: {:trace, AtlasFlow.Root}
+      )
+
       :sys.resume(c.receiver)
       barrier(c)
       [{id, "create", "artifact-1"}] = EffectReceiver.operations(c.dir)
@@ -620,14 +625,6 @@ defmodule AtlasFlow.Activities.EffectTest do
   end
 
   defp barrier_inbox, do: :sys.get_state(Effect.Inbox)
-
-  defp wait_until(fun, tries \\ 100) do
-    cond do
-      fun.() -> :ok
-      tries == 0 -> flunk("the condition did not hold")
-      true -> Process.sleep(10) && wait_until(fun, tries - 1)
-    end
-  end
 
   defp restart_inbox do
     :ok = Supervisor.terminate_child(AtlasFlow.Root, Effect.Inbox)
