@@ -316,8 +316,8 @@ defmodule AtlasControl.Session do
   # Protocol
 
   # A client says which contract version it implements. One older than Control's cannot
-  # render what Control sends now: it is told so and closed, rather than shown a page it
-  # breaks on. A newer one shows what it knows, and the rest as fallbacks.
+  # render what Control sends now: it is told which contract each side speaks and closed,
+  # rather than shown a page it breaks on. A newer one shows what it knows, and the rest as fallbacks.
   defp handle_op(op, _message, %{output_connection: true} = state)
        when op not in ~w(worker_output_subscribe worker_output_next worker_output_unsubscribe),
        do: bye(state, "This connection is reserved for worker output.")
@@ -333,11 +333,14 @@ defmodule AtlasControl.Session do
           "This is Control #{environment}; it does not serve #{inspect(message["env"])}."
         )
 
+      # What each side speaks, and no remedy: how a client takes a newer build is its own
+      # (the TUI updates and starts again, IS-Atlas-76). `reason` and `spec` let it act.
       too_old?(message["spec"], version) ->
         bye(
           state,
           "This client implements contract #{message["spec"] || "(none)"}; Control " <>
-            "#{environment} speaks #{version}. It is too old: update it (atlas starts the newest build)."
+            "#{environment} speaks #{version}, and no older one.",
+          %{"reason" => "too_old", "spec" => version}
         )
 
       message["surface"] not in [nil, "console"] ->
@@ -719,8 +722,8 @@ defmodule AtlasControl.Session do
       else: put_in(state.tab_counts[to], %{counts: counts, set: set})
   end
 
-  defp bye(state, text) do
-    send_client(state, %{"op" => "bye", "text" => text})
+  defp bye(state, text, why \\ %{}) do
+    send_client(state, Map.merge(%{"op" => "bye", "text" => text}, why))
     {:stop, :normal, state}
   end
 

@@ -54,12 +54,28 @@
 # tests and agents always pass --env test, or ATLAS_ENV_FILE: a private instance (other
 # ports and data) whose environment is the file's "env", so a trial never meets Melle's.
 # --env and the file's "env" must agree. ATLAS_NO_UPDATE=1 keeps `atlas tui` from
-# updating the main clone first. ATLAS_AS=<agent key> makes the agents' commands that
-# agent (ATLAS_AS=coordinator atlas get IS-Atlas-12): what is assigned to it shows its
-# What to do (IS-Atlas-54), and what it writes is by it.
+# updating the main clone first.
+#
+# A running TUI takes a release (IS-Atlas-76): when Control closes it as too old, it ends
+# (status 75, the page it showed in its handoff file) and `atlas tui` takes the newest
+# build as at start (pull, clean-build, compile) and starts it again on that page. When the
+# build cannot be made current (the pull failed, the main clone is not on develop, ...) it
+# says so and what to do, and starts no TUI into the same refusal.
+#
+# ATLAS_AS=<agent key> makes the agents' commands that agent (ATLAS_AS=coordinator atlas
+# get IS-Atlas-12): what is assigned to it shows its What to do (IS-Atlas-54), and what it
+# writes is by it.
 set -euo pipefail
 # The arguments as given, for a re-exec after update_build pulled a newer develop.
 given=("$@")
+
+# This script's own hand-over to itself, never set by a person, kept out of every child:
+# ATLAS_UPDATED (update_build pulled already: start the pulled scripts without another
+# pull) and, after a TUI was closed as too old, ATLAS_TUI_TO (the page it showed),
+# ATLAS_TUI_TOO_OLD (the commit of that build) and ATLAS_TUI_SPECS (Control's contract and
+# its own).
+updated="${ATLAS_UPDATED-}" tui_to="${ATLAS_TUI_TO-}" too_old="${ATLAS_TUI_TOO_OLD-}" specs="${ATLAS_TUI_SPECS-}"
+unset ATLAS_UPDATED ATLAS_TUI_TO ATLAS_TUI_TOO_OLD ATLAS_TUI_SPECS
 
 # Keep the read capability out of config/build/lifecycle/proxy children. Only the
 # final explicit discovery transport receives it, without putting it in argv.
@@ -132,20 +148,60 @@ fi
 
 resolve_places
 
-# The main clone follows develop: take the newest build before trying it.
+# The main clone follows develop: take the newest build before trying it. When this build
+# cannot be updated, update_failed says why and update_once until when; the TUI says both
+# if Control finds it too old (IS-Atlas-76), rather than ending to be started again.
+update_failed=""
+update_once=""
 update_build() {
-  [ -z "${ATLAS_NO_UPDATE:-}" ] || return 0
-  if [ "$(main_clone)" = "$root" ] && [ "$(git -C "$root" branch --show-current)" = develop ]; then
-    local before; before="$(git -C "$root" rev-parse HEAD)"
-    git -C "$root" pull --ff-only -q || echo "atlas: could not update develop; trying the build as it is" >&2
-    # What a rename or a move on develop left behind: folders with only build output.
-    "$root/bin/clean-build" "$root" --moved >&2
-    # This run already sourced the old scripts; a renamed or moved path would break them
-    # against the new tree. Start again on the pulled scripts, without another update.
-    if [ "$(git -C "$root" rev-parse HEAD)" != "$before" ]; then
-      ATLAS_NO_UPDATE=1 exec "$root/bin/atlas" ${given[@]+"${given[@]}"}
-    fi
+  [ -z "$updated" ] || return 0
+  if [ -n "${ATLAS_NO_UPDATE:-}" ]; then
+    update_failed="ATLAS_NO_UPDATE is set"
+    update_once="it is not set"
+    return 0
   fi
+  local main branch before out
+  main="$(main_clone)" || main=""
+  if [ "$main" != "$root" ]; then
+    update_failed="$root is not the main clone, which is the build atlas updates"
+    update_once="you start it from the main clone${main:+ ($main/bin/atlas)}"
+    return 0
+  fi
+  branch="$(git -C "$root" branch --show-current)"
+  if [ "$branch" != develop ]; then
+    update_failed="the main clone $root is on ${branch:-a detached HEAD}, not develop"
+    update_once="it is on develop again (git -C $root switch develop)"
+    return 0
+  fi
+  before="$(git -C "$root" rev-parse HEAD)"
+  if ! out="$(git -C "$root" pull --ff-only -q 2>&1)"; then
+    [ -z "$out" ] || printf '%s\n' "$out" >&2
+    # After a TUI was closed as too old, not_current says what follows.
+    [ -n "$too_old" ] || echo "atlas: could not update develop; trying the build as it is" >&2
+    update_failed="the pull of develop failed${out:+ ($(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -1))}"
+    update_once="git -C $root pull --ff-only works"
+  fi
+  # What a rename or a move on develop left behind: folders with only build output.
+  "$root/bin/clean-build" "$root" --moved >&2
+  # This run already sourced the old scripts; a renamed or moved path would break them
+  # against the new tree. Start again on the pulled scripts, without another update.
+  if [ "$(git -C "$root" rev-parse HEAD)" != "$before" ]; then
+    ATLAS_UPDATED=1 ATLAS_TUI_TO="$tui_to" ATLAS_TUI_TOO_OLD="$too_old" ATLAS_TUI_SPECS="$specs" \
+      exec "$root/bin/atlas" ${given[@]+"${given[@]}"}
+  fi
+}
+
+# After a TUI was closed as too old: the update made no newer build (it failed, or develop
+# has nothing newer), so a TUI started now would be refused the same way. Say what is true
+# and what to do instead.
+not_current() {
+  if [ -z "$update_failed" ] && [ "$(git -C "$root" rev-parse HEAD 2>/dev/null)" = "$too_old" ]; then
+    update_failed="develop has nothing newer than this build ($(head_now))"
+    update_once="develop has a build for contract ${specs%% *}"
+  fi
+  [ -n "$update_failed" ] || return 0
+  echo "atlas: Control $env speaks ${specs%% *}; this build is ${specs#* } and could not be updated: $update_failed. Run atlas again once $update_once." >&2
+  exit 1
 }
 
 # Build output of apps no mix.exs declares any more goes before anything compiles, so a
@@ -166,6 +222,7 @@ fi
 case "$cmd" in
   tui)
     update_build
+    [ -z "$too_old" ] || not_current
     if [ -n "$control_selected" ]; then
       : # The client verifies TLS before sending hello.
     elif [ -n "$fly_app" ]; then
@@ -180,9 +237,23 @@ case "$cmd" in
     saved="$(stty -g 2>/dev/null || true)"
     stty -ixon 2>/dev/null || true
     cd "$root/platform/clients/tui"
+    to=()
+    [ -z "$tui_to" ] || to=(--to "$tui_to")
+    # The TUI writes the page it showed here when Control closes it as too old.
+    handoff="$(mktemp "${TMPDIR:-/tmp}/atlas-tui.XXXXXX")"
     status=0
-    mix atlas.tui --env "$env" ${args[@]+"${args[@]}"} || status=$?
+    ATLAS_TUI_HANDOFF="$handoff" ATLAS_UPDATE_FAILED="$update_failed" ATLAS_UPDATE_ONCE="$update_once" \
+      mix atlas.tui --env "$env" ${to[@]+"${to[@]}"} ${args[@]+"${args[@]}"} || status=$?
     [ -n "$saved" ] && stty "$saved" 2>/dev/null || true
+    page="" theirs="" ours=""
+    { IFS= read -r page; IFS= read -r theirs; IFS= read -r ours; } <"$handoff" || true
+    rm -f "$handoff"
+    # Closed as too old: take the newest build as at start, and start it again on that page.
+    if [ "$status" = 75 ] && [ -n "$theirs" ]; then
+      echo "atlas: Control $env speaks $theirs; this build is $ours. Taking the newest build${page:+, then back to $page}." >&2
+      ATLAS_TUI_TO="$page" ATLAS_TUI_TOO_OLD="$(git -C "$root" rev-parse HEAD)" ATLAS_TUI_SPECS="$theirs $ours" \
+        exec "$root/bin/atlas" ${given[@]+"${given[@]}"}
+    fi
     exit $status
     ;;
   # The clients run in their own folders; a path the caller gives is read from where they called.

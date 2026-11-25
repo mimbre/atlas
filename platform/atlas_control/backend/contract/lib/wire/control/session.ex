@@ -253,7 +253,13 @@ defmodule AtlasBFFContract.Wire.Control.Session do
     channel: :control,
     direction: :push,
     replies: [
-      %{name: :bye, select: %{"op" => "bye"}, effect: :terminal, required: %{"text" => :string}}
+      %{
+        name: :bye,
+        select: %{"op" => "bye"},
+        effect: :terminal,
+        required: %{"text" => :string},
+        optional: %{"reason" => :string, "spec" => :string}
+      }
     ]
   }
 

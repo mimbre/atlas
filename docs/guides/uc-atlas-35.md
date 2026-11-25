@@ -10,7 +10,7 @@ What you can do: read in one file every page Control serves and every call a cli
 | The endpoints | the same file, `"endpoints"` | Every call: each page's `open`; the form submits (`create`, `update`, `delete`, `link`, `accept`, `reopen`, …), each with what it takes (`values`) and its replies (`stored`, `refused`); `hello` (replies `welcome` or `bye`), `refresh`, what Control sends unasked (`page` by hint, `notice`, `bye`), and the agent's `ask`, `run`, `cancel`, `stop`. |
 | A page Control does not serve | `atlas get` a made-up path, or a link to one | "No such page". The TUI does not even ask for a destination that is no page. |
 | The TUI | `atlas tui --env test`: create (`c`), update (`u`), delete (`d`) | As before. A form's `submit_to` now names its endpoint and params (`{"endpoint": "update", "params": {"kind": …, "key": …}}`), and the TUI sends them as they are. |
-| An old client | a TUI built before this contract, against Control after it | It is told: `This client implements contract 0.10.0; Control test speaks 0.11.0. It is too old: update it (atlas starts the newest build).` It shows that and closes, without breaking. |
+| An old client | a TUI built before this contract, against Control after it | It is told: `This client implements contract 0.10.0; Control test speaks 0.11.0, and no older one.` It closes without breaking. Since IS-Atlas-76 a TUI started by `atlas` then takes the newest build and opens again on the page it showed; if it cannot be updated, it says why and what to do. |
 
 ## What changed for this
 

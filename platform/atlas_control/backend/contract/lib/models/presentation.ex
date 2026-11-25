@@ -205,8 +205,13 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :spec, :string, required: true
   end
 
+  # Why Control closes, when a client can act on it: `reason` "too_old" (the client's
+  # contract is older than Control's), with `spec`, the contract Control speaks. The text
+  # says which contract each side speaks; the remedy is the client's (IS-Atlas-76).
   defmodel :bye do
     field :text, :string, required: true
+    field :reason, :string
+    field :spec, :string
   end
 
   # A line for the status bar: pending (until Facts answers), ok, error or info.
