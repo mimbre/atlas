@@ -127,7 +127,7 @@ The private native regression is `products/software_factory/integration/flow_tal
 ## 3. Runs by name (D-0102)
 
 - **Identity.** A run is matched to its subflow by its `flow` and continues in its `state` as long as that state is in the compiled subflow's `states/0`. Nothing hashes a subflow's definition and there are no migrations between versions: a change to texts, owners, timers or branches applies to every run at once. The flow_run field `definition_sha256` is kept as history only; Flow neither reads nor writes it.
-- **A state that is gone.** A run whose state is not a state of its subflow is blocked (`state_removed: <state>`) until its subflow has the state again. The check before an update prevents it.
+- **A state that is gone.** A run whose state is not a state of its subflow is blocked (`state_removed: <state>`) until its subflow has the state again, or ends (`subject_removed`) once its subject is gone. The check before an update prevents it.
 - **The check before an update.** `mix model.flows --env <env>` prints the compiled model's subflows of that environment with their state names, as JSON (`{"<flow>": ["<state>", …]}`), without rela or any file. The update compares it with the runs in the store and refuses to remove or rename a flow or a state while a run is in it.
 
 ## 4. Example: `products/software_factory/model/contract/foundation/decision.ex`
