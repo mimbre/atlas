@@ -367,6 +367,131 @@ defmodule Model.IssueRunsTest do
     assert FakeFacts.get("issue", @key)["values"]["task_failure"] == "none"
   end
 
+  # A silent turn is ended (UC-Atlas-03): an agent whose Runtime stops answering loses its
+  # lease once it runs out; that ends its attempt. The first silence starts the same task
+  # once more on a fresh attempt, with nobody asked; the second in a row goes to its
+  # supervisor, with why and Retry.
+  test "a silent author is started once more on a fresh attempt; silent again, it goes to its supervisor with why and Retry",
+       c do
+    started(c)
+    {first, _} = lease!()
+    run(first)
+
+    # Its Runtime stops answering: the lease runs out and is lost, and its attempt ends.
+    silent(c)
+    assert %{"state" => "lost", "result_kind" => "expired"} = attempt(1)
+
+    # Started once more on its own: the same task, nobody asked, the count in its run.
+    again = settle(c)
+    assert {again["state"], again["status"]} == {"working", "active"}
+    assert %{"key" => @author, "retried" => [1]} = again["pending"]["task"]
+    assert again["pending"]["tasks"] in [nil, []]
+    assert FakeFacts.get("issue", @key)["values"]["task_failure"] == "none"
+
+    # On a fresh attempt: a new lease and a new task_attempt, the first one kept as it was.
+    {second, _} = lease!()
+    refute second == first
+    assert FakeFacts.get("task", @author)["values"]["attempt"] == 2
+    run(second)
+    assert %{"state" => "running"} = attempt(2)
+    assert %{"state" => "lost", "result_kind" => "expired"} = attempt(1)
+
+    # Silent again: the task ends abandoned, and its supervisor decides, told why.
+    silent(c)
+    stuck = until(c, "stuck")
+    assert {stuck["status"], stuck["supervised_by"]} == {"active", "ada"}
+
+    assert [%{"key" => @author, "outcome" => "abandoned", "attempt" => 2}] =
+             stuck["pending"]["tasks"]
+
+    assert FakeFacts.get("task", @author)["values"]["state"] == "abandoned"
+
+    assert FakeFacts.get("issue", @key)["values"]["task_failure"] ==
+             "The author task #{@author} (in working) ended abandoned: its agent went silent twice."
+
+    assert owner(c, stuck) == "ada"
+    assert answers("stuck") == ["Retry", "Close it"]
+
+    # No third attempt is offered on its own.
+    assert {:polled, %{leases: []}} = WorkSource.poll(@mini, L.poll_input("mac-mini", [], @offer))
+    assert FakeFacts.get("task", @author)["values"]["attempt"] == 2
+
+    # Retry builds it again: a fresh task, whose count starts anew.
+    decide("retry")
+    working = intent(c)
+    assert working["state"] == "working"
+    assert %{"key" => @review} = working["pending"]["task"]
+    refute Map.has_key?(working["pending"]["task"], "retried")
+  end
+
+  test "a Flow restart between two silences neither resets nor doubles the count", c do
+    started(c)
+    {first, _} = lease!()
+    run(first)
+    silent(c)
+
+    # Flow restarts before it saw the silence, and reconciles more than once after it.
+    restart(c)
+    settle(c)
+    assert %{"retried" => [1]} = reconcile(c)["pending"]["task"]
+    assert %{"retried" => [1]} = reconcile(c)["pending"]["task"]
+
+    {second, _} = lease!()
+    run(second)
+
+    # Flow restarts again while the second attempt runs: the count is the run's, in Facts.
+    restart(c)
+    assert %{"key" => @author, "retried" => [1]} = reconcile(c)["pending"]["task"]
+
+    assert {:polled, %{lease_lost: []}} =
+             WorkSource.poll(@mini, L.poll_input("mac-mini", [second], %{}))
+
+    # The second silence is the second: its supervisor decides.
+    silent(c)
+    restart(c)
+    assert until(c, "stuck")["pending"]["tasks"] |> Enum.map(& &1["attempt"]) == [2]
+
+    assert FakeFacts.get("issue", @key)["values"]["task_failure"] =~
+             "its agent went silent twice"
+  end
+
+  test "a silent review is started once more; silent again, it goes to its supervisor with Retry",
+       c do
+    started(c)
+    finish(answer: "Done.")
+    author_result(c)
+    assert intent(c)["state"] == "reviewing"
+
+    {first, _} = lease!()
+    run(first)
+    silent(c)
+    assert %{"key" => @review, "retried" => [1]} = settle(c)["pending"]["task"]
+
+    {second, _} = lease!()
+    run(second)
+    silent(c)
+    failed = until(c, "review_stuck")
+    assert owner(c, failed) == "ada"
+    assert answers("review_stuck") == ["Retry", "Publish without review", "Close it"]
+
+    assert FakeFacts.get("issue", @key)["values"]["task_failure"] ==
+             "The review task #{@review} (in reviewing) ended abandoned: its agent went silent twice."
+  end
+
+  test "a turn that crashes with no answer and no result is empty: started once more, then its supervisor decides",
+       c do
+    started(c)
+    finish(kind: :crashed)
+    assert %{"key" => @author, "retried" => [1]} = settle(c)["pending"]["task"]
+    assert FakeFacts.get("issue", @key)["values"]["task_failure"] == "none"
+
+    finish(kind: :crashed)
+    until(c, "stuck")
+
+    assert FakeFacts.get("issue", @key)["values"]["task_failure"] ==
+             "The author task #{@author} (in working) ended abandoned: its agent went silent twice."
+  end
+
   test "a failed review goes to its supervisor; Retry reviews the author's result again", c do
     review_failed(c)
     decide("retry")
@@ -484,6 +609,51 @@ defmodule Model.IssueRunsTest do
 
     assert FakeFacts.get("issue", @key)["values"]["task_failure"] ==
              "The review task #{@review} (in reviewing) ended stuck: time_limit."
+  end
+
+  # The lease accepted and started on the mac-mini: its attempt runs.
+  defp run(lease) do
+    report = &WorkSource.report(@mini, %{lease_id: lease, revision: &1, report: &2})
+    assert {:recorded, _} = report.(1, %{state: :accepted})
+    assert {:recorded, _} = report.(2, %{state: :started})
+  end
+
+  # Its Runtime answers no more: past its lease (900 s) Dispatch's sweep fences it expired,
+  # and past the grace (120 s) lost; Delivery ends its running attempt.
+  defp silent(c) do
+    ManualClock.advance(elem(c.clock, 1), 900_000)
+    Dispatch.sweep()
+    ManualClock.advance(elem(c.clock, 1), 120_000)
+    Dispatch.sweep()
+    :sys.get_state(Delivery)
+    task = FakeFacts.get("task", @author)["values"]["lease_state"]
+    review = (FakeFacts.get("task", @review) || %{"values" => %{}})["values"]["lease_state"]
+    assert "lost" in [task, review]
+  end
+
+  defp attempt(n), do: FakeFacts.get("task_attempt", "TA-#{@author}-#{n}")["values"]
+
+  # Every process of Flow's work source stops and starts again: what they knew is in
+  # Facts only.
+  defp restart(c) do
+    for id <- [Delivery, Dispatch, Bases], do: stop_supervised!(id)
+    start_supervised!({Bases, client: FakeCode.client(c.code), clock: c.clock})
+
+    start_supervised!(
+      {Dispatch,
+       model: Model.AtlasEyra,
+       actors: @actors,
+       clock: c.clock,
+       poll_wait: 0,
+       sweep_ms: nil,
+       resync_ms: nil}
+    )
+
+    start_supervised!(
+      {Delivery, model: Model.AtlasEyra, actors: @actors, clock: c.clock, engine: self()}
+    )
+
+    :ok
   end
 
   # Its supervisor's answer, as the Console writes it.

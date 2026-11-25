@@ -312,13 +312,62 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
       end
     end
 
-    # D-0102: a crash or restart is retried from the same step, never stuck.
+    # D-0102: an update, a Runtime stop or crash, or a restart is retried from the same
+    # step, as often as it happens: never stuck, never an empty turn.
     test "an interrupted ending without a cause on the fact retries, whatever its reason" do
       for reason <- [nil, "runtime_stop", "quota"] do
-        values = %{"lease_state" => "done", "result_kind" => "interrupted", "reason" => reason}
+        values = %{
+          "lease_state" => "done",
+          "result_kind" => "interrupted",
+          "reason" => reason,
+          "attempt" => 3
+        }
+
         assert Translate.no_result?(values)
+        assert Translate.empty(values) == nil
         assert :retry = Translate.outcome(fact(values), false)
       end
+    end
+
+    # UC-Atlas-03: a silent turn is ended. Its run decides whether it is started again.
+    test "a lease lost at expiry, or a crash with no answer and no result, is an empty turn" do
+      silent = %{"lease_state" => "lost", "lease_end_cause" => "expired", "attempt" => 2}
+      assert Translate.empty(silent) == "silent"
+      assert {:empty, "silent", 2} = Translate.outcome(fact(silent), true)
+
+      # Lost for another cause (not accepted in time, the supervisor changed): offered again.
+      for cause <- ~w(late_accept supervision answer) do
+        lost = %{silent | "lease_end_cause" => cause}
+        assert Translate.empty(lost) == nil
+        assert :waiting = Translate.outcome(fact(lost), true)
+      end
+
+      # Expired, within its grace: not yet.
+      assert Translate.empty(%{silent | "lease_state" => "expired"}) == nil
+
+      nothing = %{"lease_state" => "done", "result_kind" => "crashed", "attempt" => 1}
+      assert Translate.empty(nothing) == "empty"
+      assert {:empty, "empty", 1} = Translate.outcome(fact(nothing), false)
+
+      # With an answer, or a result, it said something: stuck, as before.
+      said = Map.put(nothing, "answer", "I stopped because …")
+      assert Translate.empty(said) == nil
+      assert {:result, "stuck", _} = Translate.outcome(fact(said), false)
+
+      made = Map.merge(nothing, %{"result_state" => "complete", "result_manifest" => "m"})
+      assert Translate.empty(made) == nil
+
+      # A failure names its cause; a completed end is a result.
+      failed = %{"lease_state" => "done", "result_kind" => "failed", "reason" => "time_limit"}
+      assert Translate.empty(failed) == nil
+      completed = %{"lease_state" => "done", "result_kind" => "completed"}
+      assert Translate.empty(completed) == nil
+    end
+
+    test "the attempts a run started again are the intent's retried numbers" do
+      assert Translate.retried(nil) == []
+      assert Translate.retried(%{"key" => "TK-B-1-1"}) == []
+      assert Translate.retried(%{"retried" => [1, "x", 3]}) == [1, 3]
     end
 
     # B1: result-less is decided from the ending, not from the cancel request.
@@ -332,6 +381,11 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
       failed = Map.put(requested, "result_kind", "failed")
       refute Translate.no_result?(failed)
       assert {:result, "stuck", %{"kind" => "failed"}} = Translate.outcome(fact(failed), false)
+
+      # Interrupted is no result by rule (D-0102), also after a cancel request: retried.
+      interrupted = Map.merge(requested, %{"result_kind" => "interrupted", "attempt" => 1})
+      assert Translate.no_result?(interrupted)
+      assert :retry = Translate.outcome(fact(interrupted), false)
 
       # A cancelled with no cancel request from Flow is a result (stuck), not a retry.
       cancelled = %{"lease_state" => "done", "result_kind" => "cancelled"}

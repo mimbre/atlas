@@ -411,8 +411,7 @@ defmodule Model.PackageRunsTest do
 
       ends = [
         {"PK-IS-Atlas-01-1", [files: @author, check: 1], "fixing"},
-        {"PK-IS-Atlas-01-3", [kind: :failed, reason: "time_limit"], "held"},
-        {"PK-IS-Atlas-01-4", [kind: :crashed], "held"}
+        {"PK-IS-Atlas-01-3", [kind: :failed, reason: "time_limit"], "held"}
       ]
 
       for {key, opts, state} <- ends do
@@ -430,6 +429,30 @@ defmodule Model.PackageRunsTest do
           assert owner(key) == ["mac-mini"], key
         end
       end
+
+      # A crash with no answer and no result is an empty turn: the ladder's rule for an
+      # abandoned task starts it once more; the second in a row is held, retry first.
+      key = "PK-IS-Atlas-01-4"
+      started(c, key)
+      finish(key, kind: :crashed)
+      again = settle(c, key)
+      assert {again["state"], again["status"]} == {"authoring", "active"}
+      assert [%{"outcome" => "abandoned"}] = again["pending"]["tasks"]
+      assert %{"key" => "TK-PK-IS-Atlas-01-4-2"} = again["pending"]["task"]
+      assert owner(key) == ["mac-mini"]
+
+      finish(key, kind: :crashed)
+      held = settle(c, key)
+      assert {held["state"], held["status"]} == {"held", "active"}
+
+      assert %{
+               "on" => "held",
+               "reason" => "abandoned",
+               "question" => %{"answers" => ["retry" | _]}
+             } =
+               held["pending"]["ladder"]["awaiting"]
+
+      assert owner(key) == ["ada"]
     end
 
     test "a refused work is held, and its supervisor has it", c do

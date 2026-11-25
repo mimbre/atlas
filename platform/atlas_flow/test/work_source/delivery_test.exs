@@ -558,11 +558,13 @@ defmodule AtlasFlow.WorkSource.DeliveryTest do
       ctx = ended_lease!(ctx, [{"a.txt", "a\n"}])
       assert {:ok, _} = Results.manifest(ctx.task)
 
-      # The first lease is lost by expiry; the work is leased again.
+      # The first lease is lost by expiry (a silent turn); once its run counted it, the
+      # work is leased again.
       L.advance(ctx, 900)
       Dispatch.sweep()
       L.advance(ctx, 120)
       Dispatch.sweep()
+      :ok = L.retried(AtlasFlow.Runs.Run.key("watch", "bin", "B-1", 1), [1])
       assert {:polled, %{leases: [%{lease_id: fresh}]}} = poll(@mini)
       assert {:ok, _} = Results.manifest(ctx.task)
 

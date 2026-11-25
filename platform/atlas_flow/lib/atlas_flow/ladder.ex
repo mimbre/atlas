@@ -107,6 +107,15 @@ defmodule AtlasFlow.Ladder do
   def budget, do: @budget
 
   @doc """
+  The rule for a task that ended abandoned (its lease lost, its agent silent): started
+  once more while fewer than the limit were (`limits["retries"]`, default 1); else held,
+  its supervisor asked. `retried` is how many times it was started again in a row. The
+  ladder keeps that count as its `"retries"`; a task outside any ladder keeps it in its
+  run (`AtlasFlow.Activities.Task`, a silent turn): one rule, one count.
+  """
+  def again?(retried, limits \\ %{}), do: retried < (limits["retries"] || @retries)
+
+  @doc """
   The step after `event`, and the ladder to keep. `ladder` is the run's `pending.ladder`
   (nil at first); `event` is `{:ended, key}` (the task that just ended), `{:answer, a}`
   (one of the waiting question's `answers`) or `{:ci_failed, key}` (the published result
@@ -161,7 +170,7 @@ defmodule AtlasFlow.Ladder do
   # -- A task ended ------------------------------------------------------------------------
 
   defp ended(%{"outcome" => "abandoned"} = task, ladder, ctx) do
-    if ladder["retries"] < ctx.limits.retries,
+    if again?(ladder["retries"], %{"retries" => ctx.limits.retries}),
       do: {{:task, again(task, ladder, ctx)}, %{ladder | "retries" => ladder["retries"] + 1}},
       else: held("abandoned", task, ladder, ctx)
   end

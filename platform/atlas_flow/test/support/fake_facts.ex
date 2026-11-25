@@ -719,6 +719,29 @@ defmodule AtlasFlow.FakeFacts.Leasing do
     run_key
   end
 
+  @doc """
+  The run `run_key`'s intent counts `attempts` as empty turns started again (`retried`), as
+  the Engine stores it; then Dispatch is told, as the Engine's next step tells it.
+  """
+  def retried(run_key, attempts) do
+    config = config()
+    fact = FakeFacts.get(config["kind"], run_key)
+    {:ok, run} = Store.decode(config, fact)
+    run = put_in(run, ["pending", "task", "retried"], attempts)
+
+    FakeFacts.put(
+      config["kind"],
+      Map.merge(fact, %{
+        "values" => Store.encode(config, run),
+        "version" => (fact["version"] || 0) + 1
+      })
+    )
+
+    AtlasFlow.Dispatch.ready(run["pending"]["task"]["key"])
+    :sys.get_state(AtlasFlow.Dispatch)
+    :ok
+  end
+
   @doc "Sets (or, with nil, clears) the run's supervisor, as S1's pickup or hand-over writes it."
   def supervise(run_key, supervisor) do
     config = config()
