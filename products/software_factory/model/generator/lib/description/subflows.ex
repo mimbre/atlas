@@ -86,8 +86,14 @@ defmodule RelaDSL.Description.Subflows do
         _ -> []
       end
 
+    asked =
+      case s.mechanism do
+        {:task, %{asks: asks}} when is_list(asks) -> asked_field(asks)
+        _ -> []
+      end
+
     for name <-
-          Enum.uniq(read ++ written ++ findings ++ Enum.map(s.awaits, &to_string/1)),
+          Enum.uniq(read ++ written ++ findings ++ asked ++ Enum.map(s.awaits, &to_string/1)),
         not field?(schema, kind, name),
         do:
           here.(
@@ -97,6 +103,14 @@ defmodule RelaDSL.Description.Subflows do
               "names #{kind}.#{name}, which the composition does not describe"
             )
           )
+  end
+
+  # The subject's field a task's questions go to (`asks:`).
+  defp asked_field(asks) do
+    case Keyword.keyword?(asks) && asks[:field] do
+      name when is_atom(name) and name not in [nil, false] -> [to_string(name)]
+      _ -> []
+    end
   end
 
   defp update_field(input) do

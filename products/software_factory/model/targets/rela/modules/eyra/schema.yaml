@@ -55,6 +55,12 @@ entities:
       note:
         type: string
         description: Its producer's note when it was not accepted; its next break-down reads it
+      questions:
+        type: string
+        description: 'Flow: its Design agent''s questions, when it was too vague to design use cases from; written by Flow alone'
+      answers:
+        type: string
+        description: Its producer's answers to its agent's questions; its next break-down reads them
       children:
         type: integer
         description: 'Flow: how many use cases are in it'
@@ -63,10 +69,10 @@ entities:
         description: 'Flow: how many of them are not finished'
       verdict:
         type: string
-        description: 'Flow: the acceptor''s verdict (none, accept, reject), or its supervisor''s acceptance of its use cases (accept)'
+        description: 'Flow: the acceptor''s verdict (none, accept, reject), its supervisor''s acceptance of its use cases (accept), or its producer''s answer to its agent''s questions (answered)'
       task_result:
         type: string
-        description: 'Flow: how its break-down''s agent task ended (completed, check_failed, stuck, abandoned); the run''s own, never written'
+        description: 'Flow: how its break-down''s agent task ended (completed, check_failed, stuck, abandoned, asked); the run''s own, never written'
       pass_result:
         type: string
         description: 'Flow: how the last pass ended (none, delivered, failed)'

@@ -96,7 +96,12 @@ defmodule RelaDSL.Schema do
   only writer, makes one fact of `kind` for each under the subject (through the kind's
   parent relation to it) once the task completed. One that writes a field of the subject
   names it, `writes: [field: field, file: name]`: its agent writes the field's text to the
-  file, and Flow puts it in that field once the task completed. A review whose findings outside the
+  file, and Flow puts it in that field once the task completed. One whose agent may ask
+  instead of guessing names where, `asks: [field: field, file: name]` (beside `creates:` or
+  `writes:`): when its agent cannot do the work without guessing, it writes its questions to
+  that file instead, and once the task completed Flow puts their text in that field of the
+  subject, makes nothing else, and the task ends `asked`, a result of its own to map in
+  `on:`. A review whose findings outside the
   subject's scope become new facts names their kind, `follow_ups: kind`: Flow makes one for
   each follow-up its answer gives, under the subject's nearest parent. A fix of something
   else than the latest review's findings names the subject's field that says what to fix,
@@ -302,6 +307,7 @@ defmodule RelaDSL.Schema do
     :read_first,
     :creates,
     :writes,
+    :asks,
     :follow_ups,
     :findings,
     :records,
@@ -475,8 +481,8 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `creates:`, `writes:`, `follow_ups:`, `findings:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
-  abandoned:]`.
+  `parents:`, `creates:`, `writes:`, `asks:`, `follow_ups:`, `findings:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  abandoned:]` (and `asked:` with `asks:`).
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
 
@@ -1184,6 +1190,9 @@ defmodule RelaDSL.Schema do
         true -> @task_results
       end
 
+    # A task that may ask instead (`asks:`) also ends `asked`.
+    values = if opts[:asks] != nil, do: values ++ [:asked], else: values
+
     also(
       results(s, field, values, Keyword.get(opts, :on, []), "task #{kind}", false),
       ps ++ task_problems(kind, opts, spec)
@@ -1370,6 +1379,17 @@ defmodule RelaDSL.Schema do
         pre <> "writes: must be [field: field, file: text]",
       (spec[:creates] != nil and spec[:writes] != nil) &&
         pre <> "creates: and writes: exclude each other",
+      not (spec[:asks] == nil or
+             (Keyword.keyword?(spec[:asks]) and
+                Enum.sort(Keyword.keys(spec[:asks])) == [:field, :file] and
+                is_atom(spec[:asks][:field]) and spec[:asks][:field] != nil and
+                text?.(spec[:asks][:file]))) &&
+        pre <> "asks: must be [field: field, file: text]",
+      (spec[:asks] != nil and spec[:ladder] == true) &&
+        pre <> "asks: a ladder task asks its supervisor through the ladder",
+      (text?.(asked_file(spec[:asks])) and
+         asked_file(spec[:asks]) in [asked_file(spec[:creates]), asked_file(spec[:writes])]) &&
+        pre <> "asks: its file is not its proposal's",
       not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
         pre <> "follow_ups: must be a kind",
       not (spec[:findings] == nil or (kind == :fix and is_atom(spec[:findings]))) &&
@@ -1379,6 +1399,11 @@ defmodule RelaDSL.Schema do
     ]
     |> Enum.filter(& &1)
   end
+
+  defp asked_file(opts) when is_list(opts),
+    do: if(Keyword.keyword?(opts), do: opts[:file])
+
+  defp asked_file(_opts), do: nil
 
   @doc """
   What is wrong with a task's `input`, as a tag a test compares (never the text): nil

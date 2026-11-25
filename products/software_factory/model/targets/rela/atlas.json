@@ -804,6 +804,10 @@
         "own": "status"
       },
       "properties": {
+        "answers": {
+          "label": "Producer's answers",
+          "multiline": true
+        },
         "description": {
           "multiline": true
         },
@@ -816,6 +820,13 @@
         },
         "phase": {
           "label": "Phase"
+        },
+        "questions": {
+          "label": "Its agent's questions",
+          "multiline": true,
+          "set_by": [
+            "flow"
+          ]
         },
         "status": {
           "label": "Flux group"

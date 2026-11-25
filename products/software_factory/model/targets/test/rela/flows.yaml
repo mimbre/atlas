@@ -345,6 +345,14 @@ flows:
             - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
             - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
             - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+            - { to: clarifying, roles: [atlas-flow], when: "entity.task_result == 'asked'" }
+      clarifying:
+        label: Answer its questions
+        outputs:
+          - set: { properties: { verdict: none } }
+        on:
+          change:
+            - { to: break_down, when: "entity.verdict == 'answered'" }
       accepting:
         label: Accept it
         outputs:
