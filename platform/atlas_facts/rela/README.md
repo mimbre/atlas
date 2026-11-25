@@ -34,25 +34,30 @@ Run `python3 -m unittest discover -s platform/atlas_facts/rela/tests -v`, pinned
 validate`, and private e2e before delivery. `tests/fixtures/baseline-schema.yaml`
 is the delivered #79 schema: tests lock definitions and property/form order.
 
-**Generated from the model.** Every file here but `data-entry.yaml` (rela-server's
-setting), the scripts and the tests is written by `mix model.gen` from the model in
-`products/software_factory/model/contract` (Rela DSL design, slice 2): `schema.yaml`, `modules/**/schema.yaml`,
+**Generated from the model.** Every file of the Rela project
+(`products/software_factory/model/targets/rela/`) but `data-entry.yaml` and
+`schedules.yaml` (rela-server's settings) and `scripts/github.lua` is written by
+`mix model.gen` from the model in `products/software_factory/model/contract` (Rela DSL
+design, slice 2): `schema.yaml`, `modules/**/schema.yaml`,
 `compositions/atlas-eyra/bindings.yaml`, `acl.yaml`, `atlas.json`, `flow-runtime.json`,
-`flows.yaml` and `atlas.manifest.json`. Do not edit them: change the concept, module
-or composition that declares the definition and regenerate (CI runs `--check`):
+`flows.yaml` and `atlas.manifest.json`. They are build output, not kept in git: a build
+writes them first, and nothing compares them. Change the concept, module or composition
+that declares the definition, then generate:
 
 ```sh
-cd products/software_factory/model/contract && mix model.gen           # write products/software_factory/model/targets/rela/ and products/software_factory/model/targets/
-cd products/software_factory/model/contract && mix model.gen --check   # fail on a stale, missing or left-over file
+bin/generate model   # write products/software_factory/model/targets/rela/ and products/software_factory/model/targets/
 ```
 
-A file under `modules/` or `compositions/` that the model does not write is left over:
-the task removes it, and `--check` fails on it. The model's checks are those the
-assembler had, now at compile time of the composition: each `atlas.json` leaf has one
-author (even identical duplicates fail), no key without a construct, no dangling
-fields, relations, types or values, no ambiguous parents or shortcut collisions. With `ATLAS_RELA_BIN` set, the task also has
-the pinned rela validate the generated description with the generated `flows.yaml`.
-Actor existence is reconciled by Flow.
+`bin/generate model` runs `mix model.gen` with the pinned rela (start-test.sh's version,
+installed into `${XDG_CACHE_HOME:-~/.cache}/atlas/rela-<version>` when missing), which
+validates the generated description with the generated `flows.yaml` and draws the
+diagrams. `atlas-ops restart` and `up`, `bin/atlas-dev`, `platform/ops/deploy.sh` and the
+CI jobs whose tests read the project run it before they start or build. A file under
+`modules/` or `compositions/` that the model does not write is left over: the task
+removes it. The model's checks are those the assembler had, now at compile time of the
+composition: each `atlas.json` leaf has one author (even identical duplicates fail), no key
+without a construct, no dangling fields, relations, types or values, no ambiguous parents
+or shortcut collisions. Actor existence is reconciled by Flow.
 
 The schema YAML keeps the one style of slice 0, which the writer now holds: two-space
 block maps and block lists (`- ` at the key's indent), no anchors or aliases, a plain
@@ -67,20 +72,18 @@ them. Rela defines and checks the flows; Atlas Flow runs them (D-0068). Neither 
 part of the selected closure, so startup never copies them into a running rela's data
 (which runs without an `acl.yaml`, and would refuse flows that name roles). Neither
 image holds `products/software_factory/model/targets/rela/flows.yaml`: Flow runs the compiled model (`products/software_factory/model/contract`), whose
-subflows have the same digests as the flows Rela checks.
-`flow-runtime.json` maps the durable runs; its migrations come from the `migrate`
-declarations beside each subflow, which `products/software_factory/model/targets/proof/digests.json` proves.
+subflows are the flows Rela checks. `flow-runtime.json` maps the durable runs.
 `atlas.json` and `flow-runtime.json` are proofs only: no component reads them (D-0083).
 Facts runs the compiled model and, at boot, refuses a rela whose served schema is not
 the one the model was built with (`rela_schema/0`).
 
 `atlas.manifest.json` records the hash of every file of the selected closure and of
-`data-entry.yaml` and of `flows.yaml` (`flows`). CI
-checks freshness; startup/images check the packaged hashes without needing Elixir or
-PyYAML in the core image (`scripts/verify.py`). Packaging copies the same closure and
-generated extension, never work facts. Fly delivery checks both image labels/provenance
-and rela's copied schema before client smoke, with each app's own token. This is an
-internal consistency check within the existing merge-driven promotion route.
+`data-entry.yaml` and of `flows.yaml` (`flows`). Startup and images check the packaged
+hashes against it without needing Elixir or PyYAML in the core image (`scripts/verify.py`).
+Packaging copies the same closure and generated extension, never work facts. Fly delivery
+checks both image labels/provenance against the manifest the deploy generated, and rela's
+copied schema, before client smoke, with each app's own token. This is an internal
+consistency check within the existing merge-driven promotion route.
 
 The private foundation-only and incident compositions are profiles of the model
 (`products/software_factory/model/contract/profiles`, compiled with `MIX_ENV=test` only); the e2e writes one with

@@ -1,8 +1,7 @@
 defmodule Mix.Tasks.CodeBoundary.Gen do
   @shortdoc "Generate the file targets of the configured boundary contracts"
   @moduledoc """
-      mix code_boundary.gen           # write them
-      mix code_boundary.gen --check   # fail when one is stale or left over (CI)
+      mix code_boundary.gen
 
   Run in a contract's project, which configures its contract and file targets in its
   `mix.exs` project (design §1.2):
@@ -39,7 +38,7 @@ defmodule Mix.Tasks.CodeBoundary.Gen do
   Every file starts with an `AtlasCodeBoundary.Generator.Header`. A file without
   exactly that header is hand-written and never overwritten. A file with it, in a target's
   folder, that no target writes any more for any contract (a renamed or removed one) is left
-  over: the task removes it, and `--check` fails on it, as on a file that would change.
+  over: the task removes it. The files are build output: they are not kept in git.
   """
   use Mix.Task
 
@@ -54,8 +53,7 @@ defmodule Mix.Tasks.CodeBoundary.Gen do
 
   @impl true
   def run(args) do
-    {opts, rest} = OptionParser.parse!(args, strict: [check: :boolean])
-    if rest != [], do: Mix.raise("unexpected argument #{Enum.join(rest, " ")}")
+    if args != [], do: Mix.raise("unexpected argument #{Enum.join(args, " ")}")
 
     config = config!()
     files = files!(config)
@@ -63,35 +61,23 @@ defmodule Mix.Tasks.CodeBoundary.Gen do
     stale = for {path, body} <- files, File.read(path) != {:ok, body}, do: path
     leftovers = leftovers(files, config.targets)
 
-    cond do
-      opts[:check] && (stale != [] or leftovers != []) ->
-        Mix.raise(
-          "out of date, run `mix code_boundary.gen`: " <>
-            Enum.join(stale ++ Enum.map(leftovers, &"#{&1} (left over)"), ", ")
-        )
+    for path <- stale,
+        File.exists?(path),
+        not generated?(path),
+        do: Mix.raise("#{path} has no generated header; it is not overwritten")
 
-      opts[:check] ->
-        Mix.shell().info("generated files are up to date")
-
-      true ->
-        for path <- stale,
-            File.exists?(path),
-            not generated?(path),
-            do: Mix.raise("#{path} has no generated header; it is not overwritten")
-
-        for path <- leftovers do
-          File.rm!(path)
-          Mix.shell().info("removed #{path} (left over)")
-        end
-
-        for {path, body} <- files, path in stale do
-          File.mkdir_p!(Path.dirname(path))
-          File.write!(path, body)
-          Mix.shell().info("wrote #{path}")
-        end
-
-        if stale == [] and leftovers == [], do: Mix.shell().info("generated files are up to date")
+    for path <- leftovers do
+      File.rm!(path)
+      Mix.shell().info("removed #{path} (left over)")
     end
+
+    for {path, body} <- files, path in stale do
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, body)
+      Mix.shell().info("wrote #{path}")
+    end
+
+    if stale == [] and leftovers == [], do: Mix.shell().info("generated files are up to date")
   end
 
   # `[{path, body}]` of every contract in every target. Refuses two contracts writing one

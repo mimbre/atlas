@@ -220,7 +220,7 @@ defmodule AtlasBFF.Targets.SwiftTest do
     end
   end
 
-  test "every file carries the generated header, which --check recognises" do
+  test "every file carries the generated header, which mix atlas.gen recognises" do
     for {path, body} <- files() do
       written = Header.put(Path.extname(path), "contracts/neutral.ex", body)
       assert Header.generated?(Path.extname(path), written), path

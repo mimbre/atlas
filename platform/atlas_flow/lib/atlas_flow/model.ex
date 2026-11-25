@@ -14,8 +14,6 @@ defmodule AtlasFlow.Model do
     defexception [:role, :message]
   end
 
-  @type digest :: String.t()
-
   @doc "The compiled subflow of each subflow the model runs (`AtlasFlow.Subflow`), in `environment`."
   @callback subflows(environment :: atom) :: [module]
 
@@ -24,15 +22,12 @@ defmodule AtlasFlow.Model do
 
   @doc """
   How the runs of `subflow` are selected: `subject`, `admission`, `imports`,
-  `projection`, `verification`, `reopen` and its approved `migrations`; nil when it is
-  not selected. `reopen: "new_generation"` lets reopened
+  `projection`, `verification` and `reopen`; nil when it is not selected.
+  `reopen: "new_generation"` lets reopened
   work start a new generation of a completed run; without it only an explicit restart
   does (`AtlasFlow.Runs.Run.restart/4`).
   """
   @callback selection(subflow :: String.t()) :: nil | map
-
-  @doc "Every approved run migration: `from`, `to`, `states`, `rekey`/`preserve_entry`, `reopen`, `subflow`."
-  @callback migrations() :: [map]
 
   @doc """
   How the results of its subflows reach one another, as versioned data:

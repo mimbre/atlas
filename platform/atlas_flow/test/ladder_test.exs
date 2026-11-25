@@ -262,7 +262,7 @@ defmodule AtlasFlow.LadderTest do
                last_step([authored(1), reviewed(2, 1, "approved", outcome: "stuck")])
 
       assert {:held, %{"reason" => "review_not_completed", "task" => k}} =
-               last_step([authored(1), reviewed(2, 1, "approved", outcome: "interrupted")])
+               last_step([authored(1), reviewed(2, 1, "approved", outcome: "check_failed")])
 
       assert k == key(2)
     end

@@ -79,10 +79,13 @@ defmodule Model.GithubSyncTest do
 
     {:ok, {_, port}} = ThousandIsland.listener_info(server)
 
-    # The running closure: the description, schedules and scripts, without the ACL and
-    # flows a running rela leaves out (scripts/config.py).
+    # The running closure: the description the model generates (`mix model.gen --out`) with
+    # the hand-written schedules and scripts, without the ACL and flows a running rela
+    # leaves out (scripts/config.py).
     dir = Path.join(tmp, "rela")
-    File.cp_r!(Path.expand("../targets/rela"), dir)
+    Mix.Tasks.Model.Gen.run(["--out", dir])
+    File.cp!(Path.expand("../targets/rela/schedules.yaml"), Path.join(dir, "schedules.yaml"))
+    File.cp_r!(Path.expand("../targets/rela/scripts"), Path.join(dir, "scripts"))
     File.rm!(Path.join(dir, "acl.yaml"))
     File.rm!(Path.join(dir, "flows.yaml"))
     File.mkdir_p!(Path.join(dir, ".rela"))

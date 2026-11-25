@@ -3,11 +3,28 @@ defmodule AtlasCodeBoundary.Generator.Targets.JsonTest do
 
   alias AtlasCodeBoundary.Generator.{Example, Targets.Json}
 
-  @golden Path.expand("../golden/example.json", __DIR__)
-
-  test "the example contract's file matches the golden file" do
+  test "keys sorted, indented by two, one trailing newline" do
     assert [{"example.json", body}] = Json.files(Example.__schema__(), name: "example")
-    assert body == File.read!(@golden)
+    assert body == layout(JSON.decode!(body))
+  end
+
+  test "the version, and every model of the contract with its fields, in the contract's order" do
+    schema = Example.__schema__()
+    [{_, body}] = Json.files(schema, name: "example")
+    json = JSON.decode!(body)
+
+    assert json["version"] == schema.version
+
+    assert Enum.map(json["models"], & &1["name"]) ==
+             Enum.map(schema.models, &Atom.to_string(&1.name))
+
+    for {model, entry} <- Enum.zip(schema.models, json["models"]) do
+      assert Enum.map(entry["fields"], &{&1["name"], &1["required"]}) ==
+               Enum.map(model.fields, &{Atom.to_string(&1.name), &1.required})
+    end
+
+    assert Enum.map(json["capabilities"], & &1["name"]) ==
+             Enum.map(schema.capabilities, &Atom.to_string(&1.name))
   end
 
   test "one file per contract, named by the option, with only the schema's sections" do
@@ -63,4 +80,21 @@ defmodule AtlasCodeBoundary.Generator.Targets.JsonTest do
     assert json["invalid_input"] ==
              %{"outcome" => "declined", "set" => %{"why" => "unreadable"}, "detail" => "note"}
   end
+
+  # The layout the file target promises: keys sorted, two spaces per level, a newline at the end.
+  defp layout(value), do: IO.iodata_to_binary(layout(value, "")) <> "\n"
+
+  defp layout(map, at) when is_map(map) and map_size(map) > 0 do
+    inner =
+      for {k, v} <- Enum.sort(map), do: [at, "  ", JSON.encode!(k), ": ", layout(v, at <> "  ")]
+
+    ["{\n", Enum.intersperse(inner, ",\n"), "\n", at, "}"]
+  end
+
+  defp layout(list, at) when is_list(list) and list != [] do
+    inner = for v <- list, do: [at, "  ", layout(v, at <> "  ")]
+    ["[\n", Enum.intersperse(inner, ",\n"), "\n", at, "]"]
+  end
+
+  defp layout(value, _at), do: JSON.encode!(value)
 end

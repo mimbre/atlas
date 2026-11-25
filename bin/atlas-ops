@@ -4,8 +4,9 @@
 #   atlas-ops status       what runs, which build, and whether rela runs this build's
 #                          description; on Fly: the tunnel, and both apps' machines
 #   atlas-ops logs         follow the core's log
-#   atlas-ops restart      stop the core and start this build in the background; rela too:
-#                          started when it does not answer, restarted when it runs an older
+#   atlas-ops restart      generate this build's description (bin/generate model), stop the
+#                          core and start this build in the background; rela too: started
+#                          when it does not answer, restarted when it runs an older
 #                          description than this build (its data stays)
 #   atlas-ops up           run the core in the foreground (what restart starts in the background)
 #   atlas-ops stop [--rela]   stop the core; with --rela, rela too
@@ -229,6 +230,8 @@ fi
 
 case "$cmd" in
   up)
+    # rela serves the description the model generates (not kept in git): write it first.
+    "$root/bin/generate" model >&2
     ensure_rela
     echo "rela $env: answering at $rela_url"
     clean_build
@@ -245,6 +248,8 @@ case "$cmd" in
     exec "$root/platform/atlas_facts/rela/scripts/stop.sh"
     ;;
   restart)
+    # A description that does not generate leaves the running core alone.
+    "$root/bin/generate" model >&2
     stop_core
     ensure_rela
     start_core

@@ -166,7 +166,7 @@ defmodule RelaDSL.Schema do
   that need a human supervisor (work acquisition design 2026-11-17, §5.6): a person picks a run up
   there, and is its supervisor until the run leaves the span; the runs of `with:`
   subflows, on facts under the subject, belong to it. Spans are not part of a subflow's
-  definition (`flows.json`, its digest) nor of Rela's `flows.yaml`: the composition
+  definition (`flows.json`) nor of Rela's `flows.yaml`: the composition
   maps them, with its `flow_runtime`'s `supervision:`, into `flow-runtime.json`.
 
   ## Gates

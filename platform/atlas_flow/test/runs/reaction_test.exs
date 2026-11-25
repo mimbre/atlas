@@ -70,8 +70,7 @@ defmodule AtlasFlow.Runs.ReactionTest do
           "choices" => ["verdict"],
           "choice_states" => ["checking"],
           "admission" => %{"phase" => ["first"]},
-          "imports" => [%{"completed" => false, "state" => "working"}],
-          "migrations" => []
+          "imports" => [%{"completed" => false, "state" => "working"}]
         },
         "pour" => AtlasFlow.Yard.selection("pour")
       }

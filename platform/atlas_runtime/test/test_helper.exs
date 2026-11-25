@@ -1,3 +1,11 @@
+# A work source test reads the backend contract's generated routes, which are build output
+# (not in git): generate them first, with the generator's own environment.
+{_, 0} =
+  System.cmd(Path.expand("../../../bin/generate", __DIR__), ~w(runtime_backend),
+    env: [{"MIX_ENV", nil}],
+    stderr_to_stdout: true
+  )
+
 # The sandbox (IS-Atlas-94) is macOS's: its tests run where there is one, and where there
 # is none, the test that nothing runs without it.
 sandbox? = File.exists?("/usr/bin/sandbox-exec")

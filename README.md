@@ -39,6 +39,7 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 | `bin/atlas` | The `atlas` command, Control's client: the Console, the commands on facts during a turn, and provisioning. `atlas help` lists them. |
 | `bin/atlas-ops` | The `atlas-ops` command: operating an environment (status, logs, restart, the tunnel, data moves, install). |
 | `bin/atlas-dev` | Development and test tooling, run from the checkout and never installed. |
+| `bin/generate` | Writes every generated target from its contract, with the pinned toolchain. |
 | `skills/` | Instructions for the agent roles that work on Atlas. |
 | `docs/` | Architecture, guides, contracts and decisions. |
 
@@ -46,15 +47,16 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 
 You need Erlang and Elixir at the versions in `.tool-versions`, and Go for the Runtime CLI. The end-to-end test also needs tmux, `python3` and `curl`.
 
+Generated targets (the model's Rela project and diagrams, Control's `blocks.json` and Swift package, the Runtime's and Code's JSON) are build output: they are not kept in git and nothing compares them. `bin/generate` writes them all from this checkout's contracts, `bin/generate model atlas` only those; run it after a fresh clone and after changing a contract or the model. The model's needs the pinned rela, which it installs into `${XDG_CACHE_HOME:-~/.cache}/atlas/rela-<version>` when missing. A deploy, `atlas-ops restart` and `bin/atlas-dev` run it themselves.
+
 ```sh
+bin/generate                                               # every generated target
 cd products/software_factory && mix test                   # the BEAM layers
 go -C platform/atlas_runtime/host test ./...               # the Runtime CLI
 cd platform/clients/tui && mix test                        # the Console
 cd platform/clients/agent && mix test                      # the agents' command line
 cd platform/atlas_control/backend/generator && mix test        # the contract generator
-cd platform/atlas_control/backend/contract && mix atlas.gen    # after changing the contract: regenerate platform/atlas_control/backend/targets/
 cd products/software_factory/model/generator && mix test   # the Rela DSL
-cd products/software_factory/model/contract && mix model.gen # after changing the model: regenerate products/software_factory/model/targets/
 cd products/software_factory/e2e && mix test               # the atlas launcher's own rules
 bin/atlas-dev e2e --env test                               # the end-to-end test, on a private instance
 node --test platform/ops/ci/tested-tree.test.mjs           # CI's tested-tree record (Node 18+)

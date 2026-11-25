@@ -291,32 +291,38 @@ defmodule AtlasFlow.WorkSource.Translate do
   def digest(report), do: sha256(AtlasFlow.Results.canonical(report))
 
   @doc """
-  Why an `ended` report brings no result (§3.5, Q8): `"returned"`, `"runtime_stop"` (an
-  interruption at Runtime stop), `"supervision"` (cancelled after Flow asked for it because
-  the supervisor changed), or nil when it brings one. `cancel_cause` is the lease's
-  `lease_end_cause` when Flow asked for the cancel.
+  Why an `ended` report brings no result (§3.5, Q8, D-0102): `"returned"`; `"interrupted"`
+  (any interruption: a Runtime stop, a crash, a restart of its machine); `"check_interrupted"`
+  (completed, but its after-check gave no exit status: a stop or restart cut it short);
+  `"supervision"` (cancelled after Flow asked for it because the supervisor changed); or nil
+  when it brings one. `cancel_cause` is the lease's `lease_end_cause` when Flow asked for
+  the cancel. A result-less ending's work is offered again as a fresh attempt of the same
+  step.
   """
-  def result_less(%{"result" => result}, cancel_cause),
-    do: no_result_cause(result["kind"], result["reason"], cancel_cause)
+  def result_less(%{"result" => result}, cancel_cause) do
+    check = result["check"]
+    no_result_cause(result["kind"], check && ending(check), cancel_cause)
+  end
 
   def result_less(_ended, _cancel_cause), do: nil
 
   @doc """
   Whether a task fact's ending brought no result (§3.5): the same rule as `result_less/2`,
-  decided from the stored ending (`result_kind`, `reason`), with `lease_end_cause` used only
-  to tell a supervision `cancelled` from any other. A cancel request alone never makes an
-  ending result-less: an `ended(completed)` after `cancel_requested` keeps its result.
-  Delivery, `outcome/2` and Dispatch's grant all decide by this rule.
+  decided from the stored ending (`result_kind`, `check_ending`), with `lease_end_cause`
+  used only to tell a supervision `cancelled` from any other. A cancel request alone never
+  makes an ending result-less: an `ended(completed)` after `cancel_requested` keeps its
+  result. Delivery, `outcome/2` and Dispatch's grant all decide by this rule.
   """
   def no_result?(values) do
     v = values || %{}
-    no_result_cause(v["result_kind"], v["reason"], v["lease_end_cause"]) != nil
+    no_result_cause(v["result_kind"], v["check_ending"], v["lease_end_cause"]) != nil
   end
 
-  defp no_result_cause("returned", _reason, _cause), do: "returned"
-  defp no_result_cause("interrupted", "runtime_stop", _cause), do: "runtime_stop"
-  defp no_result_cause("cancelled", _reason, "supervision"), do: "supervision"
-  defp no_result_cause(_kind, _reason, _cause), do: nil
+  defp no_result_cause("returned", _check_ending, _cause), do: "returned"
+  defp no_result_cause("interrupted", _check_ending, _cause), do: "interrupted"
+  defp no_result_cause("completed", "no_exit_status", _cause), do: "check_interrupted"
+  defp no_result_cause("cancelled", _check_ending, "supervision"), do: "supervision"
+  defp no_result_cause(_kind, _check_ending, _cause), do: nil
 
   @doc """
   The task fact's result fields of an `ended` report: `result_kind`, `reason`, `answer`
@@ -338,7 +344,8 @@ defmodule AtlasFlow.WorkSource.Translate do
     }
   end
 
-  # How a check ended, when it did not simply exit (§3.5).
+  # How a check ended, when it did not simply exit (§3.5). `no_exit_status`: it did not
+  # finish (a cancel, a Runtime stop or a restart cut it short), so the ending is result-less.
   defp ending(check) do
     cond do
       check["timed_out"] == true -> "timed_out"
@@ -452,9 +459,9 @@ defmodule AtlasFlow.WorkSource.Translate do
   - `{:result, outcome, detail}` once the lease is done: `completed` (completed, and its
     check, if any, exited 0 with no ending), `check_failed` (completed otherwise), `stuck`
     (refused, too large, invalid, or any other kind; `detail["reason"]` says which);
-  - `:retry`: the lease ended without a result (returned, Runtime stop, a `cancelled`
-    after a supervision cancel request; `no_result?/1`); the work is offered again as a
-    fresh attempt;
+  - `:retry`: the lease ended without a result (`no_result?/1`: returned, any
+    interruption, a check that gave no exit status, a `cancelled` after a supervision
+    cancel request); the work is offered again as a fresh attempt of the same step;
   - `:waiting`: no result yet (no lease, a live one, or a result still incomplete).
   """
   def outcome(fact, checked?) do

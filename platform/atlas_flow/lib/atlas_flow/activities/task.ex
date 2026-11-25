@@ -38,9 +38,12 @@ defmodule AtlasFlow.Activities.Task do
      its result complete, it is put in the run (`pending.tasks`) and its branch is taken
      on the result field (`task_result`): `completed` (completed, and its check, if any,
      exited 0), `check_failed` (completed otherwise), `stuck` (refused, too large,
-     invalid, or any other end; until F5 none is retried), or `abandoned`. The Engine then
-     writes the task fact's `state` and nothing else: it never writes `input` again after
-     the create (Dispatch writes the lease's input, fenced).
+     invalid, or any other end; until F5 none is retried), or `abandoned`. An ending
+     without a result (returned, any interruption such as a Runtime stop, crash or
+     restart, a check that gave no exit status, a supervision cancel) reaches no branch:
+     the same task is offered again as a fresh attempt. The Engine then writes the task
+     fact's `state` and nothing else: it never writes `input` again after the create
+     (Dispatch writes the lease's input, fenced).
 
   **Why it is to be done.** A spec's `parents` names fields of the subject's parents (the
   relations the model marks `parent`, `ctx.parents`), nearest first: each parent's are
@@ -1361,8 +1364,10 @@ defmodule AtlasFlow.Activities.Task do
     end
   end
 
-  # A check that gave no exit status did not finish (#297 case 4): the ladder reads it as
-  # one (`interrupted`), so the fix is told to run the check, not shown a failure.
+  # A check that gave no exit status did not finish (#297 case 4). Such an ending is
+  # result-less (`Translate.no_result?/1`) and its step runs again, so only a task a run
+  # recorded before D-0102 holds one: the ladder reads it as unfinished (`interrupted`),
+  # so the fix is told to run the check, not shown a failure.
   defp unfinished(%{"ending" => "no_exit_status"} = check),
     do: %{check | "ending" => "interrupted"}
 

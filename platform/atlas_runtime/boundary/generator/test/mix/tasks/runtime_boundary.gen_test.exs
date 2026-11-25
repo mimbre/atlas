@@ -22,7 +22,7 @@ defmodule Mix.Tasks.RuntimeBoundary.GenTest do
 
   defp gen(args \\ []), do: Mix.Tasks.RuntimeBoundary.Gen.run(args)
 
-  test "writes the contract's file, named after it, with its header; --check passes after",
+  test "writes the contract's file, named after it, with its header; a second run changes nothing",
        %{tmp_dir: dir, json: json} do
     gen()
     assert File.ls!(dir) == ["example.json"]
@@ -32,7 +32,7 @@ defmodule Mix.Tasks.RuntimeBoundary.GenTest do
 
     assert File.read!(json) =~ "test/support/example.ex and regenerate."
     refute File.read!(json) =~ ~s("wire")
-    gen(["--check"])
+    gen()
     assert_received {:mix_shell, :info, ["generated files are up to date"]}
   end
 
@@ -42,26 +42,19 @@ defmodule Mix.Tasks.RuntimeBoundary.GenTest do
     assert File.ls!(dir) == ["lending.json"]
   end
 
-  test "--check fails on a stale file and writes nothing", %{json: json} do
+  test "rewrites a file that differs from what the contract generates", %{json: json} do
     gen()
     File.write!(json, String.replace(File.read!(json), "shelf", "shelve"))
-    assert_raise Mix.Error, ~r/out of date.*example.json/, fn -> gen(["--check"]) end
-    assert File.read!(json) =~ "shelve"
-  end
-
-  test "--check fails on a missing file", %{json: json} do
-    assert_raise Mix.Error, ~r/out of date.*example.json/, fn -> gen(["--check"]) end
-    refute File.exists?(json)
+    gen()
+    refute File.read!(json) =~ "shelve"
   end
 
   test "a file with the header that no target writes is left over", %{tmp_dir: dir, json: json} do
     gen()
     old = Path.join(dir, "old.json")
     File.write!(old, File.read!(json))
-    assert_raise Mix.Error, ~r/old.json \(left over\)/, fn -> gen(["--check"]) end
     gen()
     refute File.exists?(old)
-    gen(["--check"])
   end
 
   test "a hand-written file is never overwritten nor removed", %{tmp_dir: dir, json: json} do
@@ -113,7 +106,7 @@ defmodule Mix.Tasks.RuntimeBoundary.GenTest do
           assert File.read!(Path.join(dir, "lending.json")) =~
                    ~s(change support/example.ex and regenerate.)
 
-          gen(["--check"])
+          gen()
           assert_received {:mix_shell, :info, ["generated files are up to date"]}
         end
       )
@@ -172,22 +165,24 @@ defmodule Mix.Tasks.RuntimeBoundary.GenTest do
           assert lending =~ ~s("shortage") and not (lending =~ ~s("hold"))
           assert reading =~ ~s("hold") and not (reading =~ ~s("shortage"))
 
-          gen(["--check"])
+          gen()
           assert_received {:mix_shell, :info, ["generated files are up to date"]}
         end
       )
     end
 
-    test "--check fails on a stale or missing file of any contract", %{tmp_dir: dir} do
+    test "rewrites a stale or missing file of any contract", %{tmp_dir: dir} do
       in_project(
         [contracts: [lending: @example, reading: @catalogue], targets: [json: dir]],
         fn ->
           gen()
           reading = Path.join(dir, "reading.json")
           File.write!(reading, String.replace(File.read!(reading), "waitlist", "queue"))
-          assert_raise Mix.Error, ~r/out of date.*reading.json/, fn -> gen(["--check"]) end
+          gen()
+          assert File.read!(reading) =~ "waitlist"
           File.rm!(reading)
-          assert_raise Mix.Error, ~r/out of date.*reading.json/, fn -> gen(["--check"]) end
+          gen()
+          assert File.exists?(reading)
         end
       )
     end
@@ -201,10 +196,9 @@ defmodule Mix.Tasks.RuntimeBoundary.GenTest do
       )
 
       in_project([contracts: [lending: @example], targets: [json: dir]], fn ->
-        assert_raise Mix.Error, ~r/reading.json \(left over\)/, fn -> gen(["--check"]) end
+        assert File.ls!(dir) |> Enum.sort() == ["lending.json", "reading.json"]
         gen()
         assert File.ls!(dir) == ["lending.json"]
-        gen(["--check"])
       end)
     end
 
@@ -213,11 +207,12 @@ defmodule Mix.Tasks.RuntimeBoundary.GenTest do
         [contracts: [lending: @example, reading: @catalogue], targets: [json: dir]],
         fn ->
           gen()
-          File.write!(Path.join(dir, "old.json"), File.read!(Path.join(dir, "reading.json")))
-          error = assert_raise Mix.Error, fn -> gen(["--check"]) end
-          assert error.message =~ "old.json (left over)"
-          refute error.message =~ "lending.json"
-          refute error.message =~ "reading.json"
+          old = Path.join(dir, "old.json")
+          File.write!(old, File.read!(Path.join(dir, "reading.json")))
+          gen()
+          removed = "removed #{old} (left over)"
+          assert_received {:mix_shell, :info, [^removed]}
+          assert File.ls!(dir) |> Enum.sort() == ["lending.json", "reading.json"]
         end
       )
     end

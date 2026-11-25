@@ -77,6 +77,9 @@ PY
     fi
     export ATLAS_CONFIG_PYTHON="$venv/bin/python"
   fi
+  # The test reads the generated targets (the Rela project, Control's Swift package, the
+  # Runtime's routes), which are not kept in git: write them first.
+  "$root/bin/generate" >&2
   if [ "$cmd" = pull-e2e ]; then
     cd "$root/products/software_factory/e2e" && exec pull/run.sh ${args[@]+"${args[@]}"}
   fi

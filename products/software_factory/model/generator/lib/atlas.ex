@@ -4,8 +4,6 @@ defmodule RelaDSL.Atlas do
   cannot say. It holds
 
     * `format` (this file's format, `2`) and `writer` (`system:atlas-flow`);
-    * `rela_flows_sha256`: the SHA-256 of the `flows.yaml` generated in the same run,
-      byte for byte, so a runner can refuse a `flows.yaml` from another run;
     * `gates`: every gate given, by name, as data (version, flavor, purpose,
       evidence, advice or rule, verdicts, person, decide, policy), whether or not a
       subflow names it;
@@ -16,12 +14,11 @@ defmodule RelaDSL.Atlas do
       `present`: what its owner sees, as `expected`, `why` and `todo` (`instructions`,
       `section` as `{field, heading}` or `{field, label}`, `answers` as
       `[{key, label, set | remove}]`);
-    * executable start, run identity policy, state status, waiting roles, awaited
+    * executable start, per-subject policy, state status, waiting roles, awaited
       fields, ordered branches, entry sets, creates and timers. Empty execution lists
       are explicit;
     * `composition` (when given): how the subflows' results reach one another, as
-      versioned data (`composition/2`). It sits beside `flows`, never in a subflow, so
-      it changes no subflow's digest.
+      versioned data (`composition/2`). It sits beside `flows`, never in a subflow.
 
   The writer reads only the data of `__flows__/0` and `__gates__/0`. Every object's
   keys are written sorted, two spaces deep, one key per line; a list of plain values
@@ -35,17 +32,15 @@ defmodule RelaDSL.Atlas do
   @writer "system:atlas-flow"
 
   @doc """
-  The JSON text of `flows` and `gates`, bound to the `flows.yaml` whose SHA-256 (lower
-  case hex) is `rela_flows_sha256`. Raises when a state names a gate, or a gate
+  The JSON text of `flows` and `gates`. Raises when a state names a gate, or a gate
   version, that `gates` does not hold.
   """
-  def flows_json(flows, gates, rela_flows_sha256, composition \\ nil) do
+  def flows_json(flows, gates, composition \\ nil) do
     check_gates!(flows, gates)
 
     %{
       format: @format,
       writer: @writer,
-      rela_flows_sha256: rela_flows_sha256,
       gates: Map.new(gates, &{&1.name, gate(&1)}),
       flows: Map.new(flows, &{&1.name, flow(&1)}),
       composition: composition && composition(composition, flows)
@@ -116,19 +111,11 @@ defmodule RelaDSL.Atlas do
   defp scalar_text(v) when is_atom(v) and not is_boolean(v) and v != nil, do: Atom.to_string(v)
   defp scalar_text(v), do: v
 
-  @doc """
-  Each subflow as `flows.json` holds it and Flow reads it back: string keys, by name.
-  Its `RelaDSL.DefinitionDigest` is the identity of a run's definition.
-  """
-  def definitions(flows, gates),
-    do: JSON.decode!(flows_json(flows, gates, String.duplicate("0", 64)))["flows"]
+  @doc "Each subflow as `flows.json` holds it and Flow reads it back: string keys, by name."
+  def definitions(flows, gates), do: JSON.decode!(flows_json(flows, gates))["flows"]
 
   @doc "Every gate as `flows.json` holds it and Gates reads it: string keys, by name."
-  def gate_data(gates),
-    do: JSON.decode!(flows_json([], gates, String.duplicate("0", 64)))["gates"]
-
-  @doc "SHA-256 of `bytes`, lower case hex, as `rela_flows_sha256` holds it."
-  def sha256(bytes), do: :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)
+  def gate_data(gates), do: JSON.decode!(flows_json([], gates))["gates"]
 
   # decide and policy are mappings, so objects even when empty.
   defp gate(g) do

@@ -6,7 +6,7 @@ tunnel_pidfile() { echo "$ATLAS_TEST_ROOT/tunnel.pid"; }
 tunnel_log() { echo "$ATLAS_TEST_ROOT/tunnel.log"; }
 # One hello through the tunnel; $1 is its time limit in seconds (default 3).
 control_ready() {
-  probe_error="$(python3 "$root/platform/ops/control-ready.py" "$settings" "$root/platform/atlas_control/backend/targets/json/blocks.json" ${1:+"$1"} 2>&1)"
+  probe_error="$(python3 "$root/platform/ops/control-ready.py" "$settings" "$root/platform/atlas_control/backend/contract/lib/contract.ex" ${1:+"$1"} 2>&1)"
 }
 fly_cli() {
   command -v fly || command -v flyctl || {

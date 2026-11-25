@@ -141,16 +141,4 @@ defmodule Model.ToDo do
     ],
     reopen: :explicit
   )
-
-  # #325 B2, owner rule (ii): owned by its assignee of any kind `assigned_to` links
-  # (`preserve_kind: [:person, :agent, :machinery]`) instead of by who wrote the link. The
-  # states and what they wait for are unchanged, so an open To-Do keeps its entry and the
-  # choices made for it.
-  migrate(:to_do,
-    from: "8e387a008256b3c65947e0063dd48fbd4ab70417021cd1bc6cb54d947d59156b",
-    to: "1e2e70b748c304b99eeba9643baf4ab745fdd11e7d8285642b9461b5ba3e5dfc",
-    states: :same,
-    preserve_entry: true,
-    reason: "M3 S3: a To-Do is owned by its assignee, whoever wrote the link"
-  )
 end

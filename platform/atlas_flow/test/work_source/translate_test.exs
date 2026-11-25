@@ -193,19 +193,30 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
     end
   end
 
-  describe "the result-less endings (Q8)" do
-    defp ending(kind, reason), do: Translate.normal(L.ended(nil, kind: kind, reason: reason))
+  describe "the result-less endings (Q8, D-0102)" do
+    defp ending(kind, reason, opts \\ []),
+      do: Translate.normal(L.ended(nil, [kind: kind, reason: reason] ++ opts))
 
-    test "returned, a Runtime stop, and a cancel Flow asked for bring no result" do
+    test "returned, any interruption, a check cut short, and a cancel Flow asked for bring no result" do
       assert Translate.result_less(ending(:returned, nil), nil) == "returned"
-      assert Translate.result_less(ending(:interrupted, :runtime_stop), nil) == "runtime_stop"
+      assert Translate.result_less(ending(:interrupted, :runtime_stop), nil) == "interrupted"
+      assert Translate.result_less(ending(:interrupted, nil), nil) == "interrupted"
+      assert Translate.result_less(ending(:interrupted, :quota), nil) == "interrupted"
+
+      assert Translate.result_less(ending(:completed, nil, check: check(%{})), nil) ==
+               "check_interrupted"
+
       assert Translate.result_less(ending(:cancelled, :cancel), "supervision") == "supervision"
     end
 
     test "every other ending is a result" do
       assert Translate.result_less(ending(:cancelled, :cancel), nil) == nil
-      assert Translate.result_less(ending(:interrupted, :quota), nil) == nil
       assert Translate.result_less(ending(:failed, nil), nil) == nil
+      assert Translate.result_less(ending(:completed, nil), nil) == nil
+
+      for check <- [%{exit_status: 1}, %{timed_out: true}, %{signal: "KILL"}] do
+        assert Translate.result_less(ending(:completed, nil, check: check(check)), nil) == nil
+      end
     end
   end
 
@@ -279,21 +290,34 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
                  false
                )
 
-      # The three result-less endings of §3.5, as Delivery writes them.
-      for {kind, reason, cause} <- [
-            {"returned", nil, "returned"},
-            {"interrupted", "runtime_stop", "runtime_stop"},
-            {"cancelled", "cancel", "supervision"}
+      # The result-less endings of §3.5 and D-0102, as Delivery writes them.
+      for {kind, reason, check_ending, cause} <- [
+            {"returned", nil, nil, "returned"},
+            {"interrupted", "runtime_stop", nil, "interrupted"},
+            {"interrupted", nil, nil, "interrupted"},
+            {"completed", nil, "no_exit_status", "check_interrupted"},
+            {"cancelled", "cancel", nil, "supervision"}
           ] do
         values = %{
           "lease_state" => "done",
           "result_kind" => kind,
           "reason" => reason,
+          "check_ending" => check_ending,
           "lease_end_cause" => cause
         }
 
         assert :retry = Translate.outcome(fact(values), false)
+        assert :retry = Translate.outcome(fact(values), true)
         assert Translate.no_result?(values)
+      end
+    end
+
+    # D-0102: a crash or restart is retried from the same step, never stuck.
+    test "an interrupted ending without a cause on the fact retries, whatever its reason" do
+      for reason <- [nil, "runtime_stop", "quota"] do
+        values = %{"lease_state" => "done", "result_kind" => "interrupted", "reason" => reason}
+        assert Translate.no_result?(values)
+        assert :retry = Translate.outcome(fact(values), false)
       end
     end
 
@@ -305,11 +329,9 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
       refute Translate.no_result?(completed)
       assert {:result, "completed", _} = Translate.outcome(fact(completed), false)
 
-      for kind <- ~w(failed interrupted) do
-        values = Map.put(requested, "result_kind", kind)
-        refute Translate.no_result?(values)
-        assert {:result, "stuck", %{"kind" => ^kind}} = Translate.outcome(fact(values), false)
-      end
+      failed = Map.put(requested, "result_kind", "failed")
+      refute Translate.no_result?(failed)
+      assert {:result, "stuck", %{"kind" => "failed"}} = Translate.outcome(fact(failed), false)
 
       # A cancelled with no cancel request from Flow is a result (stuck), not a retry.
       cancelled = %{"lease_state" => "done", "result_kind" => "cancelled"}

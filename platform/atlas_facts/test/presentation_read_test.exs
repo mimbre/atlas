@@ -11,7 +11,7 @@ defmodule AtlasFacts.PresentationReadTest do
 
   defmodule Description do
     @moduledoc false
-    @slots ~w(flow subject_kind subject_key generation definition_sha256 state entry entered_at status deadlines pending input_cursor last_input blocked_reason)
+    @slots ~w(flow subject_kind subject_key generation state entry entered_at status deadlines pending input_cursor last_input blocked_reason)
 
     def of do
       string = %{"type" => "string"}

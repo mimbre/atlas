@@ -138,8 +138,9 @@ defmodule Model.SentBackRunsTest do
       assert %{label: "Not accepted", note: true, change: true} = not_accepted
 
       # What it writes: the verdict the run goes back on, and the note.
-      {:ok, flows} = JSON.decode(File.read!("../targets/atlas/flows.json"))
-      answers = flows["flows"][p.flow]["states"]["accepting"]["present"]["todo"]["answers"]
+      gates = Model.AtlasEyra.__rela__(:gates)
+      flows = RelaDSL.Flow.Subflow.definitions(Model.AtlasEyra.__flows__(), gates, :prod)
+      answers = flows[p.flow]["states"]["accepting"]["present"]["todo"]["answers"]
       written = Enum.find(answers, &(&1["key"] == not_accepted.key))["change"]["values"]
       assert written == %{"verdict" => "reject", p.note => "$note"}
 

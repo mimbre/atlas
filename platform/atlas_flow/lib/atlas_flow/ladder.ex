@@ -53,7 +53,10 @@ defmodule AtlasFlow.Ladder do
       (`policy_forbids`, `no_permitted_option`): that rung is skipped. A review that did
       not complete → `held`;
     * an abandoned task (a lost lease) is started once more; abandoned again → `held`,
-      asking `retry | stronger | abandon` (Main's ruling 2).
+      asking `retry | stronger | abandon` (Main's ruling 2);
+    * an ending without a result (returned, any interruption such as a Runtime stop,
+      crash or restart, a check that gave no exit status) never reaches the ladder: the
+      same task is offered again as a fresh attempt (`Translate.no_result?/1`, D-0102).
 
   **Red CI** (plan §3.2 item 4, F3-L). Landing records the CI of the review a result is
   published on as that task's `"review_ci"` (with its `"published_revision"` and

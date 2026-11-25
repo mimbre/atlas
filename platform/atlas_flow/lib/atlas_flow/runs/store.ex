@@ -20,7 +20,6 @@ defmodule AtlasFlow.Runs.Store do
   alias AtlasFlow.{Dispatch, Results, Supervision}
   alias AtlasFlow.Runs.{HandOver, Run}
   alias AtlasFlow.Talk
-  alias AtlasFlow.WorkSource.Leases
   alias AtlasFlow.Activities.Gate
   alias AtlasFlow.Activities.Effect
   alias AtlasFlow.Activities.Task
@@ -45,18 +44,10 @@ defmodule AtlasFlow.Runs.Store do
 
       cond do
         audit && audit["plan_digest"] == fingerprint ->
-          cond do
-            run["definition_sha256"] != expected["definition_sha256"] or
-                flow.digest() != expected["definition_sha256"] ->
-              {:error, :recovery_definition_changed}
-
-            run["entry"] == audit["to_entry"] and
-                (run["pending"]["writes"] != [] or run["pending"]["synthetic"] != nil) ->
-              drain(with_flows(config, flows), key, flow, now, 64)
-
-            true ->
-              {:ok, run}
-          end
+          if run["entry"] == audit["to_entry"] and
+               (run["pending"]["writes"] != [] or run["pending"]["synthetic"] != nil),
+             do: drain(with_flows(config, flows), key, flow, now, 64),
+             else: {:ok, run}
 
         audit != nil ->
           {:error, :recovery_plan_conflict}
@@ -370,9 +361,11 @@ defmodule AtlasFlow.Runs.Store do
 
   @doc """
   What a round reconciles, read whole from Facts but not reconciled yet: `{:ok, %{runs:,
-  subjects:}}`. `runs`: the latest generation of every run of a selected subflow, as Facts
-  holds it. `subjects` (`[{kind, key}]`, each once): the subject of each of those runs,
-  then each subject a selection admits that has none yet. Reconciling each subject with
+  subjects:}}`. `runs`: the latest generation of every run, as Facts holds it, also of a
+  subflow the model no longer selects. `subjects` (`[{kind, key}]`, each once): the
+  subject of each of those runs that has not ended, then each subject a selection admits
+  that has none yet. An ended run is not read again unless its subject is admitted (a
+  fact made later under its key) or a hint names it. Reconciling each subject with
   `reconcile_subjects/5` (one after the other, in any number of steps) reconciles every
   run, as one reconcile would: a subject reconciled again (by a hint in between) is only
   drained again, and writes nothing it wrote already.
@@ -382,7 +375,10 @@ defmodule AtlasFlow.Runs.Store do
   def plan(config, _flows) do
     with {:ok, runs} <- stored_runs(config),
          {:ok, admitted} <- admitted_subjects(config) do
-      subjects = for(run <- runs, do: {run["subject_kind"], run["subject_key"]}) ++ admitted
+      subjects =
+        for(run <- runs, run["status"] != "ended", do: {run["subject_kind"], run["subject_key"]}) ++
+          admitted
+
       {:ok, %{runs: runs, subjects: Enum.uniq(subjects)}}
     end
   end
@@ -402,12 +398,12 @@ defmodule AtlasFlow.Runs.Store do
     end)
   end
 
-  # The latest generation of every run of a selected subflow, as Facts holds it.
+  # The latest generation of every run, as Facts holds it.
   defp stored_runs(config) do
     with %{"facts" => facts} <- Talk.read(config["kind"], %{}),
          decoded = Enum.map(facts, &decode(config, &1)),
          true <- Enum.all?(decoded, &match?({:ok, _}, &1)) do
-      runs = for {:ok, run} <- decoded, Map.has_key?(config["selection"], run["flow"]), do: run
+      runs = for {:ok, run} <- decoded, do: run
 
       {:ok,
        runs
@@ -442,12 +438,20 @@ defmodule AtlasFlow.Runs.Store do
   Reconcile only the runs of `subjects` (`[{kind, key}]`, the facts a hint is about), as
   `reconcile/3` does for each: its run as `known` holds it (the latest generation, from
   the last reconcile) is drained; a subject the selection admits that has none gets one.
-  `{:ok, runs}`: the runs it reconciled.
+  A run in `known` of a subflow the model no longer selects is ended
+  (`flow_removed: <flow>`). `{:ok, runs}`: the runs it reconciled.
   """
   def reconcile_subjects(nil, _flows, _now, _known, _subjects), do: {:ok, []}
 
   def reconcile_subjects(config, flows, now, known, subjects) do
     config = with_flows(config, flows)
+
+    removed =
+      for {kind, key} <- subjects,
+          run <- known,
+          run["subject_kind"] == kind and run["subject_key"] == key,
+          run["status"] != "ended" and not Map.has_key?(config["selection"], run["flow"]),
+          do: {:removed, run}
 
     pairs =
       for {name, selection} <- Enum.sort(config["selection"]),
@@ -455,24 +459,31 @@ defmodule AtlasFlow.Runs.Store do
           kind == selection["subject"],
           do: {name, selection, kind, key}
 
-    Enum.reduce_while(pairs, {:ok, []}, fn {name, selection, kind, key}, {:ok, acc} ->
-      existing =
-        Enum.find(known, fn run ->
-          run["flow"] == name and run["subject_kind"] == kind and run["subject_key"] == key
-        end)
-
-      result =
-        if existing do
-          settle(config, existing["key"], flows[name], now)
-        else
-          admitted(config, name, flows[name], selection, kind, key, now)
+    Enum.reduce_while(removed ++ pairs, {:ok, []}, fn
+      {:removed, run}, {:ok, acc} ->
+        case flow_removed(config, run["key"], now) do
+          {:ok, ended} -> {:cont, {:ok, [ended | acc]}}
+          error -> {:halt, error}
         end
 
-      case result do
-        {:ok, nil} -> {:cont, {:ok, acc}}
-        {:ok, run, parents} -> {:cont, {:ok, parents ++ [run | acc]}}
-        error -> {:halt, error}
-      end
+      {name, selection, kind, key}, {:ok, acc} ->
+        existing =
+          Enum.find(known, fn run ->
+            run["flow"] == name and run["subject_kind"] == kind and run["subject_key"] == key
+          end)
+
+        result =
+          if existing do
+            settle(config, existing["key"], flows[name], now)
+          else
+            admitted(config, name, flows[name], selection, kind, key, now)
+          end
+
+        case result do
+          {:ok, nil} -> {:cont, {:ok, acc}}
+          {:ok, run, parents} -> {:cont, {:ok, parents ++ [run | acc]}}
+          error -> {:halt, error}
+        end
     end)
   end
 
@@ -593,33 +604,15 @@ defmodule AtlasFlow.Runs.Store do
   defp react(config, d, %{"status" => "ended"} = run, flow, now, remaining),
     do: reused(config, d, run, flow, now, remaining)
 
+  # A run continues by name: in its state while its subflow has that state, else blocked
+  # (`AtlasFlow.Runs.Run.match_states/2`).
   defp react(config, d, run, flow, now, remaining) do
-    if run["definition_sha256"] != flow.digest() do
-      migrations = config["selection"][run["flow"]]["migrations"] || []
+    matched = Run.match_states(run, flow)
 
-      case reopened_by(config, run, flow, migrations) do
-        {:ok, supervisor} ->
-          case Run.migrate(run, flow, migrations, now, supervisor: supervisor) do
-            {:ok, ^run} ->
-              finish(config, d, run, flow, now, remaining)
-
-            {:ok, updated} ->
-              step(config, d, run, updated, flow, now, remaining)
-
-            _ ->
-              blocked = Run.block_definition(run, flow)
-
-              if blocked == run,
-                do: finish(config, d, run, flow, now, remaining),
-                else: step(config, d, run, blocked, flow, now, remaining)
-          end
-
-        # Facts did not say who supervised it: the run is left as it is, for the next round.
-        :unavailable ->
-          finish(config, d, run, flow, now, remaining)
-      end
-    else
-      resume(config, d, run, flow, now, remaining)
+    cond do
+      matched != run -> step(config, d, run, matched, flow, now, remaining)
+      Run.state_removed?(run, flow) -> finish(config, d, run, flow, now, remaining)
+      true -> resume(config, d, run, flow, now, remaining)
     end
   end
 
@@ -683,8 +676,15 @@ defmodule AtlasFlow.Runs.Store do
                 remaining
               )
 
+            # A write Facts refuses because the run's subject is gone: the run ends.
             error ->
-              error
+              case Talk.read(run["subject_kind"], %{
+                     "key" => run["subject_key"],
+                     "plain" => true
+                   }) do
+                %{"fact" => nil} -> subject_removed(config, d, run, flow, now, remaining)
+                _ -> error
+              end
           end
         end)
 
@@ -799,23 +799,55 @@ defmodule AtlasFlow.Runs.Store do
           end
         end
 
-      # A deleted subject ends its run (`ended`), stored before its held task is
-      # cancelled: nothing moves it or is written for it any more, and the other runs go
-      # on (a parent counts its children as Facts holds them, so a deleted child is no
-      # longer among them).
       %{"fact" => nil} ->
-        stored(config, d, Map.put(run, "status", "ended"), :all, flow, now, remaining, fn
-          _d, ended ->
-            with %{"key" => task} <- ended["pending"]["task"] do
-              Dispatch.cancel(task, "subject_deleted")
-              Results.unpin(task, now)
-            end
-
-            {:ok, ended}
-        end)
+        subject_removed(config, d, run, flow, now, remaining)
 
       other ->
         {:error, {:subject_unavailable, other}}
+    end
+  end
+
+  # A deleted subject ends its run (`ended`, `subject_removed`), stored before the task it
+  # holds is cancelled: nothing moves it or is written for it any more, and a round does
+  # not read it again (`plan/2`). The other runs go on (a parent counts its children as
+  # Facts holds them, so a deleted child is no longer among them).
+  defp subject_removed(config, d, run, flow, now, remaining) do
+    ended = Map.merge(run, %{"status" => "ended", "blocked_reason" => "subject_removed"})
+
+    stored(config, d, ended, :all, flow, now, remaining, fn _d, ended ->
+      cancel_task(ended, "subject_deleted", now)
+      {:ok, ended}
+    end)
+  end
+
+  # A run of a subflow the model no longer selects ends (`ended`, `flow_removed: <flow>`)
+  # in one versioned write, before the task it holds is cancelled; a round does not read
+  # it again (`plan/2`). A write another writer beat is taken up on the next round.
+  defp flow_removed(config, key, now) do
+    with {:ok, %{} = fact} <- fetch(config, key),
+         {:ok, run} <- decode(config, fact) do
+      reason = "flow_removed: #{run["flow"]}"
+      ended = Map.merge(run, %{"status" => "ended", "blocked_reason" => reason})
+
+      with false <- run["status"] == "ended",
+           {:ok, %{stored: ^ended}} <-
+             write(config, %{fact: fact, stored: run, consumed: nil}, ended) do
+        cancel_task(ended, "flow_removed", now)
+        {:ok, ended}
+      else
+        true -> {:ok, run}
+        {:ok, %{stored: stored}} -> {:ok, stored}
+        error -> error
+      end
+    else
+      other -> {:error, {:invalid_run, key, other}}
+    end
+  end
+
+  defp cancel_task(run, cause, now) do
+    with %{"key" => task} <- run["pending"]["task"] do
+      Dispatch.cancel(task, cause)
+      Results.unpin(task, now)
     end
   end
 
@@ -845,39 +877,6 @@ defmodule AtlasFlow.Runs.Store do
       other ->
         {:error, {:subject_unavailable, other}}
     end
-  end
-
-  # Who supervised a completed run that its migration reopens (`Run.reopening/3`), so its
-  # open state is its supervisor's again: the human its last task was done for (the task
-  # fact's `done_for`, which Dispatch writes when it grants a lease), as a holder of the
-  # model's supervision relation; nil for any other run, or when there is no such task or
-  # no supervision. Leaving its span cleared the run's own.
-  defp reopened_by(config, run, flow, migrations) do
-    with %{} = supervision <- config["supervision"],
-         %{} <- Run.reopening(run, flow, migrations),
-         key when is_binary(key) <- last_task(run) do
-      case Leases.read(key) do
-        {:ok, fact} ->
-          holder = List.first(Leases.links(fact, "done_for"))
-
-          case is_binary(holder) && holder?(supervision, holder) do
-            :unavailable -> :unavailable
-            true -> {:ok, holder}
-            _ -> {:ok, nil}
-          end
-
-        {:error, _} ->
-          :unavailable
-      end
-    else
-      _ -> {:ok, nil}
-    end
-  end
-
-  defp last_task(run) do
-    (run["pending"]["tasks"] || [])
-    |> Enum.reverse()
-    |> Enum.find_value(&(is_binary(&1["key"]) and &1["key"]))
   end
 
   # One transition taken: the next one from it, or the end of the reaction when it
@@ -1772,19 +1771,20 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
+  # A field the run does not carry (nil) is neither written nor read.
   def encode(config, run) do
-    Map.new(config["fields"], fn {logical, field} ->
-      value = run[logical]
+    for {logical, field} <- config["fields"], (value = run[logical]) != nil, into: %{} do
       {field, if(logical in @structured, do: JSON.encode!(value), else: value)}
-    end)
+    end
   end
 
   def decode(config, fact) do
     run =
-      Map.new(config["fields"], fn {logical, field} ->
-        value = fact["values"][field]
+      for {logical, field} <- config["fields"],
+          (value = fact["values"][field]) != nil,
+          into: %{} do
         {logical, if(logical in @structured, do: JSON.decode!(value), else: value)}
-      end)
+      end
 
     if Enum.all?(@structured, &(run[&1]["version"] == 1)),
       do: {:ok, run |> Map.put("key", fact["key"]) |> supervisor(config, fact)},

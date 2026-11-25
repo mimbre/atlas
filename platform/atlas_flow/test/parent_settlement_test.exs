@@ -11,7 +11,6 @@ defmodule AtlasFlow.ParentSettlementTest do
       do: Enum.reject(AtlasFlow.Yard.Nested.subflows(env), &(&1.name() == "tally"))
 
     defdelegate runs(), to: AtlasFlow.Yard.Nested
-    defdelegate migrations(), to: AtlasFlow.Yard.Nested
     defdelegate composition(), to: AtlasFlow.Yard.Nested
     defdelegate actors(), to: AtlasFlow.Yard.Nested
     defdelegate turn(), to: AtlasFlow.Yard.Nested

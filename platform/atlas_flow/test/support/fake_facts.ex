@@ -579,8 +579,6 @@ defmodule AtlasFlow.FakeFacts.Leasing do
     @impl true
     def selection(name), do: Watch.selection(name)
     @impl true
-    def migrations, do: Watch.migrations()
-    @impl true
     def composition, do: Watch.composition()
     @impl true
     def actors, do: Watch.actors()
@@ -697,7 +695,6 @@ defmodule AtlasFlow.FakeFacts.Leasing do
       "subject_kind" => kind,
       "subject_key" => key,
       "generation" => 1,
-      "definition_sha256" => "test",
       "state" => Keyword.get(opts, :state, "loading"),
       "entry" => 1,
       "entered_at" => DateTime.to_iso8601(@epoch),

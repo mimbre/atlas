@@ -1,6 +1,6 @@
 defmodule RelaDSL.LimitsTest do
   use ExUnit.Case, async: true
-  alias RelaDSL.{Atlas, Limits, Rela}
+  alias RelaDSL.{Limits, Rela}
 
   defp flows do
     [flow] = RelaDSL.Example.__flows__()
@@ -16,7 +16,7 @@ defmodule RelaDSL.LimitsTest do
     [%{flow | states: [first | rest]}]
   end
 
-  test "each environment has concrete periods and hashes its own immutable pair" do
+  test "each environment has concrete periods and its own flows.yaml" do
     gates = [%{name: :allocate, answer_within: [test: "5m", prod: "48h"]}]
 
     for {env, period} <- [test: "5m", prod: "48h"] do
@@ -25,10 +25,8 @@ defmodule RelaDSL.LimitsTest do
       yaml = Rela.flows_yaml([resolved])
       assert yaml =~ "period: #{period}"
 
-      assert Atlas.sha256(yaml) !=
-               Atlas.sha256(
-                 Rela.flows_yaml(flows(), gates, if(env == :test, do: :prod, else: :test))
-               )
+      assert yaml !=
+               Rela.flows_yaml(flows(), gates, if(env == :test, do: :prod, else: :test))
     end
 
     assert hd(hd(hd(flows()).states).timers).period == {:gate_limit, :allocate}

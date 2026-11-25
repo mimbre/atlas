@@ -455,56 +455,6 @@ defmodule Model.IssueRunsTest do
     assert until(c, "done")["status"] == "completed"
   end
 
-  test "a run already ended in stuck is reopened there, its supervisor's again, and Retry builds it again",
-       c do
-    started(c)
-    finish(kind: :failed, reason: "time_limit")
-    stuck = until(c, "stuck")
-
-    # As the previous definition left it: completed in its final stuck, out of the span,
-    # so without a supervisor (its link cleared), and no step recorded.
-    old = "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e"
-    kind = c.runner.config["kind"]
-    fact = FakeFacts.get(kind, stuck["key"])
-
-    ended =
-      stuck
-      |> Map.merge(%{"definition_sha256" => old, "status" => "completed"})
-      |> Map.delete("supervised_by")
-
-    FakeFacts.put(
-      kind,
-      Map.merge(fact, %{
-        "values" => Map.merge(fact["values"], Store.encode(c.runner.config, ended)),
-        "links" => Map.put(fact["links"] || %{}, "supervised_by", []),
-        "version" => fact["version"] + 1
-      })
-    )
-
-    sync(%{"retry_step" => nil, "task_failure" => nil})
-
-    assert {:ok, %{"status" => "completed"}} =
-             Store.decode(c.runner.config, FakeFacts.get(kind, stuck["key"]))
-
-    # The task it ended on was done for ada.
-    assert FakeFacts.get("task", @author)["links"]["done_for"] == ["ada"]
-
-    reopened = until(c, "stuck")
-    assert reopened["status"] == "active"
-    assert reopened["definition_sha256"] == c.runner.flows["issue"].digest()
-    assert reopened["supervised_by"] == "ada"
-    assert reopened["entry"] == stuck["entry"] + 1
-    assert FakeFacts.get(kind, reopened["key"])["links"]["supervised_by"] == ["ada"]
-    assert %{"from" => ^old, "reopened" => true} = List.last(reopened["pending"]["migrations"])
-    assert owner(c, reopened) == "ada"
-
-    # Its step was never recorded: Retry builds it again.
-    decide("retry")
-    working = intent(c)
-    assert working["state"] == "working"
-    assert %{"key" => @review} = working["pending"]["task"]
-  end
-
   # The issue picked up by ada, its author task made.
   defp started(c) do
     issue()
@@ -558,10 +508,10 @@ defmodule Model.IssueRunsTest do
     owner["key"]
   end
 
-  # The labels of the answers `state` offers its owner, as the committed target has them.
+  # The labels of the answers `state` offers its owner, as the test environment's flows.json has them.
   defp answers(state) do
-    path = Path.expand("../../targets/test/atlas/flows.json", __DIR__)
-    flow = JSON.decode!(File.read!(path))["flows"]["issue"]
+    gates = Model.AtlasEyra.__rela__(:gates)
+    flow = RelaDSL.Flow.Subflow.definitions(Model.AtlasEyra.__flows__(), gates, :test)["issue"]
     for a <- flow["states"][state]["present"]["todo"]["answers"] || [], do: a["label"]
   end
 

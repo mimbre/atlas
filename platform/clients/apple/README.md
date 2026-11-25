@@ -2,9 +2,11 @@
 
 Hand-written Swift for the macOS app (and later iOS), as
 [docs/design/apple-clients.md](../../../docs/design/apple-clients.md) describes. The contract
-is the generated package `AtlasControlKit` (`platform/atlas_control/backend/targets/swift`), used by path; nothing
-here is generated, and nothing here knows a kind, a relation or a flow: the app shows what
-Control's `boot` and pages send.
+is the generated package `AtlasControlKit`, published in
+[github.com/mimbre/atlas-swift](https://github.com/mimbre/atlas-swift) with a tag per
+contract version; `Package.swift` depends on the contract's version exactly
+(`contractVersion`). Nothing here is generated, and nothing here knows a kind, a relation
+or a flow: the app shows what Control's `boot` and pages send.
 
 | Target | What |
 |---|---|
@@ -21,11 +23,18 @@ the small local development bundle helper below provides Finder/Dock launch befo
 ## Build, test, run
 
 ```
-swift build
+swift build                                  # against the published contract version
 swift test                                   # unit tests; ControlIntegration is skipped
 xcodebuild -scheme ControlSession -destination 'generic/platform=iOS Simulator' build
 swift run AtlasMac --env test --host 127.0.0.1 --port <Control port>
 ```
+
+`swift test` reads the product's description (`ShellTabsTests`): run `bin/generate model`
+from the repository's root first. A branch whose contract version is not published yet
+builds against the package generated from its tree: run `bin/generate atlas`, then build
+with `ATLAS_SWIFT_PACKAGE=../../atlas_control/backend/targets/swift` (CI's `apple` job does).
+`tools/atlas_swift.py` prints the contract version (`version`) and publishes the package
+(`publish`, CI's `deploy-swift-package`); its tests: `python3 -B tools/test_atlas_swift.py`.
 
 The app connects only where its launch arguments say (`--env`, `--host`, `--port`, and
 optionally `--reconcile-seconds`); without them it says how to start it. It says hello as

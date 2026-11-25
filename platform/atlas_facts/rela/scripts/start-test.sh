@@ -12,7 +12,8 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
-# The Rela project the scripts serve: the product's generated description.
+# The Rela project the scripts serve: the product's generated description (bin/generate model
+# writes it; it is not kept in git).
 project="$here/../../../products/software_factory/model/targets/rela"
 root="${ATLAS_TEST_ROOT:-$HOME/.local/share/atlas/test}"
 data="${ATLAS_RELA_DATA:-$root/rela}"

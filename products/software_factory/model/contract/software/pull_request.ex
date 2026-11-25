@@ -266,41 +266,4 @@ defmodule Model.PullRequest do
       [when: [review_outcome: [:approved], test_outcome: [:passed]], state: :blocked]
     ]
   )
-
-  # The approved migration of its runs, from the digest the base branch recorded
-  # (RelaDSL.RunIdentity); the same in prod and test. No run had that digest: the
-  # subflow was never selected before slice 8. A run that did would move along it as a
-  # state migration (re-entering its state), never as a re-key; one waiting in `blocked`,
-  # which went with the effect, would wait for the merge by hand in `integrating`.
-  migrate(:pull_request,
-    from: "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335",
-    to: "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0",
-    states: [
-      blocked: :integrating,
-      changes_requested: :changes_requested,
-      checking: :checking,
-      closed: :closed,
-      integrated: :integrated,
-      integrating: :integrating
-    ],
-    reason: "Slice 8: selected without its integrate effect and creates; merged by hand"
-  )
-
-  # Its integrate effect again, through Code's receiver (the same in prod and test).
-  # Every other state is kept and re-entered. A run waiting in `integrating` for the merge
-  # by hand waits in `blocked`, as an import does: nothing is integrated at the deploy
-  # without someone setting `integration: retry`, whatever links it has, and merged or
-  # closed by hand still ends it.
-  migrate(:pull_request,
-    from: "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0",
-    to: "9e9822b579c9f85bd577c278b2c8a10ee7be7d04ee029e12ad8bf790cdc703de",
-    states: [
-      changes_requested: :changes_requested,
-      checking: :checking,
-      closed: :closed,
-      integrated: :integrated,
-      integrating: :blocked
-    ],
-    reason: "Integrate effect through Code's receiver; waiting runs blocked until a retry"
-  )
 end
