@@ -60,6 +60,11 @@ defmodule AtlasRuntime.Sources.Puller do
 
   **The answer.**
   - `timing` sets `lease_ttl` and `poll_max`.
+  - `configuration`, when the source serves one (IS-Atlas-27): the `policy.json` its
+    supervisor set through Control, applied or refused by `AtlasRuntime.Configuration`
+    once the rest of the answer is handled. A refusal (`%{version, reason}`) goes with
+    every later poll as `configuration_refused` until a configuration is applied; the next
+    poll after an applied one carries its version as `policy_version`.
   - Every holding it carried that is not in `lease_lost` is renewed **at the poll's send
     time** (`LeaseClock.stamp/1` read just before the poll left), never at the reply's.
   - `lease_lost`: the attempt is cancelled (never started when it had not), and nothing of
@@ -146,7 +151,7 @@ defmodule AtlasRuntime.Sources.Puller do
   require Logger
 
   alias AtlasRuntime.Boundary.Work, as: B
-  alias AtlasRuntime.{Policy, Provenance, Work}
+  alias AtlasRuntime.{Configuration, Policy, Provenance, Work}
   alias AtlasRuntime.Sources.{Credential, Import, LeaseClock, LeaseShape, Rights, Store, Upload}
   alias AtlasRuntime.Work.Queue
 
@@ -232,7 +237,10 @@ defmodule AtlasRuntime.Sources.Puller do
           # The callers of poll_now/check_now waiting for the tasks of their group:
           # group => {reply, [from]}; `group` is the one new tasks join now.
           groups: %{},
-          group: nil
+          group: nil,
+          # The last configuration this source served that was refused (IS-Atlas-27):
+          # %{version, reason}, sent on every poll until another one is applied; or nil.
+          configuration_refused: nil
         }
 
         if is_integer(state.tick), do: Process.send_after(self(), :tick, state.tick)
@@ -559,6 +567,14 @@ defmodule AtlasRuntime.Sources.Puller do
           holdings: for(h <- holdings, do: holding(h))
         }
 
+        # Only while there is a refusal to report: a source that serves no configuration
+        # takes no such field (Flow's work source refuses a body field it does not know).
+        input =
+          case state.configuration_refused do
+            nil -> input
+            refused -> Map.put(input, :configuration_refused, refused)
+          end
+
         # The send time: a renewal counts from here, however late the answer comes.
         sent = LeaseClock.stamp(state.clock)
         {module, ref} = state.target
@@ -682,8 +698,33 @@ defmodule AtlasRuntime.Sources.Puller do
       end)
 
     _ = Work.offer_done(state.name, used)
-    remember(state)
+    state |> remember() |> configure(Map.get(polled, :configuration))
   end
+
+  # IS-Atlas-27: the configuration its supervisor set through Control, when the source
+  # serves one (`AtlasRuntime.Configuration`). Applied, it is what every attempt not yet
+  # started runs under, and the next poll carries its version; refused, the refusal goes
+  # with every poll until a configuration is applied.
+  defp configure(state, document) when is_binary(document) do
+    case runtime_home() do
+      nil ->
+        state
+
+      home ->
+        case Configuration.apply(home, state.name, document) do
+          {:applied, _version} ->
+            %{state | configuration_refused: nil}
+
+          :current ->
+            %{state | configuration_refused: nil}
+
+          {:refused, version, reason} ->
+            %{state | configuration_refused: %{version: version, reason: reason}}
+        end
+    end
+  end
+
+  defp configure(state, _none), do: state
 
   defp renew(state, id, sent) do
     case state.leases[id] do

@@ -39,7 +39,9 @@ defmodule AtlasRuntimeBoundary.WorkSource do
 
   # 0.2.0: change_set declares its base (required), which the Runtime always sent and
   # needs back on import. 0.3.0: a work's input may name a result_ref (the result over Git).
-  version("0.3.0")
+  # 0.4.0: the Runtime's configuration (IS-Atlas-27): polled may carry it, and a poll may
+  # report one the Runtime refused (both optional, so 0.3.0 peers are not affected).
+  version("0.4.0")
 
   # The Runtime's own enumerations (as in the work contract, which this one does not name).
   @attempt_states [
@@ -78,6 +80,17 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     # per profile. Empty when full. The Runtime keeps one poll open, even when full.
     field(:offer, {:map, :integer}, required: true)
     field(:holdings, {:list, :holding}, required: true)
+    # The last configuration this source served that the Runtime refused, sent with every
+    # poll until one is applied; absent when there is none. An applied one shows as
+    # policy_version.
+    field(:configuration_refused, :configuration_refusal)
+  end
+
+  # version: the refused document's own (0 when it names none it could read). reason: why,
+  # never a path on the Runtime's machine.
+  defmodel :configuration_refusal do
+    field(:version, :integer, required: true, range: 0..2_147_483_647)
+    field(:reason, :string, required: true)
   end
 
   # A lease the Runtime holds, as its persisted state has it.
@@ -97,6 +110,12 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     # Holdings that are not, or no longer, current: the Runtime cancels their attempts.
     field(:lease_lost, {:list, :string}, required: true)
     field(:timing, :timing, required: true)
+    # The Runtime's configuration as its supervisor set it at the source (the whole
+    # policy.json document, JSON text), served while the Runtime's policy_version is
+    # another one. The Runtime checks it as its own policy, writes it and applies it to
+    # every attempt not yet started, or refuses it (configuration_refused). A source that
+    # holds none, or whose one was refused, leaves it out.
+    field(:configuration, :string)
   end
 
   # Seconds. A lease not renewed for lease_ttl is self-fenced by the Runtime (§5.3 item 2).

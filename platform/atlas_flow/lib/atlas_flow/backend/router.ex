@@ -2,7 +2,7 @@ defmodule AtlasFlow.Backend.Router do
   @moduledoc """
   The HTTP carriage of Flow's work source (plan m3 §3.6; ADR 0006; decision 2026-11-17
   §6.2): exactly the routes, outcomes, statuses and problem types of the Runtime's
-  `work_source` backend contract (its route description, `routes.json`, version 0.2.0),
+  `work_source` backend contract (its route description, `routes.json`, version 0.3.0),
   and nothing else. `__routes__/0` and `__errors__/0` are that table as data; the router
   answers from it.
 
@@ -137,7 +137,7 @@ defmodule AtlasFlow.Backend.Router do
   @read [read_timeout: 60_000]
 
   # The version of the Runtime's backend contract whose routes these are.
-  @version "0.2.0"
+  @version "0.3.0"
 
   @doc "The version of the Runtime's `work_source` backend contract this router carries."
   def __version__, do: @version

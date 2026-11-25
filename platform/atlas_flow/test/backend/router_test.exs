@@ -150,6 +150,35 @@ defmodule AtlasFlow.Backend.RouterTest do
       refute_received {_, _, _, _}
     end
 
+    test "IS-Atlas-27: a poll may report a refused configuration, and its answer carry one" do
+      refused = %{"version" => 3, "reason" => "invalid: slots"}
+
+      body =
+        poll_body()
+        |> JSON.decode!()
+        |> Map.put("configuration_refused", refused)
+        |> JSON.encode!()
+
+      polled =
+        {:polled,
+         %{
+           leases: [],
+           cancel: [],
+           lease_lost: [],
+           timing: %{lease_ttl: 900, poll_max: 25},
+           configuration: ~s({"version":4})
+         }}
+
+      conn = request(:post, "/v1/poll", body, plug: plug(stub(poll: fn _ -> polled end)))
+      assert conn.status == 200
+      assert JSON.decode!(conn.resp_body)["configuration"] == ~s({"version":4})
+      assert_received {:poll, _, %{"configuration_refused" => ^refused}, _}
+
+      # None served: the answer has no such field.
+      conn = request(:post, "/v1/poll", poll_body(), [])
+      refute Map.has_key?(JSON.decode!(conn.resp_body), "configuration")
+    end
+
     test "the path's parameters go to the source with the body's fields" do
       body = JSON.encode!(%{revision: 2, report: %{state: "started"}})
       conn = request(:post, "/v1/leases/L~1~x/reports", body, [])
