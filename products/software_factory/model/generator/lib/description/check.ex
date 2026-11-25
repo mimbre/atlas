@@ -607,7 +607,7 @@ defmodule RelaDSL.Description.Check do
   end
 
   # What a create asks: a field of the kind, or a relation from it that names one fact
-  # (the product a scene is made under), which the form asks as that fact's key.
+  # (the fact an item is made under), which the form asks as that fact's key.
   defp asked(ctx, kind, name, path) do
     case rel(ctx, name) do
       %{} = spec when is_binary(name) ->
