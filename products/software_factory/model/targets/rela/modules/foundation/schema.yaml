@@ -255,6 +255,18 @@ entities:
         type: string
         required: true
         description: As it is shown; its name in Flow's configuration
+      configuration:
+        type: string
+        description: 'The Runtime''s configuration, its whole policy.json as JSON: version (raise it on every change), sources (url, git_url, priority, max_slots), profiles (permissions, cost classes, options), slots. The Runtime applies it within a poll, without a restart'
+      applied_version:
+        type: integer
+        description: The configuration version the Runtime runs under, as its last poll said
+      refused_version:
+        type: integer
+        description: 'The last configuration version the Runtime refused (0: Flow could not read its version); it stays on the version it had'
+      refused_reason:
+        type: string
+        description: Why the Runtime refused refused_version
   task:
     label: Task
     plural: tasks

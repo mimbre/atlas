@@ -25,7 +25,15 @@ defmodule AtlasRuntimeBackend.WorkSourceTest do
   test "the resources, and lease_lost as 410 lease-lost" do
     assert for(r <- @rest.resources, do: {r.method, r.path, r.capability, r.body}) == [
              {:post, "/v1/poll", :poll,
-              [:runtime_id, :incarnation, :build, :policy_version, :offer, :holdings]},
+              [
+                :runtime_id,
+                :incarnation,
+                :build,
+                :policy_version,
+                :offer,
+                :holdings,
+                :configuration_refused
+              ]},
              {:post, "/v1/leases/:lease_id/reports", :report, [:revision, :report]},
              {:get, "/v1/leases/:lease_id/blobs/:sha256", :get_blob, nil},
              {:put, "/v1/leases/:lease_id/blobs/:sha256", :put_blob, nil}

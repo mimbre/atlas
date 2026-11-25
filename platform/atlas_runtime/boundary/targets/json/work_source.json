@@ -133,9 +133,33 @@
           "name": "holdings",
           "required": true,
           "type": "list of holding"
+        },
+        {
+          "name": "configuration_refused",
+          "required": false,
+          "type": "configuration_refusal"
         }
       ],
       "name": "poll_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "version",
+          "range": {
+            "max": 2147483647,
+            "min": 0
+          },
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "reason",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "configuration_refusal"
     },
     {
       "fields": [
@@ -191,6 +215,11 @@
           "name": "timing",
           "required": true,
           "type": "timing"
+        },
+        {
+          "name": "configuration",
+          "required": false,
+          "type": "string"
         }
       ],
       "name": "polled"
@@ -812,5 +841,5 @@
       "name": "rejected"
     }
   ],
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

@@ -101,6 +101,16 @@ public struct SingleChoice: Sendable, Equatable {
         return outcome
     }
 
+    /// Whether the block, with the focus, takes this key (one character) itself, before
+    /// the page's action keys: a digit that chooses or goes on typing a number. With more
+    /// than nine choices every digit is typed; else only a digit some choice has (and `0`).
+    /// Not while the note form is open (the note field has the keys).
+    public func takes(_ key: String) -> Bool {
+        guard noting == nil, key.count == 1, let c = key.first, c.isASCII, c.isNumber, !choices.isEmpty else { return false }
+        if multiDigit || !typed.isEmpty || c == "0" { return true }
+        return choices.contains { $0.number == String(c) }
+    }
+
     /// Choose this choice (a click, or its number).
     public mutating func choose(_ choice: Choice) -> Outcome {
         guard let choice = choices.first(where: { $0 == choice }) else { return .nothing }
@@ -138,4 +148,31 @@ public struct SingleChoice: Sendable, Equatable {
                    recommended: option.id == block.recommended)
         }
     }
+}
+
+/// The block that types and has the focus (a `single_choice`), as the app's action keys
+/// ask it: a key it takes is left to it. A view says when it has the focus and what it is
+/// now, and when it loses it.
+@MainActor
+public final class TypingFocus {
+    private var owner: AnyHashable?
+    public private(set) var choice: SingleChoice?
+
+    public init() {}
+
+    /// `owner`'s block has the focus, as it is now.
+    public func focus(_ owner: AnyHashable, _ choice: SingleChoice) {
+        self.owner = owner
+        self.choice = choice
+    }
+
+    /// `owner` lost the focus (another may have it already).
+    public func blur(_ owner: AnyHashable) {
+        guard self.owner == owner else { return }
+        self.owner = nil
+        choice = nil
+    }
+
+    /// Whether the focused block takes this key itself.
+    public func takes(_ key: String) -> Bool { choice?.takes(key) ?? false }
 }

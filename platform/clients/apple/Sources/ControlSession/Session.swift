@@ -18,11 +18,17 @@ public final class Session {
     @ObservationIgnored private var connection: (any LineConnection)?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var ticking: (any ScheduledAction)?
+    @ObservationIgnored private let steerConnector: (any SteerConnector)?
+    @ObservationIgnored private var agent: (any SteerConnection)?
 
-    public init(settings: SessionSettings, connector: any LineConnector, clock: any SessionClock) {
+    /// `agent` starts the steer agent for `agent:<intent>` actions; without it, such an
+    /// action says the agent is not there.
+    public init(settings: SessionSettings, connector: any LineConnector, clock: any SessionClock,
+                agent: (any SteerConnector)? = nil) {
         state = SessionState(settings: settings)
         self.connector = connector
         self.clock = clock
+        steerConnector = agent
     }
 
     /// Connect, and reconcile every `reconcileSeconds` from now on.
@@ -35,6 +41,8 @@ public final class Session {
     /// Close the connection and stop; the session does not come back.
     public func stop() {
         ticking?.cancel()
+        agent?.stop()
+        agent = nil
         handle(.stop)
     }
 
@@ -53,10 +61,23 @@ public final class Session {
     /// Leave the page shown over the columns (Cancel): back to where it says.
     public func leave() { handle(.leave) }
 
-    /// Submit a call a block of the page declares, with the values it asks for.
-    public func submit(_ call: CallModel, values: [String: String] = [:]) {
-        handle(.submit(call: call, values: values))
+    /// Submit a call a block of the page declares, with the values it asks for; `label`
+    /// says what is sent (the button's), while it is pending.
+    public func submit(_ call: CallModel, values: [String: String] = [:], label: String? = nil) {
+        handle(.submit(call: call, values: values, label: label))
     }
+
+    /// Run the agent's proposed plan (its kept steps).
+    public func runPlan() { handle(.runPlan) }
+
+    /// Keep or drop a step of the agent's proposed plan.
+    public func togglePlanStep(_ n: Int) { handle(.togglePlanStep(n: n)) }
+
+    /// Stop the agent's running plan before its next step.
+    public func stopPlan() { handle(.stopPlan) }
+
+    /// Close the agent's plan (cancelled while it is made or proposed).
+    public func closePlan() { handle(.closePlan) }
 
     public func edit(_ name: String, _ value: String) { handle(.edit(name: name, value: value)) }
 
@@ -100,6 +121,31 @@ public final class Session {
                 guard let self, self.generation == current else { return }
                 self.handle(.handshakeTimedOut)
             }
+        case .steer(let request):
+            guard let line = try? WireLine.encode(request) else { return }
+            if agent == nil {
+                guard let steerConnector else {
+                    handle(.steerGone("this app was started without it"))
+                    return
+                }
+                do {
+                    let agent = try steerConnector.connection(env: state.settings.env)
+                    self.agent = agent
+                    agent.start { [weak self, weak agent] event in
+                        guard let self, let agent, self.agent === agent else { return }
+                        switch event {
+                        case .line(let line): self.handle(.steerLine(line))
+                        case .exited(let why):
+                            self.agent = nil
+                            self.handle(.steerGone(why))
+                        }
+                    }
+                } catch {
+                    handle(.steerGone(error.why))
+                    return
+                }
+            }
+            agent?.send(line)
         case .bootDeadline(let serial):
             let current = generation
             clock.schedule(after: SessionState.bootSeconds) { [weak self] in

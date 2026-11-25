@@ -664,10 +664,28 @@
       }
     },
     "machinery": {
-      "by_hand": false,
+      "by_hand": "update",
       "primary": "name",
       "properties": {
+        "applied_version": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "configuration": {
+          "multiline": true
+        },
         "name": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "refused_reason": {
+          "set_by": [
+            "flow"
+          ]
+        },
+        "refused_version": {
           "set_by": [
             "flow"
           ]

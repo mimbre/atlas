@@ -209,10 +209,11 @@ defmodule Model.Scene do
     start(:predicate, when: "entity.phase == 'accept'")
     initial(:building)
 
-    # Nothing is built on the scene itself, and nobody has anything to do on it: it is its
-    # producer's, as Accept is next, and it gives no to-do (no instructions, no answers).
+    # Nothing is built on the scene itself, and nobody has anything to do on it: it is
+    # assigned to nobody (no default, so Flow removes the owner it gave), and it gives no
+    # to-do (no instructions, no answers). Its producer gets it once Accept is next.
     state :building, label: "Waiting for its use cases" do
-      owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
+      owner(via: :assignment, relation: :assigned_to)
 
       present(
         expected: "Waiting for its use cases",
@@ -393,5 +394,16 @@ defmodule Model.Scene do
     preserve_entry: true,
     states: :same,
     reason: "Design: its proposal can be sent back with a note"
+  )
+
+  # Accept: a scene waiting for its use cases is assigned to nobody (IS-Atlas-88); it was
+  # its producer's, so their Assigned to you listed it as Accept. Every run stays where it
+  # is, with its entry; Flow removes the owner it gave a waiting one.
+  migrate(:accept_scene,
+    from: "6665318f148389f993ac80245461a63666bfa50507b6071a2ab3db4e6563b77e",
+    to: "e29d7958e2bc428682016e5901cc5b3a49e65b6e58502fda6a3d3d1f7960b2db",
+    preserve_entry: true,
+    states: :same,
+    reason: "Accept: a scene waiting for its use cases is assigned to nobody"
   )
 end
