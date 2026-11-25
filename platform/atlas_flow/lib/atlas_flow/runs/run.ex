@@ -28,7 +28,7 @@ defmodule AtlasFlow.Runs.Run do
         run["state"] in flow.states() and not flow.final?(run["state"]) and
         flow.mechanism(run["state"]) == nil and
         flow.enter(run["state"], subject["values"] || %{}) == [] and
-        run["deadlines"] == %{"version" => 1, "timers" => []} and
+        reconciled(run)["deadlines"] == %{"version" => 1, "timers" => []} and
         Enum.all?(~w(gate pass effect task definition_block), &(run["pending"][&1] == nil)) and
         match?([%{}], run["pending"]["writes"])
 
@@ -437,6 +437,15 @@ defmodule AtlasFlow.Runs.Run do
     do:
       state in flow.states() and
         (flow.final?(state) or (flow.mechanism(state) == nil and flow.enter(state, %{}) == []))
+
+  @doc """
+  The run without the reconcile back-off a failed reconcile left in its deadlines
+  (`AtlasFlow.Runs.Store.defer/3`): what a reaction that ended stores.
+  """
+  def reconciled(%{"deadlines" => %{"reconcile" => _} = deadlines} = run),
+    do: %{run | "deadlines" => Map.delete(deadlines, "reconcile")}
+
+  def reconciled(run), do: run
 
   def starts?(flow, subject),
     do: flow.start?(:create, subject) or flow.start?(:predicate, subject["values"] || %{})

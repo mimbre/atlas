@@ -6,8 +6,20 @@ defmodule AtlasFlow.Engine do
   configured. It keeps no process per fact: everything it needs is in Facts.
 
   - At boot, and on its own timer (its round), it reads rela's schema (its kinds),
-    reconciles every run, and projects every fact of each kind a selected subflow runs
-    on. A run's timer due before the round brings the round forward.
+    reconciles every open run, and projects every fact of each kind a selected subflow
+    runs on.
+  - Every open run also reconciles on its own deadline, without the round. A run's timer
+    (`deadlines.timers`) wakes only its own subject when it is due, once: a timer
+    reconciled at or after its due time does not wake it again. A subject whose reconcile
+    fails backs off on its own (`backoff: {first_ms, max_ms}`, default one minute,
+    doubling up to an hour): it is tried again then, and no round reconciles it before.
+    The back-off is kept durably in its open runs (`deadlines.reconcile`, through
+    `AtlasFlow.Runs.Store.defer/3`) and cleared by the reaction that next ends, so a
+    restarted engine restores it from Facts; one already overdue is reconciled at once.
+    So a run that cannot be reconciled neither holds the others' round nor is retried on
+    every round and hint-less minute (IS-Atlas-102). A hint still reconciles it at once: it
+    is a change. `round/1` (for tests and maintenance) reconciles every run, backing off
+    or not.
   - A round is planned in one message (`AtlasFlow.Runs.Store.plan/2`: every run and every
     admitted subject, and the facts to project), then taken one step per message: one
     subject reconciled, or one fact projected, each step sent to itself behind whatever
@@ -78,11 +90,14 @@ defmodule AtlasFlow.Engine do
   # How far up a hint looks for facts whose state it may change.
   @depth 8
 
+  # A failed reconcile is tried again after `first` ms, doubling per failure up to `max`.
+  @backoff {60_000, 3_600_000}
+
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
 
   @doc """
-  Read Facts, reconcile every run and project every subject, now; answered once that
-  round ended (for tests). A round stepping already ends first.
+  Read Facts, reconcile every run (also one backing off) and project every subject, now;
+  answered once that round ended (for tests). A round stepping already ends first.
   """
   def round(server), do: GenServer.call(server, :round, 30_000)
 
@@ -114,8 +129,17 @@ defmodule AtlasFlow.Engine do
        owners: owner_kinds(runner),
        listening: MapSet.new(),
        timer: nil,
-       # When the round is due, so a hint's run with an earlier timer can bring it forward.
+       # When the round is due.
        round_at: nil,
+       # The wakeup of the first run deadline (a run's timer, a back-off), and the subjects
+       # it found due, queued for one reconcile each.
+       wake: nil,
+       queued_due: MapSet.new(),
+       # Per subject `{kind, key}`: when its last reconcile succeeded, and the back-off of
+       # one that failed (`%{due:, failures:}`), restored from its runs at a round's plan.
+       last: %{},
+       backoff: %{},
+       backoff_policy: Keyword.get(opts, :backoff, @backoff),
        # Whether the runs were read whole once: before that, a hint reconciles no run.
        reconciled: false,
        round: nil,
@@ -173,7 +197,10 @@ defmodule AtlasFlow.Engine do
   end
 
   @impl true
-  def terminate(_reason, state), do: Clock.cancel(state.clock, state.timer)
+  def terminate(_reason, state) do
+    Clock.cancel(state.clock, state.timer)
+    Clock.cancel(state.clock, state.wake)
+  end
 
   @impl true
   def handle_info(:round, %{round: nil} = state), do: {:noreply, begin_round(state, [])}
@@ -181,6 +208,28 @@ defmodule AtlasFlow.Engine do
   def handle_info(:round, state), do: {:noreply, %{due_later(state) | pending_round: true}}
   def handle_info(:round_step, %{round: nil} = state), do: {:noreply, state}
   def handle_info(:round_step, state), do: {:noreply, round_step(state)}
+
+  # A run deadline is due: each subject it is due for is reconciled in a message of its own.
+  def handle_info(:wake, state) do
+    now = Clock.now(state.clock)
+
+    due =
+      for {subject, at} <- wakeups(state),
+          DateTime.compare(at, now) != :gt,
+          uniq: true,
+          do: subject
+
+    for {kind, key} <- due, do: send(self(), {:due, kind, key})
+
+    {:noreply,
+     rearm(%{state | wake: nil, queued_due: MapSet.union(state.queued_due, MapSet.new(due))})}
+  end
+
+  # Queued until reconciled: no wakeup asks for it twice meanwhile.
+  def handle_info({:due, kind, key}, state) do
+    state = reconcile_subject(state, kind, key)
+    {:noreply, rearm(%{state | queued_due: MapSet.delete(state.queued_due, {kind, key})})}
+  end
 
   # Its own write: the run writer's change nothing a state depends on; Delivery's, which a
   # task's result is read from, come as `{:reconcile, kind, key}`.
@@ -483,43 +532,158 @@ defmodule AtlasFlow.Engine do
   defp reconcile_runs(%{refusal: refusal} = state, _facts) when refusal != nil,
     do: {state, :failed, []}
 
+  # Each subject on its own, so one that fails does not keep the others from being
+  # reconciled; it backs off (`reconciled/3`).
   defp reconcile_runs(state, facts) do
     subjects = for {kind, key, _} <- facts, uniq: true, do: {kind, key}
-    now = Clock.now(state.clock)
 
+    {state, outcome, runs} =
+      Enum.reduce(subjects, {state, :ok, []}, fn subject, {state, outcome, acc} ->
+        case reconcile_one(state, subject) do
+          {:ok, state, runs} -> {state, outcome, acc ++ runs}
+          {:error, state} -> {state, :failed, acc}
+        end
+      end)
+
+    {rearm(state), outcome, runs}
+  end
+
+  # One subject's runs reconciled, its back-off noted: `{:ok, state, runs}` or
+  # `{:error, state}`.
+  defp reconcile_one(state, {kind, key} = subject) do
     case Store.reconcile_subjects(
            state.runner.config,
            state.runner.flows,
-           now,
+           Clock.now(state.clock),
            state.runs,
-           subjects
+           [subject]
          ) do
-      {:ok, []} ->
-        {state, :ok, []}
-
       {:ok, runs} ->
-        {sooner(%{state | runs: Store.merge(state.runs, runs)}), :ok, runs}
+        state = %{state | runs: Store.merge(state.runs, runs)}
+        {:ok, reconciled(state, subject, :ok), runs}
 
       {:error, why} ->
-        Logger.warning("flow could not reconcile the runs a hint is about: #{inspect(why)}")
-        {state, :failed, []}
+        {:error, reconciled(state, {kind, key}, {:error, why})}
+    end
+  end
+
+  # A subject reconciled: it is due again on the round (and its runs' timers). One that
+  # failed backs off: tried again after its back-off, which its open runs keep durably.
+  defp reconciled(state, subject, :ok) do
+    %{
+      state
+      | last: Map.put(state.last, subject, Clock.now(state.clock)),
+        backoff: Map.delete(state.backoff, subject)
+    }
+  end
+
+  defp reconciled(state, {kind, key} = subject, {:error, why}) do
+    now = Clock.now(state.clock)
+    failures = ((state.backoff[subject] || %{})[:failures] || 0) + 1
+    delay = backoff_delay(state.backoff_policy, failures)
+    due = DateTime.add(now, delay, :millisecond)
+
+    Logger.warning(
+      "flow could not reconcile the runs of #{kind} #{key}: #{inspect(why)}; " <>
+        "tried again in #{div(delay, 1000)} s (failure #{failures})"
+    )
+
+    deadline = %{
+      "due" => DateTime.to_iso8601(due),
+      "failures" => failures,
+      "reason" => String.slice(inspect(why), 0, 500)
+    }
+
+    # Kept in the subject's open runs: a run that cannot be written now keeps its back-off
+    # in memory, and the next failure writes it again.
+    runs =
+      for run <- state.runs,
+          run["subject_kind"] == kind and run["subject_key"] == key,
+          run["status"] not in ~w(completed ended),
+          reduce: [] do
+        acc ->
+          case Store.defer(state.runner.config, run["key"], deadline) do
+            {:ok, %{} = deferred} -> [deferred | acc]
+            _ -> acc
+          end
+      end
+
+    %{
+      state
+      | runs: Store.merge(state.runs, runs),
+        backoff: Map.put(state.backoff, subject, %{due: due, failures: failures})
+    }
+  end
+
+  defp backoff_delay({first, max}, failures),
+    do: min(first * Integer.pow(2, min(failures - 1, 32)), max)
+
+  # Whether a timed round leaves `subject` to its own back-off, still to come.
+  defp backing_off?(state, subject, now) do
+    case state.backoff[subject] do
+      %{due: due} -> DateTime.compare(due, now) == :gt
+      nil -> false
+    end
+  end
+
+  # The back-offs the runs keep (`deadlines.reconcile`), for subjects this engine knows
+  # none of: after a restart, each failing subject waits for its own again.
+  defp restore(state) do
+    backoff =
+      Enum.reduce(state.runs, state.backoff, fn run, acc ->
+        with true <- run["status"] not in ~w(completed ended),
+             %{"due" => due, "failures" => failures} when is_integer(failures) <-
+               (run["deadlines"] || %{})["reconcile"],
+             {:ok, at, _} <- DateTime.from_iso8601(due) do
+          Map.put_new(acc, {run["subject_kind"], run["subject_key"]}, %{
+            due: at,
+            failures: failures
+          })
+        else
+          _ -> acc
+        end
+      end)
+
+    %{state | backoff: backoff}
+  end
+
+  # When each subject's own deadline is: its back-off, else each timer of its active runs
+  # that no reconcile since it was due has taken. `[{subject, at}]`.
+  defp wakeups(state) do
+    backoffs = for {subject, %{due: due}} <- state.backoff, do: {subject, due}
+
+    timers =
+      for run <- state.runs,
+          run["status"] == "active",
+          subject = {run["subject_kind"], run["subject_key"]},
+          not Map.has_key?(state.backoff, subject),
+          timer <- (run["deadlines"] || %{})["timers"] || [],
+          due = AtlasFlow.Runs.Run.parse!(timer["due"]),
+          state.last[subject] == nil or DateTime.compare(due, state.last[subject]) == :gt,
+          do: {subject, due}
+
+    for {subject, at} <- backoffs ++ timers,
+        not MapSet.member?(state.queued_due, subject),
+        do: {subject, at}
+  end
+
+  # The wakeup set again for the first run deadline.
+  defp rearm(state) do
+    Clock.cancel(state.clock, state.wake)
+
+    case wakeups(state) do
+      [] ->
+        %{state | wake: nil}
+
+      wakeups ->
+        at = wakeups |> Enum.map(&elem(&1, 1)) |> Enum.min(DateTime)
+        delay = max(0, DateTime.diff(at, Clock.now(state.clock), :millisecond))
+        %{state | wake: Clock.schedule(state.clock, self(), :wake, delay)}
     end
   end
 
   defp run_subjects(runs),
     do: Enum.uniq(for run <- runs, do: {run["subject_kind"], run["subject_key"]})
-
-  # A run's timer due before the round: the round comes then.
-  defp sooner(%{round: round} = state) when round != nil, do: state
-
-  defp sooner(state) do
-    delay = next_round(state)
-    at = DateTime.add(Clock.now(state.clock), delay, :millisecond)
-
-    if state.round_at == nil or DateTime.compare(at, state.round_at) == :lt,
-      do: schedule_round(state, delay),
-      else: state
-  end
 
   defp schedule_round(state, delay) do
     Clock.cancel(state.clock, state.timer)
@@ -565,27 +729,6 @@ defmodule AtlasFlow.Engine do
     state
   end
 
-  # When the round is due: on its interval, or at the first timer of an active run.
-  defp next_round(state) do
-    Enum.reduce(state.runs, state.every, fn run, delay ->
-      timers = if run["status"] == "active", do: run["deadlines"]["timers"], else: []
-
-      Enum.reduce(timers, delay, fn t, d ->
-        min(
-          d,
-          max(
-            0,
-            DateTime.diff(
-              AtlasFlow.Runs.Run.parse!(t["due"]),
-              Clock.now(state.clock),
-              :millisecond
-            )
-          )
-        )
-      end)
-    end)
-  end
-
   # Plan a round: read the kinds, listen to them, read every run and subject (no
   # reconcile yet), and list what to project; then step it.
   defp begin_round(state, callers) do
@@ -603,6 +746,18 @@ defmodule AtlasFlow.Engine do
           end)
 
         {state, reconcile} = plan(%{state | listening: listening})
+
+        # A round on its timer leaves a subject backing off to its own deadline; one asked
+        # for (`round/1`, maintenance) reconciles it too.
+        now = Clock.now(state.clock)
+
+        reconcile =
+          if callers == [],
+            do:
+              Enum.reject(reconcile, fn {:reconcile, kind, key} ->
+                backing_off?(state, {kind, key}, now)
+              end),
+            else: reconcile
 
         {project, listed} =
           Enum.reduce(state.kinds, {[], nil}, fn kind, {steps, failed} ->
@@ -638,7 +793,7 @@ defmodule AtlasFlow.Engine do
     case Store.plan(state.runner.config, state.runner.flows) do
       {:ok, %{runs: runs, subjects: subjects}} ->
         # Every run is known from here on, so a hint can reconcile its own as a step would.
-        {%{state | runs: runs, refusal: nil, reconciled: true},
+        {restore(%{state | runs: runs, refusal: nil, reconciled: true}),
          for({kind, key} <- subjects, do: {:reconcile, kind, key})}
 
       {:error, why} ->
@@ -669,23 +824,15 @@ defmodule AtlasFlow.Engine do
   # One subject's runs, as a hint reconciles them. A failure leaves the rest of the round
   # to step, but it releases nothing held.
   defp reconcile_step(state, kind, key) do
-    case Store.reconcile_subjects(
-           state.runner.config,
-           state.runner.flows,
-           Clock.now(state.clock),
-           state.runs,
-           [{kind, key}]
-         ) do
-      {:ok, runs} ->
+    case reconcile_one(state, {kind, key}) do
+      {:ok, state, runs} ->
         # Parents returned by composition are required projections too. Keep each
         # projection as its own mailbox step, including subjects absent from the plan.
         projects = for {k, key} <- run_subjects(runs), do: {:project, k, key}
-        state = %{state | runs: Store.merge(state.runs, runs)}
         update_in(state.round.steps, &Enum.uniq(&1 ++ projects))
 
-      {:error, why} ->
-        Logger.warning("flow could not reconcile the runs of #{kind} #{key}: #{inspect(why)}")
-        put_in(state.round.failed, state.round.failed || why)
+      {:error, state} ->
+        put_in(state.round.failed, state.round.failed || {:reconcile_failed, kind, key})
     end
   end
 
@@ -705,6 +852,10 @@ defmodule AtlasFlow.Engine do
           last_round: {state.round_due, Clock.now(state.clock)}
       })
 
+    # The next round and the runs' own deadlines are set before anyone waiting hears the
+    # round ended: time that passes after that answer reaches them.
+    state = if state.pending_round, do: state, else: rearm(schedule_round(state, state.every))
+
     for caller <- round.callers do
       case caller do
         {:recovery, from, result} -> GenServer.reply(from, result)
@@ -714,7 +865,7 @@ defmodule AtlasFlow.Engine do
 
     if state.pending_round,
       do: begin_round(%{state | pending_round: false, queued: []}, state.queued),
-      else: schedule_round(state, next_round(state))
+      else: state
   end
 
   defp facts(kind) do
