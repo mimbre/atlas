@@ -276,7 +276,7 @@ defmodule AtlasFactsTest do
   test "when rela is down, Facts still answers, and the id can be stored later", %{rela: rela} do
     FakeRela.down(rela)
 
-    assert {"refused", %{"reasons" => ["rela is not reachable"]}, nil} =
+    assert {"refused", %{"reasons" => ["rela is not reachable"], "code" => "not_ready"}, nil} =
              fact("create", "W-1", %{"title" => "One"}, id: "later")
 
     FakeRela.up(rela)
@@ -368,6 +368,27 @@ defmodule AtlasFactsTest do
     # Its own build again: Facts goes on.
     FakeRela.serve(rela, AtlasFacts.Workshop)
     assert {"stored", _, _} = fact("create", "W-1", %{"title" => "x"})
+  end
+
+  @tag :capture_log
+  test "a write before Facts has read its facts is refused as not ready, unrecorded", %{
+    rela: rela,
+    dir: dir
+  } do
+    stop_supervised!(AtlasFacts.Server)
+    FakeRela.down(rela)
+    start_supervised!({AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir})
+
+    assert {"refused", %{"code" => "not_ready", "reasons" => [reason]}, nil} =
+             fact("create", "W-1", %{"title" => "One"}, id: "early")
+
+    assert reason =~ "not ready"
+
+    # Ready now: the same id is stored, as it was never answered.
+    FakeRela.up(rela)
+
+    assert {"stored", %{"key" => "W-1"}, _} =
+             fact("create", "W-1", %{"title" => "One"}, id: "early")
   end
 
   # A widget has a tag, made and deleted with it (a made-up component, as the Assignment).

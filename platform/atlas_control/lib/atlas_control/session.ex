@@ -9,7 +9,10 @@ defmodule AtlasControl.Session do
     docs/design/page-freshness.md §2.2): the page goes out once Flow says it has settled
     past the write (`_settled`), or once `settle_ms` (1 s) ran out, which is logged. A
     fact without an answer is sent again with the same id, after 5 seconds, then twice
-    as long each time, up to a minute.
+    as long each time, up to a minute. A fact Facts refused as not ready yet (`not_ready`:
+    it has not read its facts, as during a restart) is no refusal on its merits: it is
+    held and sent again with the same id every second until Facts takes it, for up to
+    30 s; then the client is told "Atlas is restarting, try again in a moment".
   - Every page is read in one `_page` read, and the session keeps what it depended on
     (`AtlasControl.Freshness`): for the path on screen and the paths viewed before it.
     Hints (`stored`, by anyone) are collected for a moment and handled at once: a page
@@ -50,6 +53,12 @@ defmodule AtlasControl.Session do
   @read_attempts 3
   @first_resend 5_000
   @last_resend 60_000
+  # A fact Facts refused as not ready yet (`not_ready`: it is starting, during a restart)
+  # is sent again after this, with the same id, until Facts takes it or the restart wait
+  # runs out; then the client is told Atlas is restarting.
+  @not_ready_resend 1_000
+  @restart_wait 30_000
+  @restarting "Atlas is restarting, try again in a moment"
   # How often a create tries the next number when its key turns out to be taken.
   @key_tries 10
   # What Facts answers with how far it is: its position alone.
@@ -172,6 +181,8 @@ defmodule AtlasControl.Session do
     {pending, rest} = Map.pop(state.pending, id)
     Process.cancel_timer(pending.timer)
     state = %{state | pending: rest}
+    not_ready? = class == "refused" and content["code"] == "not_ready"
+    if pending.restart && not not_ready?, do: Process.cancel_timer(pending.restart)
 
     # A key this client made up was taken by someone else: try the next one.
     retry? =
@@ -208,6 +219,11 @@ defmodule AtlasControl.Session do
 
       "refused" when retry? ->
         {:noreply, retry_create(state, pending)}
+
+      # Not a refusal on the merits: Facts is not ready yet. The fact waits, and is sent
+      # again, as it was, until Facts is ready or the restart wait runs out.
+      "refused" when not_ready? ->
+        {:noreply, wait_for_facts(state, id, pending)}
 
       "refused" ->
         reasons = refusal_reasons(content, "Facts refused it")
@@ -307,12 +323,37 @@ defmodule AtlasControl.Session do
       nil ->
         {:noreply, state}
 
+      # Waiting for Facts to be ready: sent again quietly; a lost answer is sent again
+      # after the usual wait.
+      %{restart: restart} = pending when restart != nil ->
+        :ok = AtlasBus.send(pending.envelope, pending.content)
+        timer = AtlasControl.Clock.after_ms({:resend, id}, @first_resend)
+        {:noreply, put_in(state.pending[id], %{pending | wait: @first_resend, timer: timer})}
+
       pending ->
         :ok = AtlasBus.send(pending.envelope, pending.content)
         wait = min(pending.wait * 2, @last_resend)
         timer = AtlasControl.Clock.after_ms({:resend, id}, wait)
         state = put_in(state.pending[id], %{pending | wait: wait, timer: timer})
         {:noreply, notice(state, "pending", "No answer from Facts yet; sent again.")}
+    end
+  end
+
+  # Facts was not ready within the restart wait: the fact is no longer sent, and the client
+  # is told why, without "Facts refused it": nothing was refused on its merits.
+  def handle_info({:restart_wait, id}, state) do
+    case Map.pop(state.pending, id) do
+      {%{restart: restart} = pending, rest} when restart != nil ->
+        Process.cancel_timer(pending.timer)
+
+        Logger.warning(
+          "control: Facts not ready within #{@restart_wait} ms; #{id} not sent again"
+        )
+
+        {:noreply, restarting(%{state | pending: rest})}
+
+      _ ->
+        {:noreply, state}
     end
   end
 
@@ -1293,6 +1334,32 @@ defmodule AtlasControl.Session do
     put_fact(state, kind, content, {:item, kind, key}, retry, note)
   end
 
+  defp wait_for_facts(state, id, pending) do
+    first? = pending.restart == nil
+
+    restart =
+      pending.restart || AtlasControl.Clock.after_ms({:restart_wait, id}, @restart_wait)
+
+    timer = AtlasControl.Clock.after_ms({:resend, id}, @not_ready_resend)
+    pending = %{pending | restart: restart, timer: timer, wait: @not_ready_resend}
+    state = put_in(state.pending[id], pending)
+
+    if first?,
+      do: notice(state, "pending", "Atlas is restarting; waiting until Facts is ready…"),
+      else: state
+  end
+
+  defp restarting(state) do
+    if form_shown?(state, state.route) do
+      form = Map.put(state.form, :errors, [@restarting <> "."])
+      state = notice(state, "error", @restarting)
+      show(%{state | form: form}, state.route, "refused", nil)
+    else
+      state = notice(state, "error", @restarting)
+      show(state, state.route, "refused", nil, [@restarting <> "."])
+    end
+  end
+
   defp put_fact(state, kind, content, after_route, retry \\ nil, note \\ nil) do
     content = Map.put(content, "by", state.by)
     content = if state.cause, do: Map.put(content, "cause", state.cause), else: content
@@ -1306,7 +1373,9 @@ defmodule AtlasControl.Session do
       after: after_route,
       retry: retry,
       wait: @first_resend,
-      timer: timer
+      timer: timer,
+      # The restart wait, while Facts is not ready to take it (`wait_for_facts/3`).
+      restart: nil
     }
 
     state = put_in(state.pending[envelope.id], pending)
