@@ -372,6 +372,28 @@ defmodule AtlasFlow.Activities.ProposalTest do
     assert FakeFacts.get("item", "IT-10") == nil
   end
 
+  test "a key held back after a delete is skipped: the proposal is made past it (IS-Atlas-38)",
+       c do
+    # IT-08 was deleted a moment ago: Facts lists only IT-07, but holds IT-08 back.
+    FakeFacts.put("item", %{"key" => "IT-07", "values" => %{"title" => "An older item"}})
+    FakeFacts.reserve("item", "IT-08")
+    intended(c, "C-7")
+
+    proposal = [%{"title" => "One"}, %{"title" => "Two"}]
+    sorted = finish(c, "C-7", [{"items.json", JSON.encode!(proposal)}])
+
+    # Not blocked on the held-back key: both made after it, in their order.
+    assert {sorted["state"], sorted["status"]} == {"sorted", "completed"}
+    assert sorted["pending"]["writes"] == []
+    assert FakeFacts.get("item", "IT-08") == nil
+    assert FakeFacts.get("item", "IT-09")["values"]["title"] == "One"
+    assert FakeFacts.get("item", "IT-10")["values"]["title"] == "Two"
+    assert FakeFacts.get("item", "IT-09")["links"]["in_crate"] == ["C-7"]
+
+    # The task's result names the keys they were made under, so a discard deletes those.
+    assert [%{"made" => [["item", "IT-09"], ["item", "IT-10"]]}] = sorted["pending"]["tasks"]
+  end
+
   test "a task that proposes nothing ends stuck, and nothing is made", c do
     intended(c, "C-2")
     stuck = finish(c, "C-2", [{"notes.txt", "nothing to propose\n"}])

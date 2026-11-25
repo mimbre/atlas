@@ -391,6 +391,26 @@ defmodule AtlasFlow.Runs.Run do
            subject["completion"] not in [nil, false] == row["completed"])
 
   @doc """
+  `next` (a new generation of `run`'s subflow on its subject key) knowing the keys of the
+  tasks `run` and the generations before it made (`pending.former_tasks`), the one it
+  holds too: its own are numbered past them (`AtlasFlow.Activities.Task.number/2`).
+  """
+  def former_tasks(next, run) do
+    pending = run["pending"] || %{}
+
+    keys =
+      ((pending["former_tasks"] || []) ++
+         for(t <- pending["tasks"] || [], do: t["key"]) ++
+         List.wrap((pending["task"] || %{})["key"]))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    if keys == [],
+      do: next,
+      else: update_in(next, ["pending"], &Map.put(&1 || %{}, "former_tasks", keys))
+  end
+
+  @doc """
   An explicit restart: the next generation of a completed run, started as a new run of
   its subflow on `subject`, without imports. Reopened work gets one only so, unless
   its selection declares `reopen: "new_generation"` (`step/6`). `{:error, :not_completed}`
@@ -798,6 +818,7 @@ defmodule AtlasFlow.Runs.Run do
             "migrations",
             "effects",
             "tasks",
+            "former_tasks",
             "ladder",
             "composition",
             "hand_over"

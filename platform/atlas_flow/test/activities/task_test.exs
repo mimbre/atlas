@@ -227,8 +227,8 @@ defmodule AtlasFlow.Activities.TaskTest do
   end
 
   # Sets (nil: clears) the run's supervisor, as a checked pickup or hand-over writes it.
-  defp supervise(c, supervisor, key \\ "B-1") do
-    run_key = Run.key("work", "bin", key, 1)
+  defp supervise(c, supervisor, key \\ "B-1", generation \\ 1) do
+    run_key = Run.key("work", "bin", key, generation)
     fact = FakeFacts.get(c.runner.config["kind"], run_key)
     links = Map.put(fact["links"] || %{}, "watched_by", List.wrap(supervisor))
     version = (fact["version"] || 0) + 1
@@ -731,6 +731,70 @@ defmodule AtlasFlow.Activities.TaskTest do
       stuck = reconcile(c)
       assert stuck["state"] == "stuck"
       assert [%{"key" => @task, "outcome" => "stuck"}] = stuck["pending"]["tasks"]
+    end
+  end
+
+  # Remove (IS-Atlas-09): the work Flow made for the bin first, held back after its delete
+  # as rela holds a deleted id back, then the bin itself.
+  defp remove(task) do
+    FakeFacts.reserve("task", task)
+    GenServer.call(FakeFacts, {:drop, "bin", "B-1"})
+  end
+
+  describe "a bin removed and made again under its key (IS-Atlas-77)" do
+    setup do
+      :ok = AtlasBus.attach("flow")
+      :ok
+    end
+
+    test "with the delete hint: its run ends; the new bin gets a new run, a new task and a lease",
+         c do
+      source(c)
+      first = intended(c)
+      assert %{lease_id: _, work: %{work_key: @task}} = lease!(@mini)
+
+      remove(@task)
+      ended = reconcile(c)
+      assert {ended["generation"], ended["status"]} == {1, "ended"}
+      assert ended["blocked_reason"] == "subject_removed"
+
+      # Made again under the same key: the next generation, a run of its own.
+      bin("B-1", "mini")
+      second = reconcile(c)
+      assert {second["generation"], second["status"], second["state"]} == {2, "active", "loading"}
+      assert second["key"] != first["key"]
+
+      # Its task is numbered past the removed one's, whose key Facts still holds back, and
+      # its record's write is a write of its own, never taken for the removed one's.
+      assert %{"key" => "TK-B-1-2"} = second["pending"]["task"]
+      assert second["pending"]["former_tasks"] == [@task]
+      assert %{"values" => %{"state" => "waiting"}} = FakeFacts.get("task", "TK-B-1-2")
+      assert FakeFacts.get("task", @task) == nil
+
+      # Picked up: its task is offered and leased.
+      supervise(c, "ada", "B-1", 2)
+      assert reconcile(c)["supervised_by"] == "ada"
+      assert %{work: %{work_key: "TK-B-1-2"}} = lease!(@mini)
+      assert task_values("TK-B-1-2")["lease_id"] != nil
+    end
+
+    test "a task's writes are ids of its run: the same task key in another generation is another write",
+         _c do
+      spec = %{"records" => %{"kind" => "task", "relation" => "task_of"}}
+      intent = %{"key" => @task}
+
+      ids =
+        for g <- [1, 2],
+            do: Task.cancelled(%{"key" => Run.key("work", "bin", "B-1", g)}, intent, spec)["id"]
+
+      assert Enum.uniq(ids) == ids
+
+      assert Enum.all?(
+               ids,
+               &(&1 !=
+                   AtlasBus.Digest.of_term([@task, "result"])
+                   |> String.replace_prefix("sha256:", ""))
+             )
     end
   end
 

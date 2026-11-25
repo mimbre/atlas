@@ -663,18 +663,11 @@ defmodule AtlasFlow.Runs.Store do
             :ok ->
               step(config, d, run, sent(run), flow, now, remaining)
 
-            # A hand-over's To-Do number was taken meanwhile: the run is stored with the
-            # next one before it is sent again.
-            {:renumbered, writes} ->
-              step(
-                config,
-                d,
-                run,
-                put_in(run, ["pending", "writes"], writes),
-                flow,
-                now,
-                remaining
-              )
+            # A hand-over's To-Do number, or that of a fact a proposal makes, was taken
+            # meanwhile or is held back: the run is stored with the next one before it is
+            # sent again.
+            {:renumbered, renumbered} ->
+              step(config, d, run, renumbered, flow, now, remaining)
 
             # A write Facts refuses because the run's subject is gone: the run ends.
             error ->
@@ -860,7 +853,10 @@ defmodule AtlasFlow.Runs.Store do
 
   # A run whose subject was deleted stays ended. A fact made later under the same key
   # (Facts frees a deleted key after a while) is another subject: once its selection
-  # admits it, it gets the next generation, a new run, and never this one.
+  # admits it, it gets the next generation, a new run, and never this one. The new run
+  # knows the keys of the tasks the generations before it made (`pending.former_tasks`),
+  # so its tasks are numbered past them: Remove deleted those with the subject, and Facts
+  # may still hold their keys back (IS-Atlas-77).
   defp reused(config, d, run, flow, now, remaining) do
     selection = config["selection"][run["flow"]]
 
@@ -870,7 +866,12 @@ defmodule AtlasFlow.Runs.Store do
 
         if Run.holds?(selection["admission"], subject["values"] || %{}) do
           generation = run["generation"] + 1
-          new = Run.new(run["flow"], flow, subject, selection["imports"], now, generation)
+
+          new =
+            run["flow"]
+            |> Run.new(flow, subject, selection["imports"], now, generation)
+            |> Run.former_tasks(run)
+
           step(config, d, run, new, flow, now, remaining)
         else
           finish(config, d, run, flow, now, remaining)
@@ -1037,10 +1038,11 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # Each pending write, in order, under its stable id. A hand-over's To-Do create that
-  # Facts refuses because its key is taken (another fact holds it, or it is held back
-  # after a delete) is renumbered: `{:renumbered, writes}`, the run's pending writes with
-  # the next free number, under that number's ids, stored before they are sent again.
+  # Each pending write, in order, under its stable id. A hand-over's To-Do create, or a
+  # create of a fact a proposal or a review's follow-ups make (IS-Atlas-38), that Facts
+  # refuses because its key is taken (another fact holds it, or it is held back after a
+  # delete) is renumbered: `{:renumbered, run}`, the run with its pending writes from the
+  # next free number on, under that number's ids, stored before they are sent again.
   defp send_writes(config, run) do
     writes = run["pending"]["writes"]
 
@@ -1053,6 +1055,7 @@ defmodule AtlasFlow.Runs.Store do
           case taken(config, write, refusal_code(error)) do
             :ours -> {:cont, :ok}
             {:taken, number} -> {:halt, {:renumbered, renumber(config, run, write, number)}}
+            {:numbered, first} -> {:halt, {:renumbered, Task.renumber(run, write, first)}}
             :unknown -> {:halt, {:error, {:pending, error}}}
           end
       end
@@ -1067,6 +1070,20 @@ defmodule AtlasFlow.Runs.Store do
   # taken and never this create's; otherwise by what Facts holds at the key
   # (`AtlasFlow.Runs.HandOver.met/2`). Facts answers a resend of the refused id from its
   # ledger, so a taken key is only ever left for the next number's ids.
+  defp taken(_config, %{"numbered" => %{} = mark} = write, code) do
+    with :taken <- held(write, code) do
+      after_ = mark["number"] + 1
+
+      case Talk.read(write["kind"], %{"plain" => true}) do
+        %{"facts" => facts} ->
+          {:numbered, max(after_, HandOver.next_number(mark, Enum.map(facts, & &1["key"])))}
+
+        _ ->
+          {:numbered, after_}
+      end
+    end
+  end
+
   defp taken(config, write, code) do
     with true <- config["hand_over"] != nil and HandOver.create?(write),
          :taken <- held(write, code) do
@@ -1097,12 +1114,16 @@ defmodule AtlasFlow.Runs.Store do
 
   defp renumber(config, run, write, number),
     do:
-      HandOver.renumber(
-        config["hand_over"],
+      put_in(
         run,
-        run["pending"]["writes"],
-        write["hand_over"]["input"],
-        number
+        ["pending", "writes"],
+        HandOver.renumber(
+          config["hand_over"],
+          run,
+          run["pending"]["writes"],
+          write["hand_over"]["input"],
+          number
+        )
       )
 
   # The run once its pending writes are acknowledged: none left, and its hand-over, once
@@ -1445,7 +1466,7 @@ defmodule AtlasFlow.Runs.Store do
   # the run is stored (`cancelled`, a write of the run's next entry).
   defp dropped(run, %{"key" => key} = intent, {:task, spec}, cause, _now) do
     Dispatch.cancel(key, cause)
-    update_in(run, ["pending", "writes"], &[Task.cancelled(intent, spec) | &1])
+    update_in(run, ["pending", "writes"], &[Task.cancelled(run, intent, spec) | &1])
   end
 
   defp dropped(run, _intent, _mechanism, _cause, _now), do: run
