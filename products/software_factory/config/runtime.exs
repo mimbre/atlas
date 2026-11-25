@@ -66,7 +66,9 @@ if config_env() != :test do
 
   # Flow as the Runtimes' work source (work acquisition M3): only with a `flow.work_source`
   # block, none by default. `credentials_env` names the environment variable that holds
-  # the per-Runtime credentials (a core secret: runtime id → holder and token sha256).
+  # the per-Runtime credentials (a core secret: runtime id → holder and token sha256; `{}`
+  # when every Runtime is installed through Control, whose credentials are on their
+  # machinery facts, AtlasFlow.WorkSource.Registered).
   # With `port`, Flow listens on 127.0.0.1 at that port, behind the tailnet edge (TLS ends
   # there); without one it has no listener. Flow keeps no result store: a result travels
   # over Git (IS-Atlas-100), so a `results` folder is no setting any more.
@@ -151,10 +153,16 @@ if config_env() != :test do
 
         # Code's Git endpoint (AtlasCode.Git): Runtimes fetch their bases from Code over Git,
         # on 127.0.0.1 at `code.git_port` behind the tailnet edge, with their work source token.
+        # A Runtime installed through Control is admitted by the credential registered on
+        # its machinery fact too (AtlasFlow.WorkSource.Registered, IS-Atlas-116).
         if port = code["git_port"],
           do:
             config(:atlas_code,
-              git: %{"port" => port, "credentials_env" => source["credentials_env"]}
+              git: %{
+                "port" => port,
+                "credentials_env" => source["credentials_env"],
+                "registered" => {AtlasFlow.WorkSource.Registered, :digests}
+              }
             )
       end
     end

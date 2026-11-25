@@ -843,7 +843,7 @@ jobs:
           tag="atlas-runtime-$build"
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" "$out"/* --target "$GITHUB_SHA" --latest=false --title "Atlas Runtime $build" \
-              --notes "The Runtime at $GITHUB_SHA ($GITHUB_REF_NAME). Upgrade a Runtime to it from Control: a Runtime upgrade under its machinery with build $build (atlas put runtime_upgrade --in MACHINERY --build $build)."
+              --notes "The Runtime at $GITHUB_SHA ($GITHUB_REF_NAME). Upgrade a Runtime to it from Control: a Runtime upgrade under its machinery with build $build (atlas put runtime_upgrade --in MACHINERY --build $build). Install a new Runtime on a Mac with it: the command atlas runtime install --build $build prints (atlas-runtime-install.sh)."
           else
             gh release upload "$tag" "$out"/* --clobber
           fi

@@ -15,7 +15,10 @@ defmodule AtlasFlow.Backend.Listener do
     `401 unauthenticated` here, **before the router runs**. The holder only ever comes
     from the credential. The credentials are read when the listener starts (the
     environment variable `config :atlas_flow, :work_source, credentials_env:` names);
-    unset or invalid, the listener refuses to start (`{:error, :credentials}`).
+    unset or invalid, the listener refuses to start (`{:error, :credentials}`). A token
+    the secret does not know is then looked up among the credentials registered in Facts
+    (`AtlasFlow.WorkSource.Registered`, IS-Atlas-116: a Runtime installed through
+    Control), when that table runs; the secret's win for a token both know.
   - **Limits.** `AtlasFlow.Backend.Listener.Limits`, one per listener, keeps the request
     rate per credential and the blob streams per Runtime (see `AtlasFlow.Backend.Router`).
   - **Bodies.** Read only through `AtlasBodyLimit` (by the router), which keeps each
@@ -24,14 +27,15 @@ defmodule AtlasFlow.Backend.Listener do
 
   Options of `start_link/1`: `port` (required; 0 takes a free one), `ip` (default
   `{127, 0, 0, 1}`), `name` (default this module), `credentials` (a credentials map; by
-  default `Credentials.load/0`), `router` (options of `AtlasFlow.Backend.Router.init/1`)
+  default `Credentials.load/0`), `registered` (the `AtlasFlow.WorkSource.Registered`
+  table, default that module's; `nil`: none), `router` (options of `AtlasFlow.Backend.Router.init/1`)
   and `limits` (options of the limits server).
   """
   @behaviour Plug
 
   alias AtlasFlow.Backend.Router
   alias AtlasFlow.Backend.Listener.Limits
-  alias AtlasFlow.WorkSource.Credentials
+  alias AtlasFlow.WorkSource.{Credentials, Registered}
 
   @loopback {127, 0, 0, 1}
 
@@ -56,7 +60,13 @@ defmodule AtlasFlow.Backend.Listener do
       children = [
         {Limits, Keyword.put(Keyword.get(opts, :limits, []), :name, limits)},
         {Bandit,
-         plug: {__MODULE__, %{credentials: credentials, router: router}},
+         plug:
+           {__MODULE__,
+            %{
+              credentials: credentials,
+              registered: Keyword.get(opts, :registered, Registered),
+              router: router
+            }},
          scheme: :http,
          ip: ip,
          port: port,
@@ -106,18 +116,28 @@ defmodule AtlasFlow.Backend.Listener do
   def init(opts), do: opts
 
   @impl true
-  def call(conn, %{credentials: credentials, router: router}) do
+  def call(conn, %{credentials: credentials, router: router} = state) do
     # A 401 leaves the body unread: the answer closes the connection, so Bandit never drains
     # (reads whole) a body this listener did not take.
     conn = AtlasBodyLimit.guard(conn)
 
     with {:ok, token} <- bearer(conn),
-         {:ok, client} <- Credentials.lookup(credentials, token) do
+         {:ok, client} <- lookup(credentials, state[:registered], token) do
       conn
       |> Plug.Conn.assign(:client, client)
       |> Router.call(router)
     else
       _ -> Router.error(conn, :unauthenticated)
+    end
+  end
+
+  defp lookup(credentials, registered, token) do
+    case Credentials.lookup(credentials, token) do
+      :unauthenticated when is_atom(registered) and registered != nil ->
+        Credentials.lookup(Registered.credentials(registered), token)
+
+      found ->
+        found
     end
   end
 

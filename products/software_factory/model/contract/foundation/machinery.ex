@@ -9,7 +9,19 @@ defmodule Model.Machinery do
   are in Flow's configuration, never in Facts.
 
   The name is not `runtime`, so it is not mistaken for the `set_by` role `:runtime`,
-  the Runtime writer. Flow writes it (`set_by: [:flow]`).
+  the Runtime writer.
+
+  Its install (IS-Atlas-116, UC-Atlas-50): its supervisor makes it through Control
+  (`atlas runtime install`), which names the machine, links the supervisor (`runs_for`)
+  and keeps the sha256 of the Runtime's work source credential (`credential_sha256`),
+  never the credential itself. Flow's work source and Code's Git endpoint admit a
+  Runtime whose bearer token hashes to it, as the Runtime of this machinery working for
+  that supervisor, next to the credentials of the core secret: a new Runtime needs no
+  core secret and no restart. Clearing `credential_sha256` (or deleting the machinery)
+  turns the credential away within the cache time of the listeners (10 s). Flow records
+  the build and incarnation each poll reports (`runtime_build`, `runtime_incarnation`),
+  so Control shows the Runtime linked, and `applied_version` shows the configuration it
+  runs under.
 
   Its Runtime's configuration (IS-Atlas-27): a person sets `configuration` through
   Control (the Console or `atlas set`), the whole `policy.json` of the Runtime; Flow's
@@ -34,8 +46,14 @@ defmodule Model.Machinery do
     """ do
     field(:name, :string,
       required: true,
-      description: "As it is shown; its name in Flow's configuration",
-      set_by: [:flow]
+      description: "As it is shown; its machine name, which its id is made from"
+    )
+
+    field(:credential_sha256, :string,
+      description:
+        "The sha256 (64 lowercase hex) of the bearer token its Runtime is admitted with by " <>
+          "Flow's work source and Code's Git endpoint; never the token. `atlas runtime install` " <>
+          "sets it. Empty: no credential of this machinery is admitted"
     )
 
     field(:configuration, :string,
@@ -63,8 +81,41 @@ defmodule Model.Machinery do
       set_by: [:flow]
     )
 
+    field(:runtime_build, :string,
+      description: "The build its Runtime runs, as its last poll said: it is linked",
+      set_by: [:flow]
+    )
+
+    field(:runtime_incarnation, :string,
+      description:
+        "The incarnation of its Runtime, as its last poll said; a restart makes a new one",
+      set_by: [:flow]
+    )
+
     top(false)
-    by_hand("update")
     primary(:name)
+
+    create(
+      ask: [:name, :credential_sha256],
+      id: [
+        from: :name,
+        pattern: "^\\s*([A-Za-z][A-Za-z0-9-]*)",
+        template: "{1}",
+        lower: true,
+        error: "name must start with a letter, then letters, digits or -, e.g. mac-mini"
+      ]
+    )
   end
+
+  # Whose work its Runtime takes: the credential's holder (decision 2026-11-17 §5.6), as
+  # Flow's work source admits it. Set when the machinery is made (`atlas runtime install`).
+  relation(:runs_for,
+    label: "runs for",
+    description:
+      "The supervisor whose work the machinery's Runtime takes: its credential's holder.",
+    from: [:machinery],
+    to: [:person],
+    max_outgoing: 1,
+    inverse: {:machineries, "machineries"}
+  )
 end

@@ -87,6 +87,42 @@ defmodule AtlasCode.GitTest do
     end
   end
 
+  defmodule Registered do
+    @moduledoc "The digests a test registered, as the work source's registered digests answer them."
+    def digests, do: :persistent_term.get({__MODULE__, :digests}, [])
+  end
+
+  test "a Runtime installed through Control fetches with its registered token (IS-Atlas-116)",
+       %{dir: dir} do
+    :persistent_term.put({Registered, :digests}, [:crypto.hash(:sha256, "registered-token")])
+    on_exit(fn -> :persistent_term.erase({Registered, :digests}) end)
+
+    git =
+      start_supervised!(
+        {AtlasCode.Git,
+         %{"port" => 0, "credentials_env" => @env, "registered" => {Registered, :digests}}},
+        id: :registered_git
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(git)
+    base_id = "code-" <> snapshot()
+    url = "http://127.0.0.1:#{port}/bases/#{base_id}"
+    ls = fn env -> System.cmd("git", ["ls-remote", url], env: env, stderr_to_stdout: true) end
+
+    assert {refs, 0} = ls.(header("registered-token"))
+    assert refs =~ "refs/atlas/bases/" <> base_id
+    # The secret's token still works next to it; an unknown one does not.
+    assert {_, 0} = ls.(header(@token))
+    assert {_, status} = ls.(header("another-token") ++ [{"GIT_TERMINAL_PROMPT", "0"}])
+    assert status != 0
+
+    # Unregistered: turned away.
+    :persistent_term.put({Registered, :digests}, [])
+    assert {_, status} = ls.(header("registered-token") ++ [{"GIT_TERMINAL_PROMPT", "0"}])
+    assert status != 0
+    _ = dir
+  end
+
   test "a Runtime pushes a result commit on the base under the ref Flow named", %{
     url: url,
     dir: dir

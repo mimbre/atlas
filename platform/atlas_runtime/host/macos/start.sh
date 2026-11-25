@@ -1,7 +1,9 @@
 #!/bin/zsh
-# Run by launchd at login (com.mimbre.atlas-runtime): starts this Mac's standalone Runtime
-# with its Bus link, as configured in ~/.config/atlas-runtime/machine.json. The Bus token
-# exists on disk only between writing server.token and the service having loaded it.
+# Run by launchd at login (com.mimbre.atlas-runtime): starts this Mac's standalone Runtime,
+# as configured in ~/.config/atlas-runtime/machine.json. With "bus", with its Bus link: the
+# Bus token exists on disk only between writing server.token and the service having loaded
+# it. Without (a Runtime installed through Control, which pulls its work from the work
+# source with the credential in its home), it only starts the service.
 set -e
 umask 077
 C=$HOME/.config/atlas-runtime
@@ -9,6 +11,9 @@ get() { /usr/bin/plutil -extract "$1" "${2:-raw}" -o - $C/machine.json }
 export PATH=$(get path)
 export ATLAS_RUNTIME_HOME=$(get runtime_home)
 H=$ATLAS_RUNTIME_HOME
+if ! /usr/bin/plutil -extract bus json -o /dev/null $C/machine.json >/dev/null 2>&1; then
+  exec atlas-runtime service start
+fi
 BUS_HOST=$(get bus.host)
 BUS_PORT=$(get bus.port)
 trap 'rm -f $H/server.token' EXIT

@@ -11,7 +11,9 @@ defmodule AtlasFlow.WorkSource.Configuration do
   writes Flow's records on the Runtime's behalf):
 
   1. records on the machinery fact what the poll says: `applied_version`, the
-     `policy_version` the Runtime runs under, and, when the poll carries
+     `policy_version` the Runtime runs under; `runtime_build` and `runtime_incarnation`,
+     the build and incarnation it polled from, so Control shows it linked (IS-Atlas-116);
+     and, when the poll carries
      `configuration_refused`, `refused_version` and `refused_reason`. A field is written
      only when it changes; a refused write (the fact changed meanwhile) is left to the
      next poll;
@@ -41,6 +43,8 @@ defmodule AtlasFlow.WorkSource.Configuration do
   @applied "applied_version"
   @refused "refused_version"
   @reason "refused_reason"
+  @build "runtime_build"
+  @incarnation "runtime_incarnation"
   @unreadable "the configuration is not a JSON object with a positive integer version"
 
   @doc "The kind the configuration is kept on."
@@ -98,7 +102,13 @@ defmodule AtlasFlow.WorkSource.Configuration do
           %{}
       end
 
-    Map.merge(applied, refused)
+    linked =
+      for {field, value} <- [{@build, input["build"]}, {@incarnation, input["incarnation"]}],
+          is_binary(value) and value != "",
+          into: %{},
+          do: {field, String.slice(value, 0, 200)}
+
+    applied |> Map.merge(refused) |> Map.merge(linked)
   end
 
   defp serve(document, version, policy_version, values) when is_integer(version) do

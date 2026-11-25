@@ -29,7 +29,8 @@ defmodule AtlasFlow.Application do
   end
 
   @doc """
-  The work source's processes (plan m3 §3.1, A2): Bases, Dispatch and Delivery, only when
+  The work source's processes (plan m3 §3.1, A2): Bases, the registered Runtimes'
+  credentials (`AtlasFlow.WorkSource.Registered`, IS-Atlas-116), Dispatch and Delivery, only when
   `config :atlas_flow, :work_source` is set; none by default. A result travels over Git
   (`refs/atlas/results/<task>`), so Flow keeps no result store (IS-Atlas-100).
 
@@ -45,7 +46,13 @@ defmodule AtlasFlow.Application do
         {:ok, []}
 
       settings ->
-        children = [AtlasFlow.Bases, AtlasFlow.Dispatch, AtlasFlow.Delivery] ++ listener(settings)
+        children =
+          [
+            AtlasFlow.Bases,
+            AtlasFlow.WorkSource.Registered,
+            AtlasFlow.Dispatch,
+            AtlasFlow.Delivery
+          ] ++ listener(settings)
 
         {:ok,
          [

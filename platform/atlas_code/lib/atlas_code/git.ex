@@ -11,7 +11,11 @@ defmodule AtlasCode.Git do
 
   Every request needs `Authorization: Bearer <token>` with a Runtime's work source token: the
   credentials secret Flow's work source reads (`{runtime_id: {holder, token_sha256}}`, in the
-  environment variable `credentials_env` names), read once when the endpoint starts.
+  environment variable `credentials_env` names), read once when the endpoint starts; and,
+  with `"registered" => {module, function}`, the digests that function answers at each
+  request (raw sha256 bytes): those registered in Facts for Runtimes installed through
+  Control (IS-Atlas-116; the core's settings name the work source's registered digests
+  function, so Code names no other layer). Such a function caches its own reads.
 
   `config :atlas_code, git: %{"port" => port, "credentials_env" => name}` starts it
   (`AtlasCode.Application`); it serves the registered Code (`AtlasCode.settings/0`).
@@ -21,13 +25,13 @@ defmodule AtlasCode.Git do
 
   alias AtlasCode.Service
 
-  def child_spec(%{"port" => port, "credentials_env" => env}) do
+  def child_spec(%{"port" => port, "credentials_env" => env} = settings) do
     digests =
       for {_runtime, %{"token_sha256" => sha}} <- JSON.decode!(System.fetch_env!(env)),
           do: Base.decode16!(sha, case: :lower)
 
     Bandit.child_spec(
-      plug: {__MODULE__, digests},
+      plug: {__MODULE__, {digests, settings["registered"]}},
       ip: {127, 0, 0, 1},
       port: port,
       startup_log: false
@@ -38,22 +42,40 @@ defmodule AtlasCode.Git do
   def init(digests), do: digests
 
   @impl true
-  def call(conn, digests) do
-    if authorized?(conn, digests),
+  def call(conn, {digests, registered}) do
+    if authorized?(conn, digests, registered),
       do: serve(conn),
       else: send_resp(conn, 401, "")
   end
 
-  defp authorized?(conn, digests) do
+  def call(conn, digests) when is_list(digests), do: call(conn, {digests, nil})
+
+  defp authorized?(conn, digests, registered) do
     case get_req_header(conn, "authorization") do
       ["Bearer " <> token] ->
         hash = :crypto.hash(:sha256, token)
-        Enum.any?(digests, &:crypto.hash_equals(&1, hash))
+
+        Enum.any?(digests, &:crypto.hash_equals(&1, hash)) or
+          Enum.any?(registered(registered), &:crypto.hash_equals(&1, hash))
 
       _ ->
         false
     end
   end
+
+  defp registered({module, function}) when is_atom(module) and is_atom(function) do
+    case apply(module, function, []) do
+      digests when is_list(digests) ->
+        Enum.filter(digests, &(is_binary(&1) and byte_size(&1) == 32))
+
+      _ ->
+        []
+    end
+  catch
+    _, _ -> []
+  end
+
+  defp registered(_none), do: []
 
   defp serve(%{path_info: ["bases", base_id | rest]} = conn) do
     {:ok, dir} = Service.base_repository(AtlasCode.settings(), base_id)
