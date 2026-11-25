@@ -4,7 +4,7 @@ defmodule AtlasFlow.WorkSource.Upgrade do
   fact under the Runtime's machinery (`upgrade_of`), naming the released build; Flow's
   work source moves it on, one poll of that Runtime at a time, and orders the Runtime
   what to do in the poll answer (`polled.upgrade`, `work_source` 0.5.0). The subflow
-  `runtime_upgrade` (`Model.RuntimeUpgrade`) follows the `step` written here.
+  `runtime_upgrade` (in the model) follows the `step` written here.
 
   On each poll of a Runtime, `poll/3` (run by `AtlasFlow.Delivery`) takes the oldest
   upgrade of its machinery that has not ended, and from its `step` and what the poll says
