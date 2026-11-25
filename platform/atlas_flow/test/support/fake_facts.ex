@@ -120,6 +120,7 @@ defmodule AtlasFlow.FakeFacts do
        refused_writes: MapSet.new(),
        reserved: MapSet.new(),
        busy_after_write: MapSet.new(),
+       slow_reads: %{},
        hooks: %{},
        description: Keyword.get(opts, :description, description())
      }}
@@ -195,6 +196,14 @@ defmodule AtlasFlow.FakeFacts do
   def handle_call({:hook, kind, key, sender, at, fun}, _from, s),
     do: {:reply, :ok, put_in(s.hooks[{kind, key, sender, at}], fun)}
 
+  # Each read of one fact of `kind` (by key) is answered `ms` later, as a slow (throttled)
+  # Facts answers it, until `{:fast_read, kind}`; FakeFacts takes other messages meanwhile.
+  def handle_call({:slow_read, kind, ms}, _from, s),
+    do: {:reply, :ok, put_in(s.slow_reads[kind], ms)}
+
+  def handle_call({:fast_read, kind}, _from, s),
+    do: {:reply, :ok, %{s | slow_reads: Map.delete(s.slow_reads, kind)}}
+
   def handle_call({:refuse_write, kind, key}, _from, s),
     do: {:reply, :ok, %{s | refused_writes: MapSet.put(s.refused_writes, {kind, key})}}
 
@@ -267,6 +276,18 @@ defmodule AtlasFlow.FakeFacts do
         do: %{s | facts_read: s.facts_read + length(List.wrap(answer["facts"] || answer["fact"]))},
         else: s
 
+    case {s.slow_reads[e.kind], content} do
+      {ms, %{"key" => _}} when is_integer(ms) ->
+        Process.send_after(self(), {:answer_later, e, answer}, ms)
+
+      _ ->
+        :ok = AtlasBus.send(Envelope.reply(e, "answer"), answer)
+    end
+
+    {:noreply, s}
+  end
+
+  def handle_info({:answer_later, e, answer}, s) do
     :ok = AtlasBus.send(Envelope.reply(e, "answer"), answer)
     {:noreply, s}
   end
