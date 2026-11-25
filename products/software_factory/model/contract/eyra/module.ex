@@ -1,11 +1,11 @@
 defmodule Model.Eyra do
   @moduledoc """
-  The product plan: scenes and their use cases, with their hierarchy and acceptance,
-  and how far an item is.
+  The product plan: products, their scenes and the scenes' use cases, with their
+  hierarchy and acceptance, and how far an item is.
   """
   use RelaDSL.Module,
     path: "modules/eyra/schema.yaml",
-    concepts: [Model.Scene, Model.UseCase]
+    concepts: [Model.Product, Model.Scene, Model.UseCase]
 
   progress_order(
     order: [:refine, :ready_to_pick_up, :specification, :design, :development, :to_test],

@@ -6,7 +6,8 @@ defmodule RelaDSL.Control.Model do
     * `shell(settings)`: the title and tabs of the native shell (`shell`), with the tabs
       the environment's settings add (`"tabs"`), and the id of the tab a client opens
       on without a target (`"default"`, when the shell names one); nil without `shell`;
-    * `start_page/0`: what a client opens on (`start_page`): `assigned` (what is assigned
+    * `start_page/0`: what a client opens on (`start_page`): `top` (nil, or the kind
+      of the model's top level, whose list the home page is: the products), `assigned` (what is assigned
       to it; its `greeting`, nil or the words a client greets its viewer with, `{name}`
       its name), `open` (open work, for everyone), `open_for_you` (the supervised spans a
       person may pick a run up in, each with the subject kinds of its `with:` subflows
@@ -243,6 +244,7 @@ defmodule RelaDSL.Control.Model do
           digits: rule.digits,
           first: rule.first,
           from: rule.from,
+          code: rule.code,
           template: get_in(spec, ["create", "id", "template"]),
           prefixes:
             Enum.uniq(
@@ -506,6 +508,7 @@ defmodule RelaDSL.Control.Model do
       end
 
     %{
+      top: if(is_binary(get_in(d, ["start", "top"])), do: get_in(d, ["start", "top"])),
       assigned: assigned,
       open: open,
       open_for_you: open_for_you,
@@ -600,6 +603,11 @@ defmodule RelaDSL.Control.Model do
       digits: get_in(rule, ["id", "digits"]) || 2,
       first: get_in(rule, ["id", "first"]) || 1,
       from: get_in(rule, ["id", "from"]),
+      code:
+        case get_in(rule, ["id", "code"]) do
+          %{"relation" => relation, "field" => field} -> %{relation: relation, field: field}
+          _ -> nil
+        end,
       defaults: rule["defaults"] || %{}
     }
   end

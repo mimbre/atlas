@@ -62,7 +62,8 @@ defmodule Model.Scene do
     id_prefix: "SC-",
     description: """
     An actor-centred view of the system, with one angle and one zoom level
-    (Flux's meaning). The id is its code, e.g. SC-Atlas-01.
+    (Flux's meaning), of one product. The id is its code, with its product's
+    code, e.g. SC-Atlas-01.
     """ do
     field(:title, :string, required: true, description: "Without the code (Flux: name)")
     field(:description, :string, description: "The text (Flux: description)", multiline: true)
@@ -106,7 +107,11 @@ defmodule Model.Scene do
       description: "Flow: how the last pass ended (none, delivered, failed)"
     )
 
-    create(ask: [:title, :description], defaults: [status: :refine, phase: :break_down])
+    create(
+      ask: [:title, :description, :of_product],
+      defaults: [status: :refine, phase: :break_down]
+    )
+
     progress(over: :in_scene, own: :status)
     completion(by: :accepted_by)
   end

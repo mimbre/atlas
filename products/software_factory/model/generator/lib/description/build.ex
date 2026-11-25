@@ -263,7 +263,7 @@ defmodule RelaDSL.Description.Build do
       for {k, v, _} <- e.notes,
           k not in [:flag | Map.keys(@listed)],
           into: %{},
-          do: {to_string(k), Plain.of(v)}
+          do: {to_string(k), Plain.of(if(k == :create, do: coded(v), else: v))}
 
     listed =
       for {k, json} <- @listed,
@@ -293,13 +293,35 @@ defmodule RelaDSL.Description.Build do
   defp fragment(%{kind: :root, value: {construct, value}}),
     do: [%{RelaDSL.Description.root_key(construct) => Plain.of(value)}]
 
-  defp fragment(%{kind: :extend_entity, value: {name, rules}}),
-    do: [%{"entities" => %{to_string(name) => Plain.of(rules)}}]
+  defp fragment(%{kind: :extend_entity, value: {name, rules}}) do
+    rules =
+      if Keyword.keyword?(rules) and Keyword.has_key?(rules, :create),
+        do: List.keyreplace(rules, :create, 0, {:create, coded(rules[:create])}),
+        else: rules
+
+    [%{"entities" => %{to_string(name) => Plain.of(rules)}}]
+  end
 
   defp fragment(%{kind: :extend_relation, value: {name, rules}}),
     do: [%{"relations" => %{to_string(name) => Plain.of(rules)}}]
 
   defp fragment(_), do: []
+
+  # `create: [id: [code: {relation, field}]]`: a key that carries the field of the fact
+  # the relation points at, written as `{"relation", "field"}`.
+  defp coded(create) when is_list(create) do
+    with true <- Keyword.keyword?(create),
+         id when is_list(id) <- create[:id],
+         true <- Keyword.keyword?(id),
+         {relation, field} <- id[:code] do
+      id = List.keyreplace(id, :code, 0, {:code, [relation: relation, field: field]})
+      List.keyreplace(create, :id, 0, {:id, id})
+    else
+      _ -> create
+    end
+  end
+
+  defp coded(create), do: create
 
   @doc """
   The fragments merged, leaf by leaf: `{extension, origins, problems}`. A leaf given by

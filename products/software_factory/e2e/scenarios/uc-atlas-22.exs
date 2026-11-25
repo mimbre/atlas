@@ -10,7 +10,16 @@ scenario "UC-Atlas-22: Create and change items from the command line", fn %{
 
   step "atlas put: the stored item has its code and can be opened in TUI 2", fn ->
     {scene, _} =
-      atlas_json(i, ["put", "scene", "--title", title, "--description", "Made by an agent."])
+      atlas_json(i, [
+        "put",
+        "scene",
+        "--in",
+        "PD-01",
+        "--title",
+        title,
+        "--description",
+        "Made by an agent."
+      ])
 
     scene["key"] =~ ~r/^SC-Atlas-\d+$/ || raise "no code: #{inspect(scene)}"
     scene["values"]["title"] == title || raise inspect(scene)
@@ -51,7 +60,7 @@ scenario "UC-Atlas-22: Create and change items from the command line", fn %{
     {answer, _} = atlas_json(i, ["set", Process.get(:uc22_scene), "status=done"], 1)
     hd(answer["refused"]) =~ "status must be one of" || raise inspect(answer)
 
-    {answer, _} = atlas_json(i, ["put", "scene", "--colour", "red"], 2)
+    {answer, _} = atlas_json(i, ["put", "scene", "--in", "PD-01", "--colour", "red"], 2)
 
     answer["error"] =~ "does not ask for colour; it asks for title, description" ||
       raise inspect(answer)

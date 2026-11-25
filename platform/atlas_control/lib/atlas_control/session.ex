@@ -866,7 +866,7 @@ defmodule AtlasControl.Session do
   defp submit({:new, kind} = route, raw, state), do: create(route, kind, raw, %{}, state)
 
   defp submit({:new, kind, {relation, parent}} = route, raw, state),
-    do: create(route, kind, raw, %{relation => [parent]}, state)
+    do: create(route, kind, Map.delete(raw, relation), %{relation => [parent]}, state)
 
   defp submit({:edit, kind, key} = route, raw, state) do
     # The field the id was made from is shown, never changed.
@@ -1229,6 +1229,15 @@ defmodule AtlasControl.Session do
   defp create(route, kind, raw, links, state) do
     k = Pages.kind_view(state.model, kind)
 
+    # A relation the create asks goes as a link, chosen on the form.
+    {asked, raw} = Map.split(raw, Pages.asked_relations(state.model, kind))
+
+    links =
+      Enum.reduce(asked, links, fn
+        {_relation, ""}, acc -> acc
+        {relation, key}, acc -> Map.put_new(acc, relation, [key])
+      end)
+
     if k && k.id.from,
       do: create_made(route, kind, raw, links, state),
       else: create_numbered(route, kind, k, raw, links, state)
@@ -1249,17 +1258,27 @@ defmodule AtlasControl.Session do
     end
   end
 
+  # A key that carries a field of the fact a relation points at (`id.code`):
+  # Facts is asked for that fact as the key is made, and the number is the next among the
+  # keys that begin with it: numbered per value.
   defp create_numbered(route, kind, k, raw, links, state) do
-    keys =
-      case ask(kind, %{}) do
-        %{"facts" => facts} -> Enum.map(facts, & &1["key"])
-        _ -> []
-      end
+    case Pages.key_kind(state.model, k, links, &ask(&1, %{"key" => &2})) do
+      {:ok, k} ->
+        keys =
+          case ask(kind, %{}) do
+            %{"facts" => facts} -> Enum.map(facts, & &1["key"])
+            _ -> []
+          end
 
-    {key, number} = Pages.next_key(k, keys)
-    content = new_fact(state, kind, key, raw, links)
-    state = %{state | route: route, form: %{values: raw}}
-    put_fact(state, kind, content, {:item, kind, key}, %{number: number, tries: 1, skipped: []})
+        {key, number} = Pages.next_key(k, keys)
+        content = new_fact(state, kind, key, raw, links)
+        state = %{state | route: route, form: %{values: raw}}
+        retry = %{number: number, tries: 1, skipped: [], prefix: k.id.prefix}
+        put_fact(state, kind, content, {:item, kind, key}, retry)
+
+      {:error, reason} ->
+        not_sent(%{state | route: route, form: %{values: raw}}, route, [reason])
+    end
   end
 
   defp delete(route, kind, key, state) do
@@ -1326,10 +1345,20 @@ defmodule AtlasControl.Session do
 
   defp retry_create(state, pending) do
     kind = pending.envelope.kind
-    {key, number} = Pages.next_key(Pages.kind_view(state.model, kind), [], pending.retry.number)
+    k = Pages.kind_view(state.model, kind)
+    # The prefix the first try was made with (with the field it carries), kept.
+    k = if pending.retry[:prefix], do: put_in(k.id.prefix, pending.retry.prefix), else: k
+    {key, number} = Pages.next_key(k, [], pending.retry.number)
     content = %{pending.content | "key" => key}
     skipped = pending.retry.skipped ++ [pending.content["key"]]
-    retry = %{number: number, tries: pending.retry.tries + 1, skipped: skipped}
+
+    retry = %{
+      number: number,
+      tries: pending.retry.tries + 1,
+      skipped: skipped,
+      prefix: pending.retry[:prefix]
+    }
+
     note = "#{pending.content["key"]} is taken; trying #{key}…"
     put_fact(state, kind, content, {:item, kind, key}, retry, note)
   end

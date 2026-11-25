@@ -348,7 +348,24 @@ defmodule RelaDSL.Description.Check do
   defp start(%{x: %{"start" => start}} = ctx) do
     path = ["start"]
 
-    keys(start, ~w(assigned open open_for_you supervised_by_you), path) ++
+    keys(start, ~w(assigned open open_for_you supervised_by_you top), path) ++
+      case is_map(start) && start["top"] do
+        top when is_binary(top) ->
+          if(Map.has_key?(ctx.entities, top),
+            do: [],
+            else:
+              p(path ++ ["top"], :unknown_kind, [top], "start.top: unknown kind: #{inspect(top)}")
+          )
+
+        nil ->
+          []
+
+        false ->
+          []
+
+        _ ->
+          p(path ++ ["top"], :start_top, [], "start.top: expected the kind of the top level")
+      end ++
       Enum.flat_map(~w(open_for_you supervised_by_you), fn entry ->
         case is_map(start) && start[entry] do
           spec when is_map(spec) -> keys(spec, ~w(title count empty), path ++ [entry])
@@ -576,12 +593,102 @@ defmodule RelaDSL.Description.Check do
     id = (is_map(create) && create["id"]) || %{}
 
     keys(create, ~w(ask id defaults), path) ++
-      Enum.flat_map(List.wrap(is_map(create) && create["ask"]), &field(ctx, kind, &1, path)) ++
+      Enum.flat_map(List.wrap(is_map(create) && create["ask"]), &asked(ctx, kind, &1, path)) ++
       Enum.flat_map((is_map(create) && create["defaults"]) || %{}, fn {name, value} ->
         values(ctx, kind, %{name => [value]}, path ++ ["defaults"])
       end) ++
-      keys(id, ~w(prefix digits first from pattern template replace lower error), path ++ ["id"]) ++
-      if(is_map(id) and id["from"], do: field(ctx, kind, id["from"], path ++ ["id"]), else: [])
+      keys(
+        id,
+        ~w(prefix code digits first from pattern template replace lower error),
+        path ++ ["id"]
+      ) ++
+      if(is_map(id) and id["from"], do: field(ctx, kind, id["from"], path ++ ["id"]), else: []) ++
+      code(ctx, kind, is_map(id) && id, path ++ ["id", "code"])
+  end
+
+  # What a create asks: a field of the kind, or a relation from it that names one fact
+  # (the product a scene is made under), which the form asks as that fact's key.
+  defp asked(ctx, kind, name, path) do
+    case rel(ctx, name) do
+      %{} = spec when is_binary(name) ->
+        if kind in (spec["from"] || []) and spec["max_outgoing"] == 1,
+          do: [],
+          else:
+            p(
+              path,
+              :ask_relation,
+              [kind, name],
+              "#{kind}: create asks #{name}, which is no relation from #{kind} to one fact (max_outgoing: 1)"
+            )
+
+      _ ->
+        field(ctx, kind, name, path)
+    end
+  end
+
+  # A key that carries a field of the fact the kind points at (`code: {relation, field}`):
+  # the prefix, that field's value and a dash, then the next number among keys with that
+  # beginning. The relation starts at the kind and names one fact; each kind it points at
+  # has the field, required, so every key can be made.
+  defp code(_ctx, _kind, id, _path) when not is_map(id) or not is_map_key(id, "code"), do: []
+
+  defp code(ctx, kind, %{"code" => code} = id, path) do
+    case code do
+      %{"relation" => relation, "field" => name} when is_binary(relation) and is_binary(name) ->
+        case keys(code, ~w(relation field), path) ++ relation(ctx, relation, kind, path) do
+          [] ->
+            spec = rel(ctx, relation)
+
+            if(spec["max_outgoing"] == 1,
+              do: [],
+              else:
+                p(
+                  path,
+                  :id_code_one,
+                  [kind, relation],
+                  "#{kind}.create.id.code: #{relation} must name one fact (max_outgoing: 1)"
+                )
+            ) ++
+              if(id["from"],
+                do:
+                  p(
+                    path,
+                    :id_code_from,
+                    [kind],
+                    "#{kind}.create.id: code numbers keys; it does not go with from"
+                  ),
+                else: []
+              ) ++
+              Enum.flat_map(spec["to"] || [], fn to ->
+                case field(ctx, to, name, path) do
+                  [] ->
+                    if prop(ctx, to, name)["required"] == true,
+                      do: [],
+                      else:
+                        p(
+                          path,
+                          :id_code_required,
+                          [to, name],
+                          "#{kind}.create.id.code: #{to}.#{name} must be required"
+                        )
+
+                  problems ->
+                    problems
+                end
+              end)
+
+          problems ->
+            problems
+        end
+
+      _ ->
+        p(
+          path,
+          :id_code,
+          [kind],
+          "#{kind}.create.id.code: expected {relation, field}"
+        )
+    end
   end
 
   defp late(_ctx, _kind, nil, _path), do: []

@@ -212,6 +212,7 @@ struct Sidebar: View {
         case "history": "clock.arrow.circlepath"
         case "mine": "person.crop.circle"
         case "stack": "rectangle.stack"
+        case "products": "shippingbox"
         default: "circle"
         }
     }

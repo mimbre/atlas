@@ -24,7 +24,7 @@ defmodule RelaDSL.Description.ChecksTest do
         #{get.(:entity)}
       end
       entity :keeper, label: "Keeper", plural: "keepers", id_type: :manual do
-        field :name, :string
+        field :name, :string#{get.(:keeper_name)}
       end
       relation :kept_by, label: "kept by", from: [:thing], to: [:keeper], max_outgoing: 1#{get.(:relation)}
       #{get.(:concept)}
@@ -89,6 +89,52 @@ defmodule RelaDSL.Description.ChecksTest do
     assert shape(c) == []
     assert subflows(c) == []
     assert selects(c) == []
+  end
+
+  test "a key can carry a field of the one fact its kind points at (create id code)" do
+    coded =
+      ~s(create ask: [:title, :kept_by], id: [prefix: "T-", code: {:kept_by, :name}, digits: 2])
+
+    c = concept(entity: coded, keeper_name: ", required: true")
+
+    assert c.extension["entities"]["thing"]["create"]["id"]["code"] ==
+             %{"relation" => "kept_by", "field" => "name"}
+
+    assert checked(c) == []
+
+    # Every key can be made only when each fact it points at has the field.
+    assert checked(concept(entity: coded)) == [{:id_code_required, ["keeper", "name"]}]
+
+    many = ~s(\n  relation :seen_by, label: "seen by", from: [:thing], to: [:keeper])
+
+    assert checked(
+             concept(
+               entity: ~s(create id: [prefix: "T-", code: {:seen_by, :name}]),
+               keeper_name: ", required: true",
+               concept: many
+             )
+           ) == [{:id_code_one, ["thing", "seen_by"]}]
+
+    assert checked(concept(entity: ~s(create id: [prefix: "T-", code: {:gone, :name}]))) ==
+             [{:unknown_relation, ["gone"]}]
+
+    assert checked(
+             concept(
+               entity: ~s(create id: [from: :title, code: {:kept_by, :name}]),
+               keeper_name: ", required: true"
+             )
+           ) == [{:id_code_from, ["thing"]}]
+
+    # A create asks a relation only when it names one fact.
+    assert checked(concept(entity: "create ask: [:title, :seen_by]", concept: many)) ==
+             [{:ask_relation, ["thing", "seen_by"]}]
+  end
+
+  test "the start page's top level is a kind" do
+    assert checked(concept(concept: "start_page top: :keeper")) == []
+
+    assert checked(concept(concept: "start_page top: :gone")) ==
+             [{:unknown_kind, ["gone"]}]
   end
 
   test "a name a rule gives must resolve to a field, relation or value" do
@@ -182,7 +228,7 @@ defmodule RelaDSL.Description.ChecksTest do
         #{get.(:entity)}
       end
       entity :keeper, label: "Keeper", plural: "keepers", id_type: :manual do
-        field :name, :string
+        field :name, :string#{get.(:keeper_name)}
       end
       relation :kept_by, label: "kept by", from: [:thing], to: [:keeper], max_outgoing: 1#{get.(:relation)}
       #{get.(:concept)}

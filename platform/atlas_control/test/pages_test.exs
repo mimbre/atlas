@@ -787,6 +787,37 @@ defmodule AtlasControl.PagesTest do
            }) =~ "never from Outside; the read at 2026-11-03 14:10 UTC failed"
   end
 
+  test "a key that carries its product's code: CH-<code>-NN, numbered per code" do
+    products = shop(Products)
+    assert Pages.top_kinds(products) == ["product"]
+    assert Pages.reads(:home, products) == [{"product", %{}}]
+    assert Pages.asked_relations(products, "chapter") == ["of_product"]
+    chapter = Pages.kind_view(products, "chapter")
+    assert chapter.id.code == %{relation: "of_product", field: "code"}
+
+    fact = fn
+      "product", "PD-01" -> %{"fact" => fact("PD-01", %{"name" => "Alpha", "code" => "Alpha"})}
+      "product", _ -> %{"fact" => nil}
+    end
+
+    assert {:ok, k} = Pages.key_kind(products, chapter, %{"of_product" => ["PD-01"]}, fact)
+    assert Pages.next_key(k, ["CH-Alpha-01", "CH-Beta-07", "CH-Gamma-12"]) == {"CH-Alpha-02", 2}
+    assert Pages.next_key(k, ["CH-Beta-07"]) == {"CH-Alpha-01", 1}
+
+    assert {:error, why} = Pages.key_kind(products, chapter, %{}, fact)
+    assert why =~ "belongs to a product"
+    assert {:error, why} = Pages.key_kind(products, chapter, %{"of_product" => ["PD-09"]}, fact)
+    assert why =~ "PD-09 does not exist"
+
+    # A kind whose key carries nothing keeps its own prefix, and nothing is read.
+    widget = Pages.kind_view(products, "widget")
+    assert {:ok, ^widget} = Pages.key_kind(products, widget, %{}, fn _, _ -> flunk("read") end)
+
+    # The values of a new chapter are its fields; its product goes as a link.
+    assert Pages.create_values(products, "chapter", %{"title" => "T", "of_product" => "PD-01"}) ==
+             %{"title" => "T"}
+  end
+
   test "the next free key, and the values of a new fact" do
     spec = Pages.kind_view(@d, "widget")
     assert Pages.next_key(spec, []) == {"W-01", 1}

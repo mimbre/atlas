@@ -6,15 +6,21 @@ scenario "UC-Atlas-01: Manage scenes", fn %{t1: t1, t2: t2, instance: instance} 
     for t <- [t1, t2], do: see(t, ~r/Scenes.*\n(.*\n)*.*● connected/)
   end
 
-  step "Create asks only a title and a description; the code is made", fn ->
+  step "Create asks a title, a description and its product; the code is made", fn ->
     press(t1, "c")
     form = see(t1, ~r/^ Create scene$/m)
-    for field <- ["Title *", "Description"], do: form =~ field || raise("no #{field}")
+
+    for field <- ["Title *", "Description", "Of product *"],
+        do: form =~ field || raise("no #{field}")
+
     for field <- ["Id", "Flux group", "Status", "Completed", "Flux id"], do: refute_see(t1, field)
 
     type(t1, "Write the first scene")
     press(t1, "Down")
     type(t1, "A scene made by the end-to-end test.")
+    press(t1, "Tab")
+    press(t1, "Right")
+    see(t1, "PD-01: Atlas")
     at = press(t1, "C-s")
 
     stored(t1, ~r/✓ Stored as SC-Atlas-\d+/, at)
@@ -47,6 +53,9 @@ scenario "UC-Atlas-01: Manage scenes", fn %{t1: t1, t2: t2, instance: instance} 
     see(t1, ~r/› SC-Atlas-\d+  Write the first scene \(changed\)/)
     press(t1, "c")
     see(t1, ~r/^ Create scene$/m)
+    press(t1, "Tab")
+    press(t1, "Tab")
+    press(t1, "Right")
     at = press(t1, "C-s")
     stored(t1, "title is required", at)
     see(t1, ~r/^ Create scene$/m)
@@ -60,6 +69,9 @@ scenario "UC-Atlas-01: Manage scenes", fn %{t1: t1, t2: t2, instance: instance} 
     press(t1, "c")
     see(t1, ~r/^ Create scene$/m)
     type(t1, "To be deleted")
+    press(t1, "Tab")
+    press(t1, "Tab")
+    press(t1, "Right")
     at = press(t1, "C-s")
     stored(t1, ~r/Scene SC-Atlas-\d+: To be deleted/, at)
     by_hint(t2, "To be deleted", at)

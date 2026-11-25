@@ -1089,7 +1089,8 @@ defmodule AtlasFlow.Activities.Task do
   # kind there are, by Flow for the run's supervisor (its cause names the task that
   # proposed them, in the `what` of the subject).
   defp make(kind, entries, relation, under, intent, tag, what, run, ctx) do
-    with %{"prefix" => prefix, "digits" => digits} = ids <- (ctx[:ids] || %{})[kind],
+    with %{"prefix" => _, "digits" => digits} = ids <- (ctx[:ids] || %{})[kind],
+         {:ok, prefix} <- key_prefix(ids, kind, relation, under, ctx),
          %{"facts" => facts} when is_list(facts) <-
            Talk.read(kind, %{"plain" => true}) do
       first = HandOver.next_number(%{"prefix" => prefix}, Enum.map(facts, & &1["key"]))
@@ -1116,6 +1117,28 @@ defmodule AtlasFlow.Activities.Task do
       _ -> :unavailable
     end
   end
+
+  # The beginning of a new key of `kind`: its prefix, and, when its key carries a field of
+  # the fact a relation points at (`code`), that field of the fact it is made
+  # under, then a dash. Made under anything else, no key can be made.
+  defp key_prefix(
+         %{"prefix" => prefix, "code" => %{"relation" => code_relation, "field" => field}},
+         kind,
+         relation,
+         under,
+         ctx
+       ) do
+    with true <- code_relation == relation,
+         [to | _] <- for([^relation, to] <- (ctx[:parents] || %{})[kind] || [], do: to),
+         %{"fact" => %{"values" => %{^field => code}}} when is_binary(code) and code != "" <-
+           Talk.read(to, %{"key" => under, "plain" => true}) do
+      {:ok, prefix <> code <> "-"}
+    else
+      _ -> :unavailable
+    end
+  end
+
+  defp key_prefix(%{"prefix" => prefix}, _kind, _relation, _under, _ctx), do: {:ok, prefix}
 
   # The entries of the file at the top of the repository in the task's result commit
   # (`refs/atlas/results/<key>`), which Bases resolves through Code like a branch (asked

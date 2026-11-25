@@ -24,6 +24,29 @@ types:
       accept: 'Its acceptance flow has it: what is under it is built, then it is accepted.'
       accepted: Its acceptance flow accepted it.
 entities:
+  product:
+    label: Product
+    plural: products
+    aliases:
+    - pd
+    id_type: manual
+    id_prefix: PD-
+    description: |
+      A product Atlas builds, with its scenes, their use cases and their issues. Its
+      code is in the keys of its work, e.g. SC-<code>-01.
+    properties:
+      name:
+        type: string
+        required: true
+        description: What the product is called
+      code:
+        type: string
+        required: true
+        unique: true
+        description: 'The key code of its work, such as Atlas: its scenes are SC-<code>-NN; never changed once work has it'
+      description:
+        type: string
+        description: What the product is
   scene:
     label: Scene
     plural: scenes
@@ -33,7 +56,8 @@ entities:
     id_prefix: SC-
     description: |
       An actor-centred view of the system, with one angle and one zoom level
-      (Flux's meaning). The id is its code, e.g. SC-Atlas-01.
+      (Flux's meaning), of one product. The id is its code, with its product's
+      code, e.g. SC-Atlas-01.
     properties:
       title:
         type: string
@@ -126,6 +150,17 @@ entities:
         type: string
         description: 'Flow: the last design gate verdict, or a maintainer''s choice (none, review, rework, ready, person, close)'
 relations:
+  of_product:
+    label: of product
+    description: A scene belongs to one product; a product has zero or more scenes.
+    from:
+    - scene
+    to:
+    - product
+    max_outgoing: 1
+    inverse:
+      id: scenes
+      label: scenes
   accepted_by:
     label: accepted by
     description: Who accepted a scene, after testing it; at most one.

@@ -746,6 +746,87 @@ defmodule AtlasControl.SessionTest do
     assert %{"path" => "/k/widget/W-04", "reason" => "stored"} = next(a, "page")
   end
 
+  # Products on top (SC-Atlas-20); a product's page lists its chapters and creates one
+  # under it, whose key carries the product's code (CH-<code>-NN, numbered per code).
+  test "the home page lists the products; a chapter made under one gets its code" do
+    port = gateway(Shop.Products)
+    FakeStore.put("PD-01", %{"name" => "Alpha", "code" => "Alpha"}, "product")
+    FakeStore.put("PD-02", %{"name" => "Beta", "code" => "Beta"}, "product")
+    FakeStore.put("CH-Alpha-01", %{"title" => "First"}, "chapter", %{"of_product" => ["PD-01"]})
+    FakeStore.put("CH-Alpha-02", %{"title" => "Second"}, "chapter", %{"of_product" => ["PD-01"]})
+
+    a = client(port)
+    assert %{"path" => "/"} = home = next(a, "page")
+    assert rows(home) == ["Alpha", "Beta"]
+
+    # A product's page lists only its chapters, and creates one under it.
+    put(a, %{"op" => "open", "to" => "/k/product/PD-01"})
+    assert rows(next(a, "page")) == ["First", "Second"]
+    put(a, %{"op" => "open", "to" => "/k/product/PD-02"})
+    assert rows(next(a, "page")) == []
+
+    put(a, %{"op" => "open", "to" => "/k/chapter/new/of_product/PD-02"})
+    assert %{"blocks" => [%{"type" => "form", "props" => form}]} = next(a, "page")
+    # Under the product, the form does not ask it again.
+    assert Enum.map(form["inputs"], & &1["name"]) == ["title"]
+
+    put(a, %{
+      "op" => "submit",
+      "to" => "/k/chapter/new/of_product/PD-02",
+      "values" => %{"title" => "Beta's first"}
+    })
+
+    assert %{"tone" => "pending"} = next(a, "notice")
+    assert %{"tone" => "ok", "text" => "Stored as CH-Beta-01" <> _} = next(a, "notice")
+    assert %{"path" => "/k/chapter/CH-Beta-01", "reason" => "stored"} = next(a, "page")
+
+    put(a, %{"op" => "open", "to" => "/k/product/PD-02"})
+    assert rows(next(a, "page")) == ["Beta's first"]
+    put(a, %{"op" => "open", "to" => "/k/product/PD-01"})
+    assert rows(next(a, "page")) == ["First", "Second"]
+
+    # The next under the first product numbers on among that product's keys.
+    put(a, %{
+      "op" => "submit",
+      "to" => "/k/chapter/new/of_product/PD-01",
+      "values" => %{"title" => "Third"}
+    })
+
+    assert %{"tone" => "pending"} = next(a, "notice")
+    assert %{"tone" => "ok", "text" => "Stored as CH-Alpha-03" <> _} = next(a, "notice")
+  end
+
+  test "a chapter made from the chapters list asks its product; without one nothing is sent" do
+    port = gateway(Shop.Products)
+    FakeStore.put("PD-01", %{"name" => "Alpha", "code" => "Alpha"}, "product")
+    a = client(port)
+    next(a, "page")
+
+    put(a, %{"op" => "open", "to" => "/k/chapter/new"})
+    assert %{"blocks" => [%{"type" => "form", "props" => form}]} = next(a, "page")
+    product = Enum.find(form["inputs"], &(&1["name"] == "of_product"))
+    assert product["required"] and product["kind"] == "choice"
+    assert "PD-01" in Enum.map(product["choices"], & &1["value"])
+
+    put(a, %{"op" => "submit", "to" => "/k/chapter/new", "values" => %{"title" => "Loose"}})
+    assert %{"tone" => "error"} = next(a, "notice")
+    assert %{"blocks" => [%{"props" => %{"errors" => [why]}}]} = next(a, "page")
+    assert why =~ "belongs to a product"
+    assert FakeStore.last_fact() == nil
+
+    put(a, %{
+      "op" => "submit",
+      "to" => "/k/chapter/new",
+      "values" => %{"title" => "Placed", "of_product" => "PD-01"}
+    })
+
+    assert %{"tone" => "pending"} = next(a, "notice")
+    assert %{"tone" => "ok", "text" => "Stored as CH-Alpha-01" <> _} = next(a, "notice")
+    assert %{"path" => "/k/chapter/CH-Alpha-01"} = next(a, "page")
+    put(a, %{"op" => "open", "to" => "/k/product/PD-01"})
+    assert rows(next(a, "page")) == ["Placed"]
+  end
+
   test "a client of the other environment is sent away", %{port: port} do
     c = client(port, "prod")
     assert %{"op" => "bye", "text" => text} = JSON.decode!(elem(:gen_tcp.recv(c, 0, 1_000), 1))

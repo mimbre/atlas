@@ -28,7 +28,9 @@ defmodule RelaDSL.Flow.Model do
       holds; a runner refuses a version it does not know;
     * `gates/0`: every gate, by name, as data;
     * `ids/0`: how the key of a fact of each kind is made, by kind: `prefix` and
-      `digits` (the next number), and every `prefixes` its keys start with.
+      `digits` (the next number), `code` (nil, or `%{"relation", "field"}`: the key
+      carries that field of the fact the relation points at, after the prefix and before
+      a dash and the number), and every `prefixes` its keys start with.
 
   All of it is data the macros built when the model compiled; nothing is read from a
   file.
@@ -89,6 +91,7 @@ defmodule RelaDSL.Flow.Model do
          %{
            "prefix" => prefix,
            "digits" => get_in(spec, ["create", "id", "digits"]) || 2,
+           "code" => get_in(spec, ["create", "id", "code"]),
            "prefixes" => [prefix | spec["id_prefixes"] || []],
            "defaults" => get_in(spec, ["create", "defaults"]) || %{}
          }}
@@ -151,7 +154,7 @@ defmodule RelaDSL.Flow.Model do
       @doc "Every gate, by name, as data."
       def gates, do: unquote(Macro.escape(RelaDSL.Atlas.gate_data(gates)))
 
-      @doc "How a fact of each kind is made: its key's `prefix`, `digits`, `prefixes`, and the `defaults` of a create."
+      @doc "How a fact of each kind is made: its key's `prefix`, `digits`, `code`, `prefixes`, and the `defaults` of a create."
       def ids, do: unquote(Macro.escape(ids))
     end
   end

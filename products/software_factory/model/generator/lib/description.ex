@@ -21,7 +21,11 @@ defmodule RelaDSL.Description do
   | `migrate subflow, from:, to:, states:, rekey:, preserve_entry:, reopen:, reason:` | an approved run migration | `flow-runtime.json`, `digests.json` |
 
   `action`, `counts` and `requires` add one item each to the kind's list; the others
-  are given once. `completion` takes one rule (a keyword list) or a list of them.
+  are given once. `create` takes `ask:` (fields, and a relation from the kind to one
+  fact, which the form asks as that fact's key), `defaults:` and `id:`; `id: [prefix:,
+  code: {relation, field}, digits:]` makes keys that carry the field of the fact the
+  relation points at (`SC-` and a product's code `Atlas`: `SC-Atlas-01`), numbered per
+  value. `completion` takes one rule (a keyword list) or a list of them.
 
   ## Anywhere (a concept, a module or a composition)
 
@@ -40,8 +44,10 @@ defmodule RelaDSL.Description do
   a span's subject or one of its `with:` subjects), its relation to whom it is done for
   (`for`, the supervisor's kind) and the field that holds how it ended (`ended`, empty
   while it runs). It needs `supervision:`, and is given once, where those relations are.
-  `start_page` takes `assigned:`, `open:`, and, with supervision, `open_for_you:` and
-  `supervised_by_you:` (each `title:`, `count:`, `empty:`). `assigned:` also takes
+  `start_page` takes `top:` (the kind of the model's top level: the home page lists its
+  facts, the products, instead of the kinds), `assigned:`, `open:`, and, with
+  supervision, `open_for_you:` and `supervised_by_you:` (each `title:`, `count:`,
+  `empty:`). `assigned:` also takes
   `greeting:`, the text a client greets its viewer with, `{name}` its name (the way
   `count:` has `{count}`); Control fills it in for a viewer the relation points at.
   `shell` takes `title:`, `tabs:` (each `id:`, `label:`, `to:`, `assigned:`, and `icon:`, a

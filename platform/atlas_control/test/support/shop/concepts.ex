@@ -592,3 +592,33 @@ defmodule AtlasControl.Shop.SupervisionOnCard do
     owner: [via: :card, relation: :held_by, default: {:member, :ada}],
     projection: [on: :card, field: :todo]
 end
+
+defmodule AtlasControl.Shop.Product do
+  @moduledoc """
+  Products, each with its chapters: the top level of the shop's plan. A chapter's
+  key carries its product's code (`CH-<code>-NN`, numbered per code).
+  """
+  use RelaDSL
+
+  entity :product, label: "Product", plural: "products", id_type: :manual, id_prefix: "PD-" do
+    field(:name, :string, required: true)
+    field(:code, :string, required: true, unique: true)
+    field(:description, :string)
+    create(ask: [:name, :code, :description], id: [prefix: "PD-", digits: 2])
+  end
+
+  entity :chapter, label: "Chapter", plural: "chapters", id_type: :manual, id_prefix: "CH-" do
+    field(:title, :string, required: true)
+    create(ask: [:title, :of_product], id: [prefix: "CH-", code: {:of_product, :code}, digits: 2])
+  end
+
+  relation(:of_product,
+    label: "of product",
+    description: "A chapter belongs to one product.",
+    from: [:chapter],
+    to: [:product],
+    max_outgoing: 1,
+    parent: true,
+    inverse: {:chapters, "chapters"}
+  )
+end

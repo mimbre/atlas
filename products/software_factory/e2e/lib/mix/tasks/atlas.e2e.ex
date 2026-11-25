@@ -40,6 +40,12 @@ defmodule Mix.Tasks.Atlas.E2e do
     # decider the settings name (`actors.decider`); what it is to own waits for it till now.
     {_, 0, _} = AtlasE2E.Scenario.atlas(instance, ["put", "person", "--name", "Melle"])
 
+    # The product Atlas (PD-01, code Atlas), as the migration makes it in test and prod
+    # (SC-Atlas-20): every scene belongs to one product, and the scenarios' scenes are
+    # Atlas's (SC-Atlas-NN).
+    {_, 0, _} =
+      AtlasE2E.Scenario.atlas(instance, ["put", "product", "--name", "Atlas", "--code", "Atlas"])
+
     IO.puts(
       "atlas e2e: rela on #{instance.settings["rela"]["port"]}, Control on " <>
         "#{instance.settings["control"]["port"]}, build #{build()}"

@@ -485,3 +485,12 @@ defmodule Shop.SupervisedOnCard do
 
   supervised_work(kind: :job, of: :job_of, for: :job_for, ended: :outcome)
 end
+
+defmodule Shop.Products do
+  @moduledoc "Products on top, each with its chapters, whose keys carry the product's code."
+  use Shop.Composition,
+    name: "shop-products",
+    concepts: [Shop.Product, Shop.Widget, Shop.Part, Shop.Tag, Shop.Member, Shop.Links]
+
+  start_page(top: :product)
+end

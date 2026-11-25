@@ -496,8 +496,11 @@ defmodule AtlasControl.Pages do
   # What can fail is asked of the layers (`AtlasControl.Faults`), not read from Facts.
   def reads({:faults, _on}, _), do: []
   def reads({:fault, _fault, _on}, _), do: []
-  def reads({:new, _}, _), do: []
-  def reads({:new, _, _}, _), do: []
+  # A create that asks a relation to one fact lists the facts it may point at.
+  def reads({:new, kind}, m), do: for(r <- asked_relations(m, kind), do: {parent_of(m, r), %{}})
+
+  def reads({:new, kind, {relation, _parent}}, m),
+    do: for(r <- asked_relations(m, kind), r != relation, do: {parent_of(m, r), %{}})
 
   def reads({:item, kind, key}, m) do
     children =
@@ -663,7 +666,29 @@ defmodule AtlasControl.Pages do
         do: {k.name, f.name, f.cause}
   end
 
-  def top_kinds(m), do: for(k <- kinds(m), k.top, do: k.name)
+  @doc """
+  The kinds on top: the model's top level when it names one (`start_page().top`, the
+  the home page lists its facts, and each lists what is under it), else every kind
+  without a parent.
+  """
+  def top_kinds(m) do
+    case Map.get(m.start || %{}, :top) do
+      top when is_binary(top) -> [top]
+      _ -> for(k <- kinds(m), k.top, do: k.name)
+    end
+  end
+
+  @doc """
+  The relations a create of `kind` asks (`form(kind, :create).ask`), each to one fact:
+  the form asks the key of the fact it points at, a create sends it as
+  a link.
+  """
+  def asked_relations(m, kind) do
+    case {kind(m, kind), m.module.form(kind, :create)} do
+      {%{} = k, %{ask: ask}} -> for r <- k.relations, r.name in ask, do: r.name
+      _ -> []
+    end
+  end
 
   @doc """
   The start page of what is assigned to the client (the model's `start_page().assigned`),
@@ -2327,8 +2352,8 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  defp page({:new, kind, {_relation, parent}} = route, kind, k, m, [], form) do
-    %{blocks: [form_block]} = page({:new, kind}, kind, k, m, [], form)
+  defp page({:new, kind, {relation, parent}} = route, kind, k, m, answers, form) do
+    %{blocks: [form_block]} = new_page(kind, k, m, answers, form, relation)
     parent_route = {:item, parent_kind(m, route), parent}
     title = "#{elem(operation(:create, k), 0)} in #{parent}"
 
@@ -2342,22 +2367,7 @@ defmodule AtlasControl.Pages do
   end
 
   # A create asks only what the kind's create rule asks; the id is made, never typed.
-  defp page({:new, kind}, kind, k, m, [], form) do
-    values = form[:values] || %{}
-    asked = m.module.form(kind, :create).ask
-
-    form_block =
-      Blocks.form(
-        title: elem(operation(:create, k), 0),
-        inputs: inputs(k, values, only: asked),
-        submit_label: verb(:create),
-        submit_to: call_to({:new, kind}),
-        cancel_to: path({:list, kind}),
-        errors: form[:errors] || []
-      )
-
-    page(elem(operation(:create, k), 0), path({:list, kind}), [form_block])
-  end
+  defp page({:new, kind}, kind, k, m, answers, form), do: new_page(kind, k, m, answers, form, nil)
 
   defp page({:edit, kind, key}, kind, k, m, [answer | parent_answers], form) do
     back = path({:item, kind, key})
@@ -2580,6 +2590,32 @@ defmodule AtlasControl.Pages do
 
   defp page(_route, _kind, _k, _m, _answers, _form),
     do: missing("Nothing here", "This page does not exist.", "/")
+
+  # The create form; a relation it asks is a choice of the facts it
+  # may point at, unless the page is under one already (`given`).
+  defp new_page(kind, k, m, answers, form, given) do
+    values = form[:values] || %{}
+    asked = m.module.form(kind, :create).ask
+    relations = for r <- asked_relations(m, kind), r != given, do: r
+
+    form_block =
+      Blocks.form(
+        title: elem(operation(:create, k), 0),
+        inputs:
+          inputs(k, values, only: asked) ++
+            for(
+              {relation, answer} <-
+                Enum.zip(relations, answers ++ List.duplicate(nil, length(relations))),
+              do: relation_input(m, relation, values, answer, true)
+            ),
+        submit_label: verb(:create),
+        submit_to: call_to({:new, kind}),
+        cancel_to: path({:list, kind}),
+        errors: form[:errors] || []
+      )
+
+    page(elem(operation(:create, k), 0), path({:list, kind}), [form_block])
+  end
 
   defp list_page(kind, k, m, [answer | count_answers], form) do
     # The only top kind's list is the start page; there is nothing to go back to.
@@ -3454,40 +3490,45 @@ defmodule AtlasControl.Pages do
   # Where a fact can move: per parent relation a choice of every fact of the parent's
   # kind, the current parent selected. A fact that has a parent keeps one: no empty choice.
   defp parent_inputs(m, kind, values, answers) do
-    for {relation, at} <- Enum.with_index(parent_relations(m, kind)) do
-      answer = Enum.at(answers, at)
-      to = parent_of(m, relation)
-      to_k = kind(m, to) || unknown_kind(to)
-      current = values[relation] || ""
+    for {relation, at} <- Enum.with_index(parent_relations(m, kind)),
+        do: relation_input(m, relation, values, Enum.at(answers, at), false)
+  end
 
-      facts =
-        case answer do
-          %{"facts" => facts} -> Enum.sort_by(facts, &key_order(&1["key"]))
-          _ -> []
-        end
+  # A relation to one fact, as a choice of the facts of its kind (`answer`, their read);
+  # required when it is the create's (`asked`), or when it has a value (a move never
+  # leaves a fact without the parent it had).
+  defp relation_input(m, relation, values, answer, asked) do
+    to = parent_of(m, relation)
+    to_k = kind(m, to) || unknown_kind(to)
+    current = values[relation] || ""
 
-      # The current parent stays a choice even when the list of its kind could not be read.
-      choices =
-        if(current == "", do: [Blocks.choice(value: "", label: "—")], else: []) ++
-          if(current in ["" | Enum.map(facts, & &1["key"])],
-            do: [],
-            else: [Blocks.choice(value: current, label: current)]
-          ) ++
-          Enum.map(
-            facts,
-            &Blocks.choice(value: &1["key"], label: "#{&1["key"]}: #{label(to_k, &1)}")
-          )
+    facts =
+      case answer do
+        %{"facts" => facts} -> Enum.sort_by(facts, &key_order(&1["key"]))
+        _ -> []
+      end
 
-      Blocks.input(
-        name: relation,
-        label: String.capitalize(rel(m, relation).label),
-        kind: "choice",
-        value: current,
-        required: current != "",
-        hint: rel(m, relation).description,
-        choices: choices
-      )
-    end
+    # The current parent stays a choice even when the list of its kind could not be read.
+    choices =
+      if(current == "", do: [Blocks.choice(value: "", label: "—")], else: []) ++
+        if(current in ["" | Enum.map(facts, & &1["key"])],
+          do: [],
+          else: [Blocks.choice(value: current, label: current)]
+        ) ++
+        Enum.map(
+          facts,
+          &Blocks.choice(value: &1["key"], label: "#{&1["key"]}: #{label(to_k, &1)}")
+        )
+
+    Blocks.input(
+      name: relation,
+      label: String.capitalize(rel(m, relation).label),
+      kind: "choice",
+      value: current,
+      required: asked or current != "",
+      hint: rel(m, relation).description,
+      choices: choices
+    )
   end
 
   defp input_kind(%{values: values}) when is_list(values), do: "choice"
@@ -3532,7 +3573,51 @@ defmodule AtlasControl.Pages do
   @doc "The values of a new fact: what was asked, then the create form's defaults for the rest."
   def create_values(m, kind, raw) do
     form = m.module.form(kind, :create)
-    Map.merge(form.defaults, values_for(kind(m, kind), Map.take(raw, form.ask)))
+    asked = form.ask -- asked_relations(m, kind)
+    Map.merge(form.defaults, values_for(kind(m, kind), Map.take(raw, asked)))
+  end
+
+  @doc """
+  The kind with the prefix its new key has (`next_key/3`): the kind's own, or, when its
+  key carries a field of the fact a relation points at (`id.code`), the
+  prefix, that value and a dash. `links` are the new fact's
+  links; `fact` reads the fact the relation points at (`fn kind, key -> answer`), as
+  Facts answers it. `{:ok, kind}`, or `{:error, why}` when the key cannot be made.
+  """
+  def key_kind(m, k, links, fact) do
+    case k.id do
+      %{code: %{relation: relation, field: field}} ->
+        to = parent_of(m, relation)
+        to_label = (kind(m, to) || %{label: to}).label
+
+        case List.wrap(links[relation]) do
+          [key] when is_binary(key) and key != "" ->
+            case fact.(to, key) do
+              %{"fact" => %{"values" => %{^field => code}}} when is_binary(code) and code != "" ->
+                {:ok, put_in(k.id.prefix, k.id.prefix <> code <> "-")}
+
+              %{"fact" => nil} ->
+                {:error,
+                 "#{key} does not exist (any more); choose another #{String.downcase(to_label)}"}
+
+              %{"fact" => %{}} ->
+                {:error, "#{key} has no #{field}; a #{String.downcase(k.label)}'s key carries it"}
+
+              %{"error" => why} ->
+                {:error, "#{key} could not be read: #{why}"}
+
+              _ ->
+                {:error, "#{key} could not be read"}
+            end
+
+          _ ->
+            {:error,
+             "a #{String.downcase(k.label)} belongs to a #{String.downcase(to_label)}: choose one (#{relation}), or create it from its page"}
+        end
+
+      _ ->
+        {:ok, k}
+    end
   end
 
   @doc "The kind as pages show it (`AtlasControl.Model.kinds/0`), or nil."
@@ -3545,6 +3630,9 @@ defmodule AtlasControl.Pages do
     case k.id do
       %{from: from, template: template} when is_binary(from) and is_binary(template) ->
         "made from #{from}: #{template}"
+
+      %{code: %{relation: relation, field: field}} = id ->
+        "made: #{id.prefix}, the #{field} of its #{relation}, a dash and the next number (#{id.prefix}<#{field}>-#{String.duplicate("N", id.digits)})"
 
       id ->
         "made: #{id.prefix} and the next number (#{id.prefix}#{String.duplicate("N", id.digits)})"
