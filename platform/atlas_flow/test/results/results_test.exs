@@ -561,4 +561,34 @@ defmodule AtlasFlow.ResultsTest do
       refute present?(restarted, "c")
     end
   end
+
+  describe "Bus messages (IS-Atlas-125)" do
+    # The boot's read of the pins runs in the store's process; an answer Facts sends after
+    # that read gave up (a slow Facts at a deploy) lands in its mailbox.
+    @tag :capture_log
+    test "a late task state answer (deps over many task keys) is ignored; the store stays up",
+         ctx do
+      server = start(ctx)
+      manifest = result(server, ["a"])
+
+      envelope = %{
+        AtlasBus.Envelope.new("answer", "task")
+        | sender: "state",
+          address: "flow/results"
+      }
+
+      answer = %{
+        "facts" => [%{"key" => "TK-B-1-1", "values" => %{}}],
+        "deps" => for(i <- 1..50, into: %{}, do: {"TK-B-#{i}-1", [i]})
+      }
+
+      ref = Process.monitor(server)
+      send(server, {:atlas_bus, envelope, answer})
+      send(server, :something_else)
+
+      assert manifest?(server, manifest)
+      refute_received {:DOWN, ^ref, _, _, _}
+      assert Process.alive?(server)
+    end
+  end
 end
