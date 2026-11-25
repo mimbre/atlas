@@ -633,7 +633,8 @@ defmodule AtlasFlow.Dispatch do
       grace: state.grace,
       runner: state.runner,
       leases: state.leases,
-      booted: state.booted
+      booted: state.booted,
+      delivery: state.delivery
     })
 
     %{state | sweep: %{ref: ref, waiters: List.wrap(from), again: []}}

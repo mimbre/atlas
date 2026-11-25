@@ -365,6 +365,68 @@ defmodule AtlasFlow.WorkSource.DeliveryTest do
     end
   end
 
+  # IS-Atlas-112: the completion write on put_done(:stored) is refused by Facts (every try),
+  # once; the result stays ended/incomplete with its lease live until something decides again.
+  defp completion_missed(ctx) do
+    ctx = ended_lease!(ctx, [{"a.txt", "a\n"}])
+    :ok = GenServer.call(FakeFacts, {:refuse_write, "task", ctx.task})
+    assert :stored = put(@mini, ctx.lease, "a\n")
+    :ok = GenServer.call(FakeFacts, {:allow_write, "task", ctx.task})
+
+    assert %{"lease_state" => "ended", "result_state" => "incomplete"} = L.values(ctx.task)
+    assert held?("a\n")
+    assert casts() == []
+    ctx
+  end
+
+  # Recorded complete, cast to the run once, and no new lease for the task: not now, and
+  # not once the lease's TTL is past.
+  defp completed_once!(ctx) do
+    assert %{"lease_state" => "done", "result_state" => "complete", "lease_id" => lease} =
+             L.values(ctx.task)
+
+    assert lease == ctx.lease
+    assert casts() == [{"bin", "B-1"}]
+    assert {:polled, %{leases: []}} = poll(@mini)
+    L.advance(ctx, 900)
+    Dispatch.sweep()
+    assert {:polled, %{leases: []}} = poll(@mini)
+    assert %{"lease_state" => "done", "lease_id" => ^lease} = L.values(ctx.task)
+  end
+
+  describe "a completion write Facts missed (IS-Atlas-112)" do
+    test "the next put_done completes it", ctx do
+      ctx = completion_missed(ctx)
+      assert :stored = put(@mini, ctx.lease, "a\n")
+      completed_once!(ctx)
+    end
+
+    test "the next report (the ended again) completes it", ctx do
+      ctx = completion_missed(ctx)
+
+      assert {:recorded, %{missing: []}} =
+               report(@mini, ctx.lease, 3, ended([{"a.txt", "a\n"}]))
+
+      completed_once!(ctx)
+    end
+
+    test "the next sweep completes it, before the lease expires", ctx do
+      ctx = completion_missed(ctx)
+      Dispatch.sweep()
+      :sys.get_state(Delivery)
+      completed_once!(ctx)
+    end
+
+    test "the sweep leaves an ended result whose blobs are not all held incomplete", ctx do
+      ctx = ended_lease!(ctx, [{"a.txt", "a\n"}, {"b.txt", "b\n"}])
+      assert :stored = put(@mini, ctx.lease, "a\n")
+      Dispatch.sweep()
+      :sys.get_state(Delivery)
+      assert %{"lease_state" => "ended", "result_state" => "incomplete"} = L.values(ctx.task)
+      assert casts() == []
+    end
+  end
+
   describe "completion (acceptance 7)" do
     test "complete only with every blob held and every csf_ recomputed; then cast and pinned",
          ctx do
