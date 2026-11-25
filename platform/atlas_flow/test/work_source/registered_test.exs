@@ -17,9 +17,9 @@ defmodule AtlasFlow.WorkSource.RegisteredTest do
   defp machinery(key, values, links),
     do: %{"key" => key, "values" => values, "links" => links, "version" => 1}
 
-  defp start(read, ttl \\ 10_000) do
+  defp start(read, ttl \\ 10_000, clock \\ fn -> 0 end) do
     name = :"registered-#{System.unique_integer([:positive])}"
-    start_supervised!({Registered, name: name, read: read, ttl: ttl})
+    start_supervised!({Registered, name: name, read: read, ttl: ttl, clock: clock})
     name
   end
 
@@ -51,6 +51,8 @@ defmodule AtlasFlow.WorkSource.RegisteredTest do
 
   test "read at most once per ttl; while Facts is down the last ones stay" do
     {:ok, agent} = Agent.start_link(fn -> [] end)
+    {:ok, clock} = Agent.start_link(fn -> 0 end)
+    pass = fn ms -> Agent.update(clock, &(&1 + ms)) end
     test = self()
 
     read = fn kind, content ->
@@ -58,7 +60,7 @@ defmodule AtlasFlow.WorkSource.RegisteredTest do
       facts_read(agent).(kind, content)
     end
 
-    name = start(read, 50)
+    name = start(read, 50, fn -> Agent.get(clock, & &1) end)
     assert Registered.credentials(name) == %{}
     assert_received :read
 
@@ -67,19 +69,20 @@ defmodule AtlasFlow.WorkSource.RegisteredTest do
       [machinery("new-mac", %{"credential_sha256" => @sha}, %{"runs_for" => ["ada"]})]
     end)
 
+    pass.(49)
     assert Registered.credentials(name) == %{}
     refute_received :read
-    Process.sleep(60)
+    pass.(1)
     assert %{"new-mac" => %{holder: "ada"}} = Registered.credentials(name)
     assert Registered.digests(name) == [:crypto.hash(:sha256, @token)]
 
     Agent.update(agent, fn _ -> :down end)
-    Process.sleep(60)
+    pass.(50)
     assert %{"new-mac" => _} = Registered.credentials(name)
 
     # Cleared: turned away at the next read.
     Agent.update(agent, fn _ -> [] end)
-    Process.sleep(60)
+    pass.(50)
     assert Registered.credentials(name) == %{}
   end
 

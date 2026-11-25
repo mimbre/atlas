@@ -20,8 +20,9 @@ defmodule AtlasFlow.WorkSource.Registered do
 
   `credentials/1` serves Flow's listener (`AtlasFlow.Backend.Listener`) and `digests/1`
   Code's Git endpoint (`AtlasCode.Git`, through `config :atlas_code, :git`'s `registered`).
-  Options of `start_link/1`: `name` (default this module), `ttl` (ms) and `read` (a
-  `Talk.read/2`-like function, for tests).
+  Options of `start_link/1`: `name` (default this module), `ttl` (ms), `read` (a
+  `Talk.read/2`-like function, for tests) and `clock` (a 0-arity function giving the time
+  in ms, default `System.monotonic_time(:millisecond)`, for tests).
   """
   use GenServer
 
@@ -44,7 +45,8 @@ defmodule AtlasFlow.WorkSource.Registered do
 
     :ets.insert(
       table,
-      {:settings, Keyword.get(opts, :read, &Talk.read/2), Keyword.get(opts, :ttl, @ttl)}
+      {:settings, Keyword.get(opts, :read, &Talk.read/2), Keyword.get(opts, :ttl, @ttl),
+       Keyword.get(opts, :clock, &now/0)}
     )
 
     {:ok, table}
@@ -56,8 +58,8 @@ defmodule AtlasFlow.WorkSource.Registered do
   """
   @spec credentials(atom()) :: AtlasFlow.WorkSource.Credentials.t()
   def credentials(name \\ __MODULE__) do
-    [{:settings, read, ttl}] = :ets.lookup(name, :settings)
-    now = System.monotonic_time(:millisecond)
+    [{:settings, read, ttl, clock}] = :ets.lookup(name, :settings)
+    now = clock.()
 
     case :ets.lookup(name, :credentials) do
       [{:credentials, at, credentials}] when now - at < ttl ->
@@ -96,6 +98,8 @@ defmodule AtlasFlow.WorkSource.Registered do
         into: %{},
         do: {key, %{holder: holder, token_sha256: sha}}
   end
+
+  defp now, do: System.monotonic_time(:millisecond)
 
   defp fetch(read) do
     case read.(@kind, %{"linked" => %{}, "plain" => true}) do
