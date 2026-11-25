@@ -11,7 +11,10 @@ defmodule Model.UseCase do
       (`order`: they are built in that order), and "Accept it" (`accepting`) goes to the
       supervisor, who changes or removes any by hand (the use case's page offers no Create
       of an issue, which Plan makes) and accepts the break-down. Its run ends there and
-      hands the use case on (`phase: accept`).
+      hands the use case on (`phase: accept`). "Not accepted", with a note
+      (`supervisor_note`), throws the proposal away: Flow deletes the issues it made (those
+      added by hand stay; `creates: [discard: true]`) and the run goes back to its
+      break-down, whose agent reads the note.
     * `accept_use_case` "Accept the use case": accepts it by itself once all its issues
       are done (`children`, `open_children`: the composition's count of its issues, and of
       those whose `issue` run did not end `done`: reviewed and merged, or closed with
@@ -60,6 +63,13 @@ defmodule Model.UseCase do
         "Its proposer's note: an architecture choice it needs that is not decided, said instead of decided",
       multiline: true,
       label: "Proposer's note"
+    )
+
+    field(:supervisor_note, :string,
+      description:
+        "Its supervisor's note when Plan's proposal was not accepted; Plan's next round reads it",
+      multiline: true,
+      label: "Supervisor's note"
     )
 
     field(:phase, :pipeline_phase,
@@ -132,7 +142,8 @@ defmodule Model.UseCase do
         expected: "Break it down into issues",
         why: "nothing is under it yet",
         instructions:
-          "Its supervisor's Runtime runs one agent on it that proposes its issues; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then."
+          "Its supervisor's Runtime runs one agent on it that proposes its issues; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then.",
+        section: [field: :supervisor_note, label: "Its supervisor's note"]
       )
 
       task(:plan,
@@ -141,10 +152,11 @@ defmodule Model.UseCase do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each issue is a vertical slice: it works end to end and can be shown working. The first is the thinnest happy path (a walking skeleton); each later one builds on the ones before it, in the order given. Propose as few issues as possible: split a slice further only when it is too big for one reviewable pull request, what one agent builds and reviews in one go. Never split by layer (model, contract, Control, client): each issue cuts through all the layers it needs. When its scene names its phase, respect it: in Explore, usually only the happy-path slice; edge cases come later as follow-ups.",
+          "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each issue is a vertical slice: it works end to end and can be shown working. The first is the thinnest happy path (a walking skeleton); each later one builds on the ones before it, in the order given. Propose as few issues as possible: split a slice further only when it is too big for one reviewable pull request, what one agent builds and reviews in one go. Never split by layer (model, contract, Control, client): each issue cuts through all the layers it needs. When its scene names its phase, respect it: in Explore, usually only the happy-path slice; edge cases come later as follow-ups. When it has a note from its supervisor, your earlier proposal was not accepted and is gone: propose again, as the note asks; the issues under it now stay.",
         fields: [:title, :description, :design],
         parents: [:title, :description],
-        creates: [kind: :issue, file: "issues.json", order: :order],
+        note: [field: :supervisor_note, heading: "Its supervisor's note"],
+        creates: [kind: :issue, file: "issues.json", order: :order, discard: true],
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
@@ -157,7 +169,9 @@ defmodule Model.UseCase do
     end
 
     # Its supervisor looks at the issues Flow made from the agent's proposal, changes,
-    # removes or adds any by hand, and accepts the break-down.
+    # removes or adds any by hand, and accepts the break-down; or sends it back with a note:
+    # Flow deletes the issues the proposal made (those added by hand stay), and its agent
+    # proposes again, reading the note.
     state :accepting, label: "Accept it" do
       owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
       set(verdict: :none)
@@ -166,11 +180,20 @@ defmodule Model.UseCase do
         expected: "Accept its issues",
         why: "its agent's break-down is done",
         instructions:
-          "Read the issues under it, which its agent proposed; change any, or remove one (Remove, under More… on its page), then accept them. They can then be picked up and built.",
-        answers: [[key: "a", label: "Accept", change: %{values: %{verdict: :accept}}]]
+          "Read the issues under it, which its agent proposed; change any, or remove one (Remove, under More… on its page), then accept them. They can then be picked up and built. Or say why not: the issues its agent proposed are removed, and it proposes again with your note; issues you added stay.",
+        answers: [
+          [key: "a", label: "Accept", change: %{values: %{verdict: :accept}}],
+          [
+            key: "f",
+            label: "Not accepted",
+            note: true,
+            change: %{values: %{verdict: :reject, supervisor_note: "$note"}}
+          ]
+        ]
       )
 
       branch(to: :broken_down, when: "entity.verdict == 'accept'")
+      branch(to: :break_down, when: "entity.verdict == 'reject'")
     end
 
     final :broken_down, label: "Broken down" do
@@ -327,5 +350,17 @@ defmodule Model.UseCase do
     preserve_entry: true,
     states: :same,
     reason: "Plan: its supervisor's pickup starts the work; texts only"
+  )
+
+  # Plan: its proposal can be sent back with a note (IS-Atlas-94): "Not accepted" in
+  # its accept step deletes the issues the proposal made and takes the run back to its
+  # break-down, whose agent reads the note. A run keeps its state and entry: one in
+  # its break-down keeps its task, one waiting for its supervisor can now be sent back.
+  migrate(:break_down_use_case,
+    from: "c7a2c365f29940f90596ff37f008a52feeb6ea984a6efcfa3078e04fa532a843",
+    to: "87f1c51b6a705ba8f23903a62812a86ee7d96056eaee4074ea2573410c416b97",
+    preserve_entry: true,
+    states: :same,
+    reason: "Plan: its proposal can be sent back with a note"
   )
 end

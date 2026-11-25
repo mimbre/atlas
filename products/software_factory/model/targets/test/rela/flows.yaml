@@ -294,6 +294,7 @@ flows:
         on:
           change:
             - { to: broken_down, when: "entity.verdict == 'accept'" }
+            - { to: break_down, when: "entity.verdict == 'reject'" }
       broken_down:
         label: Broken down
         final: true
@@ -352,6 +353,7 @@ flows:
         on:
           change:
             - { to: broken_down, when: "entity.verdict == 'accept'" }
+            - { to: break_down, when: "entity.verdict == 'reject'" }
       broken_down:
         label: Broken down
         final: true

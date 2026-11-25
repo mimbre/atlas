@@ -790,6 +790,8 @@ defmodule AtlasFlow.Runs.Run do
           end),
         else: []
 
+    {run, discards} = if effects? == true, do: discards(run, flow, state_name), else: {run, []}
+
     timers =
       if effects? in [true, :timers],
         do:
@@ -823,7 +825,7 @@ defmodule AtlasFlow.Runs.Run do
           ]),
           %{
             "version" => 1,
-            "writes" => writes ++ creates
+            "writes" => discards ++ writes ++ creates
           }
         ),
       "deadlines" => %{"version" => 1, "timers" => timers}
@@ -839,6 +841,39 @@ defmodule AtlasFlow.Runs.Run do
         "pending" => %{"version" => 1, "writes" => []},
         "deadlines" => %{"version" => 1, "timers" => []}
       })
+  end
+
+  # A task state whose proposal is discarded when it is entered again (`creates` with
+  # `discard: true`; its supervisor did not accept it): one delete, by Flow, of each fact
+  # the run's last task result made (`made`), so what was added by hand stays. That result
+  # is marked `discarded`, so it is never deleted twice (a later proposal may reuse its
+  # keys). A run without one (its first entry, or after a Retry) deletes nothing.
+  defp discards(run, flow, state_name) do
+    tasks = (run["pending"] || %{})["tasks"] || []
+
+    with {:task, %{"creates" => %{"discard" => true}}} <- flow.mechanism(state_name),
+         %{"made" => [_ | _] = made} = last when not is_map_key(last, "discarded") <-
+           List.last(tasks) do
+      deletes =
+        for {[kind, key], index} <- Enum.with_index(made) do
+          %{
+            "id" => digest({run["key"], run["entry"] + 1, "discard", index}),
+            "kind" => kind,
+            "content" => %{
+              "op" => "delete",
+              "key" => key,
+              "values" => %{},
+              "by" => "flow",
+              "cause" => "Not accepted: proposed by #{last["key"]}, discarded"
+            }
+          }
+        end
+
+      marked = List.replace_at(tasks, -1, Map.put(last, "discarded", true))
+      {put_in(run, ["pending", "tasks"], marked), deletes}
+    else
+      _ -> {run, []}
+    end
   end
 
   defp timer_origin(%{"since" => field}, subject, _now) when is_binary(field),

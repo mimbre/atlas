@@ -353,6 +353,11 @@
               "roles": [],
               "to": "broken_down",
               "when": "entity.verdict == 'accept'"
+            },
+            {
+              "roles": [],
+              "to": "break_down",
+              "when": "entity.verdict == 'reject'"
             }
           ],
           "creates": [],
@@ -378,9 +383,20 @@
                   },
                   "key": "a",
                   "label": "Accept"
+                },
+                {
+                  "change": {
+                    "values": {
+                      "note": "$note",
+                      "verdict": "reject"
+                    }
+                  },
+                  "key": "f",
+                  "label": "Not accepted",
+                  "note": true
                 }
               ],
-              "instructions": "Read the use cases under it, which its agent proposed; change, delete or add any, then accept them. They can then be designed, broken down and built."
+              "instructions": "Read the use cases under it, which its agent proposed; change, delete or add any, then accept them. They can then be designed, broken down and built. Or say why not: the use cases its agent proposed are removed, and it proposes again with your note; use cases you added stay."
             },
             "why": "its agent's break-down is done"
           },
@@ -427,7 +443,7 @@
               "instructions": "Its supervisor's Runtime runs one agent on it that proposes its use cases; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then.",
               "section": {
                 "field": "note",
-                "heading": "Its producer's note"
+                "label": "Its producer's or supervisor's note"
               }
             },
             "why": "it is to be broken down"
@@ -436,19 +452,24 @@
           "spec": {
             "cost_class": "standard",
             "creates": {
+              "discard": true,
               "fields": ["design", "note"],
               "file": "use_cases.json",
               "kind": "use_case"
             },
             "field": "task_result",
-            "fields": ["title", "description", "note"],
+            "fields": ["title", "description"],
             "input": {
               "base": "develop",
               "repository": "github.com/mimbre/atlas"
             },
-            "instructions": "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
+            "instructions": "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note, it was sent back: by its producer, once built and not accepted, or by its supervisor, who did not accept your earlier proposal, which is gone. Propose only the use cases still missing for what the note asks; those under it stay.",
             "kind": "plan",
             "machinery": "machinery",
+            "note": {
+              "field": "note",
+              "heading": "Its producer's or supervisor's note"
+            },
             "profile": "deep_coding",
             "read_first": true,
             "records": {
@@ -505,6 +526,11 @@
               "roles": [],
               "to": "broken_down",
               "when": "entity.verdict == 'accept'"
+            },
+            {
+              "roles": [],
+              "to": "break_down",
+              "when": "entity.verdict == 'reject'"
             }
           ],
           "creates": [],
@@ -530,9 +556,20 @@
                   },
                   "key": "a",
                   "label": "Accept"
+                },
+                {
+                  "change": {
+                    "values": {
+                      "supervisor_note": "$note",
+                      "verdict": "reject"
+                    }
+                  },
+                  "key": "f",
+                  "label": "Not accepted",
+                  "note": true
                 }
               ],
-              "instructions": "Read the issues under it, which its agent proposed; change any, or remove one (Remove, under More… on its page), then accept them. They can then be picked up and built."
+              "instructions": "Read the issues under it, which its agent proposed; change any, or remove one (Remove, under More… on its page), then accept them. They can then be picked up and built. Or say why not: the issues its agent proposed are removed, and it proposes again with your note; issues you added stay."
             },
             "why": "its agent's break-down is done"
           },
@@ -576,7 +613,11 @@
           "present": {
             "expected": "Break it down into issues",
             "todo": {
-              "instructions": "Its supervisor's Runtime runs one agent on it that proposes its issues; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then."
+              "instructions": "Its supervisor's Runtime runs one agent on it that proposes its issues; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then.",
+              "section": {
+                "field": "supervisor_note",
+                "label": "Its supervisor's note"
+              }
             },
             "why": "nothing is under it yet"
           },
@@ -584,6 +625,7 @@
           "spec": {
             "cost_class": "standard",
             "creates": {
+              "discard": true,
               "file": "issues.json",
               "kind": "issue",
               "order": "order"
@@ -594,9 +636,13 @@
               "base": "develop",
               "repository": "github.com/mimbre/atlas"
             },
-            "instructions": "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each issue is a vertical slice: it works end to end and can be shown working. The first is the thinnest happy path (a walking skeleton); each later one builds on the ones before it, in the order given. Propose as few issues as possible: split a slice further only when it is too big for one reviewable pull request, what one agent builds and reviews in one go. Never split by layer (model, contract, Control, client): each issue cuts through all the layers it needs. When its scene names its phase, respect it: in Explore, usually only the happy-path slice; edge cases come later as follow-ups.",
+            "instructions": "Break the use case below into the issues that build it: its description is the behaviour, its Design part (when it has one) how it is built. Its scene, after it, says why it is to be done; the repository you are given, a Git checkout of develop, is what it builds on. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each issue is a vertical slice: it works end to end and can be shown working. The first is the thinnest happy path (a walking skeleton); each later one builds on the ones before it, in the order given. Propose as few issues as possible: split a slice further only when it is too big for one reviewable pull request, what one agent builds and reviews in one go. Never split by layer (model, contract, Control, client): each issue cuts through all the layers it needs. When its scene names its phase, respect it: in Explore, usually only the happy-path slice; edge cases come later as follow-ups. When it has a note from its supervisor, your earlier proposal was not accepted and is gone: propose again, as the note asks; the issues under it now stay.",
             "kind": "plan",
             "machinery": "machinery",
+            "note": {
+              "field": "supervisor_note",
+              "heading": "Its supervisor's note"
+            },
             "parents": ["title", "description"],
             "profile": "deep_coding",
             "records": {
@@ -3339,6 +3385,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "43401ff748ca1a91cb86692e6797dac566fbd8e1993379b234b6aa1bc5363c66",
+  "rela_flows_sha256": "076b6d1a4751fb8190c740d648f9995ef30dbde1039bb929c7b45cc55df3faab",
   "writer": "system:atlas-flow"
 }
