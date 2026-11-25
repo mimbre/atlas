@@ -32,7 +32,10 @@
     "clients.json",
     "sources",
     "local-source",
-    "bases"
+    "bases",
+    "update.json",
+    "update.lock",
+    "update.log"
   ],
   "atomic_temps": [
     "code.json.tmp",
@@ -42,7 +45,10 @@
     "availability.json.tmp",
     "execution-events.json.tmp",
     "mode.json.tmp",
-    "clients.json.tmp"
+    "clients.json.tmp",
+    "update.json.tmp",
+    "update.lock.tmp",
+    "update.log.tmp"
   ],
   "chain": [
     "workers"

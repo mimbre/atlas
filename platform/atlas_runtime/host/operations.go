@@ -27,7 +27,7 @@ var stopWait = 60 * time.Second
 // startWait bounds how long service start waits for backend.sock to answer.
 var startWait = 15 * time.Second
 
-const serviceUsage = "use service start|status|stop [--force]|pause|resume|drain"
+const serviceUsage = "use service start|status|stop [--force]|pause|resume|drain|update --build BUILD"
 
 // runtimeInfo is GET /v1/runtime: mode, incarnation, runtime_build, policy_version, slots.
 func runtimeInfo(dir string) (map[string]any, error) {
@@ -48,6 +48,9 @@ func service(dir string, args []string) (map[string]any, error) {
 		return nil, errors.New(serviceUsage)
 	}
 	action := args[0]
+	if action == "update" {
+		return serviceUpdate(dir, args[1:])
+	}
 	if action != "stop" && len(args) != 1 {
 		return nil, errors.New(serviceUsage)
 	}
@@ -132,7 +135,7 @@ func serviceStart(dir string) (map[string]any, error) {
 	} else if !absent(dialErr) {
 		return nil, fmt.Errorf("existing service is not responding: %w", dialErr)
 	}
-	if repoRoot == "" {
+	if root, _ := atlasRoot(); root == "" {
 		return nil, errors.New("CLI was not built with the Atlas checkout location")
 	}
 	if err = os.Remove(commandSocket); err != nil && !os.IsNotExist(err) {

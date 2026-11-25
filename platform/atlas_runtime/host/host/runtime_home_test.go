@@ -129,8 +129,10 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 		var paths []string
 		for _, name := range []string{"runtime.sock", "backend.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
 			"service.lock", "passes", "snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets", "submissions", "rebinds",
-			"frozen", "execution-events.json", "mode.json", "clients.json", "sources", "local-source", "bases", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
-			"availability.json.tmp", "execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp"} {
+			"frozen", "execution-events.json", "mode.json", "clients.json", "sources", "local-source", "bases", "update.json", "update.lock", "update.log",
+			"code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
+			"availability.json.tmp", "execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp",
+			"update.json.tmp", "update.lock.tmp", "update.log.tmp"} {
 			if !slices.Contains(skip, name) {
 				paths = append(paths, filepath.Join(home, name))
 			}

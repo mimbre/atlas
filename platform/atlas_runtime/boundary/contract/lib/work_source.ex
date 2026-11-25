@@ -41,7 +41,9 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   # needs back on import. 0.3.0: a work's input may name a result_ref (the result over Git).
   # 0.4.0: the Runtime's configuration (IS-Atlas-27): polled may carry it, and a poll may
   # report one the Runtime refused (both optional, so 0.3.0 peers are not affected).
-  version("0.4.0")
+  # 0.5.0: a supervised upgrade (IS-Atlas-26): polled may carry an upgrade order, and a
+  # poll may report the upgrade's progress (both optional, so 0.4.0 peers are not affected).
+  version("0.5.0")
 
   # The Runtime's own enumerations (as in the work contract, which this one does not name).
   @attempt_states [
@@ -84,6 +86,32 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     # poll until one is applied; absent when there is none. An applied one shows as
     # policy_version.
     field(:configuration_refused, :configuration_refusal)
+    # The upgrade this source ordered (IS-Atlas-26), while there is one: the Runtime's mode,
+    # its busy slots and what its update command did. Absent when there is none.
+    field(:upgrade, :upgrade_report)
+  end
+
+  # id: the order's. mode and busy: the Runtime's mode and the slots that run a turn now.
+  # update: what the Runtime's update command recorded for this order (none: it has not
+  # run); step, where it stopped (update or restart); reason, why it refused or failed,
+  # never a path on the Runtime's machine.
+  defmodel :upgrade_report do
+    field(:id, :string, required: true)
+    field(:mode, {:enum, [:open, :paused, :draining, :stopping]}, required: true)
+    field(:busy, {:list, :string}, required: true)
+    field(:update, {:enum, [:none, :running, :refused, :failed, :installed]}, required: true)
+    field(:step, {:enum, [:update, :restart]})
+    field(:reason, :string)
+  end
+
+  # An upgrade of the Runtime its supervisor started at the source (IS-Atlas-26), to the
+  # released build `build`. action: drain (take no new work, return the unstarted),
+  # update (run the update command for `build`: it refuses while a slot is busy, installs
+  # the release and restarts the Runtime), resume (open again, once it came back).
+  defmodel :upgrade_order do
+    field(:id, :string, required: true)
+    field(:build, :string, required: true)
+    field(:action, {:enum, [:drain, :update, :resume]}, required: true)
   end
 
   # version: the refused document's own (0 when it names none it could read). reason: why,
@@ -116,6 +144,8 @@ defmodule AtlasRuntimeBoundary.WorkSource do
     # every attempt not yet started, or refuses it (configuration_refused). A source that
     # holds none, or whose one was refused, leaves it out.
     field(:configuration, :string)
+    # An upgrade its supervisor started (IS-Atlas-26), while it runs; see upgrade_order.
+    field(:upgrade, :upgrade_order)
   end
 
   # Seconds. A lease not renewed for lease_ttl is self-fenced by the Runtime (§5.3 item 2).

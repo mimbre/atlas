@@ -39,6 +39,7 @@ defmodule Model.AtlasEyra do
     PrReview,
     PrTest,
     PullRequest,
+    RuntimeUpgrade,
     Scene,
     ToDo,
     UseCase
@@ -248,6 +249,18 @@ defmodule Model.AtlasEyra do
     ]
   )
 
+  # One upgrade at a time per Runtime (IS-Atlas-26): a second one is refused while one
+  # has not ended.
+  extend_relation(:upgrade_of,
+    limit: [
+      max: 1,
+      field: :step,
+      values: [:requested, :draining, :waiting, :updating, :verifying],
+      error:
+        "{parent} already has {child} ({value}): one upgrade at a time; wait until it is done or failed"
+    ]
+  )
+
   extend_relation(:based_on,
     review: [field: :status, value: :superseded, label: "Review: based on a superseded decision"]
   )
@@ -282,7 +295,8 @@ defmodule Model.AtlasEyra do
       :pr_test,
       :use_case,
       :scene,
-      :decision
+      :decision,
+      :runtime_upgrade
     ]
   )
 
@@ -320,7 +334,8 @@ defmodule Model.AtlasEyra do
       Decision,
       FollowThrough,
       ToDo,
-      Package
+      Package,
+      RuntimeUpgrade
     ])
 
     link(:pr_review,
