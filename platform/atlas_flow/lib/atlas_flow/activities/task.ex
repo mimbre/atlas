@@ -94,7 +94,7 @@ defmodule AtlasFlow.Activities.Task do
   facts of that kind there are (the model's `ids`), `by` Flow with the run's supervisor in
   its cause; the agent never writes into Atlas. Each is also linked to that supervisor
   through the model's producer relation (`ctx.producer`, `supervision.producer`, SC-Atlas-09)
-  when its kind is one the relation leads from: the person who supervised the run that
+  when its kind is one the relation leads from: whoever supervised the run that
   made it is its producer. A run with no supervisor links none. With no such file, the
   task ends `stuck`.
   A spec's `writes` (`%{"field", "file"}`, slice 9) asks for one text instead: Flow puts the
