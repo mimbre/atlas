@@ -46,7 +46,7 @@ defmodule AtlasFlow.Activities.Task do
      went silent past its lease; the Runtime ends such a turn itself), or an end with no
      result and no outcome, is an empty turn (`Translate.empty/1`). By the ladder's rule
      (`Ladder.again?/2`) the first starts the same task once more on its own, on a fresh
-     attempt, with no person asked; the second in a row ends it `abandoned`, its reason
+     attempt, with nobody asked; the second in a row ends it `abandoned`, its reason
      "its agent went silent twice", so its state's `abandoned` branch takes it to whoever
      decides (and its `failure` field says why). The count is kept in the run (its
      intent's `retried`), never beside it.
