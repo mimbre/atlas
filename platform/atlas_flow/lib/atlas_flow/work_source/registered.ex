@@ -5,9 +5,9 @@ defmodule AtlasFlow.WorkSource.Registered do
   next to the core secret's (`AtlasFlow.WorkSource.Credentials.load/0`). So a new Runtime
   is admitted without a core secret or a restart.
 
-  A machinery fact (`Model.Machinery`) whose `credential_sha256` is 64 lowercase hex and
-  whose `runs_for` links one person is the credential `%{key => %{holder: person,
-  token_sha256: sha}}`: the Runtime's id is the machinery's key, its holder the person.
+  A machinery fact whose `credential_sha256` is 64 lowercase hex and whose `runs_for`
+  links one holder is the credential `%{key => %{holder: holder, token_sha256: sha}}`:
+  the Runtime's id is the machinery's key, its holder the one `runs_for` links.
   Nothing else is read; a fact without either is no credential. Only the hash is ever in
   Facts.
 
@@ -19,7 +19,7 @@ defmodule AtlasFlow.WorkSource.Registered do
   it, turns its Runtime away within `ttl`.
 
   `credentials/1` serves Flow's listener (`AtlasFlow.Backend.Listener`) and `digests/1`
-  Code's Git endpoint (`AtlasCode.Git`, through `config :atlas_code, :git`'s `registered`).
+  Code's Git endpoint (through the `registered` of Code's `git` settings).
   Options of `start_link/1`: `name` (default this module), `ttl` (ms), `read` (a
   `Talk.read/2`-like function, for tests) and `clock` (a 0-arity function giving the time
   in ms, default `System.monotonic_time(:millisecond)`, for tests).

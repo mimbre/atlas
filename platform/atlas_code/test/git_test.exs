@@ -88,7 +88,7 @@ defmodule AtlasCode.GitTest do
   end
 
   defmodule Registered do
-    @moduledoc "The digests a test registered, as AtlasFlow.WorkSource.Registered answers them."
+    @moduledoc "The digests a test registered, as the work source's registered digests answer them."
     def digests, do: :persistent_term.get({__MODULE__, :digests}, [])
   end
 

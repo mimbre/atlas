@@ -3,14 +3,14 @@ defmodule AtlasAgent.RuntimeInstall do
   `atlas runtime install` (IS-Atlas-116, UC-Atlas-50): a supervisor gets, from Control,
   the one command that installs a Runtime on a Mac.
 
-      atlas runtime install --machine <name> --workers <w1,w2> --for <person> \\
+      atlas runtime install --machine <name> --workers <w1,w2> --for <holder> \\
         --build <released build> --source <work source URL> --git <Code Git URL> \\
         [--releases <URL>] [--new-credential] [--env test|prod]
 
   It makes the machinery `<name>` in the environment through Control (`put machinery`,
   linked `runs_for` the supervisor), with the sha256 of a credential it makes here: 32
   random bytes, which never reach Control, rela or a log. Flow's work source and Code's
-  Git endpoint admit the Runtime by it (`AtlasFlow.WorkSource.Registered`), without a
+  Git endpoint admit the Runtime by it (the credentials registered in Facts), without a
   core secret. Then it prints the install command, with the credential in the environment
   of the installer (`ATLAS_RUNTIME_CREDENTIAL=…`), never in a process's arguments. The
   installer (`atlas-runtime-install.sh` of the release `atlas-runtime-<build>`) installs
@@ -26,10 +26,10 @@ defmodule AtlasAgent.RuntimeInstall do
   @name ~r/\A[a-z][a-z0-9-]{0,23}\z/
   @worker ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @build ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z/
-  @person ~r/\A[A-Za-z0-9._-]{1,64}\z/
+  @holder ~r/\A[A-Za-z0-9._-]{1,64}\z/
 
   @usage """
-  atlas runtime install --machine <name> --workers <w1,w2> --for <person> --build <build>
+  atlas runtime install --machine <name> --workers <w1,w2> --for <holder> --build <build>
                         --source <work source https URL> --git <Code Git https URL>
                         [--releases <URL>] [--new-credential]
   """
@@ -55,11 +55,11 @@ defmodule AtlasAgent.RuntimeInstall do
              &workers?/1,
              "a comma-separated list of worker names, e.g. dev1,dev2"
            ),
-         {:ok, person} <-
+         {:ok, holder} <-
            want(
              flags,
              "for",
-             &Regex.match?(@person, &1),
+             &Regex.match?(@holder, &1),
              "the key of the supervisor whose work it takes"
            ),
          {:ok, build} <-
@@ -77,7 +77,7 @@ defmodule AtlasAgent.RuntimeInstall do
        %{
          machine: machine,
          workers: String.split(workers, ","),
-         for: person,
+         for: holder,
          build: build,
          source: source,
          git: git,
@@ -190,9 +190,9 @@ defmodule AtlasAgent.RuntimeInstall do
   end
 
   @doc "What `atlas runtime install` prints."
-  def text(%{"machinery" => key, "for" => person, "command" => command}) do
+  def text(%{"machinery" => key, "for" => holder, "command" => command}) do
     """
-    Machinery #{key} is made for #{person}. Control keeps only the sha256 of its credential,
+    Machinery #{key} is made for #{holder}. Control keeps only the sha256 of its credential,
     which is in the command below and shown only now.
 
     On the Mac, logged in as the user that runs the Runtime, run:

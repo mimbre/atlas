@@ -14,8 +14,8 @@ defmodule AtlasCode.Git do
   environment variable `credentials_env` names), read once when the endpoint starts; and,
   with `"registered" => {module, function}`, the digests that function answers at each
   request (raw sha256 bytes): those registered in Facts for Runtimes installed through
-  Control (IS-Atlas-116; the core sets `{AtlasFlow.WorkSource.Registered, :digests}`, so
-  Code needs no Flow at compile time). Such a function caches its own reads.
+  Control (IS-Atlas-116; the core's settings name the work source's registered digests
+  function, so Code names no other layer). Such a function caches its own reads.
 
   `config :atlas_code, git: %{"port" => port, "credentials_env" => name}` starts it
   (`AtlasCode.Application`); it serves the registered Code (`AtlasCode.settings/0`).
