@@ -101,6 +101,9 @@ entities:
       note:
         type: string
         description: 'Its proposer''s note: an architecture choice it needs that is not decided, said instead of decided'
+      supervisor_note:
+        type: string
+        description: Its supervisor's note when Plan's proposal was not accepted; Plan's next round reads it
       phase:
         type: pipeline_phase
         description: 'Flow: which flow of its pipeline has it (break down, accept, accepted)'

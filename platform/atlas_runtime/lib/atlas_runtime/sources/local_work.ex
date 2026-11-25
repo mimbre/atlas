@@ -53,7 +53,7 @@ defmodule AtlasRuntime.Sources.Local.Work do
   @impl true
   def submit(client, input) do
     case Local.add(client, input) do
-      {:added, id} -> %B.Outcome.Accepted{work: view!(client, id)}
+      {:added, id} -> %B.Outcome.Accepted{work: added!(id)}
       {:existing, id} -> %B.Outcome.Existing{work: view!(client, id)}
       {:conflict, id} -> refused(:conflict, "client key #{input.client_key} names work #{id}")
       {:refused, :not_accepting, _detail} -> Executor.at_capacity(:not_accepting)
@@ -254,6 +254,14 @@ defmodule AtlasRuntime.Sources.Local.Work do
   end
 
   # The work of the local work `id` right after it was added.
+  # A work just added: as the source holds it, buffered at revision 0. The add nudges the
+  # puller, which may lease it before this read; the answer is still the add's, not the
+  # executor's record of the lease.
+  defp added!(id) do
+    {:ok, work} = Local.get(id)
+    queued(work)
+  end
+
   defp view!(client, id) do
     {:ok, work} = Local.get(id)
     view(client, work)

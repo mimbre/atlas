@@ -1309,6 +1309,10 @@
         "status": {
           "label": "Flux group"
         },
+        "supervisor_note": {
+          "label": "Supervisor's note",
+          "multiline": true
+        },
         "task_result": {
           "label": "Task result",
           "set_by": [

@@ -16,6 +16,9 @@ defmodule Model.Scene do
       any by hand, and accepts the break-down. Its run ends there and hands the scene to
       `accept_scene` (`phase: accept`). After a "Not accepted", its agent reads the
       producer's note and proposes only what is missing: nothing under the scene is redone.
+      Its supervisor's "Not accepted", with a note (the scene's `note`), throws the proposal
+      away: Flow deletes the use cases it made (those added by hand stay; `creates:
+      [discard: true]`) and the run goes back to its break-down, whose agent reads the note.
     * `accept_scene` **Accept** (Accept the scene): waits until every use case under it is accepted
       (`children`, `open_children`: the composition's count of the use cases in the scene,
       and of those without an accepted `accept_use_case` run), then asks its producer (the
@@ -136,7 +139,7 @@ defmodule Model.Scene do
         why: "it is to be broken down",
         instructions:
           "Its supervisor's Runtime runs one agent on it that proposes its use cases; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then.",
-        section: [field: :note, heading: "Its producer's note"]
+        section: [field: :note, label: "Its producer's or supervisor's note"]
       )
 
       task(:plan,
@@ -145,10 +148,16 @@ defmodule Model.Scene do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note from its producer, it was built and not accepted: propose only the use cases still missing for what the note asks; those under it stay.",
-        fields: [:title, :description, :note],
+          "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note, it was sent back: by its producer, once built and not accepted, or by its supervisor, who did not accept your earlier proposal, which is gone. Propose only the use cases still missing for what the note asks; those under it stay.",
+        fields: [:title, :description],
         read_first: true,
-        creates: [kind: :use_case, file: "use_cases.json", fields: [:design, :note]],
+        note: [field: :note, heading: "Its producer's or supervisor's note"],
+        creates: [
+          kind: :use_case,
+          file: "use_cases.json",
+          fields: [:design, :note],
+          discard: true
+        ],
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
@@ -161,7 +170,9 @@ defmodule Model.Scene do
     end
 
     # Its supervisor looks at the use cases Flow made from the agent's proposal, changes,
-    # removes or adds any by hand, and accepts the break-down.
+    # removes or adds any by hand, and accepts the break-down; or sends it back with a note
+    # (the scene's `note`): Flow deletes the use cases the proposal made (those added by
+    # hand stay), and its agent proposes again, reading the note.
     state :accepting, label: "Accept it" do
       owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
       set(verdict: :none)
@@ -170,11 +181,20 @@ defmodule Model.Scene do
         expected: "Accept its use cases",
         why: "its agent's break-down is done",
         instructions:
-          "Read the use cases under it, which its agent proposed; change, delete or add any, then accept them. They can then be designed, broken down and built.",
-        answers: [[key: "a", label: "Accept", change: %{values: %{verdict: :accept}}]]
+          "Read the use cases under it, which its agent proposed; change, delete or add any, then accept them. They can then be designed, broken down and built. Or say why not: the use cases its agent proposed are removed, and it proposes again with your note; use cases you added stay.",
+        answers: [
+          [key: "a", label: "Accept", change: %{values: %{verdict: :accept}}],
+          [
+            key: "f",
+            label: "Not accepted",
+            note: true,
+            change: %{values: %{verdict: :reject, note: "$note"}}
+          ]
+        ]
       )
 
       branch(to: :broken_down, when: "entity.verdict == 'accept'")
+      branch(to: :break_down, when: "entity.verdict == 'reject'")
     end
 
     final :broken_down, label: "Broken down" do
@@ -361,5 +381,17 @@ defmodule Model.Scene do
     preserve_entry: true,
     states: :same,
     reason: "Design: its supervisor's pickup starts the work; texts only"
+  )
+
+  # Design: its proposal can be sent back with a note (IS-Atlas-94): "Not accepted" in
+  # its accept step deletes the use cases the proposal made and takes the run back to its
+  # break-down, whose agent reads the note. A run keeps its state and entry: one in
+  # its break-down keeps its task, one waiting for its supervisor can now be sent back.
+  migrate(:break_down_scene,
+    from: "1fa161740e21d0c8055aafd3a24ef417993671d1057e14762aa4064aad1249c0",
+    to: "c7f67e0c0f7dc9247c959f1ccf90fb95ab65ceab1c746d025336b77a1f1b7092",
+    preserve_entry: true,
+    states: :same,
+    reason: "Design: its proposal can be sent back with a note"
   )
 end

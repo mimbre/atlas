@@ -183,7 +183,7 @@ defmodule AtlasFlow.Activities.Task do
       spec["ladder"] in [nil, true] and input?(spec["kind"], spec["ladder"], spec["input"]) and
       check?(spec["check"]) and checked?(spec) and text?(spec["instructions"]) and
       texts?(spec["fields"] || []) and texts?(spec["parents"] || []) and
-      spec["read_first"] in [nil, true] and
+      spec["read_first"] in [nil, true] and note?(spec["note"]) and
       creates?(spec["creates"]) and writes?(spec["writes"]) and
       not (spec["creates"] != nil and spec["writes"] != nil) and
       (spec["follow_ups"] == nil or text?(spec["follow_ups"])) and
@@ -195,11 +195,19 @@ defmodule AtlasFlow.Activities.Task do
 
   defp creates?(%{"kind" => kind, "file" => file} = creates),
     do:
-      Enum.all?(Map.keys(creates), &(&1 in ~w(kind file fields values order))) and text?(kind) and
-        text?(file) and texts?(creates["fields"] || []) and
-        is_map(creates["values"] || %{}) and (creates["order"] == nil or text?(creates["order"]))
+      Enum.all?(Map.keys(creates), &(&1 in ~w(kind file fields values order discard))) and
+        text?(kind) and text?(file) and texts?(creates["fields"] || []) and
+        is_map(creates["values"] || %{}) and (creates["order"] == nil or text?(creates["order"])) and
+        creates["discard"] in [nil, true]
 
   defp creates?(_creates), do: false
+
+  defp note?(nil), do: true
+
+  defp note?(%{"field" => field, "heading" => heading} = note),
+    do: map_size(note) == 2 and text?(field) and text?(heading)
+
+  defp note?(_note), do: false
 
   defp writes?(nil), do: true
 
@@ -342,7 +350,8 @@ defmodule AtlasFlow.Activities.Task do
 
     %{
       "title" => "#{spec["kind"]} #{subject["key"]}",
-      "instructions" => Enum.join([spec["instructions"] | sections]),
+      "instructions" =>
+        Enum.join([spec["instructions"] | sections]) <> note(spec["note"], values),
       "profile" => spec["profile"],
       "cost_class" => spec["cost_class"]
     }
@@ -350,6 +359,17 @@ defmodule AtlasFlow.Activities.Task do
       &if(spec["check"], do: Map.put(&1, "after_check", %{"command" => spec["check"]}), else: &1)
     )
   end
+
+  # The spec's `note`: the text of the subject's field under its heading, when it has one
+  # (what its supervisor said when its last proposal was not accepted, say).
+  defp note(%{"field" => field, "heading" => heading}, values) do
+    case values[field] do
+      text when is_binary(text) -> if text?(text), do: "\n\n## #{heading}\n\n#{text}", else: ""
+      _ -> ""
+    end
+  end
+
+  defp note(_note, _values), do: ""
 
   # The push path's capacity rule, kept only for `AtlasFlow.FakeRuntime` (test support of
   # the push client), which A5 removes together with it. Nothing in the lease path calls it.
@@ -888,6 +908,13 @@ defmodule AtlasFlow.Activities.Task do
          {:ok, follow_ups} <- follow_ups(spec, outcome, answer, run, intent, ctx) do
       result =
         if next == run_outcome, do: result, else: Map.put(result, "reason", "no proposal")
+
+      # What its proposal made, kept with its result, so a state that discards it
+      # (`creates: [discard: true]`) deletes those and nothing added by hand.
+      result =
+        if made != [] and spec["creates"] != nil,
+          do: Map.put(result, "made", for(w <- made, do: [w["kind"], w["content"]["key"]])),
+          else: result
 
       {:result, next, result, [change(intent, spec, ["result"], values) | made ++ follow_ups],
        nil}
