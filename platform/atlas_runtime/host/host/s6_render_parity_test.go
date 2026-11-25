@@ -458,7 +458,7 @@ func agentCase(t *testing.T, input map[string]any) (c specCase) {
 		spec.Codex, spec.Workspace, spec.HomeNames, c.builderErr = legacyCodexSpec(scope, scopeValue != nil, sandbox, workspacePath, scratch, inspector, home)
 		spec.Workspace.Origin = origin
 		if folderProfile {
-			spec.Env = folderEnv(spec.Env, scopeHome, inspector, scratch)
+			spec.Env = folderEnv(spec.Env, scopeHome, inspector, scratch, ReadOnlyFolder(scope))
 		}
 		c.launch = Launch{Dest: spec.Workspace.Root, Scratch: scratch}
 		c.spec = spec
@@ -494,7 +494,7 @@ func agentCase(t *testing.T, input map[string]any) (c specCase) {
 		}
 		if folderProfile {
 			spec.Scratch = TemporaryToken
-			spec.Env = folderEnv(spec.Env, scopeHome, inspector, TemporaryToken)
+			spec.Env = folderEnv(spec.Env, scopeHome, inspector, TemporaryToken, ReadOnlyFolder(scope))
 		}
 	} else {
 		settings, c.legacyErr = claudeReadOnlySettings(workspacePath, home)
@@ -567,8 +567,8 @@ func tokenizeTemporary(settings ClaudeSettings, temporary string) ClaudeSettings
 }
 
 // folderEnv is a folder worker's environment (host.go:287-301): the inspector first on PATH, this
-// home and inspector, and temp and caches in the scratch.
-func folderEnv(env SpecEnv, home, inspector, scratch string) SpecEnv {
+// home and inspector, and temp and caches in the scratch; a read-only folder's Mix build root too.
+func folderEnv(env SpecEnv, home, inspector, scratch string, readOnly bool) SpecEnv {
 	env.PrefixPath = filepath.Dir(inspector)
 	env.Set = append(env.Set, []string{"ATLAS_RUNTIME_HOME", home}, []string{"ATLAS_RUNTIME_EXECUTABLE", inspector},
 		[]string{"GIT_CONFIG_GLOBAL", "/dev/null"}, []string{"GIT_CONFIG_NOSYSTEM", "1"}, []string{"GIT_CONFIG_COUNT", "1"},
@@ -578,6 +578,10 @@ func folderEnv(env SpecEnv, home, inspector, scratch string) SpecEnv {
 		path := scratch + "/" + cache[1]
 		env.Set = append(env.Set, []string{cache[0], path})
 		env.Mkdirs = append(env.Mkdirs, path)
+	}
+	if readOnly {
+		env.Set = append(env.Set, []string{"MIX_BUILD_ROOT", scratch + "/_build"}, []string{"REBAR_BASE_DIR", scratch + "/_build/rebar3"})
+		env.Mkdirs = append(env.Mkdirs, scratch+"/_build")
 	}
 	return env
 }
@@ -614,11 +618,16 @@ func legacyCodexSpec(scope map[string]any, scoped bool, sandbox, workspacePath, 
 			return nil, workspace, nil, err
 		}
 		root := text(scope["root"])
-		entries, err := legacyWorkerEntries(scope, [][2]string{{root, "write"}}, scratch, user, inspector)
+		// A read-only folder (IS-Atlas-20) reads the folder instead of writing it.
+		profile, access := "atlas_folder", "write"
+		if ReadOnlyFolder(scope) {
+			profile, access = "atlas_read_only_folder", "read"
+		}
+		entries, err := legacyWorkerEntries(scope, [][2]string{{root, access}}, scratch, user, inspector)
 		if err != nil {
 			return nil, workspace, nil, err
 		}
-		return &CodexSpec{Profile: "atlas_folder", Base: ":read-only", Entries: entryList(entries),
+		return &CodexSpec{Profile: profile, Base: ":read-only", Entries: entryList(entries),
 			Network:      CodexNetwork{Mode: "loopback", UnixSockets: []string{scratch}, LocalBinding: true},
 			NetworkProxy: true, WebSearch: "disabled"}, SpecWorkspace{Root: root}, nil, nil
 	}

@@ -153,7 +153,8 @@ defmodule AtlasRuntime.Sandbox.SpecSecurityTest do
     for {name, scope, spec} <- folders do
       root = scope["root"]
       access = first_access(spec["codex"]["entries"])
-      assert access[root] == "write", name
+      # A read-only folder (SP4c) reads its repositories' .git with the folder.
+      assert access[root] == if(scope["read_only"] == true, do: "read", else: "write"), name
       assert access[root <> "/.git"] == "none", name
 
       for user <- ["{user}/.gitconfig", "{user}/.config/git", "{user}/.git-credentials"],
@@ -164,6 +165,46 @@ defmodule AtlasRuntime.Sandbox.SpecSecurityTest do
         refute Map.has_key?(access, git), "#{name}: #{git} narrowed"
         assert access[git <> "/config"] == "read", name
         assert access[git <> "/hooks"] == "read", name
+      end
+    end
+  end
+
+  # SP4c (IS-Atlas-20): a read-only folder (a job's review in its Git checkout) writes nothing
+  # of its folder: Codex reads it and writes only the turn's scratch, Claude's sandbox writes
+  # only the private temp and denies the folder, and its file tools may not edit it; its Mix
+  # build goes to the scratch (MIX_BUILD_ROOT). So a write in its checkout is refused.
+  test "SP4c a read-only folder writes only its scratch, where it builds", %{specs: specs} do
+    read_only =
+      for {name, row, spec} <- specs,
+          row["input"]["scope"]["read_only"] == true,
+          do: {name, row["input"]["scope"]["root"], spec}
+
+    assert Enum.sort(Enum.map(read_only, fn {_, _, spec} -> spec["harness"] end)) ==
+             ["claude", "codex"]
+
+    for {name, root, spec} <- read_only do
+      scratch = spec["scratch"]
+      assert ["MIX_BUILD_ROOT", scratch <> "/_build"] in spec["env"]["set"], name
+      assert ["REBAR_BASE_DIR", scratch <> "/_build/rebar3"] in spec["env"]["set"], name
+      assert (scratch <> "/_build") in spec["env"]["mkdirs"], name
+
+      case spec["harness"] do
+        "codex" ->
+          writes = for [path, "write"] <- spec["codex"]["entries"], do: path
+          assert writes == [scratch], name
+          assert [root, "read"] in spec["codex"]["entries"], name
+          assert spec["codex"]["profile"] == "atlas_read_only_folder", name
+
+        "claude" ->
+          settings = spec["claude"]["settings"]
+          filesystem = settings["sandbox"]["filesystem"]
+          assert filesystem["allowWrite"] == [scratch], name
+          assert root in filesystem["denyWrite"], name
+          assert root in filesystem["allowRead"], name
+          assert "Edit(/#{root})" in settings["permissions"]["deny"], name
+          assert "Write(/#{root})" in settings["permissions"]["deny"], name
+          refute "Edit" in spec["claude"]["tools"] or "Write" in spec["claude"]["tools"], name
+          assert "Bash" in spec["claude"]["tools"], name
       end
     end
   end

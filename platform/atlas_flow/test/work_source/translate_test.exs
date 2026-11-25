@@ -112,6 +112,41 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
     for kind <- ~w(plan author fix), do: assert(Translate.permissions(kind) == "workspace-write")
   end
 
+  # IS-Atlas-20, IS-Atlas-19: a subject's review on its latest result reads a Git checkout
+  # of it without a result push; its fix on that result still pushes its own.
+  test "a review on a result asks for a checkout and no result ref; a fix pushes its result" do
+    on_result = fn kind ->
+      spec = %{
+        spec(1)
+        | "kind" => kind,
+          "input" => %{"repository" => "github.com/mimbre/atlas", "result" => "latest"}
+      }
+
+      spec
+      |> Translate.intent(%{"key" => "IS-1"}, "TK-IS-1-2", L.base(), "robot-1", L.epoch())
+      |> Translate.result_ref("TK-IS-1-2")
+    end
+
+    review = on_result.("review")
+    assert Translate.intent?(review)
+    assert %{"permissions" => "read-only", "checkout" => true} = review["work"]["input"]
+    refute Map.has_key?(review["work"]["input"], "result_ref")
+    assert %{permissions: "read-only", checkout: true} = Translate.offered_work(review).input
+    refute Map.has_key?(Translate.offered_work(review).input, :result_ref)
+    assert Translate.input_result_ref(Translate.lease_input(review)) == nil
+
+    fix = on_result.("fix")
+    assert fix["work"]["input"]["permissions"] == "workspace-write"
+    assert fix["work"]["input"]["result_ref"] == "refs/atlas/results/TK-IS-1-2"
+    refute Map.has_key?(fix["work"]["input"], "checkout")
+    refute Map.has_key?(Translate.offered_work(fix).input, :checkout)
+
+    # A review on a base (no result) is read-only as before, without a checkout.
+    spec = %{spec(1) | "kind" => "review"}
+    plain = Translate.intent(spec, %{"key" => "B-1"}, "TK-B-1-1", L.base(), "r", L.epoch())
+    refute Map.has_key?(plain["work"]["input"], "checkout")
+  end
+
   test "only a version-2 intent with a base is one Dispatch offers" do
     assert Translate.intent?(L.intent("TK-B-1-1"))
     refute Translate.intent?(%{"version" => 1, "key" => "TK-B-1-1", "request" => %{}})
