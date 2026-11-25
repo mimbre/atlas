@@ -172,7 +172,8 @@ defmodule AtlasFlow.Composition.RecoveryTest do
     assert Map.take(values("tray", "T-1"), ~w(cups open_cups)) == %{"cups" => 0, "open_cups" => 0}
     assert run(c, "tally", "T-1")["state"] == "counting"
     assert {:ok, _} = reconcile(c)
-    assert run(c, "pour", "C-1") == Map.put(orphan, "status", "ended")
+    ended = Map.merge(orphan, %{"status" => "ended", "blocked_reason" => "subject_removed"})
+    assert run(c, "pour", "C-1") == ended
   end
 
   test "two subflows on one subject keep their own cursors and starts", c do
@@ -341,7 +342,6 @@ defmodule AtlasFlow.Composition.RecoveryTest do
           @behaviour AtlasFlow.Model
           defdelegate subflows(env), to: AtlasFlow.Yard
           defdelegate runs(), to: AtlasFlow.Yard
-          defdelegate migrations(), to: AtlasFlow.Yard
           defdelegate actors(), to: AtlasFlow.Yard
           defdelegate relations(), to: AtlasFlow.Yard
           defdelegate turn(), to: AtlasFlow.Yard

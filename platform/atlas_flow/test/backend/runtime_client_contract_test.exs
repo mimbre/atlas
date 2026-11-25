@@ -278,6 +278,40 @@ defmodule AtlasFlow.Backend.RuntimeClientContractTest do
     assert {:polled, %{lease_lost: ["nope"]}} = poll(["nope"])
   end
 
+  test "IS-Atlas-27: the configuration on the machinery fact reaches the client; a refusal comes back" do
+    kind = AtlasFlow.WorkSource.Configuration.kind()
+    document = JSON.encode!(%{"version" => 2, "profiles" => %{}})
+
+    FakeFacts.put(kind, %{
+      "key" => "mini",
+      "values" => %{"name" => "mini", "configuration" => document},
+      "version" => 1
+    })
+
+    assert {:polled, %{configuration: ^document}} = poll()
+
+    refused = %{version: 2, reason: "invalid: profiles"}
+
+    input = %{
+      runtime_id: "mini",
+      incarnation: "inc-1",
+      build: "test",
+      policy_version: 1,
+      offer: %{},
+      holdings: [],
+      configuration_refused: refused
+    }
+
+    assert {:polled, %{configuration: nil}} = Client.poll(input, @mini)
+
+    assert %{
+             "applied_version" => 1,
+             "refused_version" => 2,
+             "refused_reason" => "invalid: profiles"
+           } =
+             FakeFacts.get(kind, "mini")["values"]
+  end
+
   test "a poll for another Runtime than the credential's is rejected(invalid)" do
     assert {:rejected, %{reason: :invalid}} =
              Client.poll(

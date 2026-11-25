@@ -1,17 +1,23 @@
 import AtlasControlKit
+import ControlSession
 import SwiftUI
 
 /// A `single_choice` block: the question, the numbered choices (Control's order, the
 /// recommended one first, with why), and Control's instructions. A click or the choice's
 /// number chooses it; a choice given with a note opens a form for the note first.
 /// `submit` is called with the call Control projected for the choice, and its values.
+/// With the focus it tells `typingFocus` which digits are its own, so the page's action
+/// keys leave them to it; once a choice is sent, it says so until Control answers.
 struct SingleChoiceView: View {
     let block: SingleChoiceBlock
     let submit: (CallModel, [String: String]) -> Void
 
     @State private var choice: SingleChoice
+    @State private var token = UUID()
     @FocusState private var focused: Bool
     @FocusState private var noteFocused: Bool
+    @Environment(\.typingFocus) private var typingFocus
+    @Environment(\.pendingAction) private var pending
 
     init(block: SingleChoiceBlock, submit: @escaping (CallModel, [String: String]) -> Void) {
         self.block = block
@@ -33,6 +39,12 @@ struct SingleChoiceView: View {
                 Text("Choice \(choice.typed) — press Return to choose it, Esc to cancel.")
                     .foregroundStyle(.secondary)
             }
+            if let pending, pending.kind == .sending {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(pending.text).foregroundStyle(.secondary)
+                }
+            }
             if let instructions = block.instructions, !instructions.isEmpty {
                 Text(instructions).font(.callout).foregroundStyle(.secondary)
             }
@@ -49,6 +61,9 @@ struct SingleChoiceView: View {
             return .handled
         }
         .onAppear { focused = true }
+        .onDisappear { typingFocus?.blur(token) }
+        .onChange(of: focused) { _, now in tellFocus(now) }
+        .onChange(of: choice) { _, _ in tellFocus(focused) }
         .onChange(of: block) { _, new in choice.update(new) }
         .onChange(of: choice.noting?.option.answer) { _, answer in
             if answer == nil { focused = true } else { noteFocused = true }
@@ -74,6 +89,10 @@ struct SingleChoiceView: View {
             }
         }
         .padding(.leading, 36)
+    }
+
+    private func tellFocus(_ focused: Bool) {
+        if focused { typingFocus?.focus(token, choice) } else { typingFocus?.blur(token) }
     }
 
     private func apply(_ outcome: SingleChoice.Outcome) {

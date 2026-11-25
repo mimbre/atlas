@@ -55,69 +55,6 @@ defmodule Model.DeciderTest do
   # The decide subflow as the model compiled it for `env`.
   defp decide(env), do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == "decide"))
 
-  test "slice-1 cursors migrate against both deployed definition digests" do
-    alias AtlasFlow.Runs.Run
-    now = ~U[2026-11-12 00:00:00Z]
-    old_digest = "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c"
-    selection = Model.AtlasEyra.selection("decide")
-    # Captured from the deployed slice-1 runs in both environments, rather than
-    # inferred from a reconstruction of the old declaration; declared again for each
-    # environment's slice-7 digest, since imported final runs keep slice 1's.
-    assert Enum.count(selection["migrations"], &(&1["from"] == old_digest)) == 4
-    assert length(selection["migrations"]) == 10
-
-    for env <- [:prod, :test] do
-      definition = decide(env)
-
-      assert Enum.count(
-               selection["migrations"],
-               &(&1["from"] == old_digest and &1["to"] == definition.digest())
-             ) == 1
-
-      for state <- ~w(proposed accepted rejected) do
-        subject = %{"key" => "D-old", "values" => %{"status" => state}}
-        old = Run.new("decide", definition, subject, selection["imports"], now)
-
-        # Slice 1 imported its accepted and rejected decisions as completed history.
-        history =
-          if state == "proposed",
-            do: %{},
-            else: %{"status" => "completed", "last_input" => %{"version" => 1, "import" => true}}
-
-        old =
-          Map.merge(old, %{
-            "definition_sha256" => old_digest,
-            "state" => state,
-            "pending" => %{"version" => 1, "writes" => []}
-          })
-          |> Map.merge(history)
-
-        assert {:ok, migrated} = Run.migrate(old, definition, selection["migrations"], now)
-
-        if state == "proposed" do
-          assert migrated["state"] == "deciding"
-          assert migrated["entry"] == old["entry"] + 1
-          assert migrated["definition_sha256"] == definition.digest()
-          assert migrated["pending"]["gate"] == nil
-          assert length(migrated["pending"]["migrations"]) == 1
-
-          assert {:ok, ^migrated} =
-                   Run.migrate(migrated, definition, selection["migrations"], now)
-
-          # The first slice-3 deploy already blocked the old cursor. Installing
-          # the corrected mapping must recover it without a manual store edit.
-          blocked = Run.block_definition(old, definition)
-          assert blocked["status"] == "blocked"
-
-          assert {:ok, ^migrated} =
-                   Run.migrate(blocked, definition, selection["migrations"], now)
-        else
-          assert migrated == old
-        end
-      end
-    end
-  end
-
   test "only person waits declare person ownership and owner answers" do
     definition = decide(:prod)
 
@@ -157,52 +94,6 @@ defmodule Model.DeciderTest do
     refute definition.present("for_person_always", %{})["deadline"]
   end
 
-  # Slice 7 changes only who owns the person waits, so every run of the live digests moves
-  # to the new one as it is: no state is entered again, no timer starts again.
-  test "slice 7 re-keys live decide runs, keeping state, entry, entry time and deadlines" do
-    alias AtlasFlow.Runs.Run
-    now = ~U[2026-11-12 00:00:00Z]
-    selection = Model.AtlasEyra.selection("decide")
-
-    for {env, live} <- [
-          prod: "bfd535ea5c570cc586c606825745a7f767bf138a5f5289093f629a99e06fb042",
-          test: "b4a73029ce91d1bb1727498feb0c4b277315956c8b1ac547f15d1454eb5ccae8"
-        ],
-        definition = decide(env),
-        state <- definition.states() do
-      subject = %{"key" => "D-live", "values" => %{"status" => "proposed"}}
-      fresh = Run.new("decide", definition, subject, selection["imports"], now)
-      timers = if definition.final?(state), do: [], else: definition.timers(state)
-
-      run =
-        Map.merge(fresh, %{
-          "definition_sha256" => live,
-          "state" => state,
-          "entry" => 4,
-          "entered_at" => "2026-11-11T08:00:00Z",
-          "status" => if(definition.final?(state), do: "completed", else: "active"),
-          "deadlines" => %{
-            "version" => 1,
-            "timers" => for(t <- timers, do: Map.put(t, "due", "2026-11-13T08:00:00Z"))
-          }
-        })
-
-      assert {:ok, migrated} = Run.migrate(run, definition, selection["migrations"], now)
-      assert migrated["definition_sha256"] == definition.digest()
-      kept = ~w(state entry entered_at status deadlines input_cursor last_input)
-      assert Map.take(migrated, kept) == Map.take(run, kept), "#{env} #{state}"
-
-      assert Map.delete(migrated["pending"], "migrations") ==
-               Map.delete(run["pending"], "migrations")
-
-      assert [%{"from" => ^live, "state" => ^state, "entry" => 4}] =
-               migrated["pending"]["migrations"]
-
-      # Once moved, it is the new definition's run: nothing more to migrate.
-      assert {:ok, ^migrated} = Run.migrate(migrated, definition, selection["migrations"], now)
-    end
-  end
-
   # The model names the role, never the person (slice 7): each environment's settings say
   # who the decider is, and Flow writes that one as the owner.
   test "a person's decision, and accepting a scene, go to the configured decider" do
@@ -222,9 +113,9 @@ defmodule Model.DeciderTest do
       accept = Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == "accept_scene"))
       assert AtlasFlow.Model.owner(accept.owner("to_accept")["default"], actors) == decider
 
-      # While its use cases are not all accepted, it waits with its producer, not the
-      # coordinator: nothing is built on it, and it gives nobody a to-do.
-      assert AtlasFlow.Model.owner(accept.owner("building")["default"], actors) == decider
+      # While its use cases are not all accepted, it waits assigned to nobody, not its
+      # producer nor the coordinator: nothing is built on it, and it gives nobody a to-do.
+      assert accept.owner("building")["default"] == nil
 
       assert %{"expected" => "Waiting for its use cases"} =
                waiting = accept.present("building", %{})
@@ -280,7 +171,6 @@ defmodule Model.DeciderTest do
 
     selection = Model.AtlasEyra.selection("decide")
     assert selection["subject"] == definition.subject()
-    assert Enum.any?(selection["migrations"], &(&1["to"] == definition.digest()))
 
     # An accepted decision is follow_through's, not decide's: their admissions are disjoint.
     assert selection["admission"] == %{"status" => ["proposed", "rejected", "superseded"]}
@@ -467,12 +357,8 @@ defmodule Model.DeciderTest do
   end
 
   test "fresh verdict enforcement preserves the prior split for the complete classification matrix" do
-    schema = File.read!("../targets/rela/modules/foundation/schema.yaml")
-
-    values = fn type ->
-      [_, items] = Regex.run(~r/  #{type}:\n    values:\n((?:    - .+\n)+)/, schema)
-      items |> String.split("\n", trim: true) |> Enum.map(&String.trim_leading(&1, "    - "))
-    end
+    types = Model.AtlasEyra.__rela__(:description).schema["types"]
+    values = &types[&1]["values"]
 
     combinations =
       for category <- values.("decision_category"),

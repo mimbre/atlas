@@ -1,6 +1,6 @@
 # Gate activity and decider timeout proof
 
-Run from the repository root after merge. Use test throughout. Production's generated pair contains `48h`; test's separate pair contains `5m`. Both carry the digest of their own YAML. Flow reads the selected pair without rewriting YAML. The explicit migration in `products/software_factory/model/targets/rela/flow-runtime.json` admits only the exact previous status-bridge definition, with no pending writes or deadlines. Historical final runs keep their cursor; a waiting bridge run enters `deciding` once. Back up the environment before deployment, as for other durable-run changes. Any other definition drift still refuses execution.
+Run from the repository root after merge. Use test throughout. Production's generated pair contains `48h`; test's separate pair contains `5m`. Flow runs the subflows compiled into the model for its environment. A run keeps its flow and state by name (D-0102): historical final runs keep their cursor, and a waiting run continues in its state. Back up the environment before deployment, as for other durable-run changes.
 
 The additional `based_on` review entry and the decision's own red flag live in the runtime sidecar (`products/software_factory/model/targets/rela/flow-runtime.json`, generated from the model since Rela DSL slice 2) and are applied by Facts after the description is loaded. The confirmation relation and immutable-field exception live in foundation schema and metadata.
 
@@ -12,7 +12,7 @@ Use the pinned, already installed Rela 26.11.9 and a Python with `platform/atlas
 export ATLAS_RELA_BIN="$PWD/.rela-bin"
 export ATLAS_E2E_RELA_BIN="$ATLAS_RELA_BIN"
 (cd products/software_factory/model/generator && MIX_ENV=test mix test --warnings-as-errors)
-(cd products/software_factory/model/contract && mix model.gen --check && mix test)
+(cd products/software_factory/model/contract && mix model.gen && mix test)
 python3 -m unittest discover -s platform/atlas_facts/rela/tests -v
 (cd products/software_factory && MIX_ENV=test mix compile)
 (cd platform/atlas_bus && mix test test/boundary_test.exs)
@@ -26,7 +26,7 @@ python3 -m unittest discover -s platform/atlas_facts/rela/tests -v
 
 The last command owns a private Rela process, Facts, Gates and a manual clock. It restarts Facts before the deadline, advances from 299,999 ms to 300,000 ms, checks the second verdict and `follows`, accepts through Facts' trusted input path, checks both review flags, confirms, supersedes, and checks that the fixed-rule wait has no timer. It stops its server on success and failure. It also retains the neutral trusted-input persistence proof. No test sleeps until a deadline.
 
-The manual-clock Bus proof uses a memory store; it proves the Flow/Gates boundary and recovery, not Rela persistence or schema validation. Native checks must run before claiming the latter. On the development sandbox used for this change, the pinned binary was unavailable: native validation and native e2e execution were not performed. The updated decision diagram/version was reconstructed from the YAML serialization and diagram conventions of the committed fixtures; `mix model.gen --check` with the pinned binary remains the authoritative check.
+The manual-clock Bus proof uses a memory store; it proves the Flow/Gates boundary and recovery, not Rela persistence or schema validation. Native checks must run before claiming the latter. On the development sandbox used for this change, the pinned binary was unavailable: native validation and native e2e execution were not performed. The updated decision diagram/version was reconstructed from the YAML serialization and diagram conventions of the committed fixtures; `mix model.gen` with the pinned binary, which has Rela validate the description and draw the diagrams, remains the authoritative check.
 
 ## Real behaviour on the deployed test environment
 

@@ -3,12 +3,12 @@ defmodule RelaDSL.SupervisionTest do
   Supervision (work acquisition design 2026-11-17, §5.6–5.8): a subflow declares its supervised spans
   (`supervise`); the composition maps them, with the relation to a run's human
   supervisor and the pickup and hand-over input fields, into the run mapping, beside the
-  subflows so no digest changes; the start page offers the two supervision entries. The
+  subflows, never in a subflow's definition; the start page offers the two supervision entries. The
   tests assert structure: what is refused, and the shape of what is compiled.
   """
   use ExUnit.Case, async: true
 
-  alias RelaDSL.{Atlas, Composition, DefinitionDigest, Problem}
+  alias RelaDSL.{Atlas, Composition, Problem}
   alias RelaDSL.Description.{Build, Check}
 
   # -- A subflow's spans (RelaDSL.Schema) ---------------------------------------------
@@ -65,16 +65,13 @@ defmodule RelaDSL.SupervisionTest do
     assert plain.spans == []
   end
 
-  test "a span sits beside the subflow's definition: it changes no digest" do
+  test "a span sits beside the subflow's definition: it changes nothing in it" do
     [spanned] = compile!(gated("supervise :work, states: [:a, :check, :decide]\n")).__flows__()
     [plain] = compile!(gated("")).__flows__()
     gates = RelaDSL.Example.Gates.__gates__()
-    definitions = &Atlas.definitions([&1], gates)
 
-    assert DefinitionDigest.of(definitions.(spanned)["f"]) ==
-             DefinitionDigest.of(definitions.(plain)["f"])
-
-    refute Atlas.flows_json([spanned], gates, String.duplicate("0", 64)) =~ "\"spans\""
+    assert Atlas.definitions([spanned], gates) == Atlas.definitions([plain], gates)
+    refute Atlas.flows_json([spanned], gates) =~ "\"spans\""
   end
 
   test "a span's shape is checked" do
@@ -552,11 +549,12 @@ defmodule RelaDSL.SupervisionTest do
            )
   end
 
-  test "the work sits beside the subflows: it changes no digest" do
+  test "the work sits beside the subflows: it changes no subflow's definition" do
     with_work = model(concept: @job, composition: @entries <> work_decl(@work))
     without = model(concept: @job, composition: @entries)
+    definitions = &Atlas.definitions(&1.__flows__(), &1.__rela__(:gates))
 
-    assert with_work.__rela__(:digests) == without.__rela__(:digests)
+    assert definitions.(with_work) == definitions.(without)
 
     assert Map.delete(with_work.supervision(), "work") == without.supervision()
   end

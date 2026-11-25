@@ -2,7 +2,7 @@ defmodule AtlasE2E.ControlReadyTest do
   use ExUnit.Case, async: true
 
   @root Path.expand("../../../..", __DIR__)
-  @contract Path.join(@root, "platform/atlas_control/backend/targets/json/blocks.json")
+  @contract Path.join(@root, "platform/atlas_control/backend/contract/lib/contract.ex")
 
   setup do
     dir = Path.join(System.tmp_dir!(), "atlas-ready-#{System.unique_integer([:positive])}")

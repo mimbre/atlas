@@ -3,9 +3,13 @@ defmodule AtlasRuntime.Policy do
   The human-owned model policy, `policy.json` in the Runtime home, and its mechanical
   resolution of an execution profile to one concrete option (design §7).
 
-  A human edits the file locally and raises `version` on every change; nothing in the
-  Runtime writes it. It is read again for every resolution, so a change applies to every
-  attempt that has not started. A missing or invalid file permits nothing.
+  Its supervisor sets it through Control (IS-Atlas-27): Control keeps it on the Runtime's
+  machinery fact, the work source serves it in a poll answer, and
+  `AtlasRuntime.Configuration` checks it with `check/1` and writes it with `write/2`. That
+  is the only writer in the Runtime; a human may still edit the file locally (raising
+  `version` on every change), and Control's next version replaces it. It is read again for
+  every resolution, so a change applies to every attempt that has not started. A missing
+  or invalid file permits nothing.
 
   `load/1` returns `{:ok, policy}` or `{:error, reason}`; every other function takes that
   result as it is. Quota evidence is not policy: it lives in `AtlasRuntime.Availability`.
@@ -79,7 +83,7 @@ defmodule AtlasRuntime.Policy do
   def load(dir) do
     case File.read(path(dir)) do
       {:ok, bytes} ->
-        with {:ok, policy} <- decode(bytes), :ok <- validate(policy), do: {:ok, policy}
+        check(bytes)
 
       {:error, :enoent} ->
         {:error, :missing}
@@ -87,6 +91,42 @@ defmodule AtlasRuntime.Policy do
       {:error, reason} ->
         {:error, {:invalid, "cannot read #{@file_name}: #{:file.format_error(reason)}"}}
     end
+  end
+
+  @doc """
+  Checks the bytes of a policy document as `load/1` checks the file: `{:ok, policy}` or
+  `{:error, {:invalid, why}}`. Nothing is read from or written to a home.
+  """
+  @spec check(binary()) :: {:ok, map()} | {:error, {:invalid, String.t()}}
+  def check(bytes) when is_binary(bytes) do
+    with {:ok, policy} <- decode(bytes), :ok <- validate(policy), do: {:ok, policy}
+  end
+
+  @doc """
+  Writes `bytes` as `policy.json` in `dir`, whole or not at all: into `policy.json.tmp`
+  beside it (a name the sandbox already denies agents, `AtlasRuntime.Sandbox.HomeLayout`),
+  synced, then renamed over it. The caller has checked them (`check/1`) and is the only
+  writer (the configuring source's puller). `:ok` or `{:error, reason}`, the old file left
+  as it was.
+  """
+  @spec write(Path.t(), binary()) :: :ok | {:error, term()}
+  def write(dir, bytes) when is_binary(bytes) do
+    tmp = path(dir) <> ".tmp"
+
+    result =
+      with {:ok, fd} <- :file.open(tmp, [:write, :raw, :binary]),
+           :ok <- write_synced(fd, bytes) do
+        :file.rename(tmp, path(dir))
+      end
+
+    if result != :ok, do: File.rm(tmp)
+    result
+  end
+
+  defp write_synced(fd, bytes) do
+    with :ok <- :file.write(fd, bytes), :ok <- :file.sync(fd), do: :file.close(fd)
+  after
+    :file.close(fd)
   end
 
   @doc "The policy version recorded in provenance; nil without a valid policy."

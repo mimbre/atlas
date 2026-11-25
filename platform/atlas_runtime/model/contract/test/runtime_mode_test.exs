@@ -1,7 +1,6 @@
 defmodule AtlasRuntimeModel.RuntimeModeTest do
   use ExUnit.Case, async: true
 
-  alias AtlasRuntimeModel.Generator.{Header, Targets.Json}
   alias AtlasRuntimeModel.Test.RuntimeMode.RuntimeMode
 
   @t0 ~U[2026-11-16 09:00:00.000000Z]
@@ -16,15 +15,6 @@ defmodule AtlasRuntimeModel.RuntimeModeTest do
       assert [%{name: :runtime_mode, persistence: persistence}] = schema.entities
       assert persistence == %{form: :json_file, path: "mode.json", format_version: 1}
       assert RuntimeMode.path() == "mode.json"
-    end
-
-    test "targets/json/runtime_mode.json is what the contract generates (golden)" do
-      schema = AtlasRuntimeModel.RuntimeMode.__schema__()
-      [{"runtime_mode.json", body}] = Json.files(:runtime_mode, schema)
-      root = Path.expand("../../../..", File.cwd!())
-      source = List.to_string(AtlasRuntimeModel.RuntimeMode.module_info(:compile)[:source])
-      expected = Header.put(".json", Path.relative_to(source, root), body)
-      assert File.read!("../targets/json/runtime_mode.json") == expected
     end
   end
 

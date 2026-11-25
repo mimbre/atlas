@@ -4,14 +4,29 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RoutesTest do
   alias AtlasRuntimeBackend.Generator.Example.{Api, Bare, Extended, Rest}
   alias AtlasRuntimeBackend.Generator.Targets.Routes
 
-  @golden Path.expand("../golden/routes.json", __DIR__)
-
   defp routes(schema), do: schema |> Routes.files([]) |> then(fn [{_, b}] -> JSON.decode!(b) end)
 
-  test "the extended example's file matches the golden file" do
+  test "the extended example's file: keys sorted, indented by two; every route in the contract's order" do
     assert [{"api/routes.json", body}] = Routes.files(Extended.__schema__(), name: "api")
     assert [{"routes.json", ^body}] = Routes.files(Extended.__schema__(), [])
-    assert body == File.read!(@golden)
+    assert body == layout(JSON.decode!(body))
+
+    json = JSON.decode!(body)
+
+    assert Map.keys(json) |> Enum.sort() ==
+             ["carries", "errors", "events", "listeners", "routes", "target", "version"]
+
+    assert Enum.map(json["routes"], &{&1["method"], &1["path"], &1["capability"]}) == [
+             {"POST", "/v1/books", "lend"},
+             {"GET", "/v1/books/{book_id}", "find_book"},
+             {"GET", "/v1/books", "search"},
+             {"GET", "/v1/books", "list_books"},
+             {"POST", "/v1/books/{book_id}/return", "give_back"},
+             {"GET", "/v1/count", "count"},
+             {"GET", "/v1/books/{book_id}/scan", "scan"},
+             {"PUT", "/v1/books/{book_id}/pages", "deposit"},
+             {"GET", "/v1/events", "watch"}
+           ]
   end
 
   test "the same route table the generated router answers by" do
@@ -111,4 +126,21 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RoutesTest do
       Routes.files(Api.__schema__(), target: :grpc)
     end
   end
+
+  # The layout the file target promises: keys sorted, two spaces per level, a newline at the end.
+  defp layout(value), do: IO.iodata_to_binary(layout(value, "")) <> "\n"
+
+  defp layout(map, at) when is_map(map) and map_size(map) > 0 do
+    inner =
+      for {k, v} <- Enum.sort(map), do: [at, "  ", JSON.encode!(k), ": ", layout(v, at <> "  ")]
+
+    ["{\n", Enum.intersperse(inner, ",\n"), "\n", at, "}"]
+  end
+
+  defp layout(list, at) when is_list(list) and list != [] do
+    inner = for v <- list, do: [at, "  ", layout(v, at <> "  ")]
+    ["[\n", Enum.intersperse(inner, ",\n"), "\n", at, "]"]
+  end
+
+  defp layout(value, _at), do: JSON.encode!(value)
 end

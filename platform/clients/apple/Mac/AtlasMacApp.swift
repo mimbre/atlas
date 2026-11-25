@@ -45,7 +45,8 @@ enum Launch {
         let info = Bundle.main.infoDictionary
         do {
             let settings = try SessionSettings.launch(Array(arguments.dropFirst()), bundle: info)
-            let session = Session(settings: settings, connector: NetworkLineConnector(), clock: DispatchSessionClock())
+            let session = Session(settings: settings, connector: NetworkLineConnector(), clock: DispatchSessionClock(),
+                                  agent: ProcessSteerConnector())
             let installer = BundleInstaller(app: Bundle.main.bundleURL) { page in
                 var next = settings
                 next.startPage = page

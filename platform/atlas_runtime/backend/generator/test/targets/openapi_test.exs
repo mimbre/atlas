@@ -6,7 +6,6 @@ defmodule AtlasRuntimeBackend.Generator.Targets.OpenapiTest do
   alias AtlasRuntimeBackend.Generator.Example.{Api, Bare, Extended, Rest}
   alias AtlasRuntimeBackend.Generator.Targets.{Openapi, Routes}
 
-  @golden Path.expand("../golden/openapi.json", __DIR__)
   @opts [name: "api", security: [guest: :bearer]]
 
   defp doc(schema, opts \\ @opts),
@@ -14,9 +13,26 @@ defmodule AtlasRuntimeBackend.Generator.Targets.OpenapiTest do
 
   defp op(doc, method, path), do: doc["paths"][path][method]
 
-  test "the extended example's file matches the golden file" do
+  test "the extended example's file: keys sorted, indented by two; every path, operation and schema" do
     assert [{"api/openapi.json", body}] = Openapi.files(Extended.__schema__(), @opts)
-    assert body == File.read!(@golden)
+    assert body == layout(JSON.decode!(body))
+
+    doc = JSON.decode!(body)
+    assert Map.keys(doc) |> Enum.sort() == ["components", "info", "openapi", "paths", "security"]
+
+    assert Map.new(doc["paths"], fn {path, ops} -> {path, ops |> Map.keys() |> Enum.sort()} end) ==
+             %{
+               "/v1/books" => ["get", "post"],
+               "/v1/books/{book_id}" => ["get"],
+               "/v1/books/{book_id}/pages" => ["put"],
+               "/v1/books/{book_id}/return" => ["post"],
+               "/v1/books/{book_id}/scan" => ["get"],
+               "/v1/count" => ["get"],
+               "/v1/events" => ["get"]
+             }
+
+    assert doc["components"]["schemas"] |> Map.keys() |> Enum.sort() ==
+             ~w(book book_changed books branch busy counts deposit found lent refused restart shelf tick)
   end
 
   test "OpenAPI 3.1, no servers: the host is configuration" do
@@ -352,4 +368,21 @@ defmodule AtlasRuntimeBackend.Generator.Targets.OpenapiTest do
 
     for s <- Map.get(schema, "oneOf", [schema]), do: s["properties"]["type"]["const"]
   end
+
+  # The layout the file target promises: keys sorted, two spaces per level, a newline at the end.
+  defp layout(value), do: IO.iodata_to_binary(layout(value, "")) <> "\n"
+
+  defp layout(map, at) when is_map(map) and map_size(map) > 0 do
+    inner =
+      for {k, v} <- Enum.sort(map), do: [at, "  ", JSON.encode!(k), ": ", layout(v, at <> "  ")]
+
+    ["{\n", Enum.intersperse(inner, ",\n"), "\n", at, "}"]
+  end
+
+  defp layout(list, at) when is_list(list) and list != [] do
+    inner = for v <- list, do: [at, "  ", layout(v, at <> "  ")]
+    ["[\n", Enum.intersperse(inner, ",\n"), "\n", at, "]"]
+  end
+
+  defp layout(value, _at), do: JSON.encode!(value)
 end

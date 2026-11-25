@@ -51,12 +51,7 @@ defmodule AtlasFlow.Runs.RunTest do
 
     # Two branches hold: the first written is taken.
     assert {:ok, %{"state" => "done"}} =
-             Run.step(
-               %{run | "definition_sha256" => Sorts.Twice.digest()},
-               Sorts.Twice,
-               subject(%{"result" => "ok"}),
-               @now
-             )
+             Run.step(run, Sorts.Twice, subject(%{"result" => "ok"}), @now)
 
     for {value, state} <- [{"ok", "done"}, {"old", "done"}, {"no", "discarded"}] do
       imported = new(%{"result" => value})
@@ -67,89 +62,33 @@ defmodule AtlasFlow.Runs.RunTest do
     end
   end
 
-  test "only an exact reviewed mapping migrates a quiescent run, preserving historical finals" do
+  test "a run is matched to its subflow's states by name" do
     flow = sort()
-    run = new() |> put_in(["pending", "writes"], []) |> put_in(["deadlines", "timers"], [])
-    old = Map.put(run, "definition_sha256", "old")
+    run = new() |> put_in(["pending", "writes"], [])
 
-    mapping = %{
-      "from" => "old",
-      "to" => flow.digest(),
-      "states" => %{"waiting" => "waiting", "done" => "done"}
-    }
+    # In a state of its subflow, whatever else changed about the subflow: as it is.
+    assert Run.match_states(run, flow) == run
+    assert Run.match_states(run, Sorts.Plain) == run
+    idle = Map.merge(run, %{"status" => "idle", "state" => ""})
+    assert Run.match_states(idle, flow) == idle
 
-    assert {:error, :definition_changed} = Run.migrate(old, flow, [], @now)
-
-    assert {:error, :definition_changed} =
-             Run.migrate(old, flow, [put_in(mapping, ["states", "waiting"], "missing")], @now)
-
-    assert {:ok, migrated} = Run.migrate(old, flow, [mapping], @now)
-    assert migrated["entry"] == old["entry"] + 1
-    assert migrated["key"] == old["key"]
-    assert migrated["definition_sha256"] == flow.digest()
-
-    assert {:error, _} =
-             Run.migrate(put_in(old, ["deadlines", "timers"], [%{}]), flow, [mapping], @now)
-
-    completed = old |> Map.put("status", "completed") |> Map.put("state", "done")
-    assert {:ok, historical} = Run.migrate(completed, flow, [mapping], @now)
-    assert historical["entry"] == completed["entry"]
-    assert historical["pending"]["writes"] == []
-    assert historical["status"] == "completed"
-  end
-
-  test "only a migration that names it in reopen takes a completed run back into an open state" do
-    flow = sort()
-    run = new() |> put_in(["pending", "writes"], []) |> put_in(["deadlines", "timers"], [])
-
-    ended =
+    # Blocked by an earlier build for a changed definition: its status back, unblocked.
+    old =
       run
-      |> Map.merge(%{
-        "definition_sha256" => "old",
-        "status" => "completed",
-        "state" => "discarded"
-      })
-      |> put_in(["pending", "tasks"], [%{"key" => "TK-B-1-1", "outcome" => "stuck"}])
+      |> Map.merge(%{"status" => "blocked", "blocked_reason" => "definition_changed: a -> b"})
+      |> put_in(["pending", "definition_block"], %{"status" => "active"})
 
-    mapping = %{
-      "from" => "old",
-      "to" => flow.digest(),
-      "states" => %{"waiting" => "waiting", "done" => "done", "discarded" => "waiting"}
-    }
+    assert Run.match_states(old, flow) == run
 
-    # Without reopen a completed run is never taken for an open one: it blocks.
-    assert Run.reopening(ended, flow, [mapping]) == nil
-    assert {:error, :definition_changed} = Run.migrate(ended, flow, [mapping], @now)
-
-    reopen = Map.put(mapping, "reopen", ["discarded"])
-    assert Run.reopening(ended, flow, [reopen]) == reopen
-
-    assert {:ok, reopened} = Run.migrate(ended, flow, [reopen], @now, supervisor: "ada")
-    assert {reopened["state"], reopened["status"]} == {"waiting", "active"}
-    assert reopened["entry"] == ended["entry"] + 1
-    assert reopened["key"] == ended["key"]
-    assert reopened["definition_sha256"] == flow.digest()
-    assert reopened["supervised_by"] == "ada"
-    assert reopened["pending"]["tasks"] == ended["pending"]["tasks"]
-
-    assert [%{"from" => "old", "state" => "discarded", "reopened" => true}] =
-             reopened["pending"]["migrations"]
-
-    # No supervisor known: none.
-    assert {:ok, alone} = Run.migrate(ended, flow, [reopen], @now)
-    refute Map.has_key?(alone, "supervised_by")
-
-    # A completed run in a state reopen does not name, an active run in one it names, and
-    # one whose state maps to a final state: as before.
-    done = Map.put(ended, "state", "done")
-    assert Run.reopening(done, flow, [reopen]) == nil
-
-    assert {:ok, %{"status" => "completed", "state" => "done"}} =
-             Run.migrate(done, flow, [reopen], @now)
-
-    assert Run.reopening(Map.put(ended, "status", "active"), flow, [reopen]) == nil
-    to_final = put_in(reopen, ["states", "discarded"], "discarded")
-    assert Run.reopening(ended, flow, [to_final]) == nil
+    # In a state its subflow does not have: blocked, its status kept, once.
+    removed = Map.put(run, "state", "sorting")
+    blocked = Run.match_states(removed, flow)
+    assert {blocked["status"], blocked["blocked_reason"]} == {"blocked", "state_removed: sorting"}
+    assert blocked["pending"]["definition_block"] == %{"status" => "active"}
+    keep = &Map.drop(&1, ~w(status blocked_reason pending))
+    assert keep.(blocked) == keep.(removed)
+    assert Run.match_states(blocked, flow) == blocked
+    assert Run.match_states(Map.put(blocked, "state", "waiting"), flow) == run
   end
 
   test "refuses a subflow whose mechanism this runner cannot run" do
@@ -446,12 +385,57 @@ defmodule AtlasFlow.Runs.RunTest do
     assert {:ok, [%{"state" => "done", "entry" => 2} = final]} = reconcile(clock)
     ManualClock.advance(clock, 300_001)
     assert {:ok, [^final]} = reconcile(clock)
+    # Its subflow changed, its final state kept: it stays as it ended.
     changed = %{"sort" => Sorts.Relabelled}
-    assert {:ok, [blocked]} = Store.reconcile(config(), changed, ManualClock.now(clock))
-    assert blocked["status"] == "blocked"
-    assert blocked["blocked_reason"] =~ "definition_changed"
-    assert blocked["entry"] == final["entry"]
-    assert blocked["pending"]["writes"] == []
+    assert {:ok, [^final]} = Store.reconcile(config(), changed, ManualClock.now(clock))
+  end
+
+  test "a run goes on in its state after its subflow changed", %{clock: clock} do
+    assert {:ok, [%{"state" => "waiting", "entry" => 1} = waiting]} = reconcile(clock)
+    changed = %{"sort" => Sorts.Plain}
+    sent = FakeFacts.sent()
+    assert {:ok, [^waiting]} = Store.reconcile(config(), changed, ManualClock.now(clock))
+    assert FakeFacts.sent() == sent
+
+    {:stored, _} =
+      Talk.put("box", %{"op" => "change", "key" => "B-1", "values" => %{"result" => "ok"}})
+
+    assert {:ok, [%{"state" => "done", "status" => "completed", "entry" => 2}]} =
+             Store.reconcile(config(), changed, ManualClock.now(clock))
+  end
+
+  test "a run blocked for a changed definition goes on; one in a removed state is blocked once",
+       %{clock: clock} do
+    {:ok, [waiting]} = reconcile(clock)
+
+    store =
+      &FakeFacts.put("cursor", %{"key" => &1["key"], "values" => Store.encode(config(), &1)})
+
+    # Blocked by an earlier build's digest check: its status back, and it goes on.
+    waiting
+    |> Map.merge(%{"status" => "blocked", "blocked_reason" => "definition_changed: a -> b"})
+    |> put_in(["pending", "definition_block"], %{"status" => "active"})
+    |> store.()
+
+    assert {:ok, [^waiting]} = reconcile(clock)
+
+    # In a state the subflow no longer has: blocked, and left so on the next rounds.
+    store.(Map.put(waiting, "state", "sorting"))
+    assert {:ok, [blocked]} = reconcile(clock)
+    assert {blocked["status"], blocked["blocked_reason"]} == {"blocked", "state_removed: sorting"}
+    assert blocked["entry"] == waiting["entry"]
+    sent = FakeFacts.sent()
+    assert {:ok, [^blocked]} = reconcile(clock)
+    assert FakeFacts.sent() == sent
+
+    # Once its state is back, it goes on with the status it had.
+    store.(Map.put(blocked, "state", "waiting"))
+    assert {:ok, [^waiting]} = reconcile(clock)
+
+    {:stored, _} =
+      Talk.put("box", %{"op" => "change", "key" => "B-1", "values" => %{"result" => "ok"}})
+
+    assert {:ok, [%{"state" => "done", "status" => "completed"}]} = reconcile(clock)
   end
 
   # -- Imports, writers and replies: a neutral inspection of a box ---------------------
@@ -530,8 +514,7 @@ defmodule AtlasFlow.Runs.RunTest do
     "subject" => "box",
     "choices" => ["choice"],
     "admission" => [],
-    "imports" => @imports,
-    "migrations" => []
+    "imports" => @imports
   }
 
   defmodule Inspecting do
@@ -547,8 +530,7 @@ defmodule AtlasFlow.Runs.RunTest do
             %{"when" => %{"choice" => ["yes"]}, "state" => "kept"},
             %{"when" => %{"choice" => ["no"]}, "state" => "returned"},
             %{"when" => [], "state" => "looking"}
-          ],
-          "migrations" => []
+          ]
         }
       }
   end

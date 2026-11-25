@@ -17,7 +17,7 @@ defmodule AtlasFlow.Backend.Codec do
 
   alias AtlasFlow.WorkSource.Translate
 
-  @poll_fields ~w(runtime_id incarnation build policy_version offer holdings)
+  @poll_fields ~w(runtime_id incarnation build policy_version offer holdings configuration_refused)
   @report_fields ~w(revision report)
 
   @doc "The fields a capability's request body holds; nil for a route without a JSON body."
@@ -88,12 +88,17 @@ defmodule AtlasFlow.Backend.Codec do
   defp polled(polled) do
     get = fn key -> Map.get(polled, key, Map.get(polled, Atom.to_string(key))) end
 
-    %{
+    polled = %{
       "leases" => Enum.map(get.(:leases) || [], &lease/1),
       "cancel" => get.(:cancel) || [],
       "lease_lost" => get.(:lease_lost) || [],
       "timing" => Translate.normal(get.(:timing))
     }
+
+    case get.(:configuration) do
+      document when is_binary(document) -> Map.put(polled, "configuration", document)
+      _ -> polled
+    end
   end
 
   defp lease(lease) do

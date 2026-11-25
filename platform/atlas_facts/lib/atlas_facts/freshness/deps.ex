@@ -39,10 +39,12 @@ defmodule AtlasFacts.Freshness.Deps do
       end
 
       {result, frame}
-    rescue
-      error ->
+    catch
+      # Whatever stops the read, the calling process keeps no frame of it: a read may be
+      # answered in its sender's process (`AtlasFacts.Server.answer/3`).
+      kind, reason ->
         pop()
-        reraise error, __STACKTRACE__
+        :erlang.raise(kind, reason, __STACKTRACE__)
     end
   end
 

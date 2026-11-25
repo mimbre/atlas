@@ -2,7 +2,7 @@ defmodule AtlasFlow.Sorts do
   @moduledoc """
   Other versions of the depot's subflow `sort`, each written in the Rela DSL and
   compiled by itself (`use AtlasFlow.Sorts, …`), for the run machine's tests: what one
-  test changes about the subflow is a version of its own, with a digest of its own.
+  test changes about the subflow is a version of its own.
   """
 
   @doc false
@@ -38,7 +38,7 @@ defmodule AtlasFlow.Sorts.Written do
   end
 
   defmodule Relabelled do
-    @moduledoc "The depot's sort with another label: another definition, another digest."
+    @moduledoc "The depot's sort with another label: another definition, the same states."
     use RelaDSL.Schema
 
     subflow :sort, subject: :box do
@@ -54,31 +54,6 @@ defmodule AtlasFlow.Sorts.Written do
         wait_for([:clerk], on: :choice, reset: false, yes: :done)
         timer(:retry, "5m", to: :waiting)
         present(expected: "Sort it")
-      end
-
-      final(:done, label: "Done")
-      final(:discarded, label: "Discarded")
-    end
-  end
-
-  defmodule Presented do
-    @moduledoc "Presents its timer's due time, and keeps a clerk its owner."
-    use RelaDSL.Schema
-
-    subflow :sort, label: "Sort", subject: :box do
-      run_as("system:depot")
-      owner(default: {:clerk, :ada})
-      start(:create)
-      initial(:waiting)
-
-      state :waiting, label: "Sort it" do
-        owner(relation: :owned_by, default: {:clerk, :ada}, preserve_kind: :clerk)
-        set(mark: "entered")
-        branch(to: :done, when: "entity.result == 'ok'")
-        branch(to: :discarded, when: "entity.result == 'no'")
-        wait_for([:clerk], on: :choice, reset: false, yes: :done)
-        timer(:retry, "5m", to: :waiting)
-        present(expected: "Sort it", deadline: :retry)
       end
 
       final(:done, label: "Done")
@@ -309,34 +284,6 @@ defmodule AtlasFlow.Sorts.Written do
 
       state :stuck do
         wait_for([:clerk], on: :choice, again: :publishing)
-      end
-
-      final(:done)
-      final(:discarded)
-    end
-  end
-
-  defmodule Answered do
-    @moduledoc """
-    The clerk answers the inspection by hand: yes or no is their trusted choice, and a day
-    without one makes it stuck. Since F0 Flow has no pass, so no Runtime answers for them;
-    the version that had one is only in the runs it left (the pass retirement tests).
-    """
-    use RelaDSL.Schema
-
-    subflow :sort, subject: :box do
-      run_as("system:depot")
-      owner(relation: :owned_by)
-      start(:create)
-      initial(:working)
-
-      state :working do
-        wait_for([:clerk], on: :choice, reset: false, yes: :done, no: :discarded)
-        timer(:late, "1d", to: :stuck)
-      end
-
-      state :stuck do
-        wait_for([:clerk], on: :choice, reset: false, yes: :done, no: :discarded)
       end
 
       final(:done)
@@ -611,11 +558,6 @@ defmodule AtlasFlow.Sorts.Relabelled do
   use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Relabelled
 end
 
-defmodule AtlasFlow.Sorts.Presented do
-  @moduledoc false
-  use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Presented
-end
-
 defmodule AtlasFlow.Sorts.Twice do
   @moduledoc false
   use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Twice
@@ -664,11 +606,6 @@ end
 defmodule AtlasFlow.Sorts.Unbound do
   @moduledoc false
   use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Unbound
-end
-
-defmodule AtlasFlow.Sorts.Answered do
-  @moduledoc false
-  use AtlasFlow.Sorts, from: AtlasFlow.Sorts.Written.Answered
 end
 
 defmodule AtlasFlow.Sorts.Handing do
@@ -757,7 +694,7 @@ defmodule AtlasFlow.Sorts.Loop do
     relation(:chosen_by, label: "chosen by", from: [:bin], to: [:clerk], max_outgoing: 1)
 
     entity :cursor, label: "Cursor", plural: "cursors", id_type: :manual do
-      for f <- ~w(flow subject_kind subject_key definition_sha256 state entered_at status
+      for f <- ~w(flow subject_kind subject_key state entered_at status
                   deadlines pending last_input blocked_reason)a,
           do: field(f, :string)
 

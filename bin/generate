@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# bin/generate — write every generated target from its contract, with the pinned toolchain.
+#
+#   bin/generate                      all of them
+#   bin/generate atlas model ...      only these
+#
+# Generated targets are build output: not kept in git, never compared. A build (deploy.sh,
+# a CI job whose tests read them, a local Apple build, atlas-ops start) runs this first.
+# Each name runs `mix deps.get` and its generator in the contract's project; a run over
+# unchanged contracts rewrites nothing.
+#
+#   model             products/software_factory/model/targets (the Rela project, diagrams, ...)
+#   atlas             platform/atlas_control/backend/targets (blocks.json, the Swift package)
+#   runtime_boundary  platform/atlas_runtime/boundary/targets
+#   code_boundary     platform/atlas_code/boundary/targets
+#   runtime_model     platform/atlas_runtime/model/targets
+#   runtime_backend   platform/atlas_runtime/backend/targets
+#
+# model validates the description and draws the diagrams with the rela that
+# platform/atlas_facts/rela/scripts/start-test.sh pins, from
+# ${XDG_CACHE_HOME:-~/.cache}/atlas/rela-<version>, installed there when missing. Never a rela
+# from PATH or ATLAS_RELA_BIN.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd -P)"
+all=(model atlas runtime_boundary code_boundary runtime_model runtime_backend)
+
+project() {
+  case "$1" in
+    model) echo products/software_factory/model/contract ;;
+    atlas) echo platform/atlas_control/backend/contract ;;
+    runtime_boundary) echo platform/atlas_runtime/boundary/contract ;;
+    code_boundary) echo platform/atlas_code/boundary/contract ;;
+    runtime_model) echo platform/atlas_runtime/model/contract ;;
+    runtime_backend) echo platform/atlas_runtime/backend/contract ;;
+    *) echo "bin/generate: unknown target $1; known: ${all[*]}" >&2; exit 2 ;;
+  esac
+}
+
+names=("$@")
+[ ${#names[@]} -gt 0 ] || names=("${all[@]}")
+for name in "${names[@]}"; do project "$name" >/dev/null; done
+
+for name in "${names[@]}"; do
+  if [ "$name" = model ]; then
+    start_test="$root/platform/atlas_facts/rela/scripts/start-test.sh"
+    version="$(sed -n 's/^version=//p' "$start_test")"
+    rela_bin="${XDG_CACHE_HOME:-$HOME/.cache}/atlas/rela-$version"
+    ATLAS_RELA_BIN="$rela_bin" "$start_test" install >&2
+    (cd "$root/$(project model)" && ATLAS_RELA_BIN="$rela_bin" mix do deps.get + model.gen)
+  else
+    (cd "$root/$(project "$name")" && mix do deps.get + "$name.gen")
+  fi
+done

@@ -1,7 +1,7 @@
 defmodule RelaDSL.Description.Subflows do
   @moduledoc """
   The checks between a composition's subflows and its description: every kind, field,
-  relation, role and value a subflow, a `link` or `count`, a `select` or a `migrate`
+  relation, role and value a subflow, a `link` or `count` or a `select`
   names resolves in the composition. Returns `[{file, line, problem}]`, each problem a
   `RelaDSL.Problem` (what is wrong, and the names it is about).
   """

@@ -7,6 +7,13 @@ defmodule AtlasFacts.Server do
   fact is then loaded into memory (`AtlasFacts.Cache`): reads are answered from there,
   writes go to rela first.
 
+  Reads do not wait behind writes (IS-Atlas-85). The Bus answers a read in the process
+  that sends it (`AtlasBus.answer_reads/1`, `answer/3`), from the copy as Facts last
+  published it: what a write changed is published whole, with Facts' position, before
+  Facts answers the write (`AtlasFacts.Cache`), so a sender reads its own write and no read
+  sees one half applied. Writes, rela's change feed, the reads that may write (a run's
+  inputs) or ask rela itself (`_description`, `_flow_recovery`) are Facts' own, in order.
+
   - A `fact` is stored in rela and answered with one `stored` (acknowledgement and hint,
     with the fact's position) or one `refused` (final, with reasons). Never silence.
     A resent id gets its first answer again and is not stored twice. A write Facts cannot
@@ -68,7 +75,35 @@ defmodule AtlasFacts.Server do
 
   @impl true
   def handle_call(:reload, _from, state) do
-    {:reply, state.description && Cache.load(state.cache, state.description), state}
+    published(state, fn ->
+      {:reply, state.description && Cache.load(state.cache, state.description), state}
+    end)
+  end
+
+  # Every message is handled on what Facts staged (`AtlasFacts.Cache`); what it changed is
+  # published before anything leaves Facts (`deliver/2`) and once it is handled.
+  @publisher {__MODULE__, :publisher}
+
+  defp published(state, handle) do
+    Cache.stage(state.cache)
+    Process.put(@publisher, fn -> publish(state) end)
+    result = handle.()
+    publish(elem(result, tuple_size(result) - 1))
+    Process.delete(@publisher)
+    result
+  end
+
+  defp publish(state),
+    do: Cache.publish(state.cache, Ledger.position(state.ledger), state.description)
+
+  # What Facts sends (answers, hints) follows what it published.
+  defp deliver(envelope, content) do
+    case Process.get(@publisher) do
+      nil -> :ok
+      publish -> publish.()
+    end
+
+    AtlasBus.send(envelope, content)
   end
 
   # A lookup that could not read the store: the write is not recorded.
@@ -118,17 +153,21 @@ defmodule AtlasFacts.Server do
     :ok = AtlasBus.attach(AtlasBus.store())
     dir = Keyword.fetch!(opts, :data_dir)
 
-    {:ok,
-     %{
-       rela: rela,
-       cache: rela,
-       ledger: Ledger.open(dir),
-       links: Links.open(dir),
-       model: model,
-       description: schema,
-       actors: Keyword.get_lazy(opts, :actors, &AtlasBus.Actors.configured/0),
-       input_clock: Keyword.get(opts, :flow_input_clock, fn -> DateTime.utc_now() end)
-     }}
+    state = %{
+      rela: rela,
+      cache: rela,
+      ledger: Ledger.open(dir),
+      links: Links.open(dir),
+      model: model,
+      description: schema,
+      actors: Keyword.get_lazy(opts, :actors, &AtlasBus.Actors.configured/0),
+      input_clock: Keyword.get(opts, :flow_input_clock, fn -> DateTime.utc_now() end)
+    }
+
+    :ok = publish(state)
+    reader = Map.take(state, [:cache, :links, :model, :actors])
+    :ok = AtlasBus.answer_reads({__MODULE__, reader})
+    {:ok, state}
   end
 
   @impl true
@@ -138,8 +177,10 @@ defmodule AtlasFacts.Server do
   end
 
   @impl true
-  def handle_info({:atlas_bus, %Envelope{class: class} = envelope, content}, state)
-      when class in ["fact", "read"] do
+  def handle_info(message, state), do: published(state, fn -> handle(message, state) end)
+
+  defp handle({:atlas_bus, %Envelope{class: class} = envelope, content}, state)
+       when class in ["fact", "read"] do
     {described, state} = ensure_description(state, envelope)
 
     binding = Ledger.request_identity(envelope, content)
@@ -159,14 +200,14 @@ defmodule AtlasFacts.Server do
     end
   end
 
-  def handle_info({:atlas_bus, _envelope, _content}, state), do: {:noreply, state}
+  defp handle({:atlas_bus, _envelope, _content}, state), do: {:noreply, state}
 
   # rela's change feed (`AtlasFacts.Rela.Events`): kinds changed in rela, by Facts or by
   # another writer. Those that others write (the model's `written_past_facts/0`) are read
   # again; every fact that differs from Facts' copy is hinted as stored, by "rela", at its
   # own position.
-  def handle_info({:rela_changed, kinds}, %{description: description} = state)
-      when is_map(description) do
+  defp handle({:rela_changed, kinds}, %{description: description} = state)
+       when is_map(description) do
     watched =
       if function_exported?(state.model, :written_past_facts, 0),
         do: state.model.written_past_facts(),
@@ -190,13 +231,13 @@ defmodule AtlasFacts.Server do
 
       envelope = Envelope.new("stored", kind)
       position = Ledger.stored(state.ledger, envelope.id, about)
-      :ok = AtlasBus.send(%{envelope | position: position}, about)
+      :ok = deliver(%{envelope | position: position}, about)
     end
 
     {:noreply, state}
   end
 
-  def handle_info({:rela_changed, _kinds}, state), do: {:noreply, state}
+  defp handle({:rela_changed, _kinds}, state), do: {:noreply, state}
 
   defp refreshed(state, kind, plural) do
     case Cache.refresh(state.cache, plural) do
@@ -235,18 +276,9 @@ defmodule AtlasFacts.Server do
   end
 
   defp dispatch(%Envelope{class: "read", kind: @page} = envelope, content, state) do
-    if String.starts_with?(envelope.sender || "", "control/") do
-      ordinary(envelope, content, state)
-    else
-      reply(
-        envelope,
-        "answer",
-        %{"error" => "page reads require Control", "code" => "forbidden"},
-        nil
-      )
-
-      {:noreply, state}
-    end
+    {answer, state} = read_answer(envelope, content, state)
+    reply(envelope, "answer", answer, nil)
+    {:noreply, state}
   end
 
   defp dispatch(envelope, content, state) do
@@ -639,14 +671,16 @@ defmodule AtlasFacts.Server do
     end
   end
 
+  defp guidance(%Envelope{class: "read"} = envelope, content, role, state) do
+    reply(envelope, "answer", guidance_read(state, role, content), nil)
+    {:noreply, state}
+  end
+
   defp guidance(envelope, content, role, state) do
     result =
-      if envelope.class == "fact",
-        do:
-          AtlasFacts.Guidance.write(state.rela, context(state), role, envelope, content, fn ->
-            Ledger.reserve(state.ledger)
-          end),
-        else: AtlasFacts.Guidance.read(state.rela, context(state), role, content)
+      AtlasFacts.Guidance.write(state.rela, context(state), role, envelope, content, fn ->
+        Ledger.reserve(state.ledger)
+      end)
 
     case result do
       {:ok, answer} when envelope.class == "fact" ->
@@ -663,21 +697,23 @@ defmodule AtlasFacts.Server do
           position
         )
 
-      {:ok, answer} ->
-        reply(envelope, "answer", answer, nil)
-
       {:error, reason} ->
-        class = if envelope.class == "read", do: "answer", else: "refused"
-
         reply(
           envelope,
-          class,
+          "refused",
           %{"error" => inspect(reason), "code" => guidance_code(reason)},
           nil
         )
     end
 
     {:noreply, state}
+  end
+
+  defp guidance_read(state, role, content) do
+    case AtlasFacts.Guidance.read(state.rela, context(state), role, content) do
+      {:ok, answer} -> answer
+      {:error, reason} -> %{"error" => inspect(reason), "code" => guidance_code(reason)}
+    end
   end
 
   # A guidance record is made once and never changed: its answer, a replay's too, says it
@@ -713,9 +749,88 @@ defmodule AtlasFacts.Server do
   end
 
   defp ordinary(%Envelope{class: "read"} = envelope, content, state) do
-    {answer, state} = answered_read(state, envelope.kind, content || %{})
-    reply(envelope, "answer", Map.put(answer, "position", Ledger.position(state.ledger)), nil)
+    {answer, state} = ordinary_read(envelope, content, state)
+    reply(envelope, "answer", answer, nil)
     {:noreply, state}
+  end
+
+  defp ordinary_read(envelope, content, state) do
+    {answer, state} = answered_read(state, envelope.kind, content || %{})
+    {Map.put(answer, "position", read_position(state)), state}
+  end
+
+  # A read's answer, not sent: what Facts answers itself, and what the Bus answers in the
+  # sending process (`answer/3`). The reads of a run's inputs are not among them.
+  defp read_answer(%Envelope{kind: @page} = envelope, content, state) do
+    if String.starts_with?(envelope.sender || "", "control/"),
+      do: ordinary_read(envelope, content, state),
+      else: {%{"error" => "page reads require Control", "code" => "forbidden"}, state}
+  end
+
+  defp read_answer(envelope, content, state) do
+    case AtlasFacts.Guidance.role(context(state), envelope.kind) do
+      nil -> ordinary_read(envelope, content, state)
+      role -> {guidance_read(state, role, content), state}
+    end
+  end
+
+  # The position a read is answered at: Facts' own, or the one published with the copy
+  # an outside read is answered from.
+  defp read_position(%{position: position}), do: position
+  defp read_position(state), do: Ledger.position(state.ledger)
+
+  @doc """
+  The Bus's reader (`AtlasBus.answer_reads/1`): a read answered in the process that sent
+  it, from the copy as Facts last published it (`AtlasFacts.Cache.consistently/2`), as
+  Facts would answer it. `:pass` sends it to Facts: before Facts has rela's schema, for a
+  kind rela does not describe, for what asks rela itself (`_description`,
+  `_flow_recovery`), for a run's inputs (that read may write) and for a read of one
+  fact that has no version yet, which Facts reads from rela once (`AtlasFacts.Cache`).
+  """
+  @pass {__MODULE__, :pass}
+
+  def answer(reader, %Envelope{} = envelope, content) do
+    case Cache.consistently(reader.cache, &answer_here(reader, &1, envelope, content)) do
+      {:ok, {:answer, answer}} -> {:answer, answer}
+      _ -> :pass
+    end
+  catch
+    @pass -> :pass
+    # A fact with no version yet (listed at start): Facts reads its version, once.
+    {Cache, :unversioned} -> :pass
+  end
+
+  defp answer_here(_reader, %{description: nil}, _envelope, _content), do: :pass
+
+  defp answer_here(reader, published, envelope, content) do
+    state =
+      Map.merge(reader, %{
+        rela: reader.cache,
+        ledger: nil,
+        description: published.description,
+        position: published.position,
+        outside: true
+      })
+
+    if here?(state, envelope.kind, content) do
+      {answer, _state} = read_answer(envelope, content, state)
+      {:answer, answer}
+    else
+      :pass
+    end
+  end
+
+  defp here?(_state, kind, _content) when kind in [@description, @recovery], do: false
+  defp here?(_state, kind, _content) when kind in [@page, @position], do: true
+
+  defp here?(state, kind, content) do
+    context = context(state)
+
+    cond do
+      AtlasFacts.FlowInputs.kind?(context, kind) and match?(%{"run" => _}, content) -> false
+      AtlasFacts.Guidance.role(context, kind) != nil -> true
+      true -> match?(%{"plural" => _}, Description.kind(state.description, kind))
+    end
   end
 
   # A read of facts says what it depended on (`AtlasFacts.Freshness.Deps`); a page says
@@ -773,11 +888,15 @@ defmodule AtlasFacts.Server do
   defp changes(state, kind, key), do: Changes.of(state[:changes], state.description, {kind, key})
 
   # The fact that set each link it names: when, by whom, why (`AtlasFacts.Links`).
-  defp remember_links(state, kind, %{"op" => "delete", "key" => key}, _about, _position),
-    do: Links.forget(state.links, kind, key)
+  defp remember_links(state, kind, %{"op" => "delete", "key" => key}, _about, _position) do
+    Cache.changing(state.cache)
+    Links.forget(state.links, kind, key)
+  end
 
   defp remember_links(state, kind, %{"key" => key, "links" => links}, about, position)
        when is_map(links) do
+    Cache.changing(state.cache)
+
     entry =
       about
       |> Map.take(["by", "cause"])
@@ -792,7 +911,7 @@ defmodule AtlasFacts.Server do
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
   defp reply(envelope, class, content, position) do
-    case AtlasBus.send(Envelope.reply(envelope, class, position: position), content) do
+    case deliver(Envelope.reply(envelope, class, position: position), content) do
       :ok -> :ok
       error -> Logger.warning("Facts could not answer #{envelope.id}: #{inspect(error)}")
     end
@@ -801,6 +920,9 @@ defmodule AtlasFacts.Server do
   # rela's schema, as rela serves it, read every time it is asked for. One that is not the
   # model's (rela was restarted with another build) is no schema Facts writes by. The
   # first one Facts has also loads every fact (`AtlasFacts.Cache`): none is answered before.
+  # Outside Facts nothing asks rela: Facts answers that read.
+  defp describe(%{outside: true}), do: throw(@pass)
+
   defp describe(state) do
     with {:ok, served} <- Rela.description(state.rela) do
       case AtlasFacts.Model.mismatch(state.model, served) do
@@ -855,7 +977,7 @@ defmodule AtlasFacts.Server do
         {answers, state} =
           Enum.map_reduce(reads, Map.put(state, :page_lists, key), fn [kind, read], state ->
             {answer, state} = page_answer(state, kind, read)
-            {Map.put(answer, "position", Ledger.position(state.ledger)), state}
+            {Map.put(answer, "position", read_position(state)), state}
           end)
 
         {%{"answers" => answers}, Map.delete(state, :page_lists)}

@@ -120,9 +120,10 @@ defmodule AtlasFlow.WorkSource.HandoverTest do
     assert FakeFacts.get("task", c1)["links"]["done_for"] == ["bea"]
   end
 
-  # B1 (review m3-a2, plan §3.5): only returned, runtime_stop and a cancelled after the
-  # cancel request are result-less. A result that arrives after cancel_requested stands:
-  # the run gets it, it stays pinned, and the work is not offered again.
+  # B1 (review m3-a2, plan §3.5; D-0102): only returned, any interruption, a check cut short
+  # and a cancelled after the cancel request are result-less. A result that arrives after
+  # cancel_requested stands: the run gets it, it stays pinned, and the work is not offered
+  # again.
   describe "a result that arrives after the cancel request" do
     defp handed_over(started?) do
       %{run: run, task: task} = L.supervised_task("B-1", "ada")

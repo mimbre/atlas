@@ -117,19 +117,28 @@ defmodule AtlasFacts.WriteVisibilityTest do
     assert Enum.any?(read("jar"), &(&1["key"] == "outside"))
   end
 
+  # A fact listed at start has no version (rela lists none): its first single read reads
+  # it once from rela for its version (IS-Atlas-84); every later read is from memory.
   test "reads are answered from memory, also while rela is down", c do
     CountingRela.reset(c.backend)
     assert length(read("jar")) == 2
+    assert CountingRela.calls(c.backend) == %{}
+    assert point("jar", "jar-1")["key"] == "jar-1"
+    assert CountingRela.calls(c.backend) == %{get: 1}
+    CountingRela.reset(c.backend)
     assert point("jar", "jar-1")["key"] == "jar-1"
     assert CountingRela.calls(c.backend) == %{}
 
     Agent.update(c.backend, &%{&1 | down: true})
     assert length(read("jar")) == 2
-    assert point("jar", "jar-1")["key"] == "jar-1"
+    assert point("jar", "jar-1")["version"] == "v1"
+    # One whose version could not be read is still answered, without a version.
+    assert %{"key" => "jar-2", "version" => nil} = point("jar", "jar-2")
   end
 
   test "a Facts write is visible in later requests and carries rela's version", c do
-    assert point("jar", "jar-1")["version"] == nil
+    assert hd(read("jar"))["version"] == nil
+    assert point("jar", "jar-1")["version"] == "v1"
     CountingRela.reset(c.backend)
     refute write("jar", "change", "jar-1", %{"phase" => "sealed"})["reasons"]
     # The change, and one read of it back.

@@ -31,7 +31,7 @@ schema does not include those model rules.
 ## Isolated verification
 
 The model tests cover selection, owner answers, required notes, instructions, the one
-deadline, closed imports, and exact slice14 identities and history. The native fixture
+deadline and closed imports. The native fixture
 uses a private Rela dataset and Facts process, real Flow reconciliation and projection,
 and a private Control listener. It creates work and closes it through the real agent
 client, and verifies the actual Console detail screen and agent guidance. It exercises
@@ -42,8 +42,7 @@ After generation, from `products/software_factory/`, with the pinned Rela binari
 
 ```sh
 MIX_ENV=test mix run integration/to_do_native.exs \
-  /absolute/writable/private-fixture /absolute/rela-bin \
-  ../products/software_factory/model/contract/test/fixtures/slice14-digests.json
+  /absolute/writable/private-fixture /absolute/rela-bin
 ```
 
 The fixture starts and stops its private Rela and Control listener. It installs nothing and does not

@@ -96,8 +96,8 @@ defmodule RelaDSL.Control.ModelTest do
   test "the start page's greeting: its words reach the assigned entry; only text is taken" do
     assert Office.start_page().assigned.greeting == "Good day, {name}."
 
-    # The office's own start entry, as its atlas.json writes it, with one value changed.
-    start = JSON.decode!(File.read!("test/golden/office/atlas.json"))["start"]
+    # The office's own start entry, as its atlas.json holds it, with one value changed.
+    start = Office.__rela__(:description).extension["start"]
     greeting = fn value -> put_in(start, ["assigned", "greeting"], value) end
 
     refused = fn value ->

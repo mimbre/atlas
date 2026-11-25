@@ -45,13 +45,31 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
 
   test "§5.2 poll: offer, holdings and the answer's leases, cancels, lost leases and timing" do
     assert fields(:poll_input) ==
-             [:runtime_id, :incarnation, :build, :policy_version, :offer, :holdings]
+             [
+               :runtime_id,
+               :incarnation,
+               :build,
+               :policy_version,
+               :offer,
+               :holdings,
+               :configuration_refused
+             ]
 
     assert field(:poll_input, :offer).type == {:map, :integer}
     assert fields(:holding) == [:lease_id, :state, :last_progress_at]
-    assert fields(:polled) == [:leases, :cancel, :lease_lost, :timing]
+    assert fields(:polled) == [:leases, :cancel, :lease_lost, :timing, :configuration]
     assert fields(:lease) == [:lease_id, :expires_at, :work]
     assert field(:timing, :poll_max).range == {1, 25}
+  end
+
+  test "IS-Atlas-27: the Runtime's configuration rides the poll, optional both ways" do
+    refute field(:poll_input, :configuration_refused).required
+    assert field(:poll_input, :configuration_refused).type == :configuration_refusal
+    assert fields(:configuration_refusal) == [:version, :reason]
+    assert field(:configuration_refusal, :version).required
+    assert field(:configuration_refusal, :reason).required
+    refute field(:polled, :configuration).required
+    assert field(:polled, :configuration).type == :string
   end
 
   test "§5.1: work as offered has no slot, folder, resume_from or repository; its input is a base" do
@@ -149,7 +167,7 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
     assert fields(:put_blob_input) == [:lease_id, :sha256, :size, :content]
   end
 
-  test "the JSON target is what the contract generates (mix runtime_boundary.gen --check)" do
+  test "the JSON target carries the contract's capabilities (mix runtime_boundary.gen)" do
     json = @json |> File.read!() |> JSON.decode!()
     assert json["$comment"] =~ "boundary/contract/lib/work_source.ex"
 

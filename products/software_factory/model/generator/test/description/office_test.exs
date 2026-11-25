@@ -1,14 +1,12 @@
 defmodule RelaDSL.Description.OfficeTest do
   use ExUnit.Case, async: true
 
-  alias RelaDSL.{Atlas, DefinitionDigest, Limits, Office, Project}
-
-  @golden "test/golden/office"
+  alias RelaDSL.{Atlas, Limits, Office, Project}
 
   defp files,
     do: Project.files(Office.__rela__(:description), "app:\n  name: Office\n", "flows: {}\n")
 
-  test "the Rela project of the neutral composition is the approved one, byte for byte" do
+  test "the Rela project of the neutral composition has its files, in order" do
     files = files()
 
     assert Enum.map(files, &elem(&1, 0)) == [
@@ -21,8 +19,6 @@ defmodule RelaDSL.Description.OfficeTest do
              "flows.yaml",
              "atlas.manifest.json"
            ]
-
-    for {path, body} <- files, do: assert(body == File.read!(Path.join(@golden, path)), path)
   end
 
   test "the manifest hashes the selected closure, data-entry.yaml and flows.yaml; atlas.json is a proof" do
@@ -65,25 +61,20 @@ defmodule RelaDSL.Description.OfficeTest do
     assert runtime["fields"] == %{"flow" => "flow", "state" => "state"}
   end
 
-  test "a subflow's digest per environment is that of its flows.json entry, with the environment's limits" do
-    digests = Office.__rela__(:digests)
+  test "each environment compiles its subflows with its own limits, as flows.json holds them" do
     gates = Office.__rela__(:gates)
 
-    for env <- [:prod, :test] do
-      [definition] =
-        Map.values(Atlas.definitions(Limits.resolve(Office.__flows__(), gates, env), gates))
+    [prod, test] =
+      for env <- [:prod, :test] do
+        [definition] =
+          Map.values(Atlas.definitions(Limits.resolve(Office.__flows__(), gates, env), gates))
 
-      assert digests[env][:letter].digest == DefinitionDigest.of(definition)
-      assert digests[env][:letter].states == ~w(dropped sent stuck write)
-    end
+        [letter] = Office.subflows(env)
+        assert letter.states() == ~w(dropped sent stuck write)
+        assert letter.states() == Enum.sort(Map.keys(definition["states"]))
+        definition
+      end
 
-    refute digests[:prod][:letter].digest == digests[:test][:letter].digest
-
-    assert Office.__rela__(:description).digests["subflows"]["letter"]["test"]["history"] == [
-             %{
-               "digest" => digests[:test][:letter].digest,
-               "states" => ~w(dropped sent stuck write)
-             }
-           ]
+    refute prod == test
   end
 end

@@ -10,6 +10,12 @@ defmodule Model.Machinery do
 
   The name is not `runtime`, so it is not mistaken for the `set_by` role `:runtime`,
   the Runtime writer. Flow writes it (`set_by: [:flow]`).
+
+  Its Runtime's configuration (IS-Atlas-27): a person sets `configuration` through
+  Control (the Console or `atlas set`), the whole `policy.json` of the Runtime; Flow's
+  work source serves it to the Runtime whose id is this fact's key, and writes back what
+  the Runtime did with it (`applied_version`, `refused_version`, `refused_reason`). So a
+  machinery is changed by hand, never made or deleted by hand.
   """
   use RelaDSL
 
@@ -28,8 +34,33 @@ defmodule Model.Machinery do
       set_by: [:flow]
     )
 
+    field(:configuration, :string,
+      description:
+        "The Runtime's configuration, its whole policy.json as JSON: version (raise it on " <>
+          "every change), sources (url, git_url, priority, max_slots), profiles (permissions, " <>
+          "cost classes, options), slots. The Runtime applies it within a poll, without a restart",
+      multiline: true
+    )
+
+    field(:applied_version, :integer,
+      description: "The configuration version the Runtime runs under, as its last poll said",
+      set_by: [:flow]
+    )
+
+    field(:refused_version, :integer,
+      description:
+        "The last configuration version the Runtime refused (0: Flow could not read its " <>
+          "version); it stays on the version it had",
+      set_by: [:flow]
+    )
+
+    field(:refused_reason, :string,
+      description: "Why the Runtime refused refused_version",
+      set_by: [:flow]
+    )
+
     top(false)
-    by_hand(false)
+    by_hand("update")
     primary(:name)
   end
 end

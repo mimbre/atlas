@@ -63,7 +63,7 @@ defmodule AtlasFlow.Delivery do
   alias AtlasFlow.{Bases, Results, Talk}
   alias AtlasFlow.Runs.{Clock, Store}
   alias AtlasFlow.Runtime.Records
-  alias AtlasFlow.WorkSource.{Leases, Translate}
+  alias AtlasFlow.WorkSource.{Configuration, Leases, Translate}
 
   @endpoint "flow/delivery"
 
@@ -72,6 +72,17 @@ defmodule AtlasFlow.Delivery do
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
+  end
+
+  @doc """
+  The configuration step of a poll of `client` (`AtlasFlow.WorkSource.Configuration.poll/3`):
+  records what the poll says on the Runtime's machinery fact, then `{:serve, document}` or
+  `:none`. Never fails a poll: a Delivery that does not answer in time is `:none`.
+  """
+  def configuration(client, input, server \\ __MODULE__) do
+    GenServer.call(server, {:configuration, client, input}, 10_000)
+  catch
+    :exit, _ -> :none
   end
 
   @doc """
@@ -176,6 +187,10 @@ defmodule AtlasFlow.Delivery do
       end
 
     {:reply, reply, state}
+  end
+
+  def handle_call({:configuration, {runtime_id, _holder}, input}, _from, state) do
+    {:reply, Configuration.poll(runtime_id, input), state}
   end
 
   def handle_call({:scope, {runtime_id, _}, lease_id, sha}, _from, state) do
@@ -350,7 +365,9 @@ defmodule AtlasFlow.Delivery do
         ended_with_result(fact, lease, report, result, state)
 
       cause ->
-        # No result: the work is offered again as a fresh attempt (Q8).
+        # No result (returned, any interruption, a check cut short, a supervision cancel):
+        # the stored result is unpinned and the same step is offered again as a fresh
+        # attempt (Q8, D-0102).
         values =
           Map.merge(result, %{
             "lease_state" => "done",

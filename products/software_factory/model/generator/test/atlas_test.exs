@@ -1,14 +1,10 @@
 defmodule RelaDSL.AtlasTest do
   use ExUnit.Case, async: true
 
-  alias RelaDSL.{Atlas, Example, Rela}
+  alias RelaDSL.{Atlas, Example}
 
   defp json(flows \\ Example.__flows__(), gates \\ Example.Gates.__gates__()),
-    do: Atlas.flows_json(flows, gates, Atlas.sha256(Rela.flows_yaml(flows)))
-
-  test "the example's flows.json, the same as the golden file" do
-    assert json() == File.read!("test/golden/example.flows.json")
-  end
+    do: Atlas.flows_json(flows, gates)
 
   test "states carry their mechanism as kind and spec; gates are data, named or not" do
     data = JSON.decode!(json())
@@ -49,7 +45,6 @@ defmodule RelaDSL.AtlasTest do
 
     assert data["gates"]["size_limit"]["decide"]["uncertain"] == "person"
     assert data["gates"]["proofread"]["policy"] == %{"max_rounds" => 2}
-    assert data["rela_flows_sha256"] == Atlas.sha256(Rela.flows_yaml(Example.__flows__()))
     assert {data["format"], data["writer"]} == {2, "system:atlas-flow"}
   end
 
@@ -176,10 +171,8 @@ defmodule RelaDSL.AtlasTest do
     script = """
     [words, out] = System.argv()
     for w <- String.split(File.read!(words)), do: String.to_atom(w)
-    alias RelaDSL.{Atlas, Example, Rela}
-    flows = Example.__flows__()
-    sha = Atlas.sha256(Rela.flows_yaml(flows))
-    File.write!(out, Atlas.flows_json(flows, Example.Gates.__gates__(), sha))
+    alias RelaDSL.{Atlas, Example}
+    File.write!(out, Atlas.flows_json(Example.__flows__(), Example.Gates.__gates__()))
     """
 
     ebin = Path.join(:code.lib_dir(:rela_dsl), "ebin")

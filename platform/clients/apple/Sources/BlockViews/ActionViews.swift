@@ -1,5 +1,15 @@
 import AtlasControlKit
+import ControlSession
 import SwiftUI
+
+extension EnvironmentValues {
+    /// What the user did that Control (or the agent) has not answered yet: its button and
+    /// the sheet show it at once (`SessionState.Pending`).
+    @Entry public var pendingAction: SessionState.Pending? = nil
+    /// Where a focused block that types (a `single_choice`) says which keys it takes, so
+    /// the action keys leave those to it.
+    @Entry public var typingFocus: TypingFocus? = nil
+}
 
 /// The actions a page's blocks declare, as Control sends them: what a key or a button
 /// takes. The app decides nothing about an action; its order, label and key are Control's.
@@ -33,15 +43,61 @@ public enum PageActions {
         return all(page).first { $0.key == key }
     }
 
+    /// The action a key takes on the pages shown (the first page's first, then the
+    /// next's), or nil when a focused block that types takes the key itself: a
+    /// `single_choice`'s digits come first, so one of more than nine options can be typed;
+    /// where nothing is typing, the page's action has the key.
+    @MainActor
+    public static func action(key: String, on pages: [PageMessage?], typing: TypingFocus?) -> ActionModel? {
+        if typing?.takes(key) == true { return nil }
+        for page in pages {
+            if let action = action(key: key, on: page) { return action }
+        }
+        return nil
+    }
+
+    /// Whether the action does something this app can do: submit a call, open a page of
+    /// Control's, or ask the agent (`agent:<intent>`).
+    public static func doable(_ action: ActionModel) -> Bool {
+        action.submitTo != nil || Page.match(action.to) != nil || SessionState.agentIntent(action.to) != nil
+    }
+
     /// One button per thing to do: an action that does exactly what an earlier one does
     /// (the same page and call, under another label and key) has no button of its own;
-    /// its key still works. An action that is neither a call nor a page (`agent:…`, the
-    /// agent behind `:`, S7) has none either.
+    /// its key still works. An action that does nothing this app can do has none.
     public static func buttons(_ actions: [ActionModel]) -> [ActionModel] {
         actions.enumerated().filter { offset, action in
-            (action.submitTo != nil || Page.match(action.to) != nil)
+            doable(action)
                 && !actions[..<offset].contains { $0.to == action.to && $0.submitTo == action.submitTo }
         }.map(\.element)
+    }
+
+    /// Whether `action`'s button is the one pending: the same page or call (a button
+    /// stands for every action that does what it does).
+    public static func isPending(_ action: ActionModel, _ pending: SessionState.Pending?) -> Bool {
+        guard let taken = pending?.action else { return false }
+        return taken.to == action.to && taken.submitTo == action.submitTo
+    }
+
+    /// What a submit of `call` on these pages is, in their words: the confirm's or form's
+    /// button, the choice's option, or the action's label; nil when none declares it.
+    public static func label(of call: CallModel, on pages: [PageMessage?]) -> String? {
+        for page in pages.compactMap({ $0 }) {
+            for block in page.blocks {
+                switch block.content {
+                case .confirm(let confirm) where confirm.confirmTo == call:
+                    return confirm.confirmLabel ?? "Confirm"
+                case .form(let form) where form.submitTo == call:
+                    return form.submitLabel
+                case .singleChoice(let choice):
+                    if let option = choice.options.first(where: { $0.answer == call }) { return option.text }
+                default:
+                    continue
+                }
+            }
+            if let action = all(page).first(where: { $0.submitTo == call }) { return action.label }
+        }
+        return nil
     }
 }
 
@@ -66,6 +122,7 @@ struct ActionsView: View {
 public struct ActionButtons: View {
     let actions: [ActionModel]
     let act: (ActionModel) -> Void
+    @Environment(\.pendingAction) private var pending
 
     public init(actions: [ActionModel], act: @escaping (ActionModel) -> Void) {
         self.actions = actions
@@ -82,16 +139,23 @@ public struct ActionButtons: View {
         }
     }
 
+    /// Pending (clicked, or its key pressed, and not answered yet), the button shows a
+    /// spinner in place of its key and takes no second click.
     private func button(_ action: ActionModel) -> some View {
-        Button { act(action) } label: {
+        let pending = PageActions.isPending(action, pending)
+        return Button { act(action) } label: {
             HStack(spacing: Prism.Spacing.s6) {
                 Text(action.label)
-                if action.key.count == 1 {
+                if pending {
+                    ProgressView().controlSize(.mini)
+                } else if action.key.count == 1 {
                     Text(action.key).font(.caption.monospaced()).opacity(0.7)
                 }
             }
         }
-        .help("\(action.label) (key \(action.key))")
+        .disabled(pending)
+        .help(pending ? (self.pending?.text ?? action.label) : "\(action.label) (key \(action.key))")
+        .accessibilityValue(pending ? Text(self.pending?.text ?? "") : Text(""))
     }
 }
 
@@ -180,23 +244,27 @@ struct FlowLayout: Layout {
 /// The page of an action being taken, over the window: its confirm, its form, or the
 /// more actions it offers, with what Control refused. `submit` sends a call the page
 /// declares, `act` takes one of its actions (a click; the app maps their keys), `leave`
-/// leaves it (Cancel, Esc).
+/// leaves it (Cancel, Esc). While what was done on it is not answered, it says so;
+/// `answer` is a notice that answered its submit without a page (why it was not stored).
 public struct ActionPageView: View {
     let page: PageMessage
     let draft: [String: String]
     let submitting: Bool
+    let answer: NoticeMessage?
     let act: (ActionModel) -> Void
     let submit: (CallModel, [String: String]) -> Void
     let edit: (String, String) -> Void
     let leave: () -> Void
+    @Environment(\.pendingAction) private var pending
 
-    public init(page: PageMessage, draft: [String: String], submitting: Bool,
+    public init(page: PageMessage, draft: [String: String], submitting: Bool, answer: NoticeMessage? = nil,
                 act: @escaping (ActionModel) -> Void,
                 submit: @escaping (CallModel, [String: String]) -> Void,
                 edit: @escaping (String, String) -> Void, leave: @escaping () -> Void) {
         self.page = page
         self.draft = draft
         self.submitting = submitting
+        self.answer = answer
         self.act = act
         self.submit = submit
         self.edit = edit
@@ -224,11 +292,20 @@ public struct ActionPageView: View {
                 Label(reason, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(Prism.Colors.error)
             }
+            if let answer {
+                Label(answer.text, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(Prism.Colors.error)
+            }
             ForEach(presentation.entries) { entry in
                 entryView(entry)
             }
             if !asks {
-                HStack {
+                HStack(spacing: Prism.Spacing.s10) {
+                    // The confirm and the form say "Sending…" themselves.
+                    if let pending {
+                        ProgressView().controlSize(.small)
+                        Text(pending.text).foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Button("Cancel", action: leave).keyboardShortcut(.cancelAction)
                 }

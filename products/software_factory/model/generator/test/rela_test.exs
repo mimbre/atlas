@@ -9,10 +9,6 @@ defmodule RelaDSL.RelaTest do
                 initial states final status waiting_for outputs set properties create
                 type relate change to roles after period since)
 
-  test "the example's flows.yaml, the same as the golden file (the style is pinned)" do
-    assert Rela.flows_yaml(Example.__flows__()) == File.read!("test/golden/example.flows.yaml")
-  end
-
   test "only Rela's keys are written; the owner, channel, mechanisms and presentation stay out" do
     yaml = Rela.flows_yaml(Example.__flows__())
     keys = ~r/(?:^\s*-?\s*|[{,]\s*)([a-z_]+):/m |> Regex.scan(yaml) |> Enum.map(&List.last/1)
