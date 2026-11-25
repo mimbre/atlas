@@ -134,7 +134,10 @@ defmodule RelaDSL.Schema do
   writes; a composition (`RelaDSL.Schema.Composition`) says what writes it.
 
   Branches are tried in the order written; a mechanism's branches sit where the
-  mechanism is written.
+  mechanism is written. A plain branch (of no role) in a state with a mechanism moves a
+  run as in a state without one: in an effect's state only until the service is asked,
+  in a task's state whether its task waits, runs or ended (the task is then cancelled
+  and its result never taken).
 
   ## Owners and what they see
 

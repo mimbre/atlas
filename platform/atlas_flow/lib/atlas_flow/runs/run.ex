@@ -205,6 +205,59 @@ defmodule AtlasFlow.Runs.Run do
     end
   end
 
+  @doc """
+  A task's state, its task made or not: entered where the first of its plain branches
+  (those of no role) that holds on `subject` leads, as a state without a mechanism is.
+  `{:ok, run, intent}`, `intent` the task it held (nil when none was made yet), which the
+  caller cancels; `:stay` when none holds or its entry writes are not acknowledged yet. A
+  plain branch takes the run whether its task waits, runs or ended: what the subject says
+  now (an effect it waits on undone elsewhere, say) outranks the work, whose result is never taken.
+  """
+  def unheld(run, flow, subject, now) do
+    with "active" <- run["status"],
+         [] <- run["pending"]["writes"],
+         {:task, _} <- flow.mechanism(run["state"]),
+         {:to, to} <- flow.next(run["state"], subject["values"] || %{}, nil) do
+      intent = run["pending"]["task"]
+
+      {:ok,
+       enter(run, flow, to, now, true, subject)
+       |> input(subject, %{"branch" => to, "subject_version" => subject["version"]}), intent}
+    else
+      _ -> :stay
+    end
+  end
+
+  @doc """
+  A run whose subject is completed (its kind's `completion`, which a read of Facts with
+  its progress derives: `subject["completion"]["done"]`), entered in `state`, the final
+  state its selection names (`completed:`), from any open state: `{:ok, run, intent}`,
+  `intent` the task it held (nil for none), which the caller cancels. `:stay` when the
+  subject is not completed, the run is not active, its entry writes are not acknowledged
+  yet, or it waits for a service's answer to a frozen request (only that answer moves an
+  effect, which leads to a state this then ends). nil `state` ends none.
+  """
+  def completed(_run, _flow, _subject, nil, _now), do: :stay
+
+  def completed(run, flow, subject, state, now) do
+    with "active" <- run["status"],
+         [] <- run["pending"]["writes"],
+         true <- get_in(subject, ["completion", "done"]) == true,
+         false <- flow.final?(run["state"]),
+         false <-
+           match?({:effect, _}, flow.mechanism(run["state"])) and
+             run["pending"]["effect"] != nil do
+      intent = run["pending"]["task"]
+
+      {:ok,
+       enter(run, flow, state, now, true, subject)
+       |> input(subject, %{"completed" => state, "subject_version" => subject["version"]}),
+       intent}
+    else
+      _ -> :stay
+    end
+  end
+
   def gate_result(run, flow, subject, now, answer) do
     with {:ok, result} <- Gate.result(run["pending"]["gate"], answer),
          true <-

@@ -179,7 +179,7 @@ defmodule Model.SupervisionTest do
 
   test "the issue build is the one span: its states until merged, with its pull requests' runs" do
     states =
-      ~w(working reviewing fixing publishing checking ci_fixing ci_fixing_again ci_pushing ci_failing updating update_pushing update_failing merging unchanged stuck review_stuck)
+      ~w(working reviewing fixing publishing checking ci_fixing ci_fixing_again ci_pushing ci_failing updating update_pushing update_failing merging pr_closed unchanged stuck review_stuck)
 
     assert %{
              "issue" => [

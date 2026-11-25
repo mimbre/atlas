@@ -219,10 +219,20 @@ defmodule AtlasFlow.FakeFacts do
         {"_description", _} ->
           %{"description" => s.description}
 
-        {kind, %{"key" => key}} ->
-          if MapSet.member?(s.busy, {kind, key}),
-            do: %{"error" => "Facts did not answer"},
-            else: %{"fact" => s.facts[{kind, key}]}
+        # A plain read is the fact without what Facts derives (its progress and completion).
+        {kind, %{"key" => key} = read} ->
+          fact = s.facts[{kind, key}]
+
+          cond do
+            MapSet.member?(s.busy, {kind, key}) ->
+              %{"error" => "Facts did not answer"}
+
+            read["plain"] == true and fact != nil ->
+              %{"fact" => Map.drop(fact, ~w(progress completion))}
+
+            true ->
+              %{"fact" => fact}
+          end
 
         {kind, %{"linked" => linked}} ->
           facts =

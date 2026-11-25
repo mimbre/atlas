@@ -40,7 +40,8 @@ defmodule RelaDSL.Description.Build do
     :verification,
     :reopen,
     :restart_by,
-    :order
+    :order,
+    :completed
   ]
   @flow_runtime_keys [:runs, :writer, :inputs, :supervision, :senders]
   @supervision_keys [:relation, :operation, :hand_to]
@@ -408,7 +409,8 @@ defmodule RelaDSL.Description.Build do
                       :verification,
                       :reopen,
                       :restart_by,
-                      :order
+                      :order,
+                      :completed
                     ],
                     Keyword.has_key?(o, k),
                     do: {to_string(k), Plain.ordered(o[k])}

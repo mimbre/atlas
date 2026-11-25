@@ -237,6 +237,10 @@ defmodule Model.Issue do
   # The numbered issues of one use case are built in order (`order`, IS-Atlas-114): only
   # the first not finished (completed, or its run ended `done`) can be picked up; the other
   # numbered ones wait for it. An issue without a number never waits.
+  # An issue completed meanwhile (`completed`, IS-Atlas-34): its change merged elsewhere,
+  # a merged pull request linked to it by hand (`in_issue`) or that also did it
+  # (`done_in`), as its composition's completion says; its run goes to `done` from any open
+  # state, the task it held cancelled. A push Code was asked for is answered first.
   select(:issue,
     choices: [],
     projection: [
@@ -250,6 +254,7 @@ defmodule Model.Issue do
     imports: [
       [when: [pr_outcome: [:integrated]], state: :done]
     ],
-    order: [within: :in_use_case, by: :order, done: [:done]]
+    order: [within: :in_use_case, by: :order, done: [:done]],
+    completed: :done
   )
 end
