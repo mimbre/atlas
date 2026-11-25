@@ -313,6 +313,39 @@ defmodule AtlasFlow.WorkSource.Translate do
     no_result_cause(v["result_kind"], v["reason"], v["lease_end_cause"]) != nil
   end
 
+  @doc """
+  Whether the task fact's last attempt was an **empty turn** (UC-Atlas-03: a silent turn
+  is ended): `"silent"` when its lease ran out unrenewed (`lost` at expiry: its Runtime,
+  or the turn on it, went silent; the Runtime fences such a lease itself), `"empty"` when
+  it ended with no result and no outcome (`crashed`, or `interrupted` other than at a
+  Runtime stop, with no answer and no result), nil otherwise. A lease lost for any other
+  cause, or ended without a result by rule (`no_result?/1`), is no empty turn: it is
+  offered again as always. Flow starts an empty turn's task once more on a fresh attempt,
+  and the second in a row ends it `abandoned` (`AtlasFlow.Activities.Task`); Dispatch
+  grants such a task again only for an attempt its run counted (`retried/1`).
+  """
+  def empty(values) do
+    v = values || %{}
+
+    cond do
+      v["lease_state"] == "lost" and v["lease_end_cause"] == "expired" ->
+        "silent"
+
+      v["lease_state"] == "done" and v["result_kind"] in ~w(crashed interrupted) and
+        not no_result?(v) and not text?(v["answer"]) and v["result_state"] != "complete" ->
+        "empty"
+
+      true ->
+        nil
+    end
+  end
+
+  @doc """
+  The attempts of an intent's task that ended empty and were started again (the run's
+  count, kept in its `pending.task`): a list of attempt numbers, `[]` when none.
+  """
+  def retried(intent), do: for(n <- List.wrap((intent || %{})["retried"]), is_integer(n), do: n)
+
   defp no_result_cause("returned", _reason, _cause), do: "returned"
   defp no_result_cause("interrupted", "runtime_stop", _cause), do: "runtime_stop"
   defp no_result_cause("cancelled", _reason, "supervision"), do: "supervision"
@@ -455,12 +488,17 @@ defmodule AtlasFlow.WorkSource.Translate do
   - `:retry`: the lease ended without a result (returned, Runtime stop, a `cancelled`
     after a supervision cancel request; `no_result?/1`); the work is offered again as a
     fresh attempt;
+  - `{:empty, why, attempt}`: attempt `attempt` was an empty turn (`empty/1`, `why`
+    `silent` or `empty`); the run decides whether it is started again;
   - `:waiting`: no result yet (no lease, a live one, or a result still incomplete).
   """
   def outcome(fact, checked?) do
     v = (fact || %{})["values"] || %{}
 
     cond do
+      why = empty(v) ->
+        {:empty, why, v["attempt"]}
+
       v["lease_state"] != "done" ->
         :waiting
 

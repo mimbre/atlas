@@ -32,7 +32,8 @@ defmodule AtlasFlow.Activities.Task do
   4. **Offered by Dispatch.** Once the stored run holds the intent and the task fact
      exists, the task is cast to `AtlasFlow.Dispatch` (`{:ready, key}`), which offers it
      to a Runtime of the subject's human supervisor. The cast is sent again while the
-     task has no lease, or its last one was lost or ended without a result.
+     task has no lease, or its last one was lost or ended without a result, but an
+     empty turn only once its run counted it (6).
   5. **Result.** The run's result comes from the task fact, which `AtlasFlow.Delivery`
      writes from the Runtime's reports (`Translate.outcome/2`): once the lease is done and
      its result complete, it is put in the run (`pending.tasks`) and its branch is taken
@@ -41,6 +42,14 @@ defmodule AtlasFlow.Activities.Task do
      invalid, or any other end; until F5 none is retried), or `abandoned`. The Engine then
      writes the task fact's `state` and nothing else: it never writes `input` again after
      the create (Dispatch writes the lease's input, fenced).
+  6. **A silent turn is ended (UC-Atlas-03).** A lease that ran out unrenewed (its turn
+     went silent past its lease; the Runtime ends such a turn itself), or an end with no
+     result and no outcome, is an empty turn (`Translate.empty/1`). By the ladder's rule
+     (`Ladder.again?/2`) the first starts the same task once more on its own, on a fresh
+     attempt, with no person asked; the second in a row ends it `abandoned`, its reason
+     "its agent went silent twice", so its state's `abandoned` branch takes it to whoever
+     decides (and its `failure` field says why). The count is kept in the run (its
+     intent's `retried`), never beside it.
 
   **Why it is to be done.** A spec's `parents` names fields of the subject's parents (the
   relations the model marks `parent`, `ctx.parents`), nearest first: each parent's are
@@ -762,6 +771,9 @@ defmodule AtlasFlow.Activities.Task do
           {:result, outcome, detail} ->
             ended(run, intent, spec, outcome, detail, fact, ctx)
 
+          {:empty, why, attempt} ->
+            empty(run, intent, spec, fact, why, attempt, ctx)
+
           not_ended ->
             with :none <- continued_answer(run, intent, spec, subject, ctx) do
               if not_ended == :retry or offerable?(fact), do: Dispatch.ready(key)
@@ -773,6 +785,42 @@ defmodule AtlasFlow.Activities.Task do
         :none
     end
   end
+
+  # An empty turn (`Translate.empty/1`): its lease ran out silent, or it ended with no
+  # result and no outcome. The ladder's rule for an abandoned task (`Ladder.again?/2`):
+  # the first is started once more, the second in a row ends the task `abandoned`. A
+  # ladder task ends `abandoned` at once, and the ladder applies that rule with its own
+  # count. Any other keeps the count in its run: the attempts started again, in the
+  # intent it holds (`pending.task["retried"]`, `Translate.retried/1`). Counting stores the
+  # run first; only an attempt it holds is granted again by Dispatch, on a fresh attempt
+  # of the same task (a new `task_attempt`), so a Flow restart neither resets nor doubles
+  # the count: an attempt counted already is only offered again.
+  defp empty(run, intent, %{"ladder" => true} = spec, fact, why, _attempt, ctx),
+    do: ended(run, intent, spec, "abandoned", %{"reason" => silent(why, 1)}, fact, ctx)
+
+  defp empty(run, intent, spec, fact, why, attempt, ctx) do
+    retried = Translate.retried(intent)
+
+    cond do
+      attempt in retried ->
+        Dispatch.ready(intent["key"])
+        :none
+
+      Ladder.again?(length(retried), limits(ctx)) ->
+        {:pending, Map.put(intent, "retried", retried ++ [attempt]), [], nil}
+
+      true ->
+        reason = silent(why, length(retried) + 1)
+        ended(run, intent, spec, "abandoned", %{"reason" => reason}, fact, ctx)
+    end
+  end
+
+  defp silent(_why, n) when n >= 2, do: "its agent went silent #{times(n)}"
+  defp silent("silent", _n), do: "its agent went silent"
+  defp silent(_why, _n), do: "its agent ended with no result"
+
+  defp times(2), do: "twice"
+  defp times(n), do: "#{n} times"
 
   # Main's ruling on D1 (F2-P): while the loop runs on the recommended default and its
   # question is still open (`awaiting` on the escalation, with a `continue` step), the

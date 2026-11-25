@@ -49,7 +49,9 @@ defmodule AtlasFlow.Dispatch do
   - `lost` (`late_accept`) for a lease still `offered` 30 s after its `granted_at` (durable,
     so a restart does not move the deadline); the task is ready again at once;
   - `expired` once a lease's renewed expiry has passed, and `lost` at expiry + grace
-    (120 s); only then is the task leased again;
+    (120 s): a silent turn. Only once its run counted that attempt (the Engine starts
+    the task once more, `AtlasFlow.Activities.Task`) is the task leased again, on a fresh
+    attempt; the second silence in a row ends the task `abandoned`;
   - on a supervisor or span change (`done_for` no longer the supervisor): an `offered`
     lease → `lost`; an `accepted` or `started` one → `cancel_requested`, named in its
     holder's next poll's `cancel`; an `ended` one stands.
@@ -563,7 +565,7 @@ defmodule AtlasFlow.Dispatch do
 
   # The lease, as a fenced change of the task fact; nil when the task is not to be leased.
   defp lease(fact, entry, runtime_id, holder, state) do
-    if grantable?(fact, holder) do
+    if grantable?(fact, entry.intent) do
       attempt = (Leases.value(fact, "attempt") || 0) + 1
       lease_id = Leases.new_id(entry.key, attempt)
       now = now(state)
@@ -589,21 +591,29 @@ defmodule AtlasFlow.Dispatch do
 
   # A task with no lease, or whose last one was lost or ended without a result. "Without a
   # result" is decided from the ending (`Translate.no_result?/1`), never from a cancel
-  # request alone: an ended(completed) after cancel_requested is not offered again.
-  defp grantable?(nil, _holder), do: false
+  # request alone: an ended(completed) after cancel_requested is not offered again. An
+  # empty turn (`Translate.empty/1`: its lease ran out silent, or it ended with nothing)
+  # is granted again only once its run counted that attempt (`Translate.retried/1`): the
+  # run decides whether it is started once more or ends abandoned, never Dispatch.
+  defp grantable?(nil, _intent), do: false
 
-  defp grantable?(fact, _holder) do
+  defp grantable?(fact, intent) do
     # The Engine cancelled it (F2-P, `cancel/3`): never leased again, whatever the ready
     # set still says.
-    if Leases.value(fact, "state") == "cancelled" do
-      false
-    else
-      case Leases.value(fact, "lease_state") do
-        nil -> Leases.value(fact, "lease_id") == nil
-        "lost" -> true
-        "done" -> Translate.no_result?(fact["values"])
-        _ -> false
-      end
+    cond do
+      Leases.value(fact, "state") == "cancelled" ->
+        false
+
+      Translate.empty(fact["values"]) != nil ->
+        Leases.value(fact, "attempt") in Translate.retried(intent)
+
+      true ->
+        case Leases.value(fact, "lease_state") do
+          nil -> Leases.value(fact, "lease_id") == nil
+          "lost" -> true
+          "done" -> Translate.no_result?(fact["values"])
+          _ -> false
+        end
     end
   end
 
