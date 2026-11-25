@@ -655,7 +655,8 @@ func legacyRepositorySpec(fields map[string]any, home string) (*CodexSpec, strin
 // them, so a spec holds them whatever the legacy list says: if one leaves sensitiveHomeNames, the
 // managed rows go red until they carry a change.
 var atomicHomeTemps = []string{"code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
-	"availability.json.tmp", "execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp"}
+	"availability.json.tmp", "execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp",
+	"update.json.tmp", "update.lock.tmp", "update.log.tmp"}
 
 // withAtomicTemps is a managed repository's home_names (sensitiveHomeNames plus every atomicHomeTemps
 // entry it lacks) and its entry list with a none entry for each added temp, placed right after the

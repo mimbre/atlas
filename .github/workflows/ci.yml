@@ -797,6 +797,58 @@ jobs:
           [ -n "$ATLAS_FLY_TOKEN_CORE" ] || { echo "::error::Add the secret FLY_API_TOKEN_PROD (fly tokens create deploy -a eyra-atlas)"; exit 1; }
           platform/ops/deploy.sh prod "master-$GITHUB_SHA"
 
+  # Each push to develop (test) and master (prod) publishes the Runtime at its revision
+  # (IS-Atlas-26): platform/atlas_runtime/host/release.sh packs the tree with its generated
+  # targets and Hex dependencies, BUILD and the CLI for an Apple silicon Mac, as the GitHub
+  # release atlas-runtime-<branch>-<commit12>. A supervisor upgrades a Runtime to it from
+  # Control (a runtime_upgrade under its machinery, naming the build); the Runtime's
+  # `atlas-runtime service update --build BUILD` downloads it and checks its SHA-256.
+  deploy-runtime-release:
+    name: Publish the Runtime release of this revision
+    needs: [tested-tree, generator, contract, model-dsl, model-contract, beam, runtime-backend-generator, runtime-backend-contract]
+    if: >-
+      ${{ !cancelled()
+      && github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+      && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: runtime-release-${{ github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: platform/atlas_runtime/host/go.mod
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/atlas
+          key: rela-26.11.9-linux_amd64
+      - run: bin/generate
+      - run: mix deps.get
+        working-directory: products/software_factory
+      - name: Pack and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build="${GITHUB_REF_NAME}-${GITHUB_SHA:0:12}"
+          out="$RUNNER_TEMP/runtime-release"
+          platform/atlas_runtime/host/release.sh "$build" "$out" darwin arm64
+          tag="atlas-runtime-$build"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" "$out"/* --target "$GITHUB_SHA" --latest=false --title "Atlas Runtime $build" \
+              --notes "The Runtime at $GITHUB_SHA ($GITHUB_REF_NAME). Upgrade a Runtime to it from Control: a Runtime upgrade under its machinery with build $build (atlas put runtime_upgrade --in MACHINERY --build $build)."
+          else
+            gh release upload "$tag" "$out"/* --clobber
+          fi
+          echo "Runtime release: \`$build\`" >> "$GITHUB_STEP_SUMMARY"
+
   # Each release publishes the Swift package of Control's contract (AtlasControlKit) to
   # github.com/mimbre/atlas-swift, tagged with the contract version, when that tag is
   # missing; otherwise it does nothing (platform/clients/apple/tools/atlas_swift.py).
