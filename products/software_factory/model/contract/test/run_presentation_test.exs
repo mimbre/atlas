@@ -149,7 +149,7 @@ defmodule Model.RunPresentationTest do
         assignment(
           "SC-Atlas-01",
           %{"flow_state" => "building", "expected" => "Waiting for its use cases"},
-          ["melle"]
+          []
         ),
         scene,
         [run("accept_scene", "active", "building")]

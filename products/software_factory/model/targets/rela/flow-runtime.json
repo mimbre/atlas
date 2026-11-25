@@ -411,7 +411,8 @@
         "migrations": [
           {"from":"95c7c942d555713bab940479905782881b0bcb706efc832d83c8f921519602e4","to":"1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3","states":{"accepted":"accepted","breaking_down":"breaking_down","building":"building","rework":"building","to_test":"to_accept"},"reason":"Accept the scene: its producer accepts it, or a new round of its break-down starts"},
           {"from":"1b85486e82166f7878485e80060bb2afb3f62c9cca9ff8b66f803151e171dbe3","to":"0b7d903c06f4bfcc82b632475f3274cb32542868402a7e8959ea5407affe0d10","states":{"accepted":"accepted","breaking_down":"breaking_down","building":"building","to_accept":"to_accept"},"reason":"Accept: renamed from Accept the scene"},
-          {"from":"0b7d903c06f4bfcc82b632475f3274cb32542868402a7e8959ea5407affe0d10","to":"6665318f148389f993ac80245461a63666bfa50507b6071a2ab3db4e6563b77e","states":{"accepted":"accepted","breaking_down":"breaking_down","building":"building","to_accept":"to_accept"},"reason":"Accept: a scene waiting for its use cases is its producer's, with nothing to do"}
+          {"from":"0b7d903c06f4bfcc82b632475f3274cb32542868402a7e8959ea5407affe0d10","to":"6665318f148389f993ac80245461a63666bfa50507b6071a2ab3db4e6563b77e","states":{"accepted":"accepted","breaking_down":"breaking_down","building":"building","to_accept":"to_accept"},"reason":"Accept: a scene waiting for its use cases is its producer's, with nothing to do"},
+          {"from":"6665318f148389f993ac80245461a63666bfa50507b6071a2ab3db4e6563b77e","to":"e29d7958e2bc428682016e5901cc5b3a49e65b6e58502fda6a3d3d1f7960b2db","preserve_entry":true,"states":{"accepted":"accepted","breaking_down":"breaking_down","building":"building","to_accept":"to_accept"},"reason":"Accept: a scene waiting for its use cases is assigned to nobody"}
         ],
         "subject": "scene",
         "projection": {
