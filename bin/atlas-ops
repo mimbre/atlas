@@ -35,7 +35,13 @@
 # Scripts and tests always pass --env test, or ATLAS_ENV_FILE: a private instance (other
 # ports and data) whose environment is the file's "env". --env and the file's "env" must
 # agree; `atlas` resolves environments the same way (bin/lib/env.sh).
+# From the main clone on develop, every command first takes the newest develop (pull,
+# clean-build), as `atlas tui` does; ATLAS_NO_UPDATE=1 keeps the build as it is.
 set -euo pipefail
+# The arguments as given, for a re-exec after update_build pulled a newer develop.
+given=("$@")
+updated="${ATLAS_UPDATED-}"
+unset ATLAS_UPDATED
 
 # Nothing here needs the Runtime read capability; keep it from every child.
 unset ATLAS_RUNTIME_READ_TOKEN
@@ -50,11 +56,14 @@ root="$(cd "$(dirname "$src")/.." && pwd -P)"
 prog=atlas-ops
 . "$root/bin/lib/env.sh"
 . "$root/bin/lib/tunnel.sh"
+. "$root/bin/lib/update.sh"
+restart_updated() { ATLAS_UPDATED=1 exec "$root/bin/atlas-ops" ${given[@]+"${given[@]}"}; }
 # The comment above, up to `set -euo pipefail`: the usage.
 header() { sed -n '2,/^set -euo/p' "$root/bin/atlas-ops" | sed '$d' | sed 's/^# \{0,1\}//'; }
 usage() { header; exit 2; }
 unknown() { echo "atlas-ops: unknown option $1" >&2; usage; }
 
+case "${1:-}" in -h|--help|"") ;; *) update_build ;; esac
 case "${1:-}" in
   status|logs|restart|up|stop|tunnel|env|where|main-clone|install|move-to-fly|fetch-from-fly) cmd="$1"; shift ;;
   -h|--help|"") usage ;;

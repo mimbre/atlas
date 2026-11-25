@@ -148,47 +148,15 @@ fi
 
 resolve_places
 
-# The main clone follows develop: take the newest build before trying it. When this build
-# cannot be updated, update_failed says why and update_once until when; the TUI says both
-# if Control finds it too old (IS-Atlas-76), rather than ending to be started again.
-update_failed=""
-update_once=""
-update_build() {
-  [ -z "$updated" ] || return 0
-  if [ -n "${ATLAS_NO_UPDATE:-}" ]; then
-    update_failed="ATLAS_NO_UPDATE is set"
-    update_once="it is not set"
-    return 0
-  fi
-  local main branch before out
-  main="$(main_clone)" || main=""
-  if [ "$main" != "$root" ]; then
-    update_failed="$root is not the main clone, which is the build atlas updates"
-    update_once="you start it from the main clone${main:+ ($main/bin/atlas)}"
-    return 0
-  fi
-  branch="$(git -C "$root" branch --show-current)"
-  if [ "$branch" != develop ]; then
-    update_failed="the main clone $root is on ${branch:-a detached HEAD}, not develop"
-    update_once="it is on develop again (git -C $root switch develop)"
-    return 0
-  fi
-  before="$(git -C "$root" rev-parse HEAD)"
-  if ! out="$(git -C "$root" pull --ff-only -q 2>&1)"; then
-    [ -z "$out" ] || printf '%s\n' "$out" >&2
-    # After a TUI was closed as too old, not_current says what follows.
-    [ -n "$too_old" ] || echo "atlas: could not update develop; trying the build as it is" >&2
-    update_failed="the pull of develop failed${out:+ ($(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -1))}"
-    update_once="git -C $root pull --ff-only works"
-  fi
-  # What a rename or a move on develop left behind: folders with only build output.
-  "$root/bin/clean-build" "$root" --moved >&2
-  # This run already sourced the old scripts; a renamed or moved path would break them
-  # against the new tree. Start again on the pulled scripts, without another update.
-  if [ "$(git -C "$root" rev-parse HEAD)" != "$before" ]; then
-    ATLAS_UPDATED=1 ATLAS_TUI_TO="$tui_to" ATLAS_TUI_TOO_OLD="$too_old" ATLAS_TUI_SPECS="$specs" \
-      exec "$root/bin/atlas" ${given[@]+"${given[@]}"}
-  fi
+# The main clone follows develop: take the newest build before trying it (bin/lib/update.sh).
+# The TUI says update_failed and update_once if Control finds it too old (IS-Atlas-76),
+# rather than ending to be started again. After a TUI was closed as too old, not_current
+# says what follows a failed pull.
+. "$root/bin/lib/update.sh"
+update_quiet="$too_old"
+restart_updated() {
+  ATLAS_UPDATED=1 ATLAS_TUI_TO="$tui_to" ATLAS_TUI_TOO_OLD="$too_old" ATLAS_TUI_SPECS="$specs" \
+    exec "$root/bin/atlas" ${given[@]+"${given[@]}"}
 }
 
 # After a TUI was closed as too old: the update made no newer build (it failed, or develop
