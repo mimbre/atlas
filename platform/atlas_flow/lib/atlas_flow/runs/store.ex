@@ -761,11 +761,10 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   defp look_subject(config, d, run, flow, inputs, cursor?, now, remaining) do
-    # Recover prepared writes first, then fetch the subject's current ETag.
-    case Talk.read(run["subject_kind"], %{
-           "key" => run["subject_key"],
-           "plain" => true
-         }) do
+    # Recover prepared writes first, then fetch the subject's current ETag. A subflow whose
+    # selection ends a completed subject's run (`completed:`) reads it with what Facts
+    # derives (its completion), without what points at it; any other plainly.
+    case Talk.read(run["subject_kind"], subject_read(config, run)) do
       %{"fact" => %{} = subject} = answer ->
         subject =
           Map.put(subject, "position", answer["position"] || subject["position"] || 0)
@@ -806,6 +805,15 @@ defmodule AtlasFlow.Runs.Store do
         {:error, {:subject_unavailable, other}}
     end
   end
+
+  defp subject_read(config, run) do
+    if completed_state(config, run),
+      do: %{"key" => run["subject_key"], "incoming" => false},
+      else: %{"key" => run["subject_key"], "plain" => true}
+  end
+
+  # The final state the run's selection ends a completed subject's run in, or nil.
+  defp completed_state(config, run), do: config["selection"][run["flow"]]["completed"]
 
   # A deleted subject ends its run (`ended`, `subject_removed`), stored before the task it
   # holds is cancelled: nothing moves it or is written for it any more, and a round does
@@ -1432,17 +1440,19 @@ defmodule AtlasFlow.Runs.Store do
       end)
 
     retried = Run.retry(run, flow, first, subject, now)
-
-    case {run["pending"]["task"], flow.mechanism(run["state"])} do
-      {%{"key" => key} = intent, {:task, spec}} ->
-        Dispatch.cancel(key, "retry")
-        Results.unpin(key, now)
-        {:ok, update_in(retried, ["pending", "writes"], &[Task.cancelled(intent, spec) | &1])}
-
-      _ ->
-        {:ok, retried}
-    end
+    {:ok, dropped(retried, run["pending"]["task"], flow.mechanism(run["state"]), "retry", now)}
   end
+
+  # The task a run held when it left its state other than by the task's result (a retry, a
+  # plain branch, its subject completed): Dispatch drops it now, and its fact says so once
+  # the run is stored (`cancelled`, a write of the run's next entry).
+  defp dropped(run, %{"key" => key} = intent, {:task, spec}, cause, now) do
+    Dispatch.cancel(key, cause)
+    Results.unpin(key, now)
+    update_in(run, ["pending", "writes"], &[Task.cancelled(intent, spec) | &1])
+  end
+
+  defp dropped(run, _intent, _mechanism, _cause, _now), do: run
 
   defp moved(config, run, flow, subject, now, inputs) do
     mechanism = if run["status"] == "active", do: flow.mechanism(run["state"])
@@ -1451,7 +1461,18 @@ defmodule AtlasFlow.Runs.Store do
     # Reopened work starts a new generation only when the selection declares it.
     opts = [reopen: config["selection"][run["flow"]]["reopen"]]
 
+    # A completed subject (a merged pull request linked to it, say) ends its run from any
+    # open state, ahead of its mechanism; a plain branch that holds takes a task's state
+    # the same way, whether its task waits, runs or ended. Either cancels the task it held.
+    completed = Run.completed(run, flow, subject, completed_state(config, run), now)
+    unheld = if completed == :stay, do: Run.unheld(run, flow, subject, now), else: completed
+
     cond do
+      unheld != :stay ->
+        {:ok, left, intent} = unheld
+        cause = if completed == :stay, do: "branch", else: "completed"
+        {:ok, dropped(left, intent, mechanism, cause, now)}
+
       match?({:effect, _}, mechanism) ->
         effect_next(config, run, flow, subject, now, elem(mechanism, 1))
 

@@ -521,10 +521,36 @@ defmodule RelaDSL.Description.Subflows do
               else: []
             ) ++
             restart_by(o, projection, flows, at) ++
+            completed(f, kind, o, extension, at) ++
             verification(schema, kind, o[:verification], at) ++
             order(schema, kind, states, o[:order], at)
       end
     end)
+  end
+
+  # The final state a run of a completed subject ends in (`completed:`): one the subflow
+  # has, on a kind with a completion rule (Facts derives whether its fact is completed).
+  defp completed(f, kind, o, extension, at) do
+    report = fn message -> [at.(problem(:completed, [kind], "completed: " <> message))] end
+
+    case Keyword.fetch(o, :completed) do
+      :error ->
+        []
+
+      {:ok, state} ->
+        final = for s <- f.states, s.final, do: s.name
+
+        cond do
+          not is_atom(state) or state not in final ->
+            report.("#{inspect(state)} is no final state of #{f.name}")
+
+          get_in(extension || %{}, ["entities", kind, "completion"]) in [nil, []] ->
+            report.("#{kind} has no completion rule, so no #{kind} is ever completed")
+
+          true ->
+            []
+        end
+    end
   end
 
   # Who may ask for an explicit restart of a completed run: `:owner` (whom the projection's
