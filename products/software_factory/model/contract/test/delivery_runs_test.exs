@@ -587,8 +587,9 @@ defmodule Model.DeliveryRunsTest do
       end
 
       # Every other issue (each one on test and prod today) matches no row: it starts in
-      # working as a new one does, at once, whatever its stage; with nothing to write and
-      # nothing due, what it showed and its owner stay.
+      # working as a new one does, at once, whatever its stage; it writes only the step
+      # Retry would go back to (its author's) and that no task failed, and nothing is due,
+      # so what it showed and its owner stay.
       for values <- [
             %{},
             @live,
@@ -608,7 +609,11 @@ defmodule Model.DeliveryRunsTest do
         run = issue_new(env, values)
         assert at(run) == {"working", "active", 1}
         refute Map.has_key?(run["last_input"], "import")
-        assert run["pending"] == %{"version" => 1, "writes" => []}
+
+        assert [%{"kind" => "issue", "content" => %{"op" => "change", "values" => values}}] =
+                 run["pending"]["writes"]
+
+        assert values == %{"retry_step" => "author", "task_failure" => "none"}
         assert run["deadlines"]["timers"] == []
       end
     end

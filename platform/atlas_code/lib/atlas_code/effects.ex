@@ -71,7 +71,8 @@ defmodule AtlasCode.Effects do
   `description` and, when the input has them, its `review` (`%{"task", "verdict",
   "findings"}`: what an independent review of the result found) and its `fix` (`%{"task",
   "answer"}`: the task that fixed those findings, whose result this is; its commit sits on
-  the author's, both on `base`). Done, with `reference` and `outputs` `%{"url"}`, is that
+  the author's, both on `base`); an input without a `review` says that no review was made.
+  Done, with `reference` and `outputs` `%{"url"}`, is that
   pull's web address. A repeat first looks the branch's pull up, so it is never opened
   twice; a branch already at another commit is refused `branch_taken`. A result with no
   changes against `base` (its tree is that of the commit it shares with Code's copy of
@@ -624,7 +625,9 @@ defmodule AtlasCode.Effects do
     )
   end
 
-  defp review(_none), do: nil
+  # No review handed over: the pull says so, so whoever merges it knows nobody but its
+  # author's agent looked at it (its supervisor published it without one).
+  defp review(_none), do: "**Review.** No review was made of this result."
 
   defp fix(%{"task" => task} = fix) do
     answer =

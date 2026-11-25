@@ -19,6 +19,21 @@ defmodule AtlasControl.HealthPage do
 
   `report` is what the session gathered: `%{flow: Flow's `_health` answer or nil,
   facts_waiting: integer or nil}`. `now` is when the page is made.
+
+  ## Alerts (IS-Atlas-117, second slice)
+
+  The decider is alerted where they get work: on their start page in Control, one alert
+  per late row (`alerts/2`, `alert_view/1`), each naming what fell behind and since when,
+  with the Health action. An alert is worked out from the same report each time the
+  start page is made, so it is one per stall, never one per check, and it is gone once
+  its row recovers; a healthy core raises none. Since when is the row's own moment, so
+  the same stall reads the same on every page: Flow's round's due, a Runtime's last poll.
+  A Flow that does not answer is one alert: its Runtimes are not alerted on as well.
+
+  Nothing is stored or scheduled for an alert (D-0100): no fact, no timer. The page
+  says when it is to be read again (`until/2`): at once while an alert is open, so a
+  reconcile clears it once the row recovers; otherwise the moment the first healthy
+  row would pass its limit. The syncs raise no alert until rela reports their runs.
   """
 
   require AtlasControl.Blocks, as: Blocks
@@ -32,7 +47,12 @@ defmodule AtlasControl.HealthPage do
   @doc "The limits, in seconds: `sync`, `flow` and `runtime`."
   def limits, do: %{sync: @sync_limit, flow: @flow_limit, runtime: @runtime_limit}
 
-  @doc "The rows of the page: `%{core: [row], syncs: [row], runtimes: [row]}`, each row `%{label, late, text}`."
+  @doc """
+  The rows of the page: `%{core: [row], syncs: [row], runtimes: [row]}`, each row
+  `%{key, label, late, text, since}`: `key` names the check (`flow`, `facts`, `syncs`,
+  `runtimes`, `runtime:<id>`); `since` is the moment it fell behind from (a DateTime, or
+  nil when none is known); `due`, for a row not late yet, the moment it passes its limit.
+  """
   def rows(report, now) do
     flow = report[:flow]
 
@@ -40,6 +60,7 @@ defmodule AtlasControl.HealthPage do
       core: [flow_row(flow, now), facts_row(report[:facts_waiting])],
       syncs: [
         %{
+          key: "syncs",
           label: "rela syncs",
           late: false,
           text:
@@ -88,6 +109,81 @@ defmodule AtlasControl.HealthPage do
     )
   end
 
+  @doc """
+  The decider's alerts: one per late row (a stall), `%{key, what, since, text}`, in page
+  order. `what` names what fell behind, `since` is when (a DateTime, or nil when the
+  core cannot tell), `text` says both. A healthy core has none.
+  """
+  def alerts(report, now) do
+    rows = rows(report, now)
+
+    for row <- rows.core ++ rows.syncs ++ rows.runtimes, row.late, row[:of] == nil do
+      what = what(row)
+      since = row[:since]
+
+      %{key: row.key, what: what, since: since, text: alert_text(what, since, row.text)}
+    end
+  end
+
+  @doc """
+  When the decider's page is to be read again for its alerts (ISO 8601, UTC): `now`
+  while an alert is open, so it goes once its row recovers; else the first moment a
+  healthy row passes its limit; nil when none can.
+  """
+  def until(report, now) do
+    rows = rows(report, now)
+    all = rows.core ++ rows.syncs ++ rows.runtimes
+
+    if Enum.any?(all, & &1.late) do
+      iso(now)
+    else
+      all
+      |> Enum.map(&row_due/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.min(DateTime, fn -> nil end)
+      |> iso()
+    end
+  end
+
+  defp row_due(%{due: %DateTime{} = due}), do: due
+  defp row_due(_row), do: nil
+
+  @doc """
+  The alerts as blocks for the top of the decider's start page: `%{blocks, markup}`, an
+  `item` `alerts` titled "Alerts", one field per alert, with the Health action, in the
+  error tone. No alerts, no blocks.
+  """
+  def alert_view([]), do: %{blocks: [], markup: []}
+
+  def alert_view(alerts) do
+    item =
+      Blocks.item(
+        title: "Alerts",
+        fields: for(a <- alerts, do: Blocks.pair(label: a.what, value: a.text)),
+        actions: [health_action()]
+      )
+
+    Blocks.view_model([{"alerts", item}], [Blocks.highlight("alerts", "alerts", tone: "error")])
+  end
+
+  defp what(%{key: "flow"}), do: "Flow"
+  defp what(%{key: "syncs", label: label}), do: label
+  defp what(%{key: "runtime:" <> _, label: label}), do: "Runtime #{label}"
+  defp what(%{label: label}), do: label
+
+  defp alert_text(what, nil, text), do: "#{what} fell behind: #{text}"
+
+  defp alert_text(what, since, text),
+    do: "#{what} behind since #{moment(since)}: #{text}"
+
+  defp health_action,
+    do:
+      Blocks.action(label: "Health", key: "h", to: Pages.path({:worker_page, :health, %{}}))
+      |> Map.put("page", true)
+
+  defp iso(%DateTime{} = at), do: at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+  defp iso(_), do: nil
+
   defp workers_action,
     do: Blocks.action(label: "Workers", key: "w", to: Pages.path({:worker_page, :workers, %{}}))
 
@@ -95,7 +191,7 @@ defmodule AtlasControl.HealthPage do
   defp value(%{text: text}), do: text
 
   defp flow_row(nil, _now),
-    do: %{label: "Flow", late: true, text: "Flow did not answer"}
+    do: %{key: "flow", label: "Flow", late: true, text: "Flow did not answer"}
 
   defp flow_row(flow, now) do
     f = flow["flow"] || %{}
@@ -104,56 +200,82 @@ defmodule AtlasControl.HealthPage do
     last_due = at(f["last_due"])
     finished = at(f["last_finished"])
 
-    {lag, about} =
+    # `since`: the due the lag counts from. `due`: when the round to come (or the one
+    # stepping) passes the limit, if it has not yet.
+    {lag, since, about} =
       cond do
         due ->
-          {seconds(due, now), "its round, due #{moment(due)}, is still running"}
+          {seconds(due, now), due, "its round, due #{moment(due)}, is still running"}
 
         next_due && DateTime.compare(next_due, now) == :lt ->
-          {seconds(next_due, now), "its round, due #{moment(next_due)}, has not started"}
+          {seconds(next_due, now), next_due,
+           "its round, due #{moment(next_due)}, has not started"}
 
         last_due && finished ->
-          {seconds(last_due, finished), "its last round finished #{moment(finished)}"}
+          {seconds(last_due, finished), last_due, "its last round finished #{moment(finished)}"}
 
         true ->
-          {nil, "no round has finished since the core started"}
+          {nil, nil, "no round has finished since the core started"}
       end
+
+    coming = due || next_due
+    passes = coming && DateTime.add(coming, @flow_limit + 1, :second)
 
     case lag do
       nil ->
-        %{label: "Flow", late: false, text: about}
+        %{key: "flow", label: "Flow", late: false, text: about, due: passes}
 
       lag ->
+        late = lag > @flow_limit
+
         %{
+          key: "flow",
           label: "Flow",
-          late: lag > @flow_limit,
+          late: late,
+          since: if(late, do: since),
+          due: passes,
           text: "#{span(lag)} behind (limit #{span(@flow_limit)}): #{about}"
         }
     end
   end
 
   defp facts_row(nil),
-    do: %{label: "Facts' queue", late: false, text: "Facts is not attached"}
+    do: %{key: "facts", label: "Facts' queue", late: false, text: "Facts is not attached"}
 
   defp facts_row(n),
-    do: %{label: "Facts' queue", late: false, text: "#{n} waiting"}
+    do: %{key: "facts", label: "Facts' queue", late: false, text: "#{n} waiting"}
 
+  # Flow's own row says it did not answer; this one is not a stall of its own.
   defp runtime_rows(nil, _now),
-    do: [%{label: "Runtimes", late: true, text: "Flow did not answer"}]
+    do: [
+      %{key: "runtimes", label: "Runtimes", late: true, text: "Flow did not answer", of: "flow"}
+    ]
 
   defp runtime_rows(flow, now) do
     case flow["runtimes"] || [] do
       [] ->
-        [%{label: "Runtimes", late: false, text: "no Runtime has polled since the core started"}]
+        [
+          %{
+            key: "runtimes",
+            label: "Runtimes",
+            late: false,
+            text: "no Runtime has polled since the core started"
+          }
+        ]
 
       runtimes ->
         for r <- runtimes do
           polled = at(r["polled_at"])
           ago = polled && seconds(polled, now)
 
+          late = ago == nil or ago > @runtime_limit
+
           %{
+            key: "runtime:#{r["runtime"]}",
             label: r["runtime"],
-            late: ago == nil or ago > @runtime_limit,
+            late: late,
+            since: if(late, do: polled),
+            due: polled && DateTime.add(polled, @runtime_limit + 1, :second),
             text:
               if(ago,
                 do: "polled #{span(ago)} ago, #{moment(polled)} (limit #{span(@runtime_limit)})",

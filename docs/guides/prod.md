@@ -155,6 +155,17 @@ Prod runs `RELEASE_DISTRIBUTION=none`, so nobody attaches to its node to see a s
 
 What Flow notes is memory only: after a restart the page knows only Runtimes that have polled since, and Flow's round from its first one.
 
+#### Alerts for the decider
+
+The decider (`"actors": {"decider": …}`) is alerted where they get work: on top of their start page in Control (the TUI, the Console and every client), an **Alerts** item with one line per late row, naming what fell behind and since when (Flow's round's due, a Runtime's last poll), and the Health action (`h`, to `/health`). It is one alert per stall, not one per check: the same stall reads the same on every page. A Flow that does not answer is one alert, without one per Runtime as well. It is gone once its row recovers, with nothing to close by hand. A healthy core raises none.
+
+An alert is worked out from the health report each time the decider's start page is made (`AtlasControl.HealthPage.alerts/2`). Nothing is stored or scheduled for it (D-0100): no fact and no timer. The page says when it is to be read again, so the client's reconcile reads it then: at once while an alert is open, otherwise the moment the first healthy row would pass its limit. The decider sees an alert only while a client is open on Control: nothing reaches them outside it.
+
+Open with rela (D-0100). These could not be asked of the pinned rela here: the build sandbox cannot download it. To file with the rela project, after asking `rela scheduler --help` and `rela mcp`:
+
+- the core cannot tell when a scheduled task (`github-pull`) last succeeded or failed, so the syncs raise no alert yet;
+- a notification outside Control (mail, push), if the decider is to be alerted without a client open.
+
 ### Secrets
 
 | Where | Secret | What | Before the client switch |

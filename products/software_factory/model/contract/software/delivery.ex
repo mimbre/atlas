@@ -30,6 +30,16 @@ defmodule Model.Delivery do
   opens no pull request: Code refuses it (`no_changes`) and the issue goes to its
   supervisor (`unchanged`). No second review; its supervisor decides. No package.
 
+  No item gets stuck (IS-Atlas-60, IS-Atlas-18): an agent task that ends without a result
+  (`stuck` or `abandoned`), or Code refusing its pull request, keeps the issue in its span
+  with its supervisor (`stuck`), with why: Flow writes which task ended how, and its
+  reason (`task_failure`, the task's `failure:`). Each task state records its step as it is
+  entered (`retry_step`, as the package subflow's held state reads it), so Retry goes back
+  to that state for a fresh task: the author on a fresh base of develop, any other on the
+  latest result that has one. A review that ends so leaves its author's result complete in
+  Code (`review_stuck`): its supervisor may also publish it without a review, its pull
+  request's body saying no review was made. Either may be closed (`done`).
+
   Every task reads the issue's title and description, and those of its use case and its
   scene (`parents:`): why it is to be done.
 
@@ -78,11 +88,15 @@ defmodule Model.Delivery do
         :update_pushing,
         :update_failing,
         :merging,
-        :unchanged
+        :unchanged,
+        :stuck,
+        :review_stuck
       ],
       with: [:package, :pull_request]
 
     state :working, label: "Working" do
+      set retry_step: :author, task_failure: :none
+
       present(
         expected: "Build it",
         why: "it is not built",
@@ -99,6 +113,7 @@ defmodule Model.Delivery do
           "Build the issue below in the repository you are given, a Git checkout of its base. Its use case and scene, after it, say why it is to be done. Before you build anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. End your answer with what you did and what is left open.",
         fields: [:title, :description],
         parents: [:title, :description],
+        failure: :task_failure,
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
@@ -115,6 +130,8 @@ defmodule Model.Delivery do
     # changes is never read. Its verdict and findings go with the result to its pull request;
     # a verdict of changes required ends it `changes_required`, which leads to one fix.
     state :reviewing, label: "Reviewing" do
+      set retry_step: :review, task_failure: :none
+
       present(
         expected: "Review it on the machinery",
         why: "its agent's work is done",
@@ -132,14 +149,15 @@ defmodule Model.Delivery do
         fields: [:title, :description],
         parents: [:title, :description],
         follow_ups: :issue,
+        failure: :task_failure,
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
           completed: :publishing,
           check_failed: :publishing,
           changes_required: :fixing,
-          stuck: :stuck,
-          abandoned: :stuck
+          stuck: :review_stuck,
+          abandoned: :review_stuck
         ]
       )
     end
@@ -148,6 +166,8 @@ defmodule Model.Delivery do
     # gets it): its result commit sits on the author's, so the pull request has both. No
     # second review follows.
     state :fixing, label: "Fixing" do
+      set retry_step: :fix, task_failure: :none
+
       present(
         expected: "Fix it on the machinery",
         why: "its review asks for changes",
@@ -164,6 +184,7 @@ defmodule Model.Delivery do
           "Fix the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the issue's change so far is the commit under it (git show HEAD~1). Do what the review's findings below ask, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
         fields: [:title, :description],
         parents: [:title, :description],
+        failure: :task_failure,
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
@@ -321,7 +342,7 @@ defmodule Model.Delivery do
     # A fix of its failing CI, on its latest result (as the review's fix): what failed, the
     # failing checks with the failing lines of their logs, is what it fixes.
     state :ci_fixing, label: "Fixing its CI" do
-      set ci_fixes: :one
+      set ci_fixes: :one, retry_step: :ci_fix, task_failure: :none
 
       present(
         expected: "Fix its CI on the machinery",
@@ -340,6 +361,7 @@ defmodule Model.Delivery do
           "Fix the failing CI of the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the issue's change so far is the commit under it (git show HEAD~1). What failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
         fields: [:title, :description],
         parents: [:title, :description],
+        failure: :task_failure,
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
@@ -353,7 +375,7 @@ defmodule Model.Delivery do
 
     # The second and last fix of its failing CI.
     state :ci_fixing_again, label: "Fixing its CI again" do
-      set ci_fixes: :two
+      set ci_fixes: :two, retry_step: :ci_fix_again, task_failure: :none
 
       present(
         expected: "Fix its CI on the machinery",
@@ -372,6 +394,7 @@ defmodule Model.Delivery do
           "Fix the failing CI of the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the issue's change so far is the commit under it (git show HEAD~1). What failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
         fields: [:title, :description],
         parents: [:title, :description],
+        failure: :task_failure,
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
@@ -470,8 +493,78 @@ defmodule Model.Delivery do
       branch to: :done, when: "entity.gate_result == 'close'"
     end
 
+    # An agent task ended without a result (stuck or abandoned), or Code refused its pull
+    # request or a push onto it: its supervisor is told why, and decides. Retry goes back
+    # to the state of the step its last task ran as (`retry_step`), for a fresh task: the
+    # author on a fresh base of develop, any other on the latest result that has one. A run
+    # whose step is not known (stuck before this state was open) is built again. Merged
+    # meanwhile is done.
+    state :stuck, label: "Stuck" do
+      owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
+      set gate_result: :none
+
+      present(
+        expected: "Decide what to do with it",
+        why: "its agent's work ended without a result",
+        instructions:
+          "An agent task of its build ended without a result, or Code refused to open or push its pull request (its publication says why; then what failed is none). What failed names the task, how it ended and why. Retry runs that step again with a fresh task: its author on a fresh base of develop, any other on its latest result. Or close it.",
+        section: [field: :task_failure, label: "What failed"],
+        answers: [
+          [key: "r", label: "Retry", change: %{values: %{gate_result: :retry}}],
+          [key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]
+        ]
+      )
+
+      branch to: :done, when: "entity.gate_result == 'close'"
+      branch to: :done, when: "entity.pr_state == 'merged'"
+
+      branch to: :reviewing,
+             when: "entity.gate_result == 'retry' and entity.retry_step == 'review'"
+
+      branch to: :fixing, when: "entity.gate_result == 'retry' and entity.retry_step == 'fix'"
+
+      branch to: :ci_fixing,
+             when: "entity.gate_result == 'retry' and entity.retry_step == 'ci_fix'"
+
+      branch to: :ci_fixing_again,
+             when: "entity.gate_result == 'retry' and entity.retry_step == 'ci_fix_again'"
+
+      # The author's step, or none known (an absent field matches no condition, so this
+      # one names none): built again. Last, so every step above is taken first.
+      branch to: :working, when: "entity.gate_result == 'retry'"
+    end
+
+    # Its review ended without a result: its author's result, which the review ran on, is
+    # complete in Code (a review follows only an author that ended with one). Its
+    # supervisor retries the review, publishes the result without one (Code's pull request
+    # says no review was made), or closes it.
+    state :review_stuck, label: "Its review failed" do
+      owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
+      set gate_result: :none
+
+      present(
+        expected: "Decide what to do with it",
+        why: "its review ended without a result",
+        instructions:
+          "The agent reviewing its author's result ended without a verdict; what failed says how and why. Its author's result is complete in Code. Retry runs a fresh review of it; Publish without review has Code open its pull request from it, its body saying no review was made; or close it.",
+        section: [field: :task_failure, label: "What failed"],
+        answers: [
+          [key: "r", label: "Retry", change: %{values: %{gate_result: :retry}}],
+          [
+            key: "p",
+            label: "Publish without review",
+            change: %{values: %{gate_result: :publish}}
+          ],
+          [key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]
+        ]
+      )
+
+      branch to: :done, when: "entity.gate_result == 'close'"
+      branch to: :reviewing, when: "entity.gate_result == 'retry'"
+      branch to: :publishing, when: "entity.gate_result == 'publish'"
+    end
+
     final :done, label: "Done"
-    final :stuck, label: "Stuck"
   end
 
   # "Issue → Pull request": its label is its signature; nothing else changed.
@@ -558,5 +651,38 @@ defmodule Model.Delivery do
     preserve_entry: true,
     states: :same,
     reason: "Build: its supervisor's pickup starts the work; texts only"
+  )
+
+  # No item gets stuck (IS-Atlas-60, IS-Atlas-18): `stuck` is no longer final but its
+  # supervisor's, in the span, with Retry and Close; a failed review goes to
+  # `review_stuck`, which may also publish without a review; each task state records its
+  # step (`retry_step`) and each task why it failed (`task_failure`). A live run keeps its
+  # state and entry, also with a task in flight (its step is then not recorded: Retry
+  # builds it again). A run already ended in `stuck` is reopened there, with the supervisor
+  # its last task was done for; its step is not known either, so Retry builds it again.
+  migrate(:issue,
+    from: "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e",
+    to: "59755bfb4a34101d408bb5c0ebce2bdc93252ad04a024f10a8931160ade7aa33",
+    preserve_entry: true,
+    reopen: [:stuck],
+    states: [
+      checking: :checking,
+      ci_failing: :ci_failing,
+      ci_fixing: :ci_fixing,
+      ci_fixing_again: :ci_fixing_again,
+      ci_pushing: :ci_pushing,
+      done: :done,
+      fixing: :fixing,
+      merging: :merging,
+      publishing: :publishing,
+      reviewing: :reviewing,
+      stuck: :stuck,
+      unchanged: :unchanged,
+      update_failing: :update_failing,
+      update_pushing: :update_pushing,
+      updating: :updating,
+      working: :working
+    ],
+    reason: "No item gets stuck: a stuck issue stays with its supervisor, who may retry it"
   )
 end

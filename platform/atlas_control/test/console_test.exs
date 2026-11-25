@@ -71,6 +71,34 @@ defmodule AtlasControl.ConsoleTest do
     s
   end
 
+  # IS-Atlas-117: the decider's alerts sit on top of their start page; on the Console the
+  # page still projects, and its Health action is one of the page's.
+  test "the decider's start page projects with its alert and the Health action", %{port: port} do
+    Application.put_env(:atlas, :actors, %{"decider" => "ada"})
+    on_exit(fn -> Application.delete_env(:atlas, :actors) end)
+    # No Flow answers this endpoint: one alert, Flow's.
+    Application.put_env(:atlas_control, :health_endpoint, "flow/health-none")
+    Application.put_env(:atlas_control, :health_timeout_ms, 50)
+
+    on_exit(fn ->
+      Application.delete_env(:atlas_control, :health_endpoint)
+      Application.delete_env(:atlas_control, :health_timeout_ms)
+    end)
+
+    s = connect(port, %{"surface" => "console", "client" => "agent", "as" => "ada"})
+    assert %{"op" => "welcome", "surface" => "console"} = read(s)
+    page = read(s)
+    assert page["op"] == "page", inspect(page)
+
+    assert %{"props" => %{"title" => "Alerts", "fields" => [%{"label" => "Flow"}]}} =
+             Enum.find(page["blocks"], &(&1["id"] == "alerts"))
+
+    assert :ok = AtlasBFF.Markup.check(Enum.map(page["blocks"], & &1["id"]), page["markup"])
+
+    assert Enum.any?(actions(page), &(get_in(&1, ["props", "operation", "to"]) == "/health")),
+           inspect(Enum.map(actions(page), & &1["props"]["operation"]))
+  end
+
   test "acknowledged Console has real typed projection; legacy body stays unchanged", %{
     port: port
   } do

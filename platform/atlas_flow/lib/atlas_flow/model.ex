@@ -31,7 +31,7 @@ defmodule AtlasFlow.Model do
   """
   @callback selection(subflow :: String.t()) :: nil | map
 
-  @doc "Every approved run migration: `from`, `to`, `states`, `rekey`/`preserve_entry`, `subflow`."
+  @doc "Every approved run migration: `from`, `to`, `states`, `rekey`/`preserve_entry`, `reopen`, `subflow`."
   @callback migrations() :: [map]
 
   @doc """

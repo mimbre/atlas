@@ -100,6 +100,90 @@ defmodule AtlasControl.HealthPageTest do
              page.markup
   end
 
+  describe "the decider's alerts" do
+    defp healthy,
+      do: %{
+        flow:
+          flow(finished("2026-11-23T10:09:00Z", "2026-11-23T10:09:04Z"), [
+            %{"runtime" => "mini", "polled_at" => "2026-11-23T10:09:40Z"}
+          ]),
+        facts_waiting: 0
+      }
+
+    test "a healthy core raises none, and says when its first row would pass its limit" do
+      assert HealthPage.alerts(healthy(), @now) == []
+      # mini polled 10:09:40; late past 10 min, so at 10:19:41.
+      assert HealthPage.until(healthy(), @now) == "2026-11-23T10:19:41Z"
+      assert HealthPage.alert_view([]) == %{blocks: [], markup: []}
+    end
+
+    test "Flow past its limit is one alert, naming it and since when" do
+      report = put_in(healthy().flow["flow"], %{"due" => "2026-11-23T10:01:00Z"})
+
+      assert [%{key: "flow", what: "Flow", since: ~U[2026-11-23 10:01:00Z], text: text}] =
+               HealthPage.alerts(report, @now)
+
+      assert text =~ "Flow behind since 23 Nov 10:01:00 UTC: 9 min behind (limit 2 min)"
+      # Open: read again at once, so it goes once Flow recovers.
+      assert HealthPage.until(report, @now) == "2026-11-23T10:10:00Z"
+    end
+
+    test "a Runtime past its limit is one alert per Runtime, since its last poll" do
+      report = %{
+        healthy()
+        | flow:
+            flow(finished("2026-11-23T10:09:00Z", "2026-11-23T10:09:01Z"), [
+              %{"runtime" => "laptop", "polled_at" => "2026-11-23T09:59:00Z"},
+              %{"runtime" => "mini", "polled_at" => "2026-11-23T10:09:40Z"}
+            ])
+      }
+
+      assert [
+               %{key: "runtime:laptop", what: "Runtime laptop", since: ~U[2026-11-23 09:59:00Z]} =
+                 a
+             ] =
+               HealthPage.alerts(report, @now)
+
+      assert a.text =~ "Runtime laptop behind since 23 Nov 09:59:00 UTC: polled 11 min ago"
+
+      # The same stall reads the same a minute later: one alert, not one per check.
+      later = DateTime.add(@now, 60, :second)
+
+      assert [%{key: "runtime:laptop", since: ~U[2026-11-23 09:59:00Z]}] =
+               HealthPage.alerts(report, later)
+    end
+
+    test "a Flow that does not answer is one alert, not one for its Runtimes too" do
+      assert [
+               %{
+                 key: "flow",
+                 what: "Flow",
+                 since: nil,
+                 text: "Flow fell behind: Flow did not answer"
+               }
+             ] =
+               HealthPage.alerts(%{flow: nil, facts_waiting: 0}, @now)
+    end
+
+    test "the syncs raise none until rela reports their runs" do
+      assert Enum.all?(HealthPage.alerts(healthy(), @now), &(&1.key != "syncs"))
+    end
+
+    test "the alerts are an item with the Health action, in the error tone" do
+      view =
+        HealthPage.alert_view(HealthPage.alerts(%{flow: nil, facts_waiting: 0}, @now))
+
+      assert [%{"id" => "alerts", "props" => props}] = view.blocks
+      assert props["title"] == "Alerts"
+
+      assert [%{"label" => "Flow", "value" => "Flow fell behind: Flow did not answer"}] =
+               props["fields"]
+
+      assert [%{"to" => "/health", "key" => "h", "page" => true}] = props["actions"]
+      assert [%{"kind" => "highlight", "props" => %{"tone" => "error"}}] = view.markup
+    end
+  end
+
   describe "through a session" do
     setup do
       Application.put_env(:atlas_bus, :store, "store-#{System.unique_integer([:positive])}")
@@ -146,6 +230,10 @@ defmodule AtlasControl.HealthPageTest do
       receive do
         {:atlas_bus, %Envelope{class: "request", kind: "_health"} = request, _} ->
           AtlasBus.send(Envelope.reply(request, "answer"), answer)
+          serve(answer)
+
+        {:answer, from, answer} ->
+          send(from, :answering)
           serve(answer)
       end
     end
@@ -211,6 +299,63 @@ defmodule AtlasControl.HealthPageTest do
     test "one the settings do not name as a reader is refused", c do
       page = open(c.port, "bea", "/health")
       assert page["title"] == "Worker unavailable"
+    end
+
+    defp alerts(page), do: Enum.find(page["blocks"], &(&1["id"] == "alerts"))
+
+    defp ago(seconds),
+      do: DateTime.utc_now() |> DateTime.add(-seconds, :second) |> DateTime.to_iso8601()
+
+    defp healthy_now(runtimes),
+      do: %{
+        "flow" => %{"last_due" => ago(5), "last_finished" => ago(4), "next_due" => nil},
+        "runtimes" => runtimes,
+        "at" => ago(0)
+      }
+
+    test "the decider's start page carries one alert per stall, gone once it recovers", c do
+      Application.put_env(:atlas, :actors, %{"decider" => "ada"})
+      on_exit(fn -> Application.delete_env(:atlas, :actors) end)
+
+      stalled = healthy_now([%{"runtime" => "laptop", "polled_at" => ago(11 * 60)}])
+      server = flow_health(c.endpoint, stalled)
+
+      page = open(c.port, "ada", "/")
+
+      assert %{"props" => %{"title" => "Alerts", "fields" => [field], "actions" => [health]}} =
+               alerts(page)
+
+      assert field["label"] == "Runtime laptop"
+      assert field["value"] =~ "Runtime laptop behind since "
+      assert health["to"] == "/health"
+
+      # The Runtime polls again: the alert is gone, nothing to close by hand.
+      send(
+        server,
+        {:answer, self(), healthy_now([%{"runtime" => "laptop", "polled_at" => ago(1)}])}
+      )
+
+      assert_receive :answering
+      assert alerts(open(c.port, "ada", "/")) == nil
+    end
+
+    test "a healthy core raises no alert, and another than the decider sees none", c do
+      Application.put_env(:atlas, :actors, %{"decider" => "ada"})
+      on_exit(fn -> Application.delete_env(:atlas, :actors) end)
+
+      server =
+        flow_health(c.endpoint, healthy_now([%{"runtime" => "mini", "polled_at" => ago(1)}]))
+
+      assert alerts(open(c.port, "ada", "/")) == nil
+
+      send(
+        server,
+        {:answer, self(), healthy_now([%{"runtime" => "mini", "polled_at" => ago(20 * 60)}])}
+      )
+
+      assert_receive :answering
+      assert alerts(open(c.port, "bea", "/")) == nil
+      assert alerts(open(c.port, "ada", "/")) != nil
     end
   end
 end

@@ -643,7 +643,7 @@
     },
     "issue": {
       "prod": {
-        "digest": "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e",
+        "digest": "59755bfb4a34101d408bb5c0ebce2bdc93252ad04a024f10a8931160ade7aa33",
         "history": [
           {
             "digest": "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
@@ -681,6 +681,28 @@
               "reviewing",
               "stuck",
               "unchanged",
+              "working"
+            ]
+          },
+          {
+            "digest": "59755bfb4a34101d408bb5c0ebce2bdc93252ad04a024f10a8931160ade7aa33",
+            "states": [
+              "checking",
+              "ci_failing",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "review_stuck",
+              "reviewing",
+              "stuck",
+              "unchanged",
+              "update_failing",
+              "update_pushing",
+              "updating",
               "working"
             ]
           },
@@ -814,6 +836,7 @@
           "fixing",
           "merging",
           "publishing",
+          "review_stuck",
           "reviewing",
           "stuck",
           "unchanged",
@@ -824,7 +847,7 @@
         ]
       },
       "test": {
-        "digest": "87576e8ca0b988d97341e1c5d9903b6e6f9d75f5fc04f494a356d87f549c443e",
+        "digest": "59755bfb4a34101d408bb5c0ebce2bdc93252ad04a024f10a8931160ade7aa33",
         "history": [
           {
             "digest": "1670f0b0f0cb57280933c8ec0f768d622bee040c924caa56c75ac30df5da908f",
@@ -862,6 +885,28 @@
               "reviewing",
               "stuck",
               "unchanged",
+              "working"
+            ]
+          },
+          {
+            "digest": "59755bfb4a34101d408bb5c0ebce2bdc93252ad04a024f10a8931160ade7aa33",
+            "states": [
+              "checking",
+              "ci_failing",
+              "ci_fixing",
+              "ci_fixing_again",
+              "ci_pushing",
+              "done",
+              "fixing",
+              "merging",
+              "publishing",
+              "review_stuck",
+              "reviewing",
+              "stuck",
+              "unchanged",
+              "update_failing",
+              "update_pushing",
+              "updating",
               "working"
             ]
           },
@@ -995,6 +1040,7 @@
           "fixing",
           "merging",
           "publishing",
+          "review_stuck",
           "reviewing",
           "stuck",
           "unchanged",

@@ -75,7 +75,7 @@ defmodule Model.Issue do
 
     field(:gate_result, :string,
       description:
-        "Flow: the last gate verdict, or a maintainer's choice (none, review, rework, ready, person, close)"
+        "Flow: the last gate verdict, or a maintainer's choice (none, review, rework, ready, person, close, retry, publish)"
     )
 
     field(:effect_result, :string,
@@ -167,6 +167,24 @@ defmodule Model.Issue do
       label: "Update push"
     )
 
+    # Its run, when an agent task ended without a result (IS-Atlas-60): the step Retry
+    # goes back to, which each task state sets as it is entered, and what Flow wrote of
+    # how that task ended.
+    field(:retry_step, :string,
+      description:
+        "Flow: the step its run's last agent task ran as, which Retry goes back to (author, review, fix, ci_fix, ci_fix_again)",
+      set_by: [:flow],
+      label: "Retry step"
+    )
+
+    field(:task_failure, :string,
+      description:
+        "Flow: which of its agent tasks ended without a result (stuck or abandoned), in which state, and why; none while its last task ran",
+      set_by: [:flow],
+      multiline: true,
+      label: "Task failure"
+    )
+
     field(:pr_close_failure, :string,
       description:
         "GitHub: why closing its open pull request failed after it was closed in Atlas",
@@ -214,7 +232,8 @@ defmodule Model.Issue do
   # subflow ran, and presented: on its Assignment. The first row that holds gives the
   # entry. An issue whose pull request already reported its merge is completed history
   # (no entry writes, nothing rerun). Any other issue matches no row and starts in
-  # `working`, as a new one does, writing nothing: what it showed and its owner stay.
+  # `working`, as a new one does, writing only its retry step and that no task failed:
+  # what it showed and its owner stay.
   # The numbered issues of one use case are built in order (`order`, IS-Atlas-114): only
   # the first not finished (completed, or its run ended `done`) can be picked up; the other
   # numbered ones wait for it. An issue without a number never waits.
