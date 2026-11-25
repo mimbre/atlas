@@ -2,8 +2,10 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
   @moduledoc """
   A neutral model of a task that proposes facts (slice 7): a crate is sorted by a robot (a
   machinery kind) whose agent proposes the crate's items in a file of its result; Flow
-  makes them under the crate (`in_crate`, the item's parent relation). Labelled, its agent
-  writes the crate's note instead (slice 9). A clerk supervises the run.
+  makes them under the crate (`in_crate`, the item's parent relation), or, when the crate
+  is too vague to sort, it asks instead (`asks`): Flow puts its questions in the crate's
+  `questions`. Labelled, its agent writes the crate's note instead (slice 9). A clerk
+  supervises the run.
   """
   use RelaDSL.Composition,
     name: "proposal",
@@ -30,6 +32,7 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
       field(:phase, :string)
       field(:task_result, :string)
       field(:note, :string)
+      field(:questions, :string)
     end
 
     entity :item, label: "Item", plural: "items", id_type: :manual, id_prefix: "IT-" do
@@ -94,14 +97,22 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
           instructions: "Sort the crate.",
           fields: [:title],
           creates: [kind: :item, file: "items.json", fields: [:size], values: [origin: "robot"]],
+          asks: [field: :questions, file: "questions.md"],
           records: [kind: "task", relation: "task_of"],
           machinery: "robot",
-          on: [completed: :sorted, check_failed: :sorted, stuck: :stuck, abandoned: :stuck]
+          on: [
+            completed: :sorted,
+            check_failed: :sorted,
+            stuck: :stuck,
+            abandoned: :stuck,
+            asked: :asked
+          ]
         )
       end
 
       final(:sorted)
       final(:stuck)
+      final(:asked)
     end
 
     select(:sort, admission: [phase: [:first]], imports: [])
@@ -157,8 +168,9 @@ defmodule AtlasFlow.Activities.ProposalTest do
   Slice 7: a task that proposes facts (`creates`). Its agent writes them to a file at the
   top of the repository in its result commit (`refs/atlas/results/<key>`, read through
   Bases and Code); once it completed, Flow makes one fact per entry under the subject,
-  numbered after those there are, by Flow; with no such file the task ends stuck. Slice
-  9: one that writes a field of its subject (`writes`) has Flow put the file's text there.
+  numbered after those there are, by Flow; with no such file the task ends stuck. One that
+  may ask instead (`asks`) and whose agent wrote questions ends asked: Flow puts them in
+  the crate's field and makes nothing. Slice 9: one that writes a field of its subject (`writes`) has Flow put the file's text there.
   The real Dispatch, Delivery and Bases (on `FakeCode`), with `FakeFacts` and a manual clock.
   """
   use ExUnit.Case, async: false
@@ -311,6 +323,43 @@ defmodule AtlasFlow.Activities.ProposalTest do
     assert stuck["state"] == "stuck"
     assert [%{"outcome" => "completed", "reason" => "no proposal"}] = stuck["pending"]["tasks"]
     assert FakeFacts.get("item", "IT-01") == nil
+  end
+
+  test "a task that asks: Flow puts its questions in the crate's field, makes nothing, and it ends asked",
+       c do
+    run = intended(c, "C-4")
+    assert run["pending"]["task"]["work"]["instructions"] =~ "questions.md"
+
+    # Its agent wrote questions; any proposal beside them is not read.
+    files = [
+      {"questions.md", "1. Which crate?\n2. How big?\n\n"},
+      {"items.json", JSON.encode!([%{"title" => "A guess"}])}
+    ]
+
+    asked = finish(c, "C-4", files)
+    assert {asked["state"], asked["status"]} == {"asked", "completed"}
+    assert [%{"outcome" => "completed"} = result] = asked["pending"]["tasks"]
+    refute Map.has_key?(result, "reason")
+    refute Map.has_key?(result, "made")
+
+    assert FakeFacts.get("crate", "C-4")["values"]["questions"] ==
+             "1. Which crate?\n2. How big?"
+
+    assert FakeFacts.get("item", "IT-01") == nil
+  end
+
+  test "an empty questions file is no question: the proposal is made as before", c do
+    intended(c, "C-5")
+
+    files = [
+      {"questions.md", "  \n"},
+      {"items.json", JSON.encode!([%{"title" => "One"}])}
+    ]
+
+    sorted = finish(c, "C-5", files)
+    assert sorted["state"] == "sorted"
+    assert FakeFacts.get("item", "IT-01")["links"]["in_crate"] == ["C-5"]
+    assert FakeFacts.get("crate", "C-5")["values"]["questions"] == nil
   end
 
   test "Flow puts the written text in the crate's field (writes)", c do

@@ -19,6 +19,13 @@ defmodule Model.Scene do
       Its supervisor's "Not accepted", with a note (the scene's `note`), throws the proposal
       away: Flow deletes the use cases it made (those added by hand stay; `creates:
       [discard: true]`) and the run goes back to its break-down, whose agent reads the note.
+      A scene too vague to design use cases from is not guessed at (UC-Atlas-24): its agent
+      writes only its questions (`asks:`), Flow puts them in the scene's `questions` and
+      the task ends `asked`, and "Answer its questions" (`clarifying`) goes to its producer
+      (the configured decider until a scene records who produced it). The producer may
+      rewrite its description first; their "Answered", with a note (the scene's
+      `answers`), takes the run back to its break-down, whose fresh agent reads the
+      questions, the answers and the current description. The run keeps its supervisor.
     * `accept_scene` **Accept** (Accept the scene): waits until every use case under it is accepted
       (`children`, `open_children`: the composition's count of the use cases in the scene,
       and of those without an accepted `accept_use_case` run), then asks its producer (the
@@ -91,7 +98,23 @@ defmodule Model.Scene do
 
     field(:verdict, :string,
       description:
-        "Flow: the acceptor's verdict (none, accept, reject), or its supervisor's acceptance of its use cases (accept)"
+        "Flow: the acceptor's verdict (none, accept, reject), its supervisor's acceptance of its use cases (accept, reject), or its producer's answer to its questions (answered)"
+    )
+
+    # What its break-down's agent asked instead of guessing: Flow writes it, never a person.
+    field(:questions, :string,
+      description:
+        "Flow: the questions its break-down's agent asked, when the scene was too vague to design use cases from",
+      set_by: [:flow],
+      multiline: true,
+      label: "Its agent's questions"
+    )
+
+    field(:answers, :string,
+      description:
+        "Its producer's answers to its agent's questions; its next break-down reads them",
+      multiline: true,
+      label: "Producer's answers"
     )
 
     # What its break-down's task branch reads: the run's own result, never written.
@@ -131,7 +154,7 @@ defmodule Model.Scene do
     owner(via: :assignment, relation: :assigned_to, default: {:agent, :coordinator})
     start(:predicate, when: "entity.phase == 'break_down'")
     initial(:break_down)
-    supervise(:break_down, label: "Design", states: [:break_down, :accepting])
+    supervise(:break_down, label: "Design", states: [:break_down, :accepting, :clarifying])
 
     state :break_down, label: "Break it down into use cases" do
       present(
@@ -148,8 +171,8 @@ defmodule Model.Scene do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note, it was sent back: by its producer, once built and not accepted, or by its supervisor, who did not accept your earlier proposal, which is gone. Propose only the use cases still missing for what the note asks; those under it stay.",
-        fields: [:title, :description],
+          "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note, it was sent back: by its producer, once built and not accepted, or by its supervisor, who did not accept your earlier proposal, which is gone. Propose only the use cases still missing for what the note asks; those under it stay. When the scene is too vague to design use cases from, do not guess: write your questions to questions.md and nothing else; its producer answers them, or rewrites the scene. When the scene has questions and answers, its producer answered your earlier questions: read them with its description, which they may have rewritten since.",
+        fields: [:title, :description, :questions, :answers],
         read_first: true,
         note: [field: :note, heading: "Its producer's or supervisor's note"],
         creates: [
@@ -158,13 +181,15 @@ defmodule Model.Scene do
           fields: [:design, :note],
           discard: true
         ],
+        asks: [field: :questions, file: "questions.md"],
         records: [kind: "task", relation: "task_of"],
         machinery: "machinery",
         on: [
           completed: :accepting,
           check_failed: :accepting,
           stuck: :accepting,
-          abandoned: :accepting
+          abandoned: :accepting,
+          asked: :clarifying
         ]
       )
     end
@@ -195,6 +220,33 @@ defmodule Model.Scene do
 
       branch(to: :broken_down, when: "entity.verdict == 'accept'")
       branch(to: :break_down, when: "entity.verdict == 'reject'")
+    end
+
+    # Its agent asked instead of guessing (UC-Atlas-24): the questions Flow put on the scene
+    # go to its producer, who answers them in a note (the scene's `answers`), after
+    # rewriting its description if they want; the run goes back to its break-down, whose
+    # fresh agent reads both. Its supervisor stays its supervisor.
+    state :clarifying, label: "Answer its questions" do
+      owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
+      set(verdict: :none)
+
+      present(
+        expected: "Answer its questions",
+        why: "its agent cannot design use cases from it as it is written",
+        instructions:
+          "Its agent asks the questions below before it designs use cases from this scene. Answer them in your note; or first rewrite its description, shown below, and say so in your note. Then Answered: its agent reads your answers and the current description, and continues.",
+        section: [field: :questions, label: "Its agent's questions"],
+        answers: [
+          [
+            key: "a",
+            label: "Answered",
+            note: true,
+            change: %{values: %{verdict: :answered, answers: "$note"}}
+          ]
+        ]
+      )
+
+      branch(to: :break_down, when: "entity.verdict == 'answered'")
     end
 
     final :broken_down, label: "Broken down" do
@@ -405,5 +457,18 @@ defmodule Model.Scene do
     preserve_entry: true,
     states: :same,
     reason: "Accept: a scene waiting for its use cases is assigned to nobody"
+  )
+
+  # Design: its agent asks the scene's producer instead of guessing (UC-Atlas-24): a task
+  # that ends asked goes to "Answer its questions" (`clarifying`), new, whose Answered
+  # takes it back to its break-down. Every state there was stays, and a run keeps its
+  # entry: one in its break-down keeps its task, whose late end maps as before. Its states
+  # are named, not `:same`: `:same` would say the old digest had `clarifying` too.
+  migrate(:break_down_scene,
+    from: "c7f67e0c0f7dc9247c959f1ccf90fb95ab65ceab1c746d025336b77a1f1b7092",
+    to: "963e46fcbfaeac3007a22ad7154c588cce751f376ebe72c7717afa99f62f4e9d",
+    preserve_entry: true,
+    states: [accepting: :accepting, break_down: :break_down, broken_down: :broken_down],
+    reason: "Design: its agent asks the scene's producer instead of guessing"
   )
 end

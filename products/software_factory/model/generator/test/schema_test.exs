@@ -694,6 +694,46 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
+    # A task whose agent may ask instead of guessing (`asks:`) gives `asked` too, a result
+    # of its own its definition maps; beside `creates:`, with a file of its own.
+    test "a task that may ask ends asked too, which it maps" do
+      asks = ~s(asks: [field: :questions, file: "questions.md"],)
+      creates = ~s(creates: [kind: :t, file: "t.json"],)
+      five = "on: [completed: :b, check_failed: :c, stuck: :c, abandoned: :c, asked: :c]"
+
+      module = compile!(task_source(asks <> " " <> creates, five))
+      [%{states: [state | _]}] = module.__flows__()
+
+      assert {:task, %{asks: [field: :questions, file: "questions.md"], creates: [_ | _]}} =
+               state.mechanism
+
+      assert Enum.find(state.branches, &(&1.when == "entity.task_result == 'asked'")).to == :c
+
+      refused(
+        task_source(asks),
+        6,
+        "state a: task author can give asked, which no branch takes"
+      )
+
+      # Without asks:, a task never gives asked.
+      refused(task_source("", five), 6, "state a: task author never gives asked")
+
+      refused(
+        task_source(~s(asks: [field: :questions],), five),
+        6,
+        "state a: task author: asks: must be [field: field, file: text]"
+      )
+
+      refused(
+        task_source(
+          ~s(asks: [field: :q, file: "t.json"], creates: [kind: :t, file: "t.json"],),
+          five
+        ),
+        6,
+        "state a: task author: asks: needs a file of its own"
+      )
+    end
+
     # F2: a ladder task (the review → fix loop). Structural: branches, tags, lines.
     test "a ladder task maps the ladder's steps, not the four results" do
       module = compile!(ladder_source())
