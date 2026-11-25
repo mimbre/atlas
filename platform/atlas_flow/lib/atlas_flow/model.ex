@@ -139,7 +139,9 @@ defmodule AtlasFlow.Model do
   supervision relation's holder kind (`AtlasFlow.Runs.Projection`). A run of a subflow a
   span names in its `with:` lies in no span of its own: the projection passes it with
   the precomputed answer of its nearest spanned run (`in_span`, a boolean) and that
-  run's supervisor instead.
+  run's supervisor instead. A state whose owner is the subject's producer's (`producer:
+  true` in its owner binding) is passed with no run: its configured actor, also inside a
+  span, while the subject records no producer.
   """
   def owner(owner, actors, run \\ nil)
 

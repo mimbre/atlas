@@ -83,6 +83,14 @@ defmodule AtlasFlow.Activities.Task do
   A spec's `writes` (`%{"field", "file"}`, slice 9) asks for one text instead: Flow puts the
   file's text in that field of the subject; with no such file, or an empty one, `stuck`.
 
+  **Asking instead.** A spec's `asks` (`%{"field", "file"}`), beside its `creates` or
+  `writes`, lets its agent ask instead of proposing, when the subject is too vague to work
+  from: it writes its questions to that file, and nothing else. When the task completed and
+  its result has that file, with text, Flow, the only writer, puts the text in that field of
+  the subject (`by` Flow, the task in its cause), makes or writes nothing else, and the task
+  ends `asked` (`results/1`). With no such file, or an empty one, it ends as it would
+  without `asks`.
+
   **Read first.** A spec with `read_first: true` adds, after the subject's fields, what the
   model says is to be read first about the subject (its standing decisions and those the
   subject is based on), as the model's `read_first/2` gives it.
@@ -177,10 +185,14 @@ defmodule AtlasFlow.Activities.Task do
   def results, do: @results
   def results(%{"ladder" => true}), do: @ladder_results
 
-  def results(%{"kind" => "review", "input" => %{"result" => "latest"}}),
-    do: @results ++ ["changes_required"]
+  def results(%{"kind" => "review", "input" => %{"result" => "latest"}} = spec),
+    do: @results ++ ["changes_required"] ++ asked(spec)
 
-  def results(_spec), do: @results
+  def results(spec), do: @results ++ asked(spec)
+
+  # A task that may ask instead of proposing (`asks`) also ends `asked`.
+  defp asked(%{"asks" => %{}}), do: ["asked"]
+  defp asked(_spec), do: []
 
   @doc "Whether this runner can run the task `spec` (as the compiled subflow gives it)."
   def valid?(spec) do
@@ -192,6 +204,7 @@ defmodule AtlasFlow.Activities.Task do
       spec["read_first"] in [nil, true] and note?(spec["note"]) and
       creates?(spec["creates"]) and writes?(spec["writes"]) and
       not (spec["creates"] != nil and spec["writes"] != nil) and
+      asks?(spec["asks"], spec) and
       (spec["follow_ups"] == nil or text?(spec["follow_ups"])) and
       (spec["findings"] == nil or (spec["kind"] == "fix" and text?(spec["findings"]))) and
       (spec["failure"] == nil or (spec["ladder"] == nil and text?(spec["failure"]))) and
@@ -222,6 +235,15 @@ defmodule AtlasFlow.Activities.Task do
     do: map_size(writes) == 2 and text?(field) and text?(file)
 
   defp writes?(_writes), do: false
+
+  defp asks?(nil, _spec), do: true
+
+  defp asks?(%{"field" => field, "file" => file} = asks, spec),
+    do:
+      map_size(asks) == 2 and text?(field) and text?(file) and spec["ladder"] == nil and
+        file not in for(p <- [spec["creates"], spec["writes"]], is_map(p), do: p["file"])
+
+  defp asks?(_asks, _spec), do: false
 
   # A Code repository and the reference its base is resolved from, nothing else: never a
   # path (D44), never a URL (a scheme, or `user@host:path`). Or, for a ladder task that
@@ -453,7 +475,10 @@ defmodule AtlasFlow.Activities.Task do
           &(&1 <>
               parents <>
               read_first(spec, subject, ctx) <>
-              Enum.join(work.sections) <> proposal_format(spec) <> follow_ups_format(spec))
+              Enum.join(work.sections) <>
+              proposal_format(spec) <>
+              asks_format(spec) <>
+              follow_ups_format(spec))
         )
         |> then(&if(work.loop, do: Map.put(&1, "loop", work.loop), else: &1))
         |> Translate.root_check(repository(spec) || (work.ladder || %{})["repository"])
@@ -911,15 +936,18 @@ defmodule AtlasFlow.Activities.Task do
     values = %{"state" => outcome, "verdict" => result["verdict"]}
     run_outcome = if asks?, do: "changes_required", else: outcome
 
-    with {next, made} <- proposed(spec, run_outcome, run, intent, ctx),
+    with {next, made} <- asked_or_proposed(spec, run_outcome, run, intent, ctx),
          {:ok, follow_ups} <- follow_ups(spec, outcome, answer, run, intent, ctx) do
       result =
-        if next == run_outcome, do: result, else: Map.put(result, "reason", "no proposal")
+        if next in [run_outcome, "asked"],
+          do: result,
+          else: Map.put(result, "reason", "no proposal")
 
       # What its proposal made, kept with its result, so a state that discards it
-      # (`creates: [discard: true]`) deletes those and nothing added by hand.
+      # (`creates: [discard: true]`) deletes those and nothing added by hand. Questions
+      # (`asked`) are no proposal: nothing to discard.
       result =
-        if made != [] and spec["creates"] != nil,
+        if made != [] and spec["creates"] != nil and next != "asked",
           do: Map.put(result, "made", for(w <- made, do: [w["kind"], w["content"]["key"]])),
           else: result
 
@@ -972,12 +1000,61 @@ defmodule AtlasFlow.Activities.Task do
 
   defp proposal_format(_spec), do: ""
 
+  # What a task that may ask instead (`asks`) tells its agent: where its questions go, and
+  # that it then writes nothing else.
+  defp asks_format(%{"asks" => %{"file" => file}}),
+    do:
+      "\n\n## Your questions\n\nWhen what you are given is not clear enough to propose from, do not guess: write your questions instead to the file `#{file}` at the top of the repository, in Markdown, as they are to be read by the one who wrote it, and write no proposal. Atlas takes them to whoever wrote it, and this task runs again with their answers; write nothing into Atlas yourself."
+
+  defp asks_format(_spec), do: ""
+
   # What a review with follow-ups (`follow_ups`) asks its agent: to split what it found.
   defp follow_ups_format(%{"follow_ups" => kind}),
     do:
       "\n\n## Follow-ups\n\nSplit what you find. Your `findings` are only what blocks: what must change for the result to do what the #{kind} asks, within its scope; they go to one fix, and only they decide your verdict. Anything outside its scope (a nice-to-have, hardening, an edge case, a neighbouring improvement) is a follow-up: add it to your JSON block as \"follow_ups\": [{\"title\": \"…\", \"description\": \"…\"}], each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done). Atlas makes each a new #{kind} beside this one; it is not fixed now, and a result with only follow-ups is approved."
 
   defp follow_ups_format(_spec), do: ""
+
+  # A completed task that may ask instead (`asks`) and whose result has its questions file,
+  # with text: Flow puts the text in the subject's field, for the run's supervisor, and makes
+  # nothing else; the task ends `asked`. Otherwise it ends as its proposal says (`proposed`).
+  # `:unavailable` while its result or Code does not answer.
+  defp asked_or_proposed(
+         %{"asks" => %{"field" => field, "file" => file}} = spec,
+         "completed",
+         run,
+         intent,
+         ctx
+       ) do
+    case result_file(run, repository(spec), intent["key"], file) do
+      {:ok, text} ->
+        if text?(text),
+          do: {"asked", [questions(intent, run, field, text)]},
+          else: proposed(spec, "completed", run, intent, ctx)
+
+      :no_proposal ->
+        proposed(spec, "completed", run, intent, ctx)
+
+      _unavailable ->
+        :unavailable
+    end
+  end
+
+  defp asked_or_proposed(spec, outcome, run, intent, ctx),
+    do: proposed(spec, outcome, run, intent, ctx)
+
+  defp questions(intent, run, field, text) do
+    supervisor = run["supervised_by"]
+    by = if is_binary(supervisor), do: "For #{supervisor}: ", else: ""
+
+    write(intent["key"], ["asks"], run["subject_kind"], %{
+      "op" => "change",
+      "key" => run["subject_key"],
+      "values" => %{field => String.trim(text)},
+      "by" => "flow",
+      "cause" => "#{by}asked by #{intent["key"]}"
+    })
+  end
 
   # A completed task that proposes facts: one create per entry of its file, under the
   # subject (the kind's parent relation to it), numbered after the facts of that kind

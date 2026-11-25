@@ -694,6 +694,46 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
+    # A task whose agent may ask instead of proposing: its questions go to a field of the
+    # subject, and it ends `asked`, a result its `on:` maps.
+    test "a task that may ask maps asked, beside its proposal" do
+      asks =
+        ~s(asks: [field: :questions, file: "questions.md"], creates: [kind: :u, file: "u.json"],)
+
+      on = "on: [completed: :b, check_failed: :c, stuck: :c, abandoned: :c, asked: :c]"
+
+      [%{states: [a | _]}] = compile!(task_source(asks, on)).__flows__()
+      assert {:task, %{asks: [field: :questions, file: "questions.md"]}} = a.mechanism
+      assert "c" in for(b <- a.branches, b.when =~ "asked", do: to_string(b.to))
+
+      refused(
+        task_source(asks),
+        6,
+        "state a: task author can give asked, which no branch takes"
+      )
+
+      refused(
+        task_source("", on),
+        6,
+        "state a: task author never gives asked"
+      )
+
+      refused(
+        task_source(~s(asks: [field: :questions],), on),
+        6,
+        "state a: task author: asks: must be [field: field, file: text]"
+      )
+
+      refused(
+        task_source(
+          ~s(asks: [field: :q, file: "u.json"], creates: [kind: :u, file: "u.json"],),
+          on
+        ),
+        6,
+        "state a: task author: asks: its file is not the proposal's"
+      )
+    end
+
     # F2: a ladder task (the review → fix loop). Structural: branches, tags, lines.
     test "a ladder task maps the ladder's steps, not the four results" do
       module = compile!(ladder_source())
@@ -1100,6 +1140,27 @@ defmodule RelaDSL.SchemaTest do
         2,
         "preserve_kind needs a relation and a default of that kind"
       )
+    end
+
+    test "a producer's owner: a configured default, never the supervisor in its stead" do
+      module =
+        compile!(
+          owned("owner relation: :held_by, default: {:clerk, config: :decider}, producer: true")
+        )
+
+      [flow] = module.__flows__()
+      assert flow.owner.producer == true
+
+      for bad <- [
+            "owner relation: :held_by, default: {:clerk, :ada}, producer: true",
+            "owner relation: :held_by, default: {:clerk, config: :decider}, producer: false"
+          ] do
+        refused(
+          owned(bad),
+          2,
+          "producer: is true, with a configured default: {kind, config: role}"
+        )
+      end
     end
 
     test "an owner with a key it does not know" do

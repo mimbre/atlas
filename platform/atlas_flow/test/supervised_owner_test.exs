@@ -3,8 +3,10 @@ defmodule AtlasFlow.SupervisedOwnerTest do
   # human supervisor (its `supervised_by`); with no supervisor, outside every span of its
   # own subflow, or a supervisor of another kind, it goes to the configured decider. Other
   # owners never move to the supervisor, and the supervisor costs no read of its own: it
-  # is the link the run's fact holds, as the run Flow read carries it. The span model is
-  # this file's own: a neutral one on the depot.
+  # is the link the run's fact holds, as the run Flow read carries it. A state of the
+  # subject's producer (`producer: true`) is the configured decider's even inside the span:
+  # never the supervisor's in their stead. The span model is this file's own: a neutral
+  # one on the depot.
   use ExUnit.Case, async: false
   @moduletag :capture_log
 
@@ -24,7 +26,14 @@ defmodule AtlasFlow.SupervisedOwnerTest do
       state :check, label: "Check it" do
         branch(to: :recheck, when: "entity.result == 'again'")
         branch(to: :pack, when: "entity.result == 'pack'")
+        branch(to: :ask, when: "entity.result == 'ask'")
         present(expected: "Check it")
+      end
+
+      state :ask, label: "Answer its questions" do
+        owner(relation: :owned_by, default: {:clerk, config: :decider}, producer: true)
+        branch(to: :check, when: "entity.result == 'answered'")
+        present(expected: "Answer its questions")
       end
 
       state :recheck, label: "Check it again" do
@@ -67,7 +76,12 @@ defmodule AtlasFlow.SupervisedOwnerTest do
         "relation" => "tended_by",
         "spans" => %{
           subflow => [
-            %{"name" => "tend", "label" => "Tend", "states" => ["check", "pack"], "with" => []}
+            %{
+              "name" => "tend",
+              "label" => "Tend",
+              "states" => ["check", "pack", "ask"],
+              "with" => []
+            }
           ]
         }
       }
@@ -317,6 +331,25 @@ defmodule AtlasFlow.SupervisedOwnerTest do
     Engine.round(engine)
     assert state(box) == "Pack it"
     assert owner(box) == ["ada"]
+  end
+
+  test "inside the span, a producer's state is the decider's, never the supervisor's", %{box: box} do
+    engine = start(Spanned)
+    Engine.round(engine)
+    supervise(box, "sam")
+    Engine.round(engine)
+    assert owner(box) == ["sam"]
+
+    result(box, "ask")
+    Engine.round(engine)
+    assert state(box) == "Answer its questions"
+    assert owner(box) == ["dee"]
+
+    # Answered: back in a decider state of the span, the supervisor's again; the run kept it.
+    result(box, "answered")
+    Engine.round(engine)
+    assert state(box) == "Check it"
+    assert owner(box) == ["sam"]
   end
 
   test "a supervisor of another kind than the decider is not the owner", %{box: box} do

@@ -104,7 +104,8 @@ defmodule AtlasFlow.Runs.Projection do
   defp owner(runner, owner, run), do: AtlasFlow.Model.owner(owner, runner.actors, run)
 
   # The run with what `AtlasFlow.Model.owner/3` takes of its supervision, only when its
-  # state's owner may go to a supervisor and the run is active: `{:ok, run}`, or
+  # state's owner may go to a supervisor (a configured decider, and not the subject's
+  # producer's, `producer: true`) and the run is active: `{:ok, run}`, or
   # `{:error, :supervision_unavailable}` when Facts did not say.
   #
   # - A run whose subflow declares a span carries those `spans` and its human supervisor
@@ -122,9 +123,12 @@ defmodule AtlasFlow.Runs.Projection do
     supervision = runner.config["supervision"] || %{}
     spans = get_in(supervision, ["spans", run["flow"]]) || []
 
+    binding = subflow.owner(run["state"]) || %{}
+
     cond do
-      run["status"] != "active" or
-          not AtlasFlow.Model.supervisable?((subflow.owner(run["state"]) || %{})["default"]) ->
+      # A state of the subject's producer (`producer: true`) is never its supervisor's.
+      run["status"] != "active" or binding["producer"] == true or
+          not AtlasFlow.Model.supervisable?(binding["default"]) ->
         {:ok, run}
 
       spans != [] ->

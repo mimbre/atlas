@@ -431,6 +431,11 @@
               "roles": ["atlas-flow"],
               "to": "accepting",
               "when": "entity.task_result == 'abandoned'"
+            },
+            {
+              "roles": ["atlas-flow"],
+              "to": "clarifying",
+              "when": "entity.task_result == 'asked'"
             }
           ],
           "creates": [],
@@ -450,6 +455,10 @@
           },
           "set": [],
           "spec": {
+            "asks": {
+              "field": "questions",
+              "file": "questions.md"
+            },
             "cost_class": "standard",
             "creates": {
               "discard": true,
@@ -458,12 +467,12 @@
               "kind": "use_case"
             },
             "field": "task_result",
-            "fields": ["title", "description"],
+            "fields": ["title", "description", "questions", "answers"],
             "input": {
               "base": "develop",
               "repository": "github.com/mimbre/atlas"
             },
-            "instructions": "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note, it was sent back: by its producer, once built and not accepted, or by its supervisor, who did not accept your earlier proposal, which is gone. Propose only the use cases still missing for what the note asks; those under it stay.",
+            "instructions": "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. When the scene has a note, it was sent back: by its producer, once built and not accepted, or by its supervisor, who did not accept your earlier proposal, which is gone. Propose only the use cases still missing for what the note asks; those under it stay. When the scene is too vague to design use cases from, do not guess: write your questions to questions.md and nothing else; its producer answers them, or rewrites the scene, and you are asked again. When the scene has questions and answers, those are your earlier questions and its producer's answers to them: design from them and the scene's description as it is now.",
             "kind": "plan",
             "machinery": "machinery",
             "note": {
@@ -491,6 +500,60 @@
             {
               "field": "phase",
               "value": "accept"
+            }
+          ],
+          "timers": [],
+          "waiting_for": []
+        },
+        "clarifying": {
+          "awaits": [],
+          "branches": [
+            {
+              "roles": [],
+              "to": "break_down",
+              "when": "entity.verdict == 'answered'"
+            }
+          ],
+          "creates": [],
+          "final": false,
+          "label": "Answer its questions",
+          "owner": {
+            "default": {
+              "config": "decider",
+              "kind": "person"
+            },
+            "producer": true,
+            "relation": "assigned_to",
+            "via": "assignment"
+          },
+          "present": {
+            "expected": "Answer its questions",
+            "todo": {
+              "answers": [
+                {
+                  "change": {
+                    "values": {
+                      "answers": "$note",
+                      "verdict": "answered"
+                    }
+                  },
+                  "key": "a",
+                  "label": "Answered",
+                  "note": true
+                }
+              ],
+              "instructions": "Its Design agent asks the questions below before it designs any use case; the scene is shown with them. Answer them in your note. You may first rewrite its description by hand. Its agent then designs it again, reading your answers and its description as it is then.",
+              "section": {
+                "field": "questions",
+                "label": "Its agent's questions"
+              }
+            },
+            "why": "its Design agent cannot design use cases from it as it is written"
+          },
+          "set": [
+            {
+              "field": "verdict",
+              "value": "none"
             }
           ],
           "timers": [],
@@ -3592,6 +3655,6 @@
       "version": 1
     }
   },
-  "rela_flows_sha256": "dffd47046be70bbc35a472ef53fec2d0bb1976c1612e88408e5e0c90d10ef277",
+  "rela_flows_sha256": "db4a7173b9b9a7fcb71837cf07668ec047f243f05b1f9588d2e8f40ec37361a6",
   "writer": "system:atlas-flow"
 }

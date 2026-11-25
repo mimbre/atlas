@@ -54,7 +54,7 @@ defmodule RelaDSL.Schema do
   |---|---|---|
   | `gate` | `gate_result` | the gate's `verdicts` |
   | `effect` | `effect_result`, or `field:` | `done`, `refused`, and a refusal's reason it maps |
-  | `task` | `task_result`, or `field:` | `completed`, `check_failed`, `stuck`, `abandoned` |
+  | `task` | `task_result`, or `field:` | `completed`, `check_failed`, `stuck`, `abandoned` (and `asked` with `asks:`) |
 
   A `task` is one unit of work Flow defines for the machinery the subject is assigned
   to, which a Runtime of the flow's supervisor takes from Flow's work source
@@ -100,7 +100,12 @@ defmodule RelaDSL.Schema do
   when it has text, under that heading (what its supervisor said when it sent the proposal
   back). One that writes a field of the subject
   names it, `writes: [field: field, file: name]`: its agent writes the field's text to the
-  file, and Flow puts it in that field once the task completed. A review whose findings outside the
+  file, and Flow puts it in that field once the task completed. A task whose agent may ask
+  instead of proposing (the subject is too vague to work from) names where its questions
+  go, `asks: [field: field, file: name]`, beside `creates:` or `writes:`: when the
+  completed task's result has that file, with text, Flow, the only writer, puts the text
+  in that field of the subject, makes or writes nothing else, and the task ends `asked`,
+  a result of its own that `on:` maps; without it the task ends as it always did. A review whose findings outside the
   subject's scope become new facts names their kind, `follow_ups: kind`: Flow makes one for
   each follow-up its answer gives, under the subject's nearest parent. A fix of something
   else than the latest review's findings names the subject's field that says what to fix,
@@ -309,6 +314,7 @@ defmodule RelaDSL.Schema do
     :note,
     :creates,
     :writes,
+    :asks,
     :follow_ups,
     :findings,
     :failure,
@@ -322,7 +328,7 @@ defmodule RelaDSL.Schema do
   @max_timers 8
   @name ~r/^[a-z][a-z0-9_-]{0,63}$/
   @once [:run_as, :per_subject, :owner, :channel, :initial]
-  @owner_keys [:via, :relation, :default, :preserve_kind]
+  @owner_keys [:via, :relation, :default, :preserve_kind, :producer]
   @span_keys [:states, :label, :with]
   @present_keys [:expected, :why, :instructions, :section, :answers, :deadline]
 
@@ -403,7 +409,10 @@ defmodule RelaDSL.Schema do
   environment configures for `role`), who owns it while no one is assigned.
   `preserve_kind:` keeps an assignee of that kind, or of any kind in a list of them
   (`preserve_kind: [:a, :b]`, the default's kind among them); other assignees take the
-  default.
+  default. `producer: true`, with a configured default, makes the state the subject's
+  producer's: the configured actor while the subject records no producer, never the run's
+  human supervisor in its stead, even inside a supervised span (where a state of the
+  configured `decider` goes to the supervisor). The run keeps its supervisor.
   """
   defmacro owner(opts) do
     quote do
@@ -483,7 +492,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `note:`, `creates:`, `writes:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `note:`, `creates:`, `writes:`, `asks:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1062,6 +1071,10 @@ defmodule RelaDSL.Schema do
 
       [
         unknown != [] && pre <> "knows no #{list(unknown)} (only via:, relation:, default:)",
+        (opts[:producer] != nil and
+           not (opts[:producer] == true and
+                  match?({_kind, [config: _role]}, opts[:default]))) &&
+          pre <> "producer: is true, with a configured default: {kind, config: role}",
         (opts[:relation] == nil and opts[:default] == nil) &&
           pre <>
             "needs relation: (the assignee) or default: (who owns it while no one is assigned)",
@@ -1191,6 +1204,9 @@ defmodule RelaDSL.Schema do
         kind == :review and base_result_input?(opts[:input]) -> @verdict_review_results
         true -> @task_results
       end
+
+    # A task that may ask instead (`asks:`) also ends `asked`.
+    values = if opts[:asks] != nil, do: values ++ [:asked], else: values
 
     also(
       results(s, field, values, Keyword.get(opts, :on, []), "task #{kind}", false),
@@ -1384,6 +1400,19 @@ defmodule RelaDSL.Schema do
         pre <> "writes: must be [field: field, file: text]",
       (spec[:creates] != nil and spec[:writes] != nil) &&
         pre <> "creates: and writes: exclude each other",
+      not (spec[:asks] == nil or
+             (Keyword.keyword?(spec[:asks]) and
+                Enum.sort(Keyword.keys(spec[:asks])) == [:field, :file] and
+                is_atom(spec[:asks][:field]) and text?.(spec[:asks][:file]))) &&
+        pre <> "asks: must be [field: field, file: text]",
+      (spec[:asks] != nil and spec[:ladder] == true) &&
+        pre <> "asks: is for a task outside any ladder",
+      (Keyword.keyword?(spec[:asks] || :none) and
+         Enum.any?(
+           [spec[:creates], spec[:writes]],
+           &(Keyword.keyword?(&1 || :none) and &1[:file] == spec[:asks][:file])
+         )) &&
+        pre <> "asks: its file is not the proposal's",
       not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
         pre <> "follow_ups: must be a kind",
       not (spec[:findings] == nil or (kind == :fix and is_atom(spec[:findings]))) &&

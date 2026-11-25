@@ -30,6 +30,7 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
       field(:phase, :string)
       field(:task_result, :string)
       field(:note, :string)
+      field(:questions, :string)
     end
 
     entity :item, label: "Item", plural: "items", id_type: :manual, id_prefix: "IT-" do
@@ -94,14 +95,22 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
           instructions: "Sort the crate.",
           fields: [:title],
           creates: [kind: :item, file: "items.json", fields: [:size], values: [origin: "robot"]],
+          asks: [field: :questions, file: "questions.md"],
           records: [kind: "task", relation: "task_of"],
           machinery: "robot",
-          on: [completed: :sorted, check_failed: :sorted, stuck: :stuck, abandoned: :stuck]
+          on: [
+            completed: :sorted,
+            check_failed: :sorted,
+            stuck: :stuck,
+            abandoned: :stuck,
+            asked: :asked
+          ]
         )
       end
 
       final(:sorted)
       final(:stuck)
+      final(:asked)
     end
 
     select(:sort, admission: [phase: [:first]], imports: [])
@@ -159,6 +168,8 @@ defmodule AtlasFlow.Activities.ProposalTest do
   Bases and Code); once it completed, Flow makes one fact per entry under the subject,
   numbered after those there are, by Flow; with no such file the task ends stuck. Slice
   9: one that writes a field of its subject (`writes`) has Flow put the file's text there.
+  One that may ask instead (`asks`) has Flow put its questions in the subject's field, make
+  nothing, and end `asked`; without the questions file it ends as before.
   The real Dispatch, Delivery and Bases (on `FakeCode`), with `FakeFacts` and a manual clock.
   """
   use ExUnit.Case, async: false
@@ -311,6 +322,38 @@ defmodule AtlasFlow.Activities.ProposalTest do
     assert stuck["state"] == "stuck"
     assert [%{"outcome" => "completed", "reason" => "no proposal"}] = stuck["pending"]["tasks"]
     assert FakeFacts.get("item", "IT-01") == nil
+  end
+
+  test "a questions file sets the crate's field, makes nothing and ends asked (asks)", c do
+    run = intended(c, "C-4")
+    instructions = run["pending"]["task"]["work"]["instructions"]
+    assert instructions =~ "questions.md"
+    assert instructions =~ "items.json"
+
+    # Its questions win over a proposal in the same result: nothing is made.
+    proposal = JSON.encode!([%{"title" => "One"}])
+    questions = "# Questions\n\nWhich crate size is meant?\n"
+
+    asked =
+      finish(c, "C-4", [{"questions.md", questions}, {"items.json", proposal}])
+
+    assert {asked["state"], asked["status"]} == {"asked", "completed"}
+    assert FakeFacts.get("crate", "C-4")["values"]["questions"] == String.trim(questions)
+    assert FakeFacts.get("item", "IT-01") == nil
+
+    # Nothing is kept to discard, and it is no failure to propose.
+    assert [%{"outcome" => "completed"} = result] = asked["pending"]["tasks"]
+    refute Map.has_key?(result, "made")
+    refute Map.has_key?(result, "reason")
+  end
+
+  test "an empty questions file is no question: the proposal is made as before", c do
+    intended(c, "C-5")
+    proposal = JSON.encode!([%{"title" => "One"}])
+    sorted = finish(c, "C-5", [{"questions.md", "  \n"}, {"items.json", proposal}])
+    assert sorted["state"] == "sorted"
+    assert FakeFacts.get("crate", "C-5")["values"]["questions"] == nil
+    assert FakeFacts.get("item", "IT-01")["values"]["title"] == "One"
   end
 
   test "Flow puts the written text in the crate's field (writes)", c do

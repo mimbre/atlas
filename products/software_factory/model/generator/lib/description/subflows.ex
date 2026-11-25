@@ -86,7 +86,9 @@ defmodule RelaDSL.Description.Subflows do
             name <- [spec[:findings], spec[:failure]],
             is_atom(name) and name != nil,
             do: to_string(name)
-          ) ++ if(is_list(spec[:input]), do: update_field(spec[:input]), else: [])
+          ) ++
+            if(is_list(spec[:input]), do: update_field(spec[:input]), else: []) ++
+            asks_field(spec[:asks])
 
         _ ->
           []
@@ -103,6 +105,14 @@ defmodule RelaDSL.Description.Subflows do
               "names #{kind}.#{name}, which the composition does not describe"
             )
           )
+  end
+
+  # The subject's field a task's questions go to (`asks:`).
+  defp asks_field(asks) do
+    case Keyword.keyword?(asks || :none) && asks[:field] do
+      name when is_atom(name) and name not in [nil, false] -> [to_string(name)]
+      _ -> []
+    end
   end
 
   defp update_field(input) do
