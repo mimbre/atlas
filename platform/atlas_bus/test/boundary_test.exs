@@ -73,9 +73,12 @@ defmodule AtlasBus.BoundaryTest do
   # fixed handoff kind `pull_request` declares a GitHub pull request URL for a worker's branch,
   # and a GitHub issues URL is refused as one (platform/atlas_runtime/host/README.md, "Explicit completion
   # and PR handoff"). Runtime keeps the record in its own home; it never becomes a fact.
-  # Code uses GitHub's pull request names in its provider protocol and legacy records.
+  # Code uses GitHub's pull request names in its provider protocol and legacy records, and
+  # GitHub's `issues` URL path in the closing references it defuses (IS-Atlas-136).
   @protocol_names %{
     "platform/atlas_code/lib/atlas_code.ex" => ["pull request"],
+    "platform/atlas_code/lib/atlas_code/closing_keywords.ex" => ["issues"],
+    "platform/atlas_code/test/closing_keywords_test.exs" => ["issues"],
     "platform/atlas_code/lib/atlas_code/service.ex" => ["pull request", "pull_request"],
     "platform/atlas_code/lib/atlas_code/migration.ex" => ["pull_request"],
     "platform/atlas_code/test/atlas_code_test.exs" => ["pull request", "pull_request"],

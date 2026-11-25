@@ -282,7 +282,7 @@ The superseded publication and release text, as it stood:
 >    - **Phases and retries:** `publications/<id>.json` records the request and phase atomically before each remote effect. The phases are `pushing` → `pushed` → `published`, or `failed`.
 >      - An identical repeat resumes from the recorded phase; a different body under the same ID is `409 conflict`.
 >      - A repeat in `pushing` first checks the remote. At the sealed commit, it counts as Code's own earlier push (a third party creating the same branch at the same commit looks identical and is harmless). Absent, it pushes again, create-only. At any other commit, `failed`.
->      - With a PR requested, `pushed` first adopts exactly one existing PR for the branch (`gh pr list --state all`), otherwise runs `gh pr create` (`GH_PROMPT_DISABLED=1`, body from a temp file). Any `gh` failure stays at `pushed` and returns `502 publication_incomplete` with `{phase, branch, commit}`; it is never reported as success.
+>      - With a PR requested, `pushed` first adopts exactly one existing PR for the branch (`gh pr list --state all`), otherwise runs `gh pr create` (`GH_PROMPT_DISABLED=1`, body from a temp file, its GitHub closing references defused by `AtlasCode.ClosingKeywords.defuse/1` so merging it closes no other pull or issue, IS-Atlas-136). Any `gh` failure stays at `pushed` and returns `502 publication_incomplete` with `{phase, branch, commit}`; it is never reported as success.
 >      - Git failures are `503 provider_unavailable` with the exit status only; raw Git or `gh` output never reaches a response.
 >    - **Configuration:** `config.json` may set `"gh"` to the `gh` executable; the default is `gh` on PATH, using Code's own `gh` login.
 >    - **Limits:**
