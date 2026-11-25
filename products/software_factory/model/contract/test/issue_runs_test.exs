@@ -566,6 +566,45 @@ defmodule Model.IssueRunsTest do
     assert until(c, "ci_failing")["state"] == "ci_failing"
   end
 
+  # Nothing to merge (IS-Atlas-63): its agent changed nothing, so Code opened no pull
+  # request. Its supervisor may build it again: a new author on a fresh base of develop.
+  test "Nothing to merge: Build it again starts a new author on a fresh base of develop", c do
+    first = unchanged(c)
+    assert answers("unchanged") == ["Build it again", "Close it"]
+    assert owner(c, until(c, "unchanged")) == "ada"
+
+    # develop moved meanwhile: the new author's base is a fresh one of it.
+    FakeCode.put(c.code, @repository, "develop", "rev_3", %{"README.md" => "# Atlas 3\n"})
+    ManualClock.advance(elem(c.clock, 1), 60_000)
+    decide("rebuild")
+    working = intent(c)
+    assert {working["state"], working["status"]} == {"working", "active"}
+    assert working["supervised_by"] == "ada"
+    assert %{"key" => @fix} = working["pending"]["task"]
+    assert FakeFacts.get("task", @fix)["values"]["kind"] == "author"
+    {_, again} = leased = lease!()
+    refute again.input.base.base_id == first.input.base.base_id
+    assert again.input.result_ref == "refs/atlas/results/" <> @fix
+
+    values = FakeFacts.get("issue", @key)["values"]
+    assert {values["retry_step"], values["task_failure"]} == {"author", "none"}
+
+    # Its new author's result goes on to Reviewing, as any author's.
+    finish(lease: leased, answer: "Done.")
+
+    FakeCode.put(c.code, @repository, "refs/atlas/results/" <> @fix, "rev_4", %{
+      "README.md" => "# Atlas 3\n\nChanged.\n"
+    })
+
+    assert intent(c)["state"] == "reviewing"
+  end
+
+  test "Nothing to merge: Close it ends it", c do
+    unchanged(c)
+    decide("close")
+    assert until(c, "done")["status"] == "completed"
+  end
+
   test "Close ends a stuck issue", c do
     started(c)
     finish(kind: :failed, reason: "time_limit")
@@ -609,6 +648,55 @@ defmodule Model.IssueRunsTest do
 
     assert FakeFacts.get("issue", @key)["values"]["task_failure"] ==
              "The review task #{@review} (in reviewing) ended stuck: time_limit."
+  end
+
+  # Its author and review done, Code refused its publication `no_changes`: with its
+  # supervisor in Nothing to merge. The author's lease's work, as it was leased.
+  defp unchanged(c) do
+    refuse_no_changes()
+    started(c)
+    {_, work} = leased = lease!()
+    finish(lease: leased, answer: "Done.")
+    author_result(c)
+    assert intent(c)["state"] == "reviewing"
+    finish(answer: verdict("approved", [], []))
+    unchanged = until(c, "unchanged")
+    assert {unchanged["status"], unchanged["supervised_by"]} == {"active", "ada"}
+    assert unchanged["pending"]["task"] == nil
+    assert FakeFacts.get("issue", @key)["values"]["publication"] == "no_changes"
+    work
+  end
+
+  # Code's effect receiver on the Bus, refusing every publication `no_changes`.
+  defp refuse_no_changes do
+    test = self()
+
+    spawn_link(fn ->
+      :ok = AtlasBus.attach("code/effects")
+      send(test, :attached)
+      refuse(test)
+    end)
+
+    assert_receive :attached
+  end
+
+  defp refuse(test) do
+    receive do
+      {:atlas_bus, %AtlasBus.Envelope{class: "request"} = e, %{"request" => r} = body} ->
+        send(test, {:published, r})
+
+        AtlasBus.send(AtlasBus.Envelope.reply(e, "answer"), %{
+          "version" => 1,
+          "id" => r["id"],
+          "digest" => body["digest"],
+          "fingerprint" => r["fingerprint"],
+          "status" => "refused",
+          "reason" => "no_changes",
+          "details" => %{"base" => "develop"}
+        })
+    end
+
+    refuse(test)
   end
 
   # The lease accepted and started on the mac-mini: its attempt runs.

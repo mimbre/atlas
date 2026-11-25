@@ -25,7 +25,11 @@ defmodule AtlasCode.Effects.GitHub do
   @doc "The pull: `state` (`open`, `closed`), `merged`, `head` (its commit), `head_ref` (its branch), `base` (a branch), `mergeable` (nil while GitHub works it out) and `merge_commit`."
   @callback pull(config, slug :: String.t(), number :: pos_integer()) :: {:ok, map()} | error
 
-  @doc "How `head` compares to `base` (a branch or commit): `ahead_by`, `behind_by`."
+  @doc """
+  How `head` compares to `base` (a branch or commit): `ahead_by`, `behind_by`, and
+  `files`: how many files `base...head` changes (what a pull from `head` onto `base` would
+  show), nil when GitHub's answer lists none.
+  """
   @callback compare(config, String.t(), base :: String.t(), head :: String.t()) ::
               {:ok, %{String.t() => non_neg_integer()}} | error
 
@@ -91,7 +95,12 @@ defmodule AtlasCode.Effects.GitHub do
   @impl true
   def compare(config, slug, base, head) do
     with {:ok, c} <- get(config, "/repos/#{slug}/compare/#{ref(base)}...#{head}") do
-      {:ok, %{"ahead_by" => c["ahead_by"], "behind_by" => c["behind_by"]}}
+      {:ok,
+       %{
+         "ahead_by" => c["ahead_by"],
+         "behind_by" => c["behind_by"],
+         "files" => if(is_list(c["files"]), do: length(c["files"]))
+       }}
     end
   end
 

@@ -28,7 +28,10 @@ defmodule Model.Delivery do
   the same pull request (`update_pushing`); one update per conflict (`pr_updates`), then
   its supervisor decides (`update_failing`). A result without changes against develop
   opens no pull request: Code refuses it (`no_changes`) and the issue goes to its
-  supervisor (`unchanged`). No second review; its supervisor decides. No package.
+  supervisor (`unchanged`), who closes it or builds it again (a fresh author on a fresh
+  base of develop). A result Code cannot tell has changes is refused too, and goes to its
+  supervisor with Retry (`stuck`); never an empty pull request. No second review; its
+  supervisor decides. No package.
 
   No item gets stuck (IS-Atlas-60, IS-Atlas-18): an agent task that ends without a result
   (`stuck` or `abandoned`), or Code refusing its pull request, keeps the issue in its span
@@ -485,8 +488,9 @@ defmodule Model.Delivery do
     end
 
     # Its agent changed nothing (author's and fix's result alike): Code opened no pull
-    # request, and its supervisor is told. They close it (a maintainer's choice,
-    # `gate_result: close`) when nothing was to change.
+    # request, and its supervisor is told (IS-Atlas-63). They close it (a maintainer's
+    # choice, `gate_result: close`) when nothing was to change, or build it again: back to
+    # Working, for a fresh author on a fresh base of develop (`gate_result: rebuild`).
     state :unchanged, label: "Nothing to merge" do
       owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
       set gate_result: :none
@@ -495,11 +499,15 @@ defmodule Model.Delivery do
         expected: "Decide what to do with it",
         why: "its agent changed nothing",
         instructions:
-          "Its result has no changes against develop, so Code opened no pull request. Close it when nothing was to change.",
-        answers: [[key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]]
+          "Its result has no changes against develop, so Code opened no pull request. Build it again for a fresh author on a fresh base of develop (when its agent failed to change what it should), or close it when nothing was to change.",
+        answers: [
+          [key: "b", label: "Build it again", change: %{values: %{gate_result: :rebuild}}],
+          [key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]
+        ]
       )
 
       branch to: :done, when: "entity.gate_result == 'close'"
+      branch to: :working, when: "entity.gate_result == 'rebuild'"
     end
 
     # An agent task ended without a result (stuck or abandoned), or Code refused its pull
