@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -145,7 +146,7 @@ func TestWorkFolderCodexProfilesDenyTheChainNotTheHome(t *testing.T) {
 	entries := profileEntries(t, args)
 	assertWorkFolderDenies(t, "materialized-folder", entries, home, work)
 	for path, access := range map[string]string{work: "write", scratch: "write", user: "none",
-		scope["record"].(string): "read", scope["baseline"].(string): "read", work + "/.git": "none", work + "/repo/.git": "none"} {
+		scope["record"].(string): "read", scope["baseline"].(string): "read", work + "/.git": "none", work + "/repo/.git/config": "read", work + "/repo/.git/hooks": "read"} {
 		if entries[path] != access {
 			t.Errorf("materialized-folder: %s is %q, want %q", path, entries[path], access)
 		}
@@ -154,6 +155,10 @@ func TestWorkFolderCodexProfilesDenyTheChainNotTheHome(t *testing.T) {
 		if access == "write" && path != work && path != scratch {
 			t.Errorf("materialized-folder: unexpected writable %s", path)
 		}
+	}
+	// The repository's own .git is writable with the folder (IS-Atlas-14): no entry narrows it.
+	if access, ok := entries[work+"/repo/.git"]; ok {
+		t.Errorf("materialized-folder: the repository's own .git is %q, want the folder's write", access)
 	}
 	if !strings.Contains(args[3], `unix_sockets={`+quote(scratch)+`="allow"}`) {
 		t.Errorf("Unix sockets must stay limited to the scratch: %s", args[3])
@@ -632,6 +637,21 @@ func TestWorkFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(late, "secret"), []byte("LATE-"+token), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// A job's folder is a Git checkout (Work.Folders.checkout), as is a sibling's: the agent stages
+	// and commits in its own, never in another's, and never writes Git configuration or hooks.
+	for _, repository := range []string{filepath.Join(work, "repo"), filepath.Join(sibling, "repo")} {
+		if out, err := exec.Command("git", "-C", repository, "init", "-q", "-b", "work").CombinedOutput(); err != nil {
+			t.Fatalf("git init %s: %v %s", repository, err, out)
+		}
+	}
+	config, err := os.ReadFile(filepath.Join(work, "repo", ".git", "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitconfig := filepath.Join(user, ".gitconfig")
+	if err := os.WriteFile(gitconfig, []byte("[user]\n\tname = user\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	environment := append(os.Environ(), "TMPDIR="+filepath.Join(scratch, "tmp"))
 	shell := func(name string, args []string, script string) (string, error) {
 		command := exec.Command(codex, append(append([]string{"sandbox", "-P", name, "-C", work}, args...), "--", "sh", "-c", script)...)
@@ -658,6 +678,18 @@ func TestWorkFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 			{fmt.Sprintf("touch %q", filepath.Join(home, "workers", "planted")), false},
 			{fmt.Sprintf("mkdir %q", filepath.Join(home, "workers", "work-work-3333333333333333")), false},
 		}
+		probes = append(probes, []struct {
+			script  string
+			allowed bool
+		}{
+			// IS-Atlas-14: git add and git commit in the folder's own checkout.
+			{"echo commit > repo/committed.txt && git -C repo add committed.txt && " +
+				"git -C repo -c user.name=agent -c user.email=agent@atlas -c commit.gpgsign=false commit -q -m agent", profile.writable},
+			{"echo '[core]' >> repo/.git/config", false},
+			{"touch repo/.git/hooks/pre-commit", false},
+			{fmt.Sprintf("touch %q", filepath.Join(sibling, "repo", ".git", "index.lock")), false},
+			{fmt.Sprintf("echo planted >> %q", gitconfig), false},
+		}...)
 		if profile.name == setupProfile {
 			probes = append(probes, struct {
 				script  string
@@ -727,5 +759,21 @@ func TestWorkFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		if read, err := os.ReadFile(filepath.Join(home, name)); err != nil || string(read) != "LATE-"+token {
 			t.Fatalf("control read %s: %v", name, err)
 		}
+	}
+	// The agent's commit is in its own checkout; the refused Git writes left nothing behind.
+	if out, err := exec.Command("git", "-C", filepath.Join(work, "repo"), "log", "--format=%s", "-1").CombinedOutput(); err != nil ||
+		strings.TrimSpace(string(out)) != "agent" {
+		t.Errorf("the agent's commit is not in its checkout: %v %s", err, out)
+	}
+	if body, err := os.ReadFile(gitconfig); err != nil || strings.Contains(string(body), "planted") {
+		t.Errorf("~/.gitconfig was written: %v %s", err, body)
+	}
+	for _, path := range []string{filepath.Join(work, "repo", ".git", "hooks", "pre-commit"), filepath.Join(sibling, "repo", ".git", "index.lock")} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("refused Git write left %s: %v", path, err)
+		}
+	}
+	if body, err := os.ReadFile(filepath.Join(work, "repo", ".git", "config")); err != nil || string(body) != string(config) {
+		t.Errorf("the checkout's Git config was written: %v %s", err, body)
 	}
 }

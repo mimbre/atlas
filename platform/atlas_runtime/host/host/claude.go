@@ -402,8 +402,9 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 			protect(entry[0])
 		}
 	}
-	// A repository's own .git is the agent's: a job's folder is a Git checkout it may use (the Runtime
-	// commits the result from its own Git directory, never from this one).
+	// A repository's own .git is the agent's: a job's folder is a Git checkout it may stage and commit in
+	// (the Runtime commits the result from its own Git directory, never from this one); its configuration
+	// and hooks are read-only below.
 	protected = append(protected, filepath.Join(root, ".git"))
 	token, err := codeToken(home)
 	if err != nil {
@@ -488,6 +489,19 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 			allowRead, readOnly = append(allowRead, file), append(readOnly, file)
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return "", err
+		}
+	}
+	// A repository's own .git is writable with the folder, its configuration and hooks are not
+	// (repositoryGitEntries).
+	for _, repository := range repositories {
+		path, ok := repository.(string)
+		if !ok {
+			return "", errors.New("Materialized folder scope is incomplete")
+		}
+		for _, entry := range repositoryGitEntries(root, path) {
+			if entry[1] == "read" {
+				readOnly = append(readOnly, entry[0])
+			}
 		}
 	}
 	// The home is denied to the Bash sandbox only: a Read rule or denyWrite on it would also deny the

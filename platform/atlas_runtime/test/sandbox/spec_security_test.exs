@@ -137,6 +137,37 @@ defmodule AtlasRuntime.Sandbox.SpecSecurityTest do
     end
   end
 
+  # SP4b (IS-Atlas-14): a folder worker stages and commits in its repository's own .git, which
+  # lies in the writable folder, but never writes that repository's config or hooks; the
+  # folder's own .git and the user's Git configuration and credentials stay denied.
+  test "SP4b a folder repository's own .git is the agent's, its config and hooks are not",
+       %{specs: specs} do
+    folders =
+      for {name, row, %{"harness" => "codex"} = spec} <- specs,
+          row["input"]["decision"] == "agent",
+          row["input"]["scope"]["profile"] == "materialized-folder",
+          do: {name, row["input"]["scope"], spec}
+
+    assert Enum.any?(folders, fn {_, scope, _} -> scope["repositories"] != ["."] end)
+
+    for {name, scope, spec} <- folders do
+      root = scope["root"]
+      access = first_access(spec["codex"]["entries"])
+      assert access[root] == "write", name
+      assert access[root <> "/.git"] == "none", name
+
+      for user <- ["{user}/.gitconfig", "{user}/.config/git", "{user}/.git-credentials"],
+          do: assert(access[user] == "none", "#{name}: #{user}")
+
+      for repository <- scope["repositories"], repository != "." do
+        git = root <> "/" <> repository <> "/.git"
+        refute Map.has_key?(access, git), "#{name}: #{git} narrowed"
+        assert access[git <> "/config"] == "read", name
+        assert access[git <> "/hooks"] == "read", name
+      end
+    end
+  end
+
   # SP5: no backend token or client list reaches a worker; ATLAS_RUNTIME_HOME is always unset
   # first; clients.json is a denied name.
   test "SP5 the environment carries no backend token and unsets ATLAS_RUNTIME_HOME", %{

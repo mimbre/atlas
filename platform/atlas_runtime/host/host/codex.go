@@ -448,7 +448,7 @@ func workerArguments(name string, scope map[string]any, project [][2]string, scr
 		if !ok {
 			return nil, errors.New("Materialized folder scope is incomplete")
 		}
-		entries = append(entries, [2]string{filepath.Join(root, path, ".git"), "none"})
+		entries = append(entries, repositoryGitEntries(root, path)...)
 	}
 	denied, err := deniedEntries(home, user, nil, append(slices.Clone(paths), scratch)...)
 	if err != nil {
@@ -491,6 +491,27 @@ func workerArguments(name string, scope map[string]any, project [][2]string, scr
 	// Native web search is separate from command networking; loopback-only workers
 	// must not be offered it, including when resuming an existing conversation.
 	return append(arguments, "-c", "features.network_proxy=true", "-c", `web_search="disabled"`), nil
+}
+
+// repositoryGitNames are the entries of a repository's own Git directory an agent may read but never
+// write: its configuration and its hooks, which name commands Git runs.
+var repositoryGitNames = []string{"config", "hooks"}
+
+// repositoryGitEntries are a folder worker's entries for the Git directory of its repository at path
+// (relative to root). A repository's own .git is the agent's (IS-Atlas-14): it lies in the writable
+// folder, so the agent may stage and commit there (index, objects, refs), while its configuration and
+// hooks stay read-only. The Runtime takes the result from the folder's files through a Git directory
+// of its own, never this one. A repository that is the folder itself keeps the folder's .git denied.
+func repositoryGitEntries(root, path string) [][2]string {
+	git := filepath.Join(root, path, ".git")
+	if git == filepath.Join(root, ".git") {
+		return [][2]string{{git, "none"}}
+	}
+	var entries [][2]string
+	for _, name := range repositoryGitNames {
+		entries = append(entries, [2]string{filepath.Join(git, name), "read"})
+	}
+	return entries
 }
 
 // setupProfile names the Codex permission profile of a folder preparation.

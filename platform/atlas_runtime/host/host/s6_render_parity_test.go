@@ -721,7 +721,7 @@ func legacyWorkerEntries(scope map[string]any, project [][2]string, scratch, use
 		if !ok {
 			return nil, errors.New("Materialized folder scope is incomplete")
 		}
-		entries = append(entries, [2]string{filepath.Join(root, path, ".git"), "none"})
+		entries = append(entries, repositoryGitEntries(root, path)...)
 	}
 	denied, err := deniedEntries(home, user, nil, append(slices.Clone(paths), scratch)...)
 	if err != nil {

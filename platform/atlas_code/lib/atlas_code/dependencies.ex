@@ -8,13 +8,26 @@ defmodule AtlasCode.Dependencies do
   - `mix.lock`: `mix deps.get` (the sources under `deps/`);
   - `package-lock.json`: `npm ci --ignore-scripts` (`node_modules/`, nothing built).
 
+  The `mix.lock` preparations share a Hex home of their own, outside the copy of the base, so
+  its registry cache holds exactly the Hex registry entries of the base's locked packages. It
+  is added as `.atlas/hex/cache.ets` (`hex_registry/0`): an agent's `bin/check` resolves Hex
+  offline against it, so a package the base pins resolves on a machine whose own Hex cache
+  never saw it (IS-Atlas-13). The server's Hex configuration and package cache are used, never
+  added.
+
   Every file a preparation adds (ignored or not) is kept as a tree under
-  `refs/atlas/dependencies/<key>`, the key the lockfiles' paths and contents: a base with the
-  same lockfiles reuses it, so the work is done again only when a lockfile changes. The
-  prepared commit has a fixed author, committer and date, so a base always gives the same one.
+  `refs/atlas/dependencies/<key>`, the key the lockfiles' paths and contents and what a
+  preparation adds (`@preparation`): a base with the same lockfiles reuses it, so the work is
+  done again only when a lockfile changes. The prepared commit has a fixed author, committer
+  and date, so a base always gives the same one.
   """
 
   @lockfiles ["mix.lock", "package-lock.json"]
+
+  # What a preparation adds besides the lockfiles' fetches; part of the key, so a tree prepared
+  # before the Hex registry was added is prepared again.
+  @preparation "hex-registry"
+
   @identity [
     {"GIT_AUTHOR_NAME", "Atlas Code"},
     {"GIT_AUTHOR_EMAIL", "code@atlas"},
@@ -23,6 +36,9 @@ defmodule AtlasCode.Dependencies do
     {"GIT_COMMITTER_EMAIL", "code@atlas"},
     {"GIT_COMMITTER_DATE", "1970-01-01T00:00:00Z"}
   ]
+
+  @doc "Where a prepared base carries the Hex registry entries of its locked packages."
+  def hex_registry, do: ".atlas/hex/cache.ets"
 
   @doc "The commit on `commit` (in the Git directory `dir`) that adds the base's dependencies."
   @spec prepared(Path.t(), String.t()) :: String.t()
@@ -35,7 +51,10 @@ defmodule AtlasCode.Dependencies do
           Path.basename(path) in @lockfiles,
           do: {line, path}
 
-    key = :crypto.hash(:sha256, Enum.map(lockfiles, &elem(&1, 0))) |> Base.encode16(case: :lower)
+    key =
+      :crypto.hash(:sha256, [@preparation | Enum.map(lockfiles, &elem(&1, 0))])
+      |> Base.encode16(case: :lower)
+
     ref = "refs/atlas/dependencies/" <> key
 
     dependencies =
@@ -55,12 +74,13 @@ defmodule AtlasCode.Dependencies do
   # The lockfiles' preparation in a copy of the base; the files it added become the tree of a
   # commit under `ref`.
   defp prepare(dir, commit, lockfiles, ref) do
-    work =
-      Path.join(System.tmp_dir!(), "atlas-dependencies-#{System.unique_integer([:positive])}")
-
+    unique = System.unique_integer([:positive])
+    work = Path.join(System.tmp_dir!(), "atlas-dependencies-#{unique}")
+    hex_home = Path.join(System.tmp_dir!(), "atlas-dependencies-hex-#{unique}")
     File.mkdir_p!(work)
 
     try do
+      hex = hex_home(hex_home)
       script = ~s(git --git-dir "$1" archive "$2" | tar -x -C "$3")
       {_, 0} = System.cmd("sh", ["-c", script, "sh", dir, commit, work], stderr_to_stdout: true)
 
@@ -74,9 +94,16 @@ defmodule AtlasCode.Dependencies do
         {_, 0} =
           System.cmd(command, args,
             cd: Path.join(work, Path.dirname(path)),
-            env: outside_release(),
+            env: outside_release() ++ hex,
             stderr_to_stdout: true
           )
+      end
+
+      registry = Path.join(hex_home, "cache.ets")
+
+      if File.exists?(registry) do
+        File.mkdir_p!(Path.dirname(Path.join(work, hex_registry())))
+        File.cp!(registry, Path.join(work, hex_registry()))
       end
 
       git(dir, work, fn git ->
@@ -92,7 +119,21 @@ defmodule AtlasCode.Dependencies do
       end)
     after
       File.rm_rf!(work)
+      File.rm_rf!(hex_home)
     end
+  end
+
+  # A Hex home of its own (HEX_HOME), so its registry cache gets only what the base's
+  # lockfiles resolve: the server's Hex configuration (hex.config: mirrors, repositories) is
+  # copied in and its package cache linked, so the server fetches no package twice.
+  defp hex_home(dir) do
+    File.mkdir_p!(dir)
+    server = System.get_env("HEX_HOME") || Path.expand("~/.hex")
+    config = Path.join(server, "hex.config")
+    if File.regular?(config), do: File.cp!(config, Path.join(dir, "hex.config"))
+    packages = Path.join(server, "packages")
+    if File.dir?(packages), do: File.ln_s!(packages, Path.join(dir, "packages"))
+    [{"HEX_HOME", dir}]
   end
 
   # mix and npm run as tools of their own, not inside this release: the release's own
