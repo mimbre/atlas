@@ -16,6 +16,9 @@ defmodule Model.Machinery do
   work source serves it to the Runtime whose id is this fact's key, and writes back what
   the Runtime did with it (`applied_version`, `refused_version`, `refused_reason`). So a
   machinery is changed by hand, never made or deleted by hand.
+
+  Its Runtime's upgrades (IS-Atlas-26) are under it: `Model.RuntimeUpgrade`, one open at a
+  time.
   """
   use RelaDSL
 

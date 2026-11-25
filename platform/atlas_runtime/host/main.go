@@ -63,10 +63,23 @@ func absent(err error) bool {
 	return errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)
 }
 
+// keptSettings are the ATLAS_ variables the service keeps: where the releases are and how
+// the Runtime is restarted, for the update command an upgrade runs (update.go).
+var keptSettings = []string{"ATLAS_RUNTIME_RELEASES=", "ATLAS_RUNTIME_RELEASES_DIR=", "ATLAS_RUNTIME_LAUNCH_AGENT="}
+
+func kept(item string) bool {
+	for _, prefix := range keptSettings {
+		if strings.HasPrefix(item, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func environment(dir string) []string {
 	result := []string{}
 	for _, item := range os.Environ() {
-		if !strings.HasPrefix(item, "ATLAS_") && !strings.HasPrefix(item, "MIX_ENV=") &&
+		if (!strings.HasPrefix(item, "ATLAS_") || kept(item)) && !strings.HasPrefix(item, "MIX_ENV=") &&
 			!strings.HasPrefix(item, "MIX_BUILD_PATH=") && !strings.HasPrefix(item, "ELIXIR_ERL_OPTIONS=") {
 			result = append(result, item)
 		}
@@ -82,18 +95,34 @@ func environment(dir string) []string {
 // all present it changes nothing. The service itself runs without Mix, on the build's ebin paths with
 // the configuration host/boot.exs loads: `mix run` starts Mix's PubSub, a loopback TCP listener, and an
 // agent machine runs no network listener. elixir expands the ebin wildcard itself.
+//
+// From a release (releaseLayout) there is no build: the release holds the compiled service in
+// build/ under its root, with the same paths below it, and the service reports the release's
+// build as its runtime_build (ATLAS_RUNTIME_BUILD).
 func serviceCommands(dir, executable string) (build, run *exec.Cmd) {
-	project := filepath.Join(repoRoot, "products/software_factory")
-	build = exec.Command("mix", "do", "deps.get", "+", "compile", "--warnings-as-errors")
-	build.Dir = project
-	build.Env = environment(dir)
+	root, prebuilt, _ := releaseLayout()
+	project := filepath.Join(root, "products/software_factory")
 	output := filepath.Join(dir, "build")
+	env := environment(dir)
+	if prebuilt {
+		output = filepath.Join(root, "build")
+		for i, item := range env {
+			if strings.HasPrefix(item, "MIX_BUILD_PATH=") {
+				env[i] = "MIX_BUILD_PATH=" + output
+			}
+		}
+		env = append(env, "ATLAS_RUNTIME_BUILD="+runtimeBuild())
+	} else {
+		build = exec.Command("mix", "do", "deps.get", "+", "compile", "--warnings-as-errors")
+		build.Dir = project
+		build.Env = env
+	}
 	run = exec.Command("elixir",
 		"-pz", filepath.Join(output, "lib", "*", "ebin"), "-pa", filepath.Join(output, "consolidated"),
-		"-r", filepath.Join(repoRoot, "platform/atlas_runtime/host/boot.exs"),
-		filepath.Join(repoRoot, "platform/atlas_runtime/host/service.exs"), dir)
+		"-r", filepath.Join(root, "platform/atlas_runtime/host/boot.exs"),
+		filepath.Join(root, "platform/atlas_runtime/host/service.exs"), dir)
 	run.Dir = project
-	run.Env = append(environment(dir), "ATLAS_RUNTIME_EXECUTABLE="+executable)
+	run.Env = append(append([]string{}, env...), "ATLAS_RUNTIME_EXECUTABLE="+executable)
 	return build, run
 }
 
@@ -228,6 +257,8 @@ func executeTo(args []string, out io.Writer) (map[string]any, error) {
 		return preferences(dir, args[1:])
 	case "release":
 		return release(dir, args[1:])
+	case "update":
+		return update(dir, args[1:])
 	}
 	if args[0] == "snapshot" {
 		usage := errors.New("use snapshot materialize --snapshot sha256:HEX --dest NEW_PATH [--read-only], snapshot changes --dest PATH --blobs DIR, snapshot compose --base-id sha256:HEX --change-set FILE --blobs DIR --dest NEW_PATH [--read-only], snapshot prepare --dest PATH --npm-ci REPO_PATH[/SUBDIR] | --npm-run REPO_PATH[/SUBDIR] --script NAME --output REPO_PATH/OUT..., snapshot status|diff --dest PATH [--path REPO_PATH]..., snapshot submit --dest PATH [--path REPO_PATH] --change-id UUID [--fingerprint fpr_HEX], snapshot freeze --dest PATH --turn TURN_ID --packet NEW_PATH --packet-id UUID [--previous PACKET_ID] [--revision REVISION], snapshot findings --packet PATH --turn TURN_ID, snapshot packets --dest PATH, snapshot discard --packet PATH | --packet-id UUID, or snapshot rebind --dest PATH")
@@ -508,6 +539,10 @@ func main() {
 		writeCommandError(os.Stderr, errors.New("use host check --cwd DIR (--scope JSON | --sandbox read-only) --scratch DIR --timeout SEC --grace SEC --tail BYTES -- ARGV..."))
 		os.Exit(1)
 	}
+	if len(os.Args) == 2 && os.Args[1] == "version" {
+		json.NewEncoder(os.Stdout).Encode(version())
+		return
+	}
 	if len(os.Args) == 2 && (os.Args[1] == "--help" || os.Args[1] == "-h") {
 		printHelp(os.Stdout)
 		return
@@ -525,6 +560,7 @@ func main() {
 // printHelp writes the CLI help.
 func printHelp(out io.Writer) {
 	fmt.Fprintln(out, "atlas-runtime service start|status|stop [--force]|pause|resume|drain\natlas-runtime start --profile PROFILE --cost-class low|standard|high --cwd PATH [--permissions read-only|workspace-write|materialized-folder] [--title TITLE] [--key KEY] [--slot SLOT] [--resume-from TURN_ID] \"assignment\"\natlas-runtime start --profile PROFILE --cost-class low|standard|high --repo https://github.com/OWNER/REPO.git --branch NEW_BRANCH [--base develop] [--title TITLE] [--key KEY] [--slot SLOT] \"assignment\"\natlas-runtime continue --resume-from TURN_ID --profile PROFILE --cost-class CLASS (--cwd PATH [--permissions P] | --repo URL --branch BRANCH) [--title TITLE] [--key KEY] [--slot SLOT] \"next assignment\"\natlas-runtime status [--work WORK_ID | --key KEY | [--state STATE] [--changed-since SEQUENCE]]\natlas-runtime capacity\natlas-runtime retry --work WORK_ID [--resume]\natlas-runtime stop|kill --work WORK_ID [--reason TEXT]\natlas-runtime output --turn TURN_ID [--cursor CURSOR] [--follow]\natlas-runtime turns\natlas-runtime preferences\natlas-runtime release --slot SLOT\nWork commands are HTTP requests to the work contract on backend.sock in the Runtime home (start and continue: POST /v1/work; status: GET /v1/work; capacity: GET /v1/capacity; retry: POST /v1/work/WORK_ID/attempts; stop and kill: POST /v1/work/WORK_ID/cancel; output: GET /v1/turns/TURN_ID/output). Each prints the Runtime's answer: the work, the list of work with its change sequence, the capacity or one output page; output --follow prints every page from the cursor on, one JSON line each, and returns once a page says ended (the turn has ended and no output follows). The Runtime validates every request; a refusal prints its problem (type, status, reason, detail; at-capacity, HTTP 503, also retry_after and capacity) and exits nonzero. A work states its needs, an execution profile and a cost class, never a backend or model: the Runtime picks the slot and the harness from its human-owned policy.json, queues the work in its local work source, which hands it to the executor as a work source does, and runs one attempt at a time. Start answers once the work is recorded, not when its turn ends; read progress with status and output, or follow events. --title defaults to the assignment's first line; --permissions defaults to read-only; --base must be develop. --key is the client key, sent as Idempotency-Key: the same key with the same request returns the same work, with another request it is a conflict, so a lost reply is safe to repeat. --slot is for a human at this machine. Continue is start with --resume-from: it continues that turn's conversation and workspace, on its slot. Stop cancels gracefully (the turn gets SIGINT, and is killed after the grace period); kill forces at once; both answer with the work, whose current attempt shows the cancel stage. Retry starts the next attempt of a work; --resume continues an interrupted attempt's conversation. Flags precede the assignment; use -- before an assignment starting with a dash. Turns lists the history (GET /v1/turns on backend.sock, every page): each turn's turn_id, slot, state, native_outcome, started_at, ended_at, harness, configured_model, reported_model and conversation_id; the socket's client reads all history, so turns from before work moved to backend.sock are listed too. Events read the journal on runtime.sock. Operations are HTTP requests to the operations contract on backend.sock too (service status: GET /v1/runtime; service pause, resume and drain: POST /v1/control/ACTION; service stop: POST /v1/control/stop; preferences: GET /v1/policy; release: POST /v1/slots/SLOT/release). Service status prints the runtime info: mode (open, paused, draining or stopping), incarnation, runtime_build, policy_version and the slots, each with busy; a stopped Runtime prints {\"service\":\"stopped\"}. Pause takes no new work and starts no buffered work, while running turns continue; drain also returns the work the executor accepted and has not started (work queued at the local source stays queued), and the Runtime stays draining until resume, which opens it again. The mode outlasts a restart. Service stop takes no new work and keeps the buffer, cancels the running turns (--force kills them at once), whose attempts end interrupted and retryable, and returns once backend.sock is gone; it exits nonzero if that takes over 60 s. Preferences prints the policy view, with each option's availability; its supervisor changes the policy through Control (the machinery's configuration, applied within a poll), or without Control by editing policy.json locally. Release clears a slot's stop latch and tells the Runtime that nothing of the slot's turn is left; it starts nothing, and refuses as slot busy while the slot's process is alive. runtime.sock keeps only questions, answers, handoffs, peer correlation and the journal (events).")
+	fmt.Fprintln(out, "atlas-runtime version\natlas-runtime update --build BUILD [--from URL|DIR] [--install PATH] [--restart auto|launchd|service|none] [--detach]\nVersion prints this binary's build (a release's, or checkout) and where its service code is. Update installs the released build BUILD, as Atlas publishes it (atlas-runtime-BUILD-GOOS-GOARCH.tar.gz and its .sha256 under FROM/atlas-runtime-BUILD/; FROM defaults to $ATLAS_RUNTIME_RELEASES): it refuses while another update holds update.lock and while a slot is busy, naming the busy slots (drain first: service drain); drains an open Runtime, fetches and checks the release into ~/.local/share/atlas-runtime/releases/BUILD ($ATLAS_RUNTIME_RELEASES_DIR), stops the service, points the installed command (~/.local/bin/atlas-runtime) at the release's binary (the one it replaced stays as .previous), starts the Runtime again through its launch agent (launchd) or with service start, and waits until service status shows BUILD. A Runtime it drained itself is resumed; a mode set before stays. A start that fails puts the old command back and starts it. It prints, and writes to update.json in the Runtime home, done or the step that failed; --detach runs it in the background (update.log).")
 	fmt.Fprintln(out, "atlas-runtime events [--cursor CURSOR] [--limit N]\natlas-runtime events --follow [--cursor CURSOR]\nEvents returns one finite page of durable execution events, not native output or task-success claims. Limit defaults to 50 (1..100). Follow streams events from runtime.sock as JSON lines, one per event, plus {\"reset\":...} for a retention gap or epoch change and {\"cursor\":...} after each page; it reconnects from the last printed cursor and reports {\"reachable\":false,\"reason\":...} and {\"reachable\":true} itself. It never starts the service and exits 0 on SIGINT or SIGTERM.")
 	fmt.Fprintln(out, "Claude questions, for a turn that recorded the questions capability (the work contract does not offer it in S1):\natlas-runtime question --worker NAME --turn TURN_ID --question QUESTION_ID\natlas-runtime answer --worker NAME --turn TURN_ID --question QUESTION_ID --answers JSON_OBJECT\nAnswers map exact question texts to strings. Identical repeats return recorded admission without resending; conflicting answers refuse. Admission, delivery, native processing and verified task success are distinct. Codex does not support questions.")
 	fmt.Fprintln(out, "Explicit coordinator handoff:\natlas-runtime submit-handoff --worker NAME --turn TURN_ID --handoff JSON_OBJECT\natlas-runtime handoff --worker NAME --turn TURN_ID\nDeclaration fields: kind (completion|pull_request), repository_url, branch, base_sha, head_sha, result, verification, limits, remaining_processes; pull_request requires pr_url, completion forbids it. The last three fields are arrays of strings. Stored provenance is coordinator_submitted_declaration, not authenticated native submission or verified task/PR acceptance. Identical repeats return the original record; replacement conflicts. Execution, merge and next assignment remain separate.")

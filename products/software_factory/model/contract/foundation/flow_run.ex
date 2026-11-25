@@ -105,7 +105,9 @@ defmodule Model.FlowRun do
   # decision 11) are the same writer from their own endpoints: they may write Flow's own
   # task fields (the leaser and the receiver) and task_attempt fields (the receiver),
   # nothing else, and never a run. Flow's Landing (F3-L) is too: Flow's own task fields
-  # only (what it published, CI, ready), never a run.
+  # only (what it published, CI, ready), never a run. The work source's poll steps, run by
+  # the receiver, write a Runtime's machinery (what it did with its configuration,
+  # IS-Atlas-27) and its upgrade (IS-Atlas-26).
   flow_runtime(
     runs: :flow_run,
     writer: [sender: :flow, by: :flow],
@@ -113,7 +115,9 @@ defmodule Model.FlowRun do
     supervision: [relation: :supervised_by, operation: :operation, hand_to: :hand_to],
     senders: [
       task: [:"flow/dispatch", :"flow/delivery", :"flow/landing"],
-      task_attempt: [:"flow/delivery"]
+      task_attempt: [:"flow/delivery"],
+      machinery: [:"flow/delivery"],
+      runtime_upgrade: [:"flow/delivery"]
     ]
   )
 end

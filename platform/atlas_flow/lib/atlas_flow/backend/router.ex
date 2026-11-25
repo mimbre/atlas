@@ -137,7 +137,7 @@ defmodule AtlasFlow.Backend.Router do
   @read [read_timeout: 60_000]
 
   # The version of the Runtime's backend contract whose routes these are.
-  @version "0.3.0"
+  @version "0.4.0"
 
   @doc "The version of the Runtime's `work_source` backend contract this router carries."
   def __version__, do: @version

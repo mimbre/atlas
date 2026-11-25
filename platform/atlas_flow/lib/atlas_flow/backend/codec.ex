@@ -17,7 +17,7 @@ defmodule AtlasFlow.Backend.Codec do
 
   alias AtlasFlow.WorkSource.Translate
 
-  @poll_fields ~w(runtime_id incarnation build policy_version offer holdings configuration_refused)
+  @poll_fields ~w(runtime_id incarnation build policy_version offer holdings configuration_refused upgrade)
   @report_fields ~w(revision report)
 
   @doc "The fields a capability's request body holds; nil for a route without a JSON body."
@@ -95,9 +95,18 @@ defmodule AtlasFlow.Backend.Codec do
       "timing" => Translate.normal(get.(:timing))
     }
 
-    case get.(:configuration) do
-      document when is_binary(document) -> Map.put(polled, "configuration", document)
-      _ -> polled
+    polled =
+      case get.(:configuration) do
+        document when is_binary(document) -> Map.put(polled, "configuration", document)
+        _ -> polled
+      end
+
+    case get.(:upgrade) do
+      %{} = upgrade ->
+        Map.put(polled, "upgrade", Map.take(Translate.normal(upgrade), ~w(id build)))
+
+      _ ->
+        polled
     end
   end
 

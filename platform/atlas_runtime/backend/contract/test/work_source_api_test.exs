@@ -32,7 +32,8 @@ defmodule AtlasRuntimeBackend.WorkSourceTest do
                 :policy_version,
                 :offer,
                 :holdings,
-                :configuration_refused
+                :configuration_refused,
+                :upgrade
               ]},
              {:post, "/v1/leases/:lease_id/reports", :report, [:revision, :report]},
              {:get, "/v1/leases/:lease_id/blobs/:sha256", :get_blob, nil},

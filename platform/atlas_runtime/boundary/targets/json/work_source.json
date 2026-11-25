@@ -138,9 +138,66 @@
           "name": "configuration_refused",
           "required": false,
           "type": "configuration_refusal"
+        },
+        {
+          "name": "upgrade",
+          "required": false,
+          "type": "upgrade_report"
         }
       ],
       "name": "poll_input"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "step",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "draining",
+            "updating",
+            "restarted",
+            "failed"
+          ]
+        },
+        {
+          "name": "busy",
+          "required": true,
+          "type": "list of string"
+        },
+        {
+          "name": "mode",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "open",
+            "paused",
+            "draining",
+            "stopping"
+          ]
+        },
+        {
+          "name": "failed_step",
+          "required": false,
+          "type": "enum",
+          "values": [
+            "drain",
+            "update",
+            "restart"
+          ]
+        },
+        {
+          "name": "reason",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "name": "upgrade_report"
     },
     {
       "fields": [
@@ -220,9 +277,29 @@
           "name": "configuration",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "upgrade",
+          "required": false,
+          "type": "upgrade_order"
         }
       ],
       "name": "polled"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "build",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "name": "upgrade_order"
     },
     {
       "fields": [
@@ -841,5 +918,5 @@
       "name": "rejected"
     }
   ],
-  "version": "0.4.0"
+  "version": "0.5.0"
 }

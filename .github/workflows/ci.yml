@@ -837,6 +837,55 @@ jobs:
           [ -n "$ATLAS_FLY_TOKEN_CORE" ] || { echo "::error::Add the secret FLY_API_TOKEN_PROD (fly tokens create deploy -a eyra-atlas)"; exit 1; }
           platform/ops/deploy.sh prod "master-$GITHUB_SHA"
 
+  # Each push to develop or master publishes the Runtime's release at its revision
+  # (IS-Atlas-26): platform/atlas_runtime/host/release.sh builds the archive a Runtime's
+  # `atlas-runtime update --build <commit>` installs, for the Macs that run Runtimes
+  # (darwin/arm64; the service is BEAM bytecode and the CLI uses no cgo, so it is built
+  # here), published with its .sha256 as the GitHub release atlas-runtime-<commit>. A
+  # supervisor names that commit in the Runtime's upgrade through Control; each machine
+  # finds the releases at its machine.json "releases" (…/releases/download).
+  deploy-runtime-release:
+    name: Publish the Runtime release of this revision
+    needs: [tested-tree, beam]
+    if: >-
+      ${{ !cancelled()
+      && github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+      && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      REVISION: ${{ github.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
+      - run: mix local.hex --force && mix local.rebar --force
+      - name: Build the release for darwin/arm64
+        env:
+          GOOS: darwin
+          GOARCH: arm64
+        run: platform/atlas_runtime/host/release.sh "$REVISION" "$RUNNER_TEMP/runtime-release"
+      - name: Publish it as atlas-runtime-<commit>
+        run: |
+          tag="atlas-runtime-$REVISION"
+          files=("$RUNNER_TEMP"/runtime-release/atlas-runtime-"$REVISION"-darwin-arm64.tar.gz{,.sha256})
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --clobber
+          else
+            gh release create "$tag" "${files[@]}" --target "$REVISION" --latest=false --prerelease \
+              --title "Atlas Runtime ${REVISION:0:12}" \
+              --notes "The Runtime at ${REVISION}: atlas-runtime update --build ${REVISION}"
+          fi
+
   # Each prod release publishes the Mac app at its revision (IS-Atlas-66): after
   # deploy-prod, AtlasMac is tested and built at this commit, bundled as `Atlas Console.app`
   # (its version master-<commit>, its contract, this run's number as its build), signed with

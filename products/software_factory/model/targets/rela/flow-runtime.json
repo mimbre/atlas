@@ -19,6 +19,12 @@
         ],
         "task_attempt": [
           "flow/delivery"
+        ],
+        "machinery": [
+          "flow/delivery"
+        ],
+        "runtime_upgrade": [
+          "flow/delivery"
         ]
       }
     },
@@ -39,6 +45,59 @@
       "blocked_reason": "blocked_reason"
     },
     "selection": {
+      "runtime_upgrade": {
+        "choices": [],
+        "choice_states": [],
+        "migrations": [],
+        "subject": "runtime_upgrade",
+        "admission": [],
+        "imports": [
+          {
+            "when": {
+              "step": [
+                "done"
+              ]
+            },
+            "state": "done"
+          },
+          {
+            "when": {
+              "step": [
+                "failed"
+              ]
+            },
+            "state": "failed"
+          },
+          {
+            "when": {
+              "step": [
+                "verifying"
+              ]
+            },
+            "state": "verifying"
+          },
+          {
+            "when": {
+              "step": [
+                "updating"
+              ]
+            },
+            "state": "updating"
+          },
+          {
+            "when": {
+              "step": [
+                "draining"
+              ]
+            },
+            "state": "draining"
+          },
+          {
+            "when": [],
+            "state": "requested"
+          }
+        ]
+      },
       "decide": {
         "choices": ["status"],
         "choice_states": ["for_person_always", "for_person", "for_agent", "for_agent_unverified"],

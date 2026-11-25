@@ -65,6 +65,10 @@ defmodule AtlasRuntime.Sources.Puller do
     once the rest of the answer is handled. A refusal (`%{version, reason}`) goes with
     every later poll as `configuration_refused` until a configuration is applied; the next
     poll after an applied one carries its version as `policy_version`.
+  - `upgrade`, when the source serves one (IS-Atlas-26): the upgrade its supervisor
+    started through Control, taken a step further by `AtlasRuntime.Upgrade` in a task
+    (drain, wait until no slot is busy, the update command, open again after the
+    restart). Every later poll of this source carries where it is as `upgrade`.
   - Every holding it carried that is not in `lease_lost` is renewed **at the poll's send
     time** (`LeaseClock.stamp/1` read just before the poll left), never at the reply's.
   - `lease_lost`: the attempt is cancelled (never started when it had not), and nothing of
@@ -151,7 +155,7 @@ defmodule AtlasRuntime.Sources.Puller do
   require Logger
 
   alias AtlasRuntime.Boundary.Work, as: B
-  alias AtlasRuntime.{Configuration, Policy, Provenance, Work}
+  alias AtlasRuntime.{Configuration, Policy, Provenance, Upgrade, Work}
   alias AtlasRuntime.Sources.{Credential, Import, LeaseClock, LeaseShape, Rights, Store, Upload}
   alias AtlasRuntime.Work.Queue
 
@@ -240,7 +244,9 @@ defmodule AtlasRuntime.Sources.Puller do
           group: nil,
           # The last configuration this source served that was refused (IS-Atlas-27):
           # %{version, reason}, sent on every poll until another one is applied; or nil.
-          configuration_refused: nil
+          configuration_refused: nil,
+          # The task taking the upgrade's next step (IS-Atlas-26), while one runs.
+          upgrade_task: nil
         }
 
         if is_integer(state.tick), do: Process.send_after(self(), :tick, state.tick)
@@ -575,6 +581,13 @@ defmodule AtlasRuntime.Sources.Puller do
             refused -> Map.put(input, :configuration_refused, refused)
           end
 
+        # Only while this source's upgrade is under way, as for the refusal above.
+        input =
+          case Upgrade.report(Map.get(runtime, :home), state.name) do
+            nil -> input
+            report -> Map.put(input, :upgrade, report)
+          end
+
         # The send time: a renewal counts from here, however late the answer comes.
         sent = LeaseClock.stamp(state.clock)
         {module, ref} = state.target
@@ -698,7 +711,34 @@ defmodule AtlasRuntime.Sources.Puller do
       end)
 
     _ = Work.offer_done(state.name, used)
-    state |> remember() |> configure(Map.get(polled, :configuration))
+
+    state
+    |> remember()
+    |> configure(Map.get(polled, :configuration))
+    |> upgrade(Map.get(polled, :upgrade))
+  end
+
+  # IS-Atlas-26: the upgrade its supervisor started through Control, when the source serves
+  # one (`AtlasRuntime.Upgrade`). Its next step (drain, the update command, opening again
+  # after the restart) runs in a task, never in the puller itself, one at a time; the next
+  # poll reports where it is.
+  defp upgrade(%{upgrade_task: pid} = state, order) when is_pid(pid) do
+    if Process.alive?(pid), do: state, else: upgrade(%{state | upgrade_task: nil}, order)
+  end
+
+  defp upgrade(state, order) do
+    case runtime_home() do
+      nil ->
+        state
+
+      home ->
+        name = state.name
+
+        case Task.Supervisor.start_child(state.tasks, fn -> Upgrade.served(home, name, order) end) do
+          {:ok, pid} -> %{state | upgrade_task: pid}
+          _ -> state
+        end
+    end
   end
 
   # IS-Atlas-27: the configuration its supervisor set through Control, when the source

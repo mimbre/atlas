@@ -7,6 +7,28 @@ types:
     labels:
       running: Running
       ended: Ended
+  runtime_upgrade_step:
+    values:
+    - requested
+    - draining
+    - updating
+    - verifying
+    - done
+    - failed
+    labels:
+      requested: Requested
+      draining: Draining
+      updating: Updating
+      verifying: Verifying
+      done: Done
+      failed: Failed
+  runtime_upgrade_state:
+    values:
+    - open
+    - ended
+    labels:
+      open: Open
+      ended: Ended
   task_kind:
     values:
     - plan
@@ -267,6 +289,44 @@ entities:
       refused_reason:
         type: string
         description: Why the Runtime refused refused_version
+  runtime_upgrade:
+    label: Runtime upgrade
+    plural: runtime_upgrades
+    id_type: manual
+    id_prefix: RU-
+    description: |
+      The upgrade of one Runtime (its machinery) to a released build: drain, wait until no
+      slot is busy, update, restart, verify. Its supervisor starts it; the Runtime and Flow
+      do every step. The id is RU- and a number, e.g. RU-03.
+    properties:
+      build:
+        type: string
+        required: true
+        description: The released build to install, as Atlas published it (its commit)
+      state:
+        type: runtime_upgrade_state
+        description: Open until it is done or failed; one open upgrade per Runtime at a time
+      step:
+        type: runtime_upgrade_step
+        description: Where the upgrade is; Flow writes it from the Runtime's polls
+      busy:
+        type: string
+        description: 'While draining: the slots whose turns it waits for'
+      failed_step:
+        type: string
+        description: 'Where it failed: drain, update, restart or verify'
+      reason:
+        type: string
+        description: Why it failed, or why nothing had to be done
+      from_build:
+        type: string
+        description: The build the Runtime ran when the upgrade began
+      from_incarnation:
+        type: string
+        description: The Runtime's incarnation when the upgrade began
+      incarnation:
+        type: string
+        description: The incarnation of the restarted Runtime that was verified
   task:
     label: Task
     plural: tasks
@@ -911,6 +971,17 @@ relations:
     inverse:
       id: turns_by
       label: turns
+  upgrades:
+    label: upgrades
+    description: An upgrade is of one Runtime, its machinery; a machinery has its upgrades.
+    from:
+    - runtime_upgrade
+    to:
+    - machinery
+    max_outgoing: 1
+    inverse:
+      id: upgrades_of
+      label: upgrades
   done_for:
     label: done for
     description: The human supervisor of its flow when Flow offered it, copied for audit. Only Flow sets it.
