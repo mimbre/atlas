@@ -20,14 +20,14 @@ defmodule AtlasFlow.WorkSource.Configuration do
 
   A document that is not a JSON object with a positive integer `version` is never served:
   Flow records it refused itself (`refused_version` 0), so Control shows why. Every other
-  check is the Runtime's (`AtlasRuntime.Configuration`), where the policy rules are.
+  check is the Runtime's own, where the policy rules are.
 
   No machinery fact under the Runtime's id, no configuration on it, or a Facts that does
   not answer: `:none`, and the poll is answered as before. A poll is never refused or held
   up for the configuration.
 
-  Who may set the field is Control's and Facts' rule for the fact (any person who may
-  change a machinery fact; IS-Atlas-27 leaves "only its supervisor" open).
+  Who may set the field is Control's and Facts' rule for the fact (anyone who may change
+  a machinery fact; IS-Atlas-27 leaves "only its supervisor" open).
   """
 
   require Logger
