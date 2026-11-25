@@ -93,6 +93,34 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(h.connector.made.count, 1)
     }
 
+    func testClosedAsTooOldIsItsOwnEndingWithControlsContract() {
+        let h = Harness()
+        h.session.start()
+        h.connection.ready()
+        let text = "This client implements contract 0.1.0; Control test speaks 9.9.9, and no older one."
+
+        h.connection.receive(Lines.with(Lines.with(Lines.bye(text), "reason", "too_old"), "spec", "9.9.9"))
+
+        XCTAssertEqual(h.state.connection, .ended(.tooOld(control: "9.9.9", text: text)))
+        h.clock.advance(by: 60)
+        XCTAssertEqual(h.connector.made.count, 1)
+    }
+
+    func testTheUpdatedAppOpensThePageItShowedAfterTheFirstBoot() {
+        var settings = SessionSettings(env: "test", host: "127.0.0.1", port: 7001)
+        settings.startPage = "/k/widget/W-01"
+        let h = Harness(settings: settings)
+        h.session.start()
+        h.connection.ready()
+        h.connection.receive(Lines.welcome())
+        h.connection.receive(Lines.page("/", title: "Home"))
+        _ = h.connection.take()
+
+        h.connection.receive(Lines.boot())
+
+        XCTAssertEqual(h.connection.take(), [.open(OpenRequest(to: "/k/widget/W-01"))])
+    }
+
     func testByeForAnotherEnvironmentEndsTheSession() {
         let h = Harness(settings: SessionSettings(env: "prod", host: "127.0.0.1", port: 7001))
         h.session.start()

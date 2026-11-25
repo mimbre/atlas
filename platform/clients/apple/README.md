@@ -10,7 +10,8 @@ Control's `boot` and pages send.
 |---|---|
 | `ControlSession` | The session with Control, no UI: `LineConnection` on Network.framework (`NetworkLineConnection`, lines up to 4 MB), `SessionState` (the rules, plain state and effects), `Session` (an `@Observable` façade that runs them on an injected `LineConnector` and `SessionClock`), and the view models `ShellViewModel` and `StatusViewModel`. macOS and iOS. |
 | `BlockViews` | SwiftUI for a page's blocks, in Prism's styling (`Prism.swift`, tokens copied from Prism @370696e7). It shows `list` rows (a row opens its `to`), `item` cards and `single_choice` blocks, and actions as buttons in Control's order (the first prominent, each with its key): a block's own under the block, the page's (`page: true`) with the page's title (`PageActions.ofPage`). `ActionPageView` shows an action's page: a `confirm` (Confirm, Cancel), a `form` (text, multiline, choice and read-only inputs, Control's errors, Save with ⌘S, Cancel), or more actions (More…). Other blocks appear as fallbacks with their type. A page's top-level `section` markup groups its blocks: a collapsible one is a disclosure, folded by default per page path; other markup, or markup that is not one tree, leaves the blocks flat. macOS and iOS. |
-| `AtlasMac` (`Mac/`) | The macOS app: three columns (tabs from `boot`, the tab's index page, the opened page), the title and environment in the title bar (production as the inverted badge), `⌘1`–`⌘9`, and the status bar. The index page's own actions are in the window's toolbar; the opened page's are next to its title at its top. An action's page (or any page with a form or confirm) is a sheet over the columns; when Control stores it the sheet closes and the stored page shows. The keys Control gives the shown page's actions take them, whichever column has the focus. |
+| `AppUpdate` | The app's update from the release feed (IS-Atlas-66), no UI: `InstalledApp` (the release a bundle's `Info.plist` names), `AppRelease` (the feed's entry), `UpdateDecision` (a later build is taken; the same or an earlier one is not; closed as too old with no later build, it waits; an unreachable feed is said), `UpdateStatus` (its texts: the status bar's `Updating to <revision>…`, and what the app says in place of Control's bare "too old"), and `Updater`, on an injected `ReleaseFeed` and `ReleaseInstaller`. Foundation only. |
+| `AtlasMac` (`Mac/`) | The macOS app: three columns (tabs from `boot`, the tab's index page, the opened page), the title and environment in the title bar (production as the inverted badge), `⌘1`–`⌘9`, and the status bar. The index page's own actions are in the window's toolbar; the opened page's are next to its title at its top. An action's page (or any page with a form or confirm) is a sheet over the columns; when Control stores it the sheet closes and the stored page shows. The keys Control gives the shown page's actions take them, whichever column has the focus. A release updates itself: `BundleInstaller` downloads the newer release, checks its digest and its signature against this app's designated requirement, swaps the bundle and starts it again on the page shown (`--to`). |
 
 Slice S1 of the design. Later slices add pages, history and the cache (S2), markup (S3),
 forms (S4), `ConsoleKit` (S5), `WorkerViews` (S6), the agent (S7), and the launcher with an
@@ -29,6 +30,15 @@ swift run AtlasMac --env test --host 127.0.0.1 --port <Control port>
 The app connects only where its launch arguments say (`--env`, `--host`, `--port`, and
 optionally `--reconcile-seconds`); without them it says how to start it. It says hello as
 `client: "tui"`, the name Control gives the person's console.
+
+## Releases
+
+Each merge to master publishes a signed `Atlas Console.app` at its revision, and installed
+apps update themselves from it. CI's `deploy-mac-app` does this with
+`tools/package_release_app.py`, which writes the bundle (`bundle`) and the feed (`feed`); see
+[docs/guides/prod.md](../../../docs/guides/prod.md), "The Mac app". When started without
+launch arguments, a release connects where its bundle says (`AtlasControl`: prod,
+127.0.0.1:7593). Tests of the packager: `python3 -B tools/test_package_release_app.py`.
 
 ## Local development Finder/Dock bundle
 

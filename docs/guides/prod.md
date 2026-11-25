@@ -99,6 +99,42 @@ Fly connectivity to recover; no public address is needed.
 
 A deploy first checks that the build's description describes all of prod's data on Fly, as `atlas-ops restart` does for a core on this Mac (IS-Atlas-73). When it does not, nothing is deployed, prod keeps its build, and the job names the data: migrate it first (`docs/guides/test-on-fly.md`, "A migration").
 
+## The Mac app
+
+Each merge to master publishes the Mac app at its revision (IS-Atlas-66). After `deploy-prod`, job `deploy-mac-app` of `.github/workflows/ci.yml` tests and builds AtlasMac at that commit, then bundles it as `Atlas Console.app`, signs it with the Developer ID and publishes it as the GitHub release `atlas-console-<commit>`. The bundle's version is `master-<commit>`, and it also records the contract it speaks (`AtlasContract`) and the run number as its build. The release `atlas-console` holds `feed.json`, which names the newest release: its revision, build, contract, zip and SHA-256. The feed never goes back to an earlier build. A merge that changes nothing on Fly still publishes the app: `deploy-prod` then succeeds without deploying.
+
+The installed app reads that feed when it starts, every 10 minutes while it runs, and at once (then every minute) when Control closes it as too old. When the feed names a later build, the app:
+
+1. downloads the zip and checks its SHA-256 against the feed;
+2. checks that the zip holds `Atlas Console.app` of that revision, validly signed and meeting the running app's own designated requirement (identifier `co.eyra.atlas.console`, the same Developer ID team);
+3. swaps itself for the new app and starts it on the page it showed.
+
+The status bar says `Updating to <revision>…` while this runs, and the new app opens the page the old one showed. If a form or confirm is open, the update waits until it is closed. When the app cannot update, it says what is true and what to do: the feed could not be reached, the download failed, Control's release is still being published, or this is a local build. It never shows Control's bare "too old". Opened from the Finder, the release connects to prod's Control through this Mac's tunnel, 127.0.0.1:7593. `atlas` opens that tunnel, so run `atlas` (or `atlas-ops tunnel status`) once after login.
+
+A local build (`swift run`, `tools/package_local_app.py`) is no release: its bundle names no revision, and its ad-hoc signature has no team, so it never replaces itself.
+
+**Install it once** (the first release, or to replace a local build):
+
+```sh
+curl -fsSL https://github.com/mimbre/atlas/releases/download/atlas-console/feed.json   # the newest release's "url"
+curl -fsSLo "$TMPDIR/atlas-console.zip" "<url from the feed>"
+ditto -x -k "$TMPDIR/atlas-console.zip" ~/Applications/    # quit the old app first; this replaces it
+codesign --verify --strict --verbose=2 ~/Applications/"Atlas Console.app"
+open ~/Applications/"Atlas Console.app"
+```
+
+Keep it in `~/Applications` (or another folder this user can write): the app replaces its own bundle there.
+
+**Then retire the stopgap.** Before this pipeline, a launchd agent on this Mac rebuilt the app from master every 10 minutes. Once a release is installed and has updated itself once (its About window shows a later `master-<commit>` after a merge), remove that agent:
+
+```sh
+launchctl print "gui/$(id -u)/local.atlas.console-update" | grep path   # the agent's plist
+launchctl bootout "gui/$(id -u)/local.atlas.console-update"
+rm -f ~/Library/LaunchAgents/local.atlas.console-update.plist ~/.local/bin/atlas-console-update   # or the plist path printed above
+```
+
+The signing secrets are `MAC_SIGNING_CERTIFICATE` and `MAC_SIGNING_CERTIFICATE_PASSWORD` (under "Secrets" below). The job names them when they are missing. Installed apps fetch the feed and the zip from github.com without credentials, so the repository's releases must be readable without signing in.
+
 ## CI tests a tree once
 
 One change reaches prod through four CI runs on the same git tree: its pull request (on GitHub's merge of it into develop), develop after the integration merge, the release pull request develop → master, and master. The tests (every job of `.github/workflows/ci.yml` except the deploys and the base job) run on the first, and on the others only when the tree is new.
@@ -172,6 +208,8 @@ Open with rela (D-0100). These could not be asked of the pinned rela here: the b
 |---|---|---|---|
 | eyra/atlas, repository secret | `FLY_API_TOKEN_PROD` | `fly tokens create deploy -a eyra-atlas` | CI's per-app deploy token |
 | eyra/atlas, repository secret | `FLY_API_TOKEN_PROD_RELA` | `fly tokens create deploy -a eyra-atlas-rela` | CI's per-app deploy token |
+| eyra/atlas, repository secret | `MAC_SIGNING_CERTIFICATE` | the Developer ID Application certificate with its private key, exported from Keychain Access as a `.p12`, base64 (`base64 -i developer-id.p12`); job `deploy-mac-app` signs the Mac app with it ("The Mac app") | none: the stopgap launchd agent built the app ad-hoc signed |
+| eyra/atlas, repository secret | `MAC_SIGNING_CERTIFICATE_PASSWORD` | the password of that `.p12` | none |
 | Fly app `eyra-atlas`, `fly secrets set -a eyra-atlas GITHUB_TOKEN=…` | `GITHUB_TOKEN` | shared by the GitHub connector and Code's integrate receiver on eyra/atlas (private) | `gh auth token`: `connectors.github.token_command` in `products/software_factory/environments/prod.json`, the local gh keyring |
 | Fly apps `eyra-atlas` and `eyra-atlas-rela`, the same value on both: `t=$(openssl rand -hex 32)`, then `fly secrets set -a <app> ATLAS_RELA_TOKEN=$t` (test: `eyra-atlas-test` and `eyra-atlas-test-rela`, a value of their own) | `ATLAS_RELA_TOKEN` | the only credential rela's edge (`platform/ops/rela-gate.py`) lets in on the private network: Facts sends it (`rela.token_env` in `products/software_factory/environments/prod/core.json`) as `Authorization: Bearer` (IS-Atlas-80). The core and rela refuse to start without it. Rotate: set the new value on both apps, rela first; Facts' requests fail (and are retried) until the core restarts with it | none: rela on a Mac listens on loopback only |
 | Fly app `eyra-atlas-rela` (test: `eyra-atlas-test-rela` has none: test never writes to GitHub), set by Melle: `fly secrets import -a <app>` with `GITHUB_TOKEN=…` on stdin; prod's also `GITHUB_WRITE=true` | `GITHUB_TOKEN`, `GITHUB_WRITE` | a fine-grained token for mimbre/atlas (Pull requests: read and write; Checks, Commit statuses, Actions, Metadata: read) for rela's own GitHub sync (`products/software_factory/model/targets/rela/scripts/github.lua`, run by rela's scheduler every 2 minutes; IS-Atlas-115, IS-Atlas-22). The sync copies each issue's pull request state, CI and mergeability (`pr_state`, `pr_checks`, `pr_checks_failure`, `pr_mergeable`) and each pull request's title, state and draft. Merged is final; a pull recorded closed is read again once GitHub lists it among its repository's open pulls (reopened), unless its issue is closed in Atlas. Only with `GITHUB_WRITE=true` (prod only) it closes, with a comment, the open pull request of an issue closed in Atlas (`gate_result: close`; never one whose issue is merely missing); a refused close is logged and written to the issue's `pr_close_failure`. `platform/ops/rela-run.sh` writes both to `/data/rela/.rela/secrets.yaml` (owner-only, plaintext on the volume) and keeps them out of rela's environment | without the token the sync reads GitHub anonymously: within GitHub's rate limit, and a red CI names its failing checks without lines of their logs; without `GITHUB_WRITE` nothing is written to GitHub |
