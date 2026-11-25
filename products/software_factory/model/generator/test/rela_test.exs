@@ -3,7 +3,7 @@ defmodule RelaDSL.RelaTest do
 
   alias RelaDSL.{Example, Rela}
 
-  # Every key of Rela 26.11.3's flows.yaml (rela refuses others, at file, flow and state
+  # Every key of Rela 26.11.9's flows.yaml (rela refuses others, at file, flow and state
   # level). The writer may emit no key outside this list.
   @rela_keys ~w(flows label subject run_as per_subject start on when permission every
                 initial states final status waiting_for outputs set properties create
@@ -80,7 +80,7 @@ defmodule RelaDSL.RelaTest do
   end
 
   test "a binary that is not the pinned rela is refused before anything runs", %{} do
-    assert {:error, "expected rela version 26.11.3 at /no/such/rela, got " <> _} =
+    assert {:error, "expected rela version 26.11.9 at /no/such/rela, got " <> _} =
              Rela.check("/no/such/rela", "", Example.__flows__())
   end
 

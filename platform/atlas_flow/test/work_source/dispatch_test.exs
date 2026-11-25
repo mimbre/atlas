@@ -411,6 +411,29 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
 
       assert {:polled, %{leases: []}} = poll(@mini, [], %{"deep_coding" => 1})
     end
+
+    # IS-Atlas-113: the Runtime offers each profile its total of free slots; the profiles
+    # share them, so a poll is never granted more leases than that total.
+    test "two profiles sharing N slots: at most N leases, oldest first across both", ctx do
+      L.supervised_task("B-1", "ada", at: ~U[2026-11-17 11:00:00Z])
+      L.supervised_task("B-2", "ada", at: ~U[2026-11-17 11:10:00Z])
+      L.supervised_task("B-3", "ada", profile: "independent_review", at: ~U[2026-11-17 10:00:00Z])
+      L.supervised_task("B-4", "ada", profile: "independent_review", at: ~U[2026-11-17 12:00:00Z])
+      ready(ctx)
+
+      shared = %{"deep_coding" => 2, "independent_review" => 2}
+
+      assert {:polled,
+              %{leases: [%{work: %{work_key: "TK-B-3-1"}}, %{work: %{work_key: "TK-B-1-1"}}]}} =
+               poll(@mini, [], shared)
+
+      # A profile's own count still bounds it: one slot, and the next oldest goes.
+      assert {:polled, %{leases: [%{work: %{work_key: "TK-B-2-1"}}]}} =
+               poll(@mini, [], %{"deep_coding" => 1, "independent_review" => 1})
+
+      assert {:polled, %{leases: [%{work: %{work_key: "TK-B-4-1"}}]}} =
+               poll(@mini, [], shared)
+    end
   end
 
   describe "the lease on the task fact" do

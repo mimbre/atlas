@@ -37,6 +37,9 @@ defmodule AtlasFlow.Results do
   """
   use GenServer
 
+  require Logger
+
+  alias AtlasBus.Envelope
   alias AtlasFlow.Results.Store
   alias AtlasFlow.Runs.Clock
 
@@ -341,6 +344,24 @@ defmodule AtlasFlow.Results do
       nil ->
         {:noreply, state}
     end
+  end
+
+  # A Bus answer no read waits for any more: the boot's read of the pins
+  # (`AtlasFlow.WorkSource.Leases.pins/0`, run in this process) gave up on Facts before
+  # Facts answered (a slow Facts at a deploy). The pins came from the read that did answer,
+  # or none: this late one is ignored.
+  def handle_info({:atlas_bus, %Envelope{} = envelope, _content}, state) do
+    Logger.info(
+      "flow results ignored a late Bus #{envelope.class} of kind #{envelope.kind} " <>
+        "from #{envelope.sender} (#{envelope.id})"
+    )
+
+    {:noreply, state}
+  end
+
+  def handle_info(message, state) do
+    Logger.info("flow results ignored an unexpected message: #{inspect(message, limit: 5)}")
+    {:noreply, state}
   end
 
   # -- Index, pins, sweep ---------------------------------------------------------------

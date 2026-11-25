@@ -59,7 +59,7 @@ defmodule AtlasE2E.RelaInstallTest do
   end
 
   test "an altered CLI is rejected even when it claims the pinned version", c do
-    File.write!(Path.join(c.bin, "rela"), "#!/bin/sh\necho 'rela version 26.11.3'\n")
+    File.write!(Path.join(c.bin, "rela"), "#!/bin/sh\necho 'rela version 26.11.9'\n")
     assert {out, 73} = install(c.env)
     assert out =~ "download-attempted"
     refute File.exists?(Path.join(c.dir, "data"))

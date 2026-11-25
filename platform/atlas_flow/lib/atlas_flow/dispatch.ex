@@ -8,7 +8,9 @@ defmodule AtlasFlow.Dispatch do
   (`pending.task`, `AtlasFlow.WorkSource.Translate`), read from Facts at boot, on
   `ready/2` (the Engine's cast once it made an intent) and on every resync (60 s). Today's
   intents (version 1) are never offered. Tasks are offered oldest first (`created_at`)
-  among those whose profile the poll offers a slot for.
+  among those whose profile the poll offers a slot for. The profiles of a poll share the
+  Runtime's slots (it offers each profile its total of free slots): one poll is granted at
+  most the largest of its counts, and each profile at most its own (IS-Atlas-113).
 
   **Grant (race-safe; §3.2).** For one slot:
 
@@ -319,18 +321,31 @@ defmodule AtlasFlow.Dispatch do
 
   ## Grants
 
+  # The profiles of one poll share the Runtime's slots: each profile's count is the free
+  # slots it may take, and the poll's slots are the largest of those counts (the Runtime
+  # offers every profile its total), never their sum. Tasks are granted oldest first among
+  # the profiles that still have a slot, until the poll's slots are taken.
   defp grant_offer(state, client, offer) do
-    Enum.reduce(Enum.sort(offer), {[], state}, fn {profile, free}, acc ->
-      Enum.reduce(1..free//1, acc, fn _, {leases, state} ->
-        case grant_one(state, client, profile) do
-          {nil, state} -> {leases, state}
-          {lease, state} -> {leases ++ [lease], state}
-        end
-      end)
-    end)
+    slots = offer |> Map.values() |> Enum.max(fn -> 0 end)
+    grant_slots(state, client, offer, slots, [])
   end
 
-  defp grant_one(state, client, profile) do
+  defp grant_slots(state, _client, _offer, 0, leases), do: {leases, state}
+
+  defp grant_slots(state, client, offer, slots, leases) do
+    open = for {profile, free} <- offer, free > 0, into: MapSet.new(), do: profile
+
+    case grant_one(state, client, open) do
+      {nil, state} ->
+        {leases, state}
+
+      {{profile, lease}, state} ->
+        offer = Map.update!(offer, profile, &(&1 - 1))
+        grant_slots(state, client, offer, slots - 1, leases ++ [lease])
+    end
+  end
+
+  defp grant_one(state, client, profiles) do
     # An expired lease holds its task until it is lost; any other may have ended meanwhile
     # (Delivery's), so its task fact decides.
     held = for {_, l} <- state.leases, l.state == :expired, into: MapSet.new(), do: l.task_key
@@ -338,12 +353,13 @@ defmodule AtlasFlow.Dispatch do
     state.ready
     |> Map.values()
     |> Enum.filter(
-      &(&1.intent["work"]["profile"] == profile and not MapSet.member?(held, &1.key))
+      &(MapSet.member?(profiles, &1.intent["work"]["profile"]) and
+          not MapSet.member?(held, &1.key))
     )
     |> Enum.sort_by(&{&1.intent["created_at"], &1.key})
     |> Enum.reduce_while({nil, state}, fn entry, {nil, state} ->
       case grant(state, entry, client) do
-        {:ok, wire, state} -> {:halt, {wire, state}}
+        {:ok, wire, state} -> {:halt, {{entry.intent["work"]["profile"], wire}, state}}
         :skip -> {:cont, {nil, state}}
       end
     end)

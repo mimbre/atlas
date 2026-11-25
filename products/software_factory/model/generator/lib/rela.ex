@@ -1,6 +1,6 @@
 defmodule RelaDSL.Rela do
   @moduledoc """
-  The Rela target: subflows, as `__flows__/0` gives them, written as Rela 26.11.3's
+  The Rela target: subflows, as `__flows__/0` gives them, written as Rela 26.11.9's
   `flows.yaml`; and the state diagram of each, as Rela draws it.
 
   ## flows.yaml
@@ -271,7 +271,7 @@ defmodule RelaDSL.Rela do
 
   # -- Running Rela ---------------------------------------------------------------
 
-  @version "rela version 26.11.3"
+  @version "rela version 26.11.9"
 
   @doc """
   Runs the pinned Rela `binary` on `flows_yaml` (the file's exact bytes) in a scratch
@@ -279,7 +279,7 @@ defmodule RelaDSL.Rela do
   With `project:`, the scratch project is a copy of that Rela description instead.
   Returns `{:ok, shown}`, `shown` being what `rela flow show <name> -o json` gives
   for each subflow, in order; or `{:error, message}` with Rela's own words when the
-  binary is not 26.11.3 or `rela flow validate` refuses the file.
+  binary is not 26.11.9 or `rela flow validate` refuses the file.
   """
   def check(binary, flows_yaml, flows, opts \\ []) do
     project = opts[:project]
