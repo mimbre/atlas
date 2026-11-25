@@ -7,7 +7,10 @@ defmodule AtlasAgent.FakeControl do
   more than the highest number of that prefix, two digits at least.
 
   A kind: `%{kind:, title:, prefix:, under: parent kind or nil, asks: [field],
-  required: [field], list_title:, record: "request" | "step" | nil}`.
+  required: [field], list_title:, record: "request" | "step" | nil, update: boolean}`
+  (`update: true`: its facts' pages offer their change form as the action "Update").
+  `facts_read` of kind `_` answers a fact it holds, else Control's "unknown kind or subject";
+  `acts/1` keeps each submit with whom its connection's hello made it.
 
   `refuse` (a function of the submit message, answering a list of reasons or nil) lets
   a test have Facts refuse a write. Every submit is kept, in order, in `writes/1`.
@@ -21,6 +24,7 @@ defmodule AtlasAgent.FakeControl do
           facts: %{},
           order: [],
           writes: [],
+          acts: [],
           refuse: opts[:refuse] || fn _ -> nil end,
           hold: nil
         }
@@ -93,6 +97,9 @@ defmodule AtlasAgent.FakeControl do
 
   def writes(control), do: Agent.get(control.store, &Enum.reverse(&1.writes))
 
+  @doc "Every submit with whom its connection's hello made it (`as`, else the client), in order."
+  def acts(control), do: Agent.get(control.store, &Enum.reverse(&1.acts))
+
   @doc """
   Hold the reply to the next create of a fact with this title until `release/1`: the
   holder is told `{:held, server}` once the write is stored; `release(server)` lets it go.
@@ -130,17 +137,33 @@ defmodule AtlasAgent.FakeControl do
   end
 
   defp handle(%{"op" => "hello"} = hello, socket, store) do
+    # Whom this connection is, as Control takes it from the hello: its `as`, else its client.
+    Process.put(:by, hello["as"] || hello["client"])
     send_line(socket, %{"op" => "welcome", "env" => hello["env"], "spec" => hello["spec"]})
     send_line(socket, page(store, "/", "open"))
+  end
+
+  # An exact read of one fact, as Control answers it: `_` finds its kind.
+  defp handle(%{"op" => "facts_read", "kind" => "_", "key" => key}, socket, store) do
+    case fact(%{store: store}, key) do
+      nil ->
+        send_line(socket, %{"op" => "facts_read", "error" => "unknown kind or subject"})
+
+      fact ->
+        data = %{"fact" => %{"key" => key, "values" => fact.values}}
+        send_line(socket, %{"op" => "facts_read", "data" => data})
+    end
   end
 
   defp handle(%{"op" => "open", "to" => to}, socket, store),
     do: send_line(socket, page(store, to, "open"))
 
   defp handle(%{"op" => "submit"} = message, socket, store) do
+    by = Process.get(:by)
+
     {reply, held} =
       Agent.get_and_update(store, fn s ->
-        s = %{s | writes: [message | s.writes]}
+        s = %{s | writes: [message | s.writes], acts: [{by, message} | s.acts]}
 
         case s.refuse.(message) || check(s, message) do
           nil ->
@@ -312,10 +335,21 @@ defmodule AtlasAgent.FakeControl do
           "path" => "/k/#{f.kind}/#{key}",
           "title" => "#{k.title} #{key}",
           "blocks" => [
-            item("item", %{
-              "title" => "#{k.title} #{key}: #{f.values["title"]}",
-              "fields" => fields
-            })
+            item(
+              "item",
+              Map.merge(
+                %{"title" => "#{k.title} #{key}: #{f.values["title"]}", "fields" => fields},
+                # A kind with `update: true` offers its change form as an action on its page.
+                if(k[:update],
+                  do: %{
+                    "actions" => [
+                      %{"label" => "Update", "key" => "u", "to" => "/k/#{f.kind}/#{key}/edit"}
+                    ]
+                  },
+                  else: %{}
+                )
+              )
+            )
             | lists
           ]
         }

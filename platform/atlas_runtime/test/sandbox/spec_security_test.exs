@@ -155,6 +155,58 @@ defmodule AtlasRuntime.Sandbox.SpecSecurityTest do
     end
   end
 
+  # SP6 (IS-Atlas-56): an agent's network is its machine's route to Control and no other host.
+  # An agent in a materialized folder (the work folder of every task a Runtime runs) reaches
+  # Control on this machine's loopback (`bin/atlas`: 127.0.0.1:control.port, kept open by
+  # the machine's Fly proxy) and names no host: Codex's loopback table, Claude's empty
+  # strict allowlist with loopback. A dedicated repository reaches Git's hosts only, a plain
+  # turn nothing. No spec allows any other host, or every host.
+  test "SP6 an agent reaches Control's loopback route and no other host", %{specs: specs} do
+    git = ["github.com", "api.github.com"]
+
+    folders =
+      for {name, row, spec} <- specs,
+          spec["runner"] == nil,
+          get_in(row, ["input", "scope", "profile"]) == "materialized-folder" do
+        case spec do
+          %{"codex" => %{"network" => network}} ->
+            assert network["mode"] == "loopback", name
+            assert network["domains"] == [], name
+            assert network["local_binding"] == true, name
+
+          %{"claude" => %{"settings" => %{"sandbox" => %{"network" => network}}}} ->
+            assert network["allowedDomains"] == [], name
+            assert network["strictAllowlist"] == true, name
+            assert network["allowLocalBinding"] == true, name
+        end
+
+        name
+      end
+
+    assert Enum.any?(folders, &String.starts_with?(&1, "codex.json")), "no Codex folder row"
+    assert Enum.any?(folders, &String.starts_with?(&1, "claude.json")), "no Claude folder row"
+
+    for {name, _row, spec} <- specs do
+      case spec do
+        %{"codex" => %{"network" => %{"mode" => "domains", "domains" => domains}}} ->
+          assert domains -- (git ++ ["registry.npmjs.org"]) == [], name
+
+        %{"codex" => %{"network" => %{"mode" => mode, "domains" => []}}} ->
+          assert mode in ["none", "loopback"], name
+
+        %{"claude" => %{"settings" => %{"sandbox" => %{"network" => network}}}} ->
+          assert network["allowedDomains"] -- git == [], name
+          refute "*" in network["allowedDomains"], name
+
+        %{"claude" => %{"settings" => %{"sandbox" => nil}}} ->
+          :ok
+
+        %{"claude" => %{"settings" => settings}} ->
+          refute Map.has_key?(settings, "sandbox") and settings["sandbox"] != nil, name
+      end
+    end
+  end
+
   # Deny and write sets
 
   defp deny_set(%{"codex" => codex}) do

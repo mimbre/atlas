@@ -1,9 +1,16 @@
 #!/bin/zsh
 # Installs, or brings up to date, this Mac's Runtime launch agents from this checkout:
-#   ~/.config/atlas-runtime/{start,secret,fly-proxy,code}.sh copies of the scripts next to this one
+#   ~/.config/atlas-runtime/{start,secret,fly-proxy,control-proxy,code}.sh copies of the scripts next to this one
 #   ~/Library/LaunchAgents/com.mimbre.atlas-runtime.plist    runs start.sh at login
 #   ~/Library/LaunchAgents/com.mimbre.atlas-fly-proxy.plist  keeps fly-proxy.sh running (only
 #                                                            with "fly_proxy" in machine.json)
+#   ~/Library/LaunchAgents/com.mimbre.atlas-control-proxy.plist  keeps control-proxy.sh running:
+#                                                            the route to Control the agents
+#                                                            the Runtime starts use (only with
+#                                                            "control_proxy" in machine.json,
+#                                                            whose app and ports must be the
+#                                                            environment's: fly.app,
+#                                                            control.port, fly.control_port)
 #   ~/Library/LaunchAgents/com.mimbre.atlas-code.plist       keeps code.sh running: the Code
 #                                                            service of the installed release
 #                                                            (only with "code" in machine.json),
@@ -23,6 +30,7 @@ M=$C/machine.json
 RUNTIME=com.mimbre.atlas-runtime
 PROXY=com.mimbre.atlas-fly-proxy
 CODE=com.mimbre.atlas-code
+CONTROL=com.mimbre.atlas-control-proxy
 DRY=
 case "${1:-}" in --dry-run) DRY=1 ;; "") ;; *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;; esac
 
@@ -49,6 +57,20 @@ PATH=/opt/homebrew/bin:/usr/local/bin:$PATH whence -p infisical >/dev/null || di
 if has fly_proxy; then
   word fly_proxy.app >/dev/null
   [[ $(get fly_proxy.remote_port) == <1-65535> ]] || die "$M: fly_proxy.remote_port must be a port number"
+  PATH=/opt/homebrew/bin:/usr/local/bin:$PATH whence -p fly >/dev/null || die "flyctl (fly) not installed"
+fi
+if has control_proxy; then
+  # The agents reach Control where bin/atlas looks for it: the environment's control.port,
+  # on its Fly app's control port (products/software_factory/environments/<environment>.json).
+  SETTINGS=${SRC:h:h:h:h}/products/software_factory/environments/$ENVIRONMENT.json
+  [[ -f $SETTINGS ]] || die "no $SETTINGS: run install.sh from a checkout"
+  setting() { /usr/bin/plutil -extract "$1" raw -o - "$SETTINGS" 2>/dev/null || die "$SETTINGS: no $1" }
+  [[ $(word control_proxy.app) == $(setting fly.app) ]] ||
+    die "$M: control_proxy.app must be $ENVIRONMENT's Fly app $(setting fly.app)"
+  [[ $(get control_proxy.port) == $(setting control.port) ]] ||
+    die "$M: control_proxy.port must be $ENVIRONMENT's control.port $(setting control.port), where bin/atlas reaches Control"
+  [[ $(get control_proxy.remote_port) == $(setting fly.control_port) ]] ||
+    die "$M: control_proxy.remote_port must be $ENVIRONMENT's fly.control_port $(setting fly.control_port)"
   PATH=/opt/homebrew/bin:/usr/local/bin:$PATH whence -p fly >/dev/null || die "flyctl (fly) not installed"
 fi
 if has code; then
@@ -151,6 +173,19 @@ if has fly_proxy; then
 else
   unload $PROXY
   [[ -n $DRY || ! -f $C/fly-proxy.sh ]] || rm -f $C/fly-proxy.sh
+fi
+if has control_proxy; then
+  place $SRC/control-proxy.sh $C/control-proxy.sh 700 $CONTROL
+  agent $CONTROL control-proxy.sh '
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>' > $T/control.plist
+  place $T/control.plist $LA/$CONTROL.plist 644 $CONTROL
+  load $CONTROL
+else
+  unload $CONTROL
+  [[ -n $DRY || ! -f $C/control-proxy.sh ]] || rm -f $C/control-proxy.sh
 fi
 if has code; then
   if [[ -z $DRY ]]; then mkdir -p -m 700 $CODE_HOME; chmod 700 $CODE_HOME; fi

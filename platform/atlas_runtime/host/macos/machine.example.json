@@ -6,6 +6,7 @@
   "path": "/Users/me/.npm-global/bin:/Users/me/.local/bin:/Users/me/.asdf/shims:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
   "bus": {"host": "127.0.0.1", "port": 7595},
   "fly_proxy": {"app": "my-atlas-app", "remote_port": 7594},
+  "control_proxy": {"app": "eyra-atlas", "port": 7593, "remote_port": 7591},
   "code": {
     "home": "/Users/me/.local/state/atlas-code",
     "config": {"port": 7596, "repositories": {"github.com/mimbre/atlas": "https://github.com/mimbre/atlas.git"}}

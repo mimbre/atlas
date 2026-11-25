@@ -935,12 +935,14 @@ defmodule AtlasRuntime.Service do
 
     result =
       try do
-        # The slot is the agent: it acts in Atlas as `worker_id` (ATLAS_AS, IS-Atlas-54).
+        # The slot is the agent: it acts in Atlas as `worker_id` (ATLAS_AS, IS-Atlas-54), on
+        # the environment this Runtime reports to (server.json's, ATLAS_AGENT_ENV, IS-Atlas-56).
         Native.start_monitor(%{key: key},
           agent: settings,
           turns_dir: turns,
           runtime_home: state.dir,
-          agent_key: worker_id
+          agent_key: worker_id,
+          agent_env: state[:server][:config][:environment]
         )
       rescue
         error ->

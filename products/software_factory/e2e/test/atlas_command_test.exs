@@ -512,6 +512,194 @@ defmodule AtlasE2E.AtlasCommandTest do
     end
   end
 
+  # IS-Atlas-56, IS-Atlas-57, IS-Atlas-65: an agent a Runtime starts (ATLAS_AGENT_ENV,
+  # ATLAS_AS) reaches Control on its machine's route only. atlas opens no tunnel for it and
+  # writes nothing outside the checkout: no tunnel pid or log in the environment's folder,
+  # nothing in the user home. Its failures name the agent and the environment.
+
+  # A Control on a free port of this machine that answers what `atlas get` asks: hello, the
+  # agent's own fact, and every page as one item. It sends each hello's `as` to the test.
+  defp machine_route do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :line, active: false, reuseaddr: true])
+
+    {:ok, {_, port}} = :inet.sockname(listener)
+    test = self()
+    send_line = fn socket, map -> :gen_tcp.send(socket, JSON.encode!(map) <> "\n") end
+
+    page = fn reason, path ->
+      %{
+        "op" => "page",
+        "reason" => reason,
+        "markup" => [],
+        "path" => path,
+        "title" => "Widget WI-01",
+        "blocks" => [
+          %{
+            "id" => "item",
+            "type" => "item",
+            "props" => %{
+              "title" => "Widget WI-01: read by an agent",
+              "fields" => [%{"label" => "Title", "value" => "read by an agent"}]
+            }
+          }
+        ]
+      }
+    end
+
+    serve = fn serve, socket ->
+      case :gen_tcp.recv(socket, 0) do
+        {:ok, line} ->
+          case JSON.decode!(line) do
+            %{"op" => "hello"} = hello ->
+              send(test, {:hello, hello["as"]})
+
+              send_line.(socket, %{
+                "op" => "welcome",
+                "env" => hello["env"],
+                "spec" => hello["spec"]
+              })
+
+              send_line.(socket, page.("open", "/"))
+
+            %{"op" => "facts_read", "key" => "dev2"} ->
+              send_line.(socket, %{
+                "op" => "facts_read",
+                "data" => %{"fact" => %{"key" => "dev2"}}
+              })
+
+            %{"op" => "facts_read"} ->
+              send_line.(socket, %{"op" => "facts_read", "error" => "unknown kind or subject"})
+
+            %{"op" => "open", "to" => to} ->
+              send_line.(socket, page.("open", String.replace(to, "/k/_/", "/k/widget/")))
+
+            _ ->
+              :ok
+          end
+
+          serve.(serve, socket)
+
+        {:error, _} ->
+          :gen_tcp.close(socket)
+      end
+    end
+
+    accept = fn accept ->
+      case :gen_tcp.accept(listener) do
+        {:ok, socket} ->
+          pid = spawn(fn -> receive(do: (:go -> serve.(serve, socket))) end)
+          :ok = :gen_tcp.controlling_process(socket, pid)
+          send(pid, :go)
+          accept.(accept)
+
+        {:error, _} ->
+          :ok
+      end
+    end
+
+    acceptor = spawn(fn -> receive(do: (:go -> accept.(accept))) end)
+    :ok = :gen_tcp.controlling_process(listener, acceptor)
+    send(acceptor, :go)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    port
+  end
+
+  # A Fly environment's file whose control.port is `port`, its tunnel folder empty, and an
+  # empty user home: what the agent's commands leave in either shows.
+  defp agent_places(port) do
+    file = fly_file()
+    settings = file |> File.read!() |> JSON.decode!()
+    File.write!(file, JSON.encode!(put_in(settings, ["control", "port"], port)))
+    home = Path.join(Path.dirname(file), "home")
+    File.mkdir_p!(home)
+    %{file: file, tunnel: Path.dirname(file), home: home}
+  end
+
+  defp tree(dir), do: Path.wildcard(Path.join(dir, "**"), match_dot: true) |> Enum.sort()
+
+  defp as_agent(places, as, extra \\ []) do
+    [
+      {"ATLAS_ENV_FILE", places.file},
+      {"ATLAS_AGENT_ENV", "test"},
+      {"ATLAS_AS", as},
+      {"HOME", places.home}
+      | extra
+    ]
+  end
+
+  test "an agent's get reaches Control on its machine's route, as itself, and writes nothing outside the checkout" do
+    places = agent_places(machine_route())
+    tunnel_before = tree(places.tunnel)
+
+    assert {out, 0} = atlas(["get", "WI-01"], as_agent(places, "dev2"))
+    assert out =~ "read by an agent"
+    assert_received {:hello, "dev2"}
+
+    assert tree(places.home) == []
+    assert tree(places.tunnel) == tunnel_before
+    refute File.exists?(Path.join(places.tunnel, "tunnel.pid"))
+    refute File.exists?(Path.join(places.tunnel, "tunnel.log"))
+  end
+
+  test "an agent with a wrong identity fails naming it and the environment, and does nothing" do
+    places = agent_places(machine_route())
+
+    for args <- [["get", "WI-01"], ["actions", "WI-01"], ["do", "WI-01", "Update"]] do
+      assert {out, 2} = atlas(args, as_agent(places, "ghost"))
+      assert out =~ "ATLAS_AS=ghost is no agent Control test knows", out
+      assert out =~ "(as ATLAS_AS=ghost, on test)", out
+    end
+
+    assert tree(places.home) == []
+  end
+
+  test "without its machine's route an agent opens no tunnel; the failure names it and the environment" do
+    {:ok, closed} = :gen_tcp.listen(0, [])
+    {:ok, {_, port}} = :inet.sockname(closed)
+    :gen_tcp.close(closed)
+    places = agent_places(port)
+    {fly_dir, calls} = fake_fly()
+    tunnel_before = tree(places.tunnel)
+    path = [{"PATH", fly_dir <> ":" <> System.get_env("PATH")}]
+
+    assert {out, 2} = atlas(["get", "WI-01"], as_agent(places, "dev2", path))
+    assert out =~ "atlas: dev2 on test: Control does not answer on 127.0.0.1:#{port}"
+    assert out =~ "an agent opens no tunnel of its own"
+    refute File.exists?(calls)
+    assert tree(places.tunnel) == tunnel_before
+    assert tree(places.home) == []
+  end
+
+  test "an agent works for its Runtime's environment and runs the agent commands only" do
+    places = agent_places(1)
+
+    assert {out, 2} = atlas(["get", "WI-01", "--env", "prod"], as_agent(places, "dev2"))
+    assert out =~ "dev2 works for test (ATLAS_AGENT_ENV, set by its Runtime), not --env prod"
+
+    for command <- [["tui"], ["discover", "--machine", "m"], ["migrate-done-owner", "--dry-run"]] do
+      assert {out, 2} = atlas(command, as_agent(places, "dev2"))
+      assert out =~ "is not an agent command", inspect(command)
+    end
+  end
+
+  test "a person's atlas shares a route to Control the machine keeps open, rather than refusing its port" do
+    places = agent_places(machine_route())
+    {fly_dir, calls} = fake_fly()
+
+    env = [
+      {"ATLAS_ENV_FILE", places.file},
+      {"ATLAS_AGENT_ENV", nil},
+      {"ATLAS_AS", nil},
+      {"PATH", fly_dir <> ":" <> System.get_env("PATH")}
+    ]
+
+    assert {out, 0} = atlas(["get", "WI-01"], env)
+    assert out =~ "read by an agent"
+    refute out =~ "is taken by pid"
+    refute File.exists?(calls)
+  end
+
   test "fetch-from-fly without Fly's command line refuses and makes no folder" do
     for dir <- ["/usr/bin", "/bin"],
         name <- ["fly", "flyctl"],

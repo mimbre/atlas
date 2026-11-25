@@ -144,6 +144,19 @@ defmodule AtlasRuntime.Agent.Native do
           key -> List.keydelete(env, ~c"ATLAS_AS", 0) ++ [{~c"ATLAS_AS", String.to_charlist(key)}]
         end
 
+      # The environment it works for (IS-Atlas-56): `bin/atlas` then uses that environment
+      # only, over its machine's route to Control, and opens or writes nothing outside the
+      # agent's worktree. Without a server.json the Runtime names none.
+      env =
+        case Keyword.get(opts, :agent_env) do
+          agent_env when agent_env in ["test", "prod"] ->
+            List.keydelete(env, ~c"ATLAS_AGENT_ENV", 0) ++
+              [{~c"ATLAS_AGENT_ENV", String.to_charlist(agent_env)}]
+
+          _ ->
+            env
+        end
+
       port =
         Port.open({:spawn_executable, host}, [
           :binary,

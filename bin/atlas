@@ -65,6 +65,12 @@
 # ATLAS_AS=<agent key> makes the agents' commands that agent (ATLAS_AS=coordinator atlas
 # get IS-Atlas-12): what is assigned to it shows its What to do (IS-Atlas-54), and what it
 # writes is by it.
+#
+# ATLAS_AGENT_ENV=<env> is set by a Runtime for every agent it starts, beside ATLAS_AS
+# (IS-Atlas-56): the agent works on that environment only (another --env is refused), runs
+# the agent commands only, and reaches Control on the route its machine keeps open
+# (127.0.0.1:control.port). atlas then opens no tunnel and writes nothing outside the
+# checkout; ATLAS_AS must be a fact of that environment, and a failure names both.
 set -euo pipefail
 # The arguments as given, for a re-exec after update_build pulled a newer develop.
 given=("$@")
@@ -114,6 +120,26 @@ for arg in ${rest[@]+"${rest[@]}"}; do
     *) args+=("$arg") ;;
   esac
 done
+
+# An agent a Runtime starts (IS-Atlas-56): its Runtime sets ATLAS_AGENT_ENV to the
+# environment it works for and ATLAS_AS to the agent it is. Such an agent works on that
+# environment only, runs the agent commands only, and reaches Control on the route its
+# machine keeps open (control.port on this machine, the Runtime's Fly proxy on Fly): atlas
+# opens, closes and writes nothing for it (no tunnel, pid or log), so a read changes
+# nothing outside its worktree. Every refusal names the identity and the environment.
+agent_env="${ATLAS_AGENT_ENV-}"
+agent_as="${ATLAS_AS:-(ATLAS_AS unset)}"
+if [ -n "$agent_env" ]; then
+  if [ -n "$env" ] && [ "$env" != "$agent_env" ]; then
+    echo "atlas: $agent_as works for $agent_env (ATLAS_AGENT_ENV, set by its Runtime), not --env $env" >&2
+    exit 2
+  fi
+  env="$agent_env"
+  case "$cmd" in
+    turn|put|set|get|facts|list|delete|actions|do|tools|plan|steer|help) ;;
+    *) echo "atlas: $agent_as on $agent_env: '$cmd' is not an agent command; an agent its Runtime starts runs the agent commands only" >&2; exit 2 ;;
+  esac
+fi
 
 resolve_env
 
@@ -210,7 +236,18 @@ clean_build() { "$root/bin/clean-build" "$root" >&2; }
 
 # What only an environment on Fly does differently: Control is reached through the tunnel,
 # which a command opens when it needs Control (Runtime's broker relies on this unattended).
-if [ -n "$fly_app" ]; then
+if [ -n "$agent_env" ]; then
+  # The agent's route to Control is its machine's, open before the agent started.
+  if [ -z "$control_selected" ] && ! listening; then
+    if [ -n "$fly_app" ]; then
+      route="this machine's Fly proxy to $fly_app (com.mimbre.atlas-control-proxy, platform/atlas_runtime/host/macos/install.sh)"
+    else
+      route="this machine's core (atlas-ops status --env $env)"
+    fi
+    echo "atlas: $agent_as on $env: Control does not answer on 127.0.0.1:$port, $route; an agent opens no tunnel of its own" >&2
+    exit 2
+  fi
+elif [ -n "$fly_app" ]; then
   if [ "$env" = prod ]; then branch=master; else branch=develop; fi
   on_fly="$env runs on Fly ($fly_app and $fly_rela_app); a merge to $branch deploys it"
   case "$cmd" in

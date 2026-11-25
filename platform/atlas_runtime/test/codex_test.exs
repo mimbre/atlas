@@ -51,6 +51,49 @@ defmodule AtlasRuntime.CodexTest do
     assert_receive {:agent, ^pid, {:ended, "as dev1"}}, 5_000
   end
 
+  # IS-Atlas-56: the Runtime names the environment its agents work for (server.json's), so
+  # `bin/atlas` reaches that environment's Control over the machine's route, as the agent.
+  test "the agent works for its Runtime's environment, and only a known one", %{tmp_dir: dir} do
+    command = Path.join(dir, "fake-codex")
+
+    File.write!(command, ~S"""
+    #!/bin/sh
+    printf '{"type":"item.completed","item":{"type":"agent_message","text":"as %s on %s"}}\n' "$ATLAS_AS" "${ATLAS_AGENT_ENV-none}"
+    printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1}}'
+    """)
+
+    File.chmod!(command, 0o700)
+    settings = %{"command" => command, "workspace" => dir, "goal" => "Who are you?"}
+
+    for {agent_env, said} <- [
+          {"test", "as dev2 on test"},
+          {nil, "as dev2 on none"},
+          {"x", "as dev2 on none"}
+        ] do
+      turn = %{key: "TU-env-#{agent_env || "nil"}"}
+
+      opts = [
+        turns_dir: Path.join(dir, "turns"),
+        agent: settings,
+        agent_key: "dev2",
+        agent_env: agent_env
+      ]
+
+      previous = System.get_env("ATLAS_AGENT_ENV")
+      # One the Runtime's own process inherited never reaches the agent.
+      System.put_env("ATLAS_AGENT_ENV", "prod")
+
+      try do
+        {:ok, {pid, _ref}} = Native.start_monitor(turn, opts)
+        assert_receive {:agent, ^pid, {:ended, ^said}}, 5_000
+      after
+        if previous,
+          do: System.put_env("ATLAS_AGENT_ENV", previous),
+          else: System.delete_env("ATLAS_AGENT_ENV")
+      end
+    end
+  end
+
   test "requested Codex model and Claude quota-shaped events cannot fabricate evidence", %{
     tmp_dir: dir
   } do

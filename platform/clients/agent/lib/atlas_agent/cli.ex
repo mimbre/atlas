@@ -55,13 +55,59 @@ defmodule AtlasAgent.CLI do
       with {:ok, command} <- parse(args),
            {:ok, client} <- AtlasAgent.connect(env, client_for(command)) do
         try do
-          run(command, client)
+          with :ok <- runtime_agent(client), do: run(command, client)
         after
           AtlasAgent.Client.close(client)
         end
       end
 
-    show(result, json)
+    result |> named(env) |> show(json)
+  end
+
+  # An agent a Runtime starts (ATLAS_AGENT_ENV, IS-Atlas-56) is the fact its ATLAS_AS names;
+  # one Control does not know is refused before anything is read or done as it.
+  defp runtime_agent(client) do
+    as = System.get_env("ATLAS_AS")
+
+    cond do
+      System.get_env("ATLAS_AGENT_ENV") in [nil, ""] ->
+        :ok
+
+      as in [nil, ""] ->
+        {:error, "an agent its Runtime starts needs ATLAS_AS, the agent it is"}
+
+      true ->
+        case AtlasAgent.Client.facts(client, "_", as) do
+          {:ok, %{"fact" => %{}}} ->
+            :ok
+
+          {:ok, _} ->
+            {:error, "ATLAS_AS=#{as} is no agent Control #{client.env} knows"}
+
+          {:error, "unknown kind or subject"} ->
+            {:error, "ATLAS_AS=#{as} is no agent Control #{client.env} knows"}
+
+          {:error, why} ->
+            {:error,
+             "Control #{client.env} could not say whether ATLAS_AS=#{as} is an agent: #{why}"}
+
+          other ->
+            other
+        end
+    end
+  end
+
+  # A failure says whom it tried as and where (IS-Atlas-65): the agent (ATLAS_AS) and the
+  # environment, so a wrong identity or environment shows in the message itself.
+  defp named({:error, text}, env), do: {:error, naming(text, env)}
+  defp named({:error, text, code}, env), do: {:error, naming(text, env), code}
+  defp named(result, _env), do: result
+
+  defp naming(text, env) do
+    case System.get_env("ATLAS_AS") do
+      as when as in [nil, ""] -> text
+      as -> "#{text} (as ATLAS_AS=#{as}, on #{env})"
+    end
   end
 
   # The page commands act as the TUI does: as its user, for whom this machine runs them,

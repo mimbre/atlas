@@ -42,6 +42,9 @@ ensure_tunnel() {
     echo "$prog: the tunnel to $fly_app has stopped; reopening it ($probe_error)" >&2
   fi
   stop_tunnel
+  # A machine that keeps its own route to Control open on this port (a Runtime's Fly
+  # proxy, com.mimbre.atlas-control-proxy, IS-Atlas-56) is used as it is: atlas shares it.
+  if listening && control_ready 10; then return 0; fi
   if listening; then
     holder="$(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
     echo "$prog: port $port is taken by pid ${holder:-?}, not by atlas's tunnel to $fly_app; stop it first" >&2
