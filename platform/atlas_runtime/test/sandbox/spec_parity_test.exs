@@ -28,8 +28,9 @@ defmodule AtlasRuntime.Sandbox.SpecParityTest do
   test "every decision table row is asserted here or skipped as legacy-only" do
     rows = SpecRows.rows()
     skipped = for {_, row} <- rows, Map.has_key?(row, "elixir"), do: row["elixir"]
-    # S5b B2: the two legacy-only review-packet rows left with the profile.
-    assert length(rows) == 72
+    # S5b B2: the two legacy-only review-packet rows left with the profile. IS-Atlas-20 added
+    # the two read-only folder rows (codex.folder-read-only, claude.folder-read-only).
+    assert length(rows) == 74
     assert skipped == []
   end
 

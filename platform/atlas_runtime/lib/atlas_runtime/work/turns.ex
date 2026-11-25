@@ -72,8 +72,21 @@ defmodule AtlasRuntime.Work.Turns do
           "profile" => request.profile,
           "cost_class" => Atom.to_string(request.cost_class)
         })
-        |> Map.merge(workspace(request.workspace, attempt))
+        |> Map.merge(workspace(request.workspace, attempt, checkout?(record)))
   end
+
+  # A leased base whose folder is a Git checkout (`imported.git_base`).
+  defp checkout?(%{imported: %M.Imported{git_base: ref}}), do: is_binary(ref)
+  defp checkout?(_record), do: false
+
+  # A read-only work in a Git checkout (a job's review, IS-Atlas-20) runs as a read-only
+  # materialized folder: Bash, so it reads the change with Git and runs bin/check, with the
+  # folder frozen and only its scratch writable (its build goes there).
+  defp workspace(%M.Base{permissions: :read_only}, %{folder: folder}, true)
+       when is_binary(folder),
+       do: %{"cwd" => folder, "permissions" => "materialized-folder", "read_only" => true}
+
+  defp workspace(workspace, attempt, _checkout), do: workspace(workspace, attempt)
 
   # A base or from_work work runs in the folder the Runtime chose for it (`attempt.folder`,
   # B6, B7), materialized or composed: read-only on disk with the read-only sandbox, or

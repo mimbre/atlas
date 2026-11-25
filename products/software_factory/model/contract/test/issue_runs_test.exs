@@ -3,8 +3,8 @@ defmodule Model.IssueRunsTest do
   The issue subflow on Flow's durable runs (slice 6): its author, who reads the issue and
   why it is to be done (its use case and scene), has its result reviewed
   by a second task before Code opens its pull request. The review's base is the author's
-  result, which Code serves like a branch (`refs/atlas/results/<task>`); it works in a Git
-  checkout of it. A review that asks for changes leads to one fix on that result, with its
+  result, which Code serves like a branch (`refs/atlas/results/<task>`); it reads a Git
+  checkout of it, read-only, and pushes no result of its own (IS-Atlas-20). A review that asks for changes leads to one fix on that result, with its
   findings; the fix's result is published, with the review and the fix's answer. Run by
   `AtlasFlow.Runs.Store` with `AtlasFlow.FakeFacts`, the work source's processes on
   `AtlasFlow.FakeCode` and a manual clock. Structure, not wording.
@@ -104,13 +104,14 @@ defmodule Model.IssueRunsTest do
     assert intent["work"]["input"]["base"]["base_id"] == base.base_id
     assert FakeFacts.get("task", @review)["values"]["kind"] == "review"
 
-    # A Git checkout it may build in; what it pushes back is never read. The next round
-    # offers it.
+    # A read-only Git checkout (IS-Atlas-20): it reads the change and runs bin/check, and
+    # pushes no result (IS-Atlas-19: no result ref). The next round offers it.
     assert reconcile(c)["state"] == "reviewing"
     {_, work} = leased = lease!()
     assert work.profile == "independent_review"
-    assert work.input.permissions == "workspace-write"
-    assert work.input.result_ref == "refs/atlas/results/" <> @review
+    assert work.input.permissions == "read-only"
+    assert work.input.checkout == true
+    refute Map.get(work.input, :result_ref)
     assert work.instructions =~ ~s("verdict")
     assert work.instructions =~ ~s("follow_ups")
 

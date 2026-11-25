@@ -103,6 +103,9 @@ var censusNotHome = map[string]string{
 	".aws":              "a dedicated repository root",
 	"package.json":      "a materialized folder's package",
 	"package-lock.json": "a materialized folder's package",
+	// A turn's own scratch (<home>/scratch/<turn>, or Claude's private temp).
+	"_build": "a read-only folder turn's scratch: its Mix build root (MIX_BUILD_ROOT, IS-Atlas-20)",
+	"rebar3": "a read-only folder turn's scratch: rebar3's base dir in its build root (REBAR_BASE_DIR, IS-Atlas-20)",
 	// Turn folders (<home>/turns/<turn>).
 	"answer.txt":          "turn folder",
 	"stderr.log":          "turn folder",

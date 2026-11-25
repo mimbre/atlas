@@ -303,9 +303,25 @@ func claudeRepositorySettings(scope any, temporary, home string) (string, error)
 // sandbox's denyRead, which is listed explicitly for the Bash sandbox as well. Bash may
 // read (and so execute) the inspector even inside a denied path. Bash may open pseudo-terminals,
 // so tmux panes (the e2e TUIs) run in the worker.
+//
+// A read-only folder (ReadOnlyFolder, IS-Atlas-20: a job's review) is the same policy with the
+// folder frozen: Bash reads it, Git included, but writes only the private temp, where its build
+// goes (MIX_BUILD_ROOT, folderEnvironment); a write in the folder is refused by the sandbox.
 func claudeFolderSettings(scope map[string]any, temporary, user, inspector string) (string, error) {
 	root, _ := scope["root"].(string)
+	if ReadOnlyFolder(scope) {
+		return claudeWorkerSettings(scope, temporary, user, inspector, nil, []string{root}, true)
+	}
 	return claudeWorkerSettings(scope, temporary, user, inspector, []string{root}, nil, true)
+}
+
+// ReadOnlyFolder reports whether a materialized-folder scope is read-only (`read_only`: true): the
+// worker reads the folder and writes only its scratch. The Runtime sets it on a read-only work whose
+// folder is a Git checkout (a job's review); it is not part of the folder's own scope
+// (workspace.FolderScope), which the host recomputes without it.
+func ReadOnlyFolder(scope map[string]any) bool {
+	readOnly, _ := scope["read_only"].(bool)
+	return readOnly
 }
 
 // runtimeWorkName is the name of a Runtime-chosen folder below <home>/workers: "work-" and a

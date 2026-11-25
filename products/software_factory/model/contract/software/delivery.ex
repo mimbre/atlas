@@ -185,7 +185,7 @@ defmodule Model.Delivery do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", result: :latest],
         instructions:
-          "Review the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the change to review is the commit under it (git show HEAD~1). Judge whether it does what the issue asks, and nothing else; its use case and scene, after it, say why. You may run bin/check. Change nothing: what you change is thrown away.",
+          "Review the result of the issue below in the repository you are given: a read-only Git checkout of it. Its last commit only adds the base's dependencies; the change to review is the commit under it (git show HEAD~1). Judge whether it does what the issue asks, and nothing else; its use case and scene, after it, say why. You may run bin/check: its build goes to your scratch. You cannot write in the checkout: the sandbox refuses it.",
         fields: [:title, :description],
         parents: [:title, :description],
         follow_ups: :issue,

@@ -261,7 +261,13 @@ defmodule AtlasRuntime.Sandbox.Spec do
         Map.put(
           spec,
           "env",
-          folder_env(spec["env"], scope_home, text(request["inspector"]), scratch)
+          folder_env(
+            spec["env"],
+            scope_home,
+            text(request["inspector"]),
+            scratch,
+            read_only?(fields)
+          )
         ),
       else: spec
   end
@@ -313,14 +319,24 @@ defmodule AtlasRuntime.Sandbox.Spec do
     {codex, root, names}
   end
 
-  # folderArguments/workerArguments (codex.go:326-428).
+  # folderArguments/workerArguments (codex.go:326-428). A read-only folder (IS-Atlas-20, the
+  # scope's `read_only`) reads the folder instead of writing it: only the scratch is written.
   defp folder_codex(scope, scratch, request, facts) do
     # permissionArguments asks for the user home first (codex.go:45-48).
     _ = user_home!(facts)
     root = text(scope["root"])
-    entries = worker_entries(scope, [[root, "write"]], scratch, text(request["inspector"]), facts)
-    {codex("atlas_folder", ":read-only", entries, loopback(scratch), true, "disabled"), root, []}
+
+    {name, access} =
+      if read_only?(scope),
+        do: {"atlas_read_only_folder", "read"},
+        else: {"atlas_folder", "write"}
+
+    entries = worker_entries(scope, [[root, access]], scratch, text(request["inspector"]), facts)
+    {codex(name, ":read-only", entries, loopback(scratch), true, "disabled"), root, []}
   end
+
+  # ReadOnlyFolder (claude.go): the Runtime's flag on a materialized-folder scope.
+  defp read_only?(scope), do: scope["read_only"] == true
 
   # workerArguments' entry list (codex.go:347-415): write only the project and scratch, deny
   # the user home except the homeReadable toolchain paths, read only the record, baseline and
@@ -402,9 +418,18 @@ defmodule AtlasRuntime.Sandbox.Spec do
 
   # A folder worker's environment (host.go:287-302): the inspector first on PATH, this home and
   # inspector, Git without user or system configuration or user excludes file, and temp and
-  # caches in the scratch.
-  defp folder_env(env, home, inspector, scratch) do
+  # caches in the scratch; a read-only folder's build too (MIX_BUILD_ROOT, and REBAR_BASE_DIR for
+  # the compiler state rebar3 keeps for a dependency).
+  defp folder_env(env, home, inspector, scratch, read_only) do
     caches = for {name, cache} <- @folder_caches, do: {name, scratch <> "/" <> cache}
+    build = scratch <> "/_build"
+
+    caches =
+      if read_only,
+        do: caches ++ [{"MIX_BUILD_ROOT", build}],
+        else: caches
+
+    rebar = if read_only, do: [["REBAR_BASE_DIR", build <> "/rebar3"]], else: []
 
     %{
       env
@@ -420,7 +445,7 @@ defmodule AtlasRuntime.Sandbox.Spec do
               ["GIT_CONFIG_KEY_0", "core.excludesFile"],
               ["GIT_CONFIG_VALUE_0", "/dev/null"]
             ] ++
-            for({name, path} <- caches, do: [name, path]),
+            for({name, path} <- caches, do: [name, path]) ++ rebar,
         "mkdirs" => env["mkdirs"] ++ for({_name, path} <- caches, do: path)
     }
   end
@@ -668,11 +693,16 @@ defmodule AtlasRuntime.Sandbox.Spec do
           "materialized-folder" ->
             settings = claude_folder_settings(fields, temporary, user, inspector, facts)
 
-            spec = %{
-              spec
-              | "scratch" => @temporary,
-                "env" => folder_env(spec["env"], text(fields["home"]), inspector, @temporary)
-            }
+            env =
+              folder_env(
+                spec["env"],
+                text(fields["home"]),
+                inspector,
+                @temporary,
+                read_only?(fields)
+              )
+
+            spec = %{spec | "scratch" => @temporary, "env" => env}
 
             {spec, settings, root}
 
@@ -754,15 +784,15 @@ defmodule AtlasRuntime.Sandbox.Spec do
   end
 
   # claudeFolderSettings/claudeWorkerSettings (claude.go:306-451) for a materialized folder:
-  # writable is the folder, nothing is frozen, and Bash may open pseudo-terminals.
+  # writable is the folder, nothing is frozen, and Bash may open pseudo-terminals. A read-only
+  # folder (IS-Atlas-20) is frozen instead: nothing of it is writable, only the private temp.
   defp claude_folder_settings(scope, temporary, user, inspector, facts) do
     root = text(scope["root"])
     home = text(scope["home"])
     record = text(scope["record"])
     baseline = text(scope["baseline"])
     repositories = list(scope["repositories"])
-    writable = [root]
-    frozen = []
+    {writable, frozen} = if read_only?(scope), do: {[], [root]}, else: {[root], []}
 
     if root == "" or home == "" or record == "" or baseline == "" or repositories == [] or
          inspector == "",
