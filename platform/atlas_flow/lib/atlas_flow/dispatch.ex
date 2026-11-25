@@ -67,7 +67,7 @@ defmodule AtlasFlow.Dispatch do
 
   Options of `start_link/1`: `name` (default `AtlasFlow.Dispatch`), `model` (default the
   configured one), `clock`, `delivery` (the server fences are cast to, default
-  `AtlasFlow.Delivery`), and the timing (`config :atlas_flow, :work_source`):
+  `AtlasFlow.Delivery`), `health` (the table each poll is noted in, `AtlasFlow.Health`), and the timing (`config :atlas_flow, :work_source`):
   `lease_ttl` (900 s), `grace` (120 s), `accept_deadline` (30 s), `poll_max` (25 s),
   `poll_wait` (ms a poll with nothing to answer is held, default `poll_max`), `sweep_ms`
   (5 000) and `resync_ms` (60 000); nil for either means no timer (a test sweeps itself).
@@ -176,6 +176,7 @@ defmodule AtlasFlow.Dispatch do
       leases: %{},
       parked: %{},
       polls: %{},
+      health: Keyword.get(opts, :health, AtlasFlow.Health),
       booted: false,
       sweeper: sweeper,
       sweep: nil,
@@ -201,6 +202,8 @@ defmodule AtlasFlow.Dispatch do
         # No sweep here (IS-Atlas-110): it runs on its own, in `Sweep`.
         budget = budget(state)
         state = put_in(state.polls[runtime_id], now(state))
+        # Each Runtime's last poll, for Control's health page; never waits.
+        AtlasFlow.Health.polled(runtime_id, state.polls[runtime_id], state.health)
         state = late_accepts(state, runtime_id, holdings, budget)
         {renewed, lost, state} = renew(state, runtime_id, holdings)
         cancel = for id <- renewed, state.leases[id].cancel, do: id

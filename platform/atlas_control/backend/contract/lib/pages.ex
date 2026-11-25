@@ -19,6 +19,9 @@ defmodule AtlasBFFContract.Pages do
       defpage :supervised_by_you, "/_supervised"
       defpage :supervised_by_you_group, "/_supervised/:subflow/:span"
       defpage :workers, "/workers"
+      # The core's health (IS-Atlas-117), reached from the Workers page: each sync, Flow's
+      # lag, Facts' queue and each Runtime's last poll, each marked late past its limit.
+      defpage :health, "/health"
       defpage :worker, "/workers/:machine/:worker/:turn/:attempt"
       defpage :worker_guidance, "/workers/:machine/:worker/:turn/:attempt/guidance"
       defpage :kinds, "/_kinds"

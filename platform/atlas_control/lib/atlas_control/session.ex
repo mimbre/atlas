@@ -56,6 +56,9 @@ defmodule AtlasControl.Session do
   @position "_position"
   # Who answers how far Flow has settled (`_settled`).
   @flow "flow"
+  # Who answers what Flow says about its health (`_health`, AtlasFlow.Health); a setting
+  # (`health_endpoint`) for tests.
+  @flow_health "flow/health"
   # How many recent pages, besides the one on screen, one batch of hints pushes.
   @pushes 3
 
@@ -1622,6 +1625,10 @@ defmodule AtlasControl.Session do
     answers = page_answers(route, state.model)
 
     case route do
+      # The core's health: never read from Facts, so it shows while Facts is stuck.
+      {:worker_page, :health, _} ->
+        {health_page(state), answers, ReadSet.none()}
+
       {:worker_page, _, _} = worker_route ->
         {page, read} =
           recording(fn ask ->
@@ -1650,6 +1657,37 @@ defmodule AtlasControl.Session do
         page = route |> Pages.render(state.model, answers, viewer) |> Faults.with_action(route)
         set = ReadSet.of(PageReads.roles(route, state.model), answers, page.blocks)
         {page, answers, set}
+    end
+  end
+
+  # The health page (IS-Atlas-117), for those who may read the Workers page: whom the
+  # settings name, without asking Facts whether their fact exists, since the page is for
+  # when Facts or Flow is stuck. Flow is asked once (`health_timeout_ms`, 1 s); Facts'
+  # queue is counted on the Bus, without asking Facts.
+  defp health_page(state) do
+    readers = get_in(state.model.settings || %{}, ["workers", "read", "actors"])
+
+    if is_list(readers) and state.by in readers do
+      AtlasControl.HealthPage.render(%{
+        flow: ask_health(),
+        facts_waiting: AtlasBus.waiting(AtlasBus.store())
+      })
+    else
+      AtlasControl.WorkerPages.error("forbidden", "/workers")
+    end
+  end
+
+  defp ask_health do
+    address = Application.get_env(:atlas_control, :health_endpoint, @flow_health)
+    envelope = %{Envelope.new("request", "_health") | address: address}
+    :ok = AtlasBus.send(envelope, %{})
+    id = envelope.id
+    timeout = Application.get_env(:atlas_control, :health_timeout_ms, 1_000)
+
+    receive do
+      {:atlas_bus, %Envelope{id: ^id, class: "answer"}, answer} -> answer
+    after
+      timeout -> nil
     end
   end
 

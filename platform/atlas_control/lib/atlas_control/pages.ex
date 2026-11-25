@@ -119,7 +119,7 @@ defmodule AtlasControl.Pages do
       {:ok, page, p} when page in [:pick_up, :hand_over, :retry, :remove_item] ->
         {page, p.kind, p.key, p.run}
 
-      {:ok, page, params} when page in [:workers, :worker, :worker_guidance] ->
+      {:ok, page, params} when page in [:workers, :health, :worker, :worker_guidance] ->
         {:worker_page, page, params}
 
       {:ok, :kinds, _} ->
@@ -862,13 +862,17 @@ defmodule AtlasControl.Pages do
   @doc """
   A calm page's Overview (platform/atlas_control/backend/README.md): an `item` titled "Overview" with one pair per
   `{label, count}`; the first, the main count, always, the others only when some are.
+  `actions`, when given, are the page's (`page_actions/1`): the Workers page's Health.
   """
-  def summary([main | more]) do
+  def summary([main | more], actions \\ []) do
     fields =
       for {label, n} <- [main | Enum.filter(more, fn {_, n} -> n > 0 end)],
           do: Blocks.pair(label: label, value: Integer.to_string(n))
 
-    Blocks.item(title: "Overview", fields: fields)
+    case actions do
+      [] -> Blocks.item(title: "Overview", fields: fields)
+      actions -> Blocks.item(title: "Overview", fields: fields, actions: page_actions(actions))
+    end
   end
 
   # One calm row of what is assigned: the fact's key, the fact, who it is with (`owner?`, on

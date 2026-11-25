@@ -142,6 +142,19 @@ A merge to master deploys prod (CI job `deploy-prod`, `platform/ops/deploy.sh pr
 
 `products/software_factory/environments/prod.json` names the apps in its `"fly"` section. Until the switch below it said `"in_use": false`: `atlas` kept using this Mac's prod core and rela, and only `move-to-fly` and `fetch-from-fly` (today `atlas-ops move-to-fly --env prod` and `atlas-ops fetch-from-fly --env prod`) went to Fly.
 
+### The core's health (IS-Atlas-117)
+
+Prod runs `RELEASE_DISTRIBUTION=none`, so nobody attaches to its node to see a stall (IS-Atlas-82). The health page shows it instead, in any client, through Control alone: `/health`, key `h` on the Workers page, for whoever the settings name as a reader of the Workers page (`"workers": {"read": …}`). It never reads Facts, so it shows while Facts or Flow is stuck. Its rows, each marked late past its limit:
+
+| Row | From | Late past |
+|---|---|---|
+| Flow | `AtlasFlow.Health`: when the round stepping now (or one whose timer is due) was due, else the last finished round's due and end | 2 min |
+| Facts' queue | the messages waiting at Facts' endpoint, counted on the Bus (`AtlasBus.waiting/1`) | no limit yet: shown only |
+| each Runtime | its last poll of Dispatch, noted in `AtlasFlow.Health` | 10 min |
+| rela syncs | rela; Atlas keeps no run history of its own (D-0100) | 15 min, once rela reports runs; until then "not reported by rela" |
+
+What Flow notes is memory only: after a restart the page knows only Runtimes that have polled since, and Flow's round from its first one.
+
 ### Secrets
 
 | Where | Secret | What | Before the client switch |

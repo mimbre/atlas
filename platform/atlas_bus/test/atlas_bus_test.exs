@@ -235,4 +235,25 @@ defmodule AtlasBusTest do
     endpoint(c.store)
     assert {:error, :taken} = AtlasBus.attach(c.store)
   end
+
+  test "waiting counts the messages queued at an endpoint without waiting for it" do
+    test = self()
+
+    busy =
+      spawn_link(fn ->
+        :ok = AtlasBus.attach("waiting-test")
+        send(test, :attached)
+
+        receive do
+          :go -> :ok
+        end
+      end)
+
+    assert_receive :attached
+    assert AtlasBus.waiting("waiting-test") == 0
+    for n <- 1..3, do: send(busy, {:queued, n})
+    assert AtlasBus.waiting("waiting-test") == 3
+    assert AtlasBus.waiting("nobody-is-attached-as-this") == nil
+    send(busy, :go)
+  end
 end
