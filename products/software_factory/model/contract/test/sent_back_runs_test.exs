@@ -107,6 +107,61 @@ defmodule Model.SentBackRunsTest do
     sent_back(c, @design)
   end
 
+  # IS-Atlas-72: a new round sees what is already under its subject, and is asked to
+  # propose only what is missing.
+  test "Design's task carries the use cases already under its scene, Plan's the issues under its use case",
+       c do
+    for {p, under} <- [
+          {@design,
+           [
+             {"UC-Atlas-01", "Read the README", "Newcomers read the README first."},
+             {"UC-Atlas-02", "Find the guides", "Newcomers find the guides from it."}
+           ]},
+          {@plan,
+           [
+             {"IS-Atlas-01", "Show the README", "The README is shown on the home page."},
+             {"IS-Atlas-02", "Link the guides", "The README links each guide."}
+           ]}
+        ] do
+      subject(p)
+
+      for {key, title, description} <- under,
+          do:
+            FakeFacts.put(p.child, %{
+              "key" => key,
+              "values" => %{"title" => title, "description" => description},
+              "links" => %{p.under => [p.key]}
+            })
+
+      # Another subject's: not under this one.
+      FakeFacts.put(p.child, %{
+        "key" => p.child <> "-ELSEWHERE",
+        "values" => %{"title" => "Somewhere else"},
+        "links" => %{p.under => ["OTHER"]}
+      })
+
+      assert reconcile(c, p)["state"] == "break_down"
+      supervise(c, p)
+      instructions = intent(c, p)["pending"]["task"]["work"]["instructions"]
+
+      assert instructions =~ "## Already under it\n\n"
+      assert instructions =~ "propose only what is missing"
+
+      for {key, title, description} <- under do
+        assert instructions =~ "### #{p.child} #{key}: title\n\n#{title}"
+        assert instructions =~ "### #{p.child} #{key}: description\n\n#{description}"
+      end
+
+      refute instructions =~ "Somewhere else"
+
+      # Its spec says so too: those under it stay; propose only what is missing.
+      {:task, spec} = flow(:test, p.flow).mechanism("break_down")
+      assert spec["children"] == ["title", "description"]
+      assert spec["instructions"] =~ ~s("Already under it")
+      assert spec["instructions"] =~ "propose only the"
+    end
+  end
+
   # Control's to-do, as the owner of "Accept it" sees it: both answers, and Not accepted
   # asks for a note, which it writes with the verdict the run goes back on.
   test "both to-dos offer Accept and Not accepted, which asks for a note" do
@@ -354,6 +409,8 @@ defmodule Model.SentBackRunsTest do
     run = intent(c, p)
     assert %{"key" => ^first} = run["pending"]["task"]
     refute run["pending"]["task"]["work"]["instructions"] =~ p.heading
+    # Nothing is under it yet: no such section.
+    refute run["pending"]["task"]["work"]["instructions"] =~ "## Already under it"
 
     proposal = [%{"title" => "One", "description" => "First."}, %{"title" => "Two"}]
     work(c, p, first, proposal)
@@ -386,6 +443,12 @@ defmodule Model.SentBackRunsTest do
     for key <- proposed, do: assert(FakeFacts.get(p.child, key) == nil)
     assert FakeFacts.get(p.child, "BY-HAND")
     assert again["pending"]["task"]["work"]["instructions"] =~ "## #{p.heading}\n\n#{note}"
+
+    # The new round sees the one added by hand, which stays, and not the discarded ones.
+    instructions = again["pending"]["task"]["work"]["instructions"]
+    assert instructions =~ "## Already under it"
+    assert instructions =~ "### #{p.child} BY-HAND: title\n\nAdded by hand"
+    for key <- proposed, do: refute(instructions =~ "### #{p.child} #{key}:")
 
     {_lease, work} = lease!()
     assert work.instructions =~ note
@@ -514,6 +577,8 @@ defmodule Model.SentBackRunsTest do
       30_000 -> flunk("no reconcile of #{key}")
     end
   end
+
+  defp flow(env, name), do: Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == name))
 
   defp reconcile(c, p) do
     config = c.runner.config

@@ -287,6 +287,7 @@ defmodule RelaDSL.Schema do
     :instructions,
     :fields,
     :parents,
+    :children,
     :read_first,
     :note,
     :creates,
@@ -466,7 +467,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `note:`, `creates:`, `writes:`, `asks:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `children:`, `note:`, `creates:`, `writes:`, `asks:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1349,6 +1350,8 @@ defmodule RelaDSL.Schema do
         pre <> "fields: must be a list of the subject's fields",
       not (is_list(spec[:parents] || []) and Enum.all?(spec[:parents] || [], &is_atom/1)) &&
         pre <> "parents: must be a list of the parents' fields",
+      not (is_list(spec[:children] || []) and Enum.all?(spec[:children] || [], &is_atom/1)) &&
+        pre <> "children: must be a list of the fields of the facts under it",
       not (Keyword.keyword?(spec[:records] || :none) and
              Enum.sort(Keyword.keys(spec[:records])) == [:kind, :relation] and
              text?.(spec[:records][:kind]) and text?.(spec[:records][:relation])) &&
