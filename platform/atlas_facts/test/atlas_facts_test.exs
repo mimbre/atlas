@@ -195,6 +195,37 @@ defmodule AtlasFactsTest do
     assert {%{"title" => "Two"}, _} = FakeRela.facts(rela)["W-1"]
   end
 
+  # IS-Atlas-84: rela lists no versions, so a fact Facts loaded at start had none, and an
+  # edit based on a read of it was stored over whatever was written since.
+  test "a stale edit of a fact loaded at start is refused", %{rela: rela, server: server} do
+    {:ok, _} = FakeRela.create(rela, "widgets", "W-1", %{"title" => "One"}, %{})
+    :ok = AtlasFacts.Server.reload(server)
+    assert [%{"key" => "W-1", "version" => nil}] = read("widget")["facts"]
+
+    # Two people open it; the first read finds no version and reads it from rela, once.
+    %{"fact" => %{"version" => version}} = read("widget", %{"key" => "W-1"})
+    assert version != nil
+    assert %{"fact" => %{"version" => ^version}} = read("widget", %{"key" => "W-1"})
+
+    assert {"stored", _, _} = fact("change", "W-1", %{"title" => "Two"}, version: version)
+
+    assert {"refused", %{"reasons" => ["W-1 changed meanwhile; open it again"]}, nil} =
+             fact("change", "W-1", %{"title" => "Three"}, version: version)
+
+    assert {%{"title" => "Two"}, _} = FakeRela.facts(rela)["W-1"]
+  end
+
+  test "a fact changed past Facts keeps no version until Facts hears of the change",
+       %{rela: rela, server: server} do
+    {:ok, _} = FakeRela.create(rela, "widgets", "W-1", %{"title" => "One"}, %{})
+    :ok = AtlasFacts.Server.reload(server)
+    FakeRela.poke(rela, "W-1", %{"title" => "Changed past Facts"})
+
+    # Not rela's fact as held here: its version is not taken for the copy.
+    assert %{"fact" => %{"version" => nil, "values" => %{"title" => "One"}}} =
+             read("widget", %{"key" => "W-1"})
+  end
+
   test "an old version is no conflict when only other fields changed meanwhile (was)",
        %{rela: rela} do
     fact("create", "W-1", %{"title" => "One", "shade" => "light"})

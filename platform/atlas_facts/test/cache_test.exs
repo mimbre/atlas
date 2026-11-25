@@ -27,12 +27,22 @@ defmodule AtlasFacts.CacheTest do
 
   defp read(kind, content \\ %{}), do: request("read", kind, content)
 
+  # A list carries no versions (rela lists none): the first read of one fact reads its
+  # version from rela, once (IS-Atlas-84); then no read of it reaches rela.
   test "every kind is listed once, at start; reads of all kinds then reach rela no more", c do
     lists = for {{:list, _}, n} <- CountingRela.calls(c.backend), do: n
     assert lists == List.duplicate(1, map_size(CountingRela.schema()["entities"]))
+    kinds = Map.keys(CountingRela.schema()["entities"])
     CountingRela.reset(c.backend)
 
-    for kind <- Map.keys(CountingRela.schema()["entities"]) do
+    for kind <- kinds, fact <- read(kind)["facts"] do
+      assert %{"fact" => %{"version" => "v1"}} = read(kind, %{"key" => fact["key"]})
+    end
+
+    assert CountingRela.calls(c.backend) == %{get: 50 * length(kinds)}
+    CountingRela.reset(c.backend)
+
+    for kind <- kinds do
       answer = read(kind)
       assert length(answer["facts"]) == 50
 
