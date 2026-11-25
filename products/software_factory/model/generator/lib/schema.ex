@@ -54,7 +54,7 @@ defmodule RelaDSL.Schema do
   |---|---|---|
   | `gate` | `gate_result` | the gate's `verdicts` |
   | `effect` | `effect_result`, or `field:` | `done`, `refused`, and a refusal's reason it maps |
-  | `task` | `task_result`, or `field:` | `completed`, `check_failed`, `stuck`, `abandoned` |
+  | `task` | `task_result`, or `field:` | `completed`, `check_failed`, `stuck`, `abandoned`, and `asked` with `asks:` |
 
   A `task` is one unit of work Flow defines for the machinery the subject is assigned
   to, which a Runtime of the flow's supervisor takes from Flow's work source
@@ -100,7 +100,11 @@ defmodule RelaDSL.Schema do
   when it has text, under that heading (what its supervisor said when it sent the proposal
   back). One that writes a field of the subject
   names it, `writes: [field: field, file: name]`: its agent writes the field's text to the
-  file, and Flow puts it in that field once the task completed. A review whose findings outside the
+  file, and Flow puts it in that field once the task completed. Beside either, a task whose
+  agent may ask instead of guessing names where its questions go, `asks: [field: field,
+  file: name]`: when, once it completed, that file is there and not empty, Flow puts its
+  text in the subject's field, makes nothing else, and the task ends `asked`, a result of
+  its own to map in `on:` (the subject's producer answers, say). A review whose findings outside the
   subject's scope become new facts names their kind, `follow_ups: kind`: Flow makes one for
   each follow-up its answer gives, under the subject's nearest parent. A fix of something
   else than the latest review's findings names the subject's field that says what to fix,
@@ -263,6 +267,8 @@ defmodule RelaDSL.Schema do
   @writer "atlas-flow"
   @effect_results [:done, :refused]
   @task_results [:completed, :check_failed, :stuck, :abandoned]
+  # A task that may ask instead (`asks:`) also ends `asked`: its agent wrote questions.
+  @asking_results @task_results ++ [:asked]
   # A review (outside any ladder, on the run's latest result) also ends asking for
   # changes, its verdict.
   @verdict_review_results @task_results ++ [:changes_required]
@@ -309,6 +315,7 @@ defmodule RelaDSL.Schema do
     :note,
     :creates,
     :writes,
+    :asks,
     :follow_ups,
     :findings,
     :failure,
@@ -483,8 +490,8 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `note:`, `creates:`, `writes:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
-  abandoned:]`.
+  `parents:`, `note:`, `creates:`, `writes:`, `asks:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  abandoned:]` (and `asked:` with `asks:`).
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
 
@@ -1189,6 +1196,7 @@ defmodule RelaDSL.Schema do
       cond do
         opts[:ladder] == true -> @ladder_results
         kind == :review and base_result_input?(opts[:input]) -> @verdict_review_results
+        opts[:asks] != nil -> @asking_results
         true -> @task_results
       end
 
@@ -1384,6 +1392,22 @@ defmodule RelaDSL.Schema do
         pre <> "writes: must be [field: field, file: text]",
       (spec[:creates] != nil and spec[:writes] != nil) &&
         pre <> "creates: and writes: exclude each other",
+      not (spec[:asks] == nil or
+             (Keyword.keyword?(spec[:asks]) and
+                Enum.sort(Keyword.keys(spec[:asks])) == [:field, :file] and
+                is_atom(spec[:asks][:field]) and spec[:asks][:field] != nil and
+                text?.(spec[:asks][:file]))) &&
+        pre <> "asks: must be [field: field, file: text]",
+      (spec[:asks] != nil and spec[:ladder] == true) &&
+        pre <> "asks: is for a task outside any ladder",
+      (is_list(spec[:asks]) and Keyword.keyword?(spec[:asks]) and
+         spec[:asks][:file] in for(
+           o <- [spec[:creates], spec[:writes]],
+           is_list(o),
+           Keyword.keyword?(o),
+           do: o[:file]
+         )) &&
+        pre <> "asks: needs a file of its own",
       not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
         pre <> "follow_ups: must be a kind",
       not (spec[:findings] == nil or (kind == :fix and is_atom(spec[:findings]))) &&

@@ -63,7 +63,13 @@ entities:
         description: 'Flow: how many of them are not finished'
       verdict:
         type: string
-        description: 'Flow: the acceptor''s verdict (none, accept, reject), or its supervisor''s acceptance of its use cases (accept)'
+        description: 'Flow: the acceptor''s verdict (none, accept, reject), its supervisor''s acceptance of its use cases (accept, reject), or its producer''s answer to its questions (answered)'
+      questions:
+        type: string
+        description: 'Flow: the questions its break-down''s agent asked, when the scene was too vague to design use cases from'
+      answers:
+        type: string
+        description: Its producer's answers to its agent's questions; its next break-down reads them
       task_result:
         type: string
         description: 'Flow: how its break-down''s agent task ended (completed, check_failed, stuck, abandoned); the run''s own, never written'

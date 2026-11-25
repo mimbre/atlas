@@ -371,6 +371,7 @@ flows:
             - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'check_failed'" }
             - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'stuck'" }
             - { to: accepting, roles: [atlas-flow], when: "entity.task_result == 'abandoned'" }
+            - { to: clarifying, roles: [atlas-flow], when: "entity.task_result == 'asked'" }
       accepting:
         label: Accept it
         outputs:
@@ -379,6 +380,13 @@ flows:
           change:
             - { to: broken_down, when: "entity.verdict == 'accept'" }
             - { to: break_down, when: "entity.verdict == 'reject'" }
+      clarifying:
+        label: Answer its questions
+        outputs:
+          - set: { properties: { verdict: none } }
+        on:
+          change:
+            - { to: break_down, when: "entity.verdict == 'answered'" }
       broken_down:
         label: Broken down
         final: true
