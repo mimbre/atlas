@@ -64,6 +64,28 @@ defmodule RelaDSL.Flow.ConditionTest do
     end
   end
 
+  # Two fields that must agree (the head a CI status was read for and the head pushed):
+  # equal only when both are there; an absent one makes it unknown, no match either way.
+  test "two fields agree or differ; an absent one is no match" do
+    for {values, same, differ} <- [
+          {%{"read" => "abc", "pushed" => "abc"}, true, false},
+          {%{"read" => "abc", "pushed" => "def"}, false, true},
+          {%{"read" => "abc"}, false, false},
+          {%{}, false, false}
+        ] do
+      assert holds?("entity.read == entity.pushed", values) == same, inspect(values)
+      assert holds?("entity.read != entity.pushed", values) == differ, inspect(values)
+    end
+
+    assert holds?(
+             "entity.state == 'failure' and entity.read == entity.pushed",
+             %{"state" => "failure", "read" => "abc", "pushed" => "abc"}
+           )
+
+    {:ok, tree} = Condition.compile("entity.state == 'x' and entity.read == entity.pushed")
+    assert Condition.fields(tree) == ["state", "read", "pushed"]
+  end
+
   test "unknown syntax and executable text refuse compilation, including suffixes" do
     for text <- [
           "",
@@ -73,6 +95,8 @@ defmodule RelaDSL.Flow.ConditionTest do
           "entity.x == 3 trailing",
           "entity.x == 3 == 3",
           "entity.x == other.x",
+          "entity.x > entity.y",
+          "entity.x == entity.y == 3",
           "entity.x in [1]",
           "not entity.flag",
           "not entity.x == 3",

@@ -16,10 +16,15 @@ defmodule Model.Delivery do
   latest result, the review and the fix in its body (the effect `publish`,
   `AtlasCode.Effects`), and the issue waits for its CI (`checking`): rela's GitHub sync
   writes the pull's check status (`pr_checks`), what failed (`pr_checks_failure`) and
-  whether it merges into develop (`pr_mergeable`). Passed and mergeable, it waits for its
+  whether it merges into develop (`pr_mergeable`), with the head they were read for
+  (`pr_checks_head`). Code answers each push with the head it pushed (`pr_head`), and the
+  CI gate acts only on the status of that head (IS-Atlas-120): a status of an earlier head,
+  written after a push, leaves it waiting. Passed and mergeable, it waits for its
   supervisor to merge it on GitHub (`merging`): the GitHub connector copies the pull's
-  state, and merged is done. Its supervisor gets it only while it is mergeable and green:
-  conflicting or not green meanwhile takes it back to `checking`. Failed, a fix task
+  state, and merged is done. Its supervisor gets it only while its head is mergeable and
+  green: conflicting, red or running again meanwhile takes it back to `checking`, and its
+  supervisor's to-do with it (IS-Atlas-122); red after it was green is fixed saying so
+  (`ci_fixing_after_green`). Failed, a fix task
   works on the latest result with what failed (`ci_fixing`, its `findings:` that field),
   and Code pushes its result onto the same pull request (`ci_pushing`, `onto: :pr_url`),
   whose CI is waited for again; at most two such fixes (`ci_fixes`), then its supervisor
@@ -75,6 +80,11 @@ defmodule Model.Delivery do
   to it (`pull_request`, through `in_issue`) belong to it: a person item of theirs goes to
   its supervisor (rule S3). Its result travels over Git only: each task's Runtime pushes its
   result commit to `refs/atlas/results/<task>` in Code.
+
+  Someone else pushing onto its pull request moves its head past Code's: rela's GitHub sync
+  then takes the pull's head as `pr_head` (as it does for a pull request opened before Code
+  answered with its head), so the CI gate goes on with that head; a head GitHub has not
+  caught up with yet (behind Code's) is never taken.
   """
   use RelaDSL
 
@@ -110,6 +120,7 @@ defmodule Model.Delivery do
         :checking,
         :ci_fixing,
         :ci_fixing_again,
+        :ci_fixing_after_green,
         :ci_pushing,
         :ci_failing,
         :updating,
@@ -229,7 +240,7 @@ defmodule Model.Delivery do
     # base; Flow names the result by its ref only. Its CI is waited for (`checking`) before
     # anyone is asked to merge it.
     state :publishing, label: "Opening its pull request" do
-      set ci_fixes: :none, pr_updates: :none
+      set ci_fixes: :none, pr_updates: :none, ci_green: :none
 
       present(
         expected: "Let Code open its pull request",
@@ -247,21 +258,23 @@ defmodule Model.Delivery do
         fingerprint: [fields: ["title"], relations: []],
         payload: ["title", "description"],
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
-        outputs: [url: "pr_url"],
+        outputs: [url: "pr_url", head: "pr_head"],
         on: [done: :checking, no_changes: :unchanged, refused: :stuck]
       )
     end
 
     # The CI gate: rela's GitHub sync writes its pull request's check status (`pr_checks`),
     # what failed (`pr_checks_failure`) and whether it merges into develop
-    # (`pr_mergeable`). Entering it sets both unknown, so a status of the head before the
-    # last push is never taken for this one. Conflicting leads to an update with develop,
-    # once (`pr_updates`); red to a fix of what failed, pushed onto the same pull request,
-    # at most twice (`ci_fixes`); still conflicting or red, its supervisor decides. Its
-    # supervisor is asked to merge it only when it is green and mergeable. Merged meanwhile
-    # is done.
+    # (`pr_mergeable`), with the head they were read for (`pr_checks_head`). Its branches
+    # act only while that is the head Code pushed (`pr_head`), so a status of the head
+    # before the last push, written after it, is never taken for this one (IS-Atlas-120).
+    # Conflicting leads to an update with develop, once (`pr_updates`); red to a fix of what
+    # failed, pushed onto the same pull request, at most twice (`ci_fixes`), the first after
+    # Merge it saying its CI was green before (`ci_green`); still conflicting or red, its
+    # supervisor decides. Its supervisor is asked to merge it only when it is green and
+    # mergeable. Merged meanwhile is done.
     state :checking, label: "Waiting for CI" do
-      set pr_checks: :pending, pr_mergeable: :unknown, pr_state: :open
+      set pr_state: :open
 
       present(
         expected: "Wait for its CI",
@@ -275,21 +288,30 @@ defmodule Model.Delivery do
 
       branch to: :update_failing,
              when:
-               "(entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind') and entity.pr_updates == 'one'"
+               "(entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind') and entity.pr_updates == 'one' and entity.pr_checks_head == entity.pr_head"
 
       branch to: :updating,
-             when: "entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind'"
+             when:
+               "(entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind') and entity.pr_checks_head == entity.pr_head"
 
       branch to: :merging,
-             when: "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean'"
+             when:
+               "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean' and entity.pr_checks_head == entity.pr_head"
 
       branch to: :ci_failing,
-             when: "entity.pr_checks == 'failure' and entity.ci_fixes == 'two'"
+             when:
+               "entity.pr_checks == 'failure' and entity.ci_fixes == 'two' and entity.pr_checks_head == entity.pr_head"
 
       branch to: :ci_fixing_again,
-             when: "entity.pr_checks == 'failure' and entity.ci_fixes == 'one'"
+             when:
+               "entity.pr_checks == 'failure' and entity.ci_fixes == 'one' and entity.pr_checks_head == entity.pr_head"
 
-      branch to: :ci_fixing, when: "entity.pr_checks == 'failure'"
+      branch to: :ci_fixing_after_green,
+             when:
+               "entity.pr_checks == 'failure' and entity.ci_green == 'yes' and entity.pr_checks_head == entity.pr_head"
+
+      branch to: :ci_fixing,
+             when: "entity.pr_checks == 'failure' and entity.pr_checks_head == entity.pr_head"
     end
 
     # Its pull request conflicts with develop: an agent resolves develop merged into it
@@ -347,6 +369,7 @@ defmodule Model.Delivery do
         fingerprint: [fields: ["title"], relations: []],
         payload: ["title", "description"],
         input: [repository: "github.com/mimbre/atlas", base: "develop", onto: :pr_url],
+        outputs: [head: "pr_head"],
         on: [done: :checking, no_changes: :update_failing, refused: :update_failing]
       )
 
@@ -371,7 +394,9 @@ defmodule Model.Delivery do
       branch to: :done, when: "entity.gate_result == 'close'"
       branch to: :done, when: "entity.pr_state == 'merged'"
       branch to: :pr_closed, when: "entity.pr_state == 'closed'"
-      branch to: :checking, when: "entity.pr_mergeable == 'clean'"
+
+      branch to: :checking,
+             when: "entity.pr_mergeable == 'clean' and entity.pr_checks_head == entity.pr_head"
     end
 
     # A fix of its failing CI, on its latest result (as the review's fix): what failed, the
@@ -445,6 +470,42 @@ defmodule Model.Delivery do
       branch to: :pr_closed, when: "entity.pr_state == 'closed'"
     end
 
+    # Its CI turned red at Merge it, after it was green (a rerun, a push, develop moving): the
+    # first fix of this round, as Fixing its CI, saying why its supervisor's to-do went.
+    state :ci_fixing_after_green, label: "Fixing its CI after it was green" do
+      set ci_fixes: :one, retry_step: :ci_fix, task_failure: :none
+
+      present(
+        expected: "Fix its CI on the machinery",
+        why: "its CI turned red after it was green",
+        instructions:
+          "Its CI passed and it waited for its supervisor to merge it, but the CI of its pull request's head failed since, so it is no longer theirs to merge. Its supervisor's Runtime runs an agent on its result with what failed in its CI; Code then pushes its fix onto its pull request. Its supervisor's pickup starts the work: nothing is done until then."
+      )
+
+      task(:fix,
+        role: :developer,
+        profile: :deep_coding,
+        cost_class: :standard,
+        input: [repository: "github.com/mimbre/atlas", result: :latest],
+        findings: :pr_checks_failure,
+        instructions:
+          "Fix the failing CI of the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the issue's change so far is the commit under it (git show HEAD~1). Its CI passed before and fails now; what failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
+        fields: [:title, :description],
+        parents: [:title, :description],
+        failure: :task_failure,
+        records: [kind: "task", relation: "task_of"],
+        machinery: "machinery",
+        on: [
+          completed: :ci_pushing,
+          check_failed: :ci_pushing,
+          stuck: :stuck,
+          abandoned: :stuck
+        ]
+      )
+
+      branch to: :pr_closed, when: "entity.pr_state == 'closed'"
+    end
+
     # Code pushes the CI fix's result, on top of the published one, to the branch of its
     # pull request (`onto: :pr_url`): the same pull request, whose CI is waited for again.
     state :ci_pushing, label: "Pushing its CI fix" do
@@ -464,6 +525,7 @@ defmodule Model.Delivery do
         fingerprint: [fields: ["title"], relations: []],
         payload: ["title", "description"],
         input: [repository: "github.com/mimbre/atlas", base: "develop", onto: :pr_url],
+        outputs: [head: "pr_head"],
         on: [done: :checking, no_changes: :ci_failing, refused: :stuck]
       )
 
@@ -490,16 +552,18 @@ defmodule Model.Delivery do
       branch to: :pr_closed, when: "entity.pr_state == 'closed'"
 
       branch to: :merging,
-             when: "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean'"
+             when:
+               "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean' and entity.pr_checks_head == entity.pr_head"
     end
 
-    # Its supervisor is asked to merge it only while it is green and mergeable: conflicting
-    # or not green meanwhile (develop moved, a push, a rerun), it goes back to the CI gate,
-    # which updates or fixes it. Reaching it ends a round: a later conflict or red gets
-    # its update and fixes again.
+    # Its supervisor is asked to merge it only while its head is green and mergeable:
+    # conflicting, red or running again on its head meanwhile (develop moved, a push, a
+    # rerun), it goes back to the CI gate, its supervisor's to-do withdrawn, which updates
+    # or fixes it (IS-Atlas-122). Reaching it ends a round: a later conflict or red gets its
+    # update and fixes again, the first fix saying its CI was green before (`ci_green`).
     state :merging, label: "Merge it" do
       owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
-      set pr_updates: :none, ci_fixes: :none
+      set pr_updates: :none, ci_fixes: :none, ci_green: :yes
 
       present(
         expected: "Review and merge its pull request",
@@ -512,10 +576,12 @@ defmodule Model.Delivery do
       branch to: :pr_closed, when: "entity.pr_state == 'closed'"
 
       branch to: :checking,
-             when: "entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind'"
+             when:
+               "(entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind') and entity.pr_checks_head == entity.pr_head"
 
       branch to: :checking,
-             when: "entity.pr_checks == 'failure' or entity.pr_checks == 'pending'"
+             when:
+               "(entity.pr_checks == 'failure' or entity.pr_checks == 'pending') and entity.pr_checks_head == entity.pr_head"
     end
 
     # Its pull request was closed on GitHub without merging (IS-Atlas-11, IS-Atlas-119),

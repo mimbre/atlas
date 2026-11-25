@@ -6,9 +6,19 @@
 -- and while it is open the combined check status of its head and whether it merges into
 -- its base: pr_state, pr_checks (pending, success, failure), when CI failed
 -- pr_checks_failure (the failing checks and the failing lines of their logs), and
--- pr_mergeable (clean, behind, conflicting, or unknown while GitHub works it out). For
--- every pull request fact that is not merged yet: its title, state and draft. Only what
--- differs is written.
+-- pr_mergeable (clean, behind, conflicting, or unknown while GitHub works it out), all
+-- with the head commit they were read for, pr_checks_head, in one write. For every pull
+-- request fact that is not merged yet: its title, state and draft. Only what differs is
+-- written.
+--
+-- The head (IS-Atlas-120, IS-Atlas-122): Flow records the head Code pushed (pr_head), and
+-- its CI gate acts only while pr_checks_head is that head, so what this sync read of an
+-- earlier head, written after Code's push, is never taken for the current one. The sync
+-- takes the pull's head as pr_head itself when none is recorded (a pull opened before Code
+-- answered with its head) or when someone else pushed onto the pull: the recorded head is
+-- among the pull's commits, so the pull's head is ahead of it. A head GitHub answers before
+-- it caught up with Code's push (the recorded head not among the pull's commits yet) is
+-- never taken, nor one whose commits GitHub does not list.
 --
 -- Merged is final. Closed is not: a closed pull can be reopened. A pull recorded closed is
 -- read again when GitHub lists it among its repository's open pulls (one list per
@@ -213,6 +223,33 @@ local function failure_text(repo, sha, failed)
   return all
 end
 
+-- Whether the commit `recorded` is among the commits of pull `number` (GitHub lists 250 at
+-- most). Pull requests: read is all it takes.
+local function among(repo, number, recorded)
+  local page = 1
+  while true do
+    local path = "/repos/" .. repo .. "/pulls/" .. number .. "/commits?per_page=100&page=" .. page
+    local commits, err = json(path)
+    if not commits then
+      print("github sync: " .. repo .. "#" .. number .. ": commits: " .. tostring(err))
+      return false
+    end
+    for _, commit in ipairs(commits) do
+      if commit.sha == recorded then return true end
+    end
+    if #commits < 100 then return false end
+    page = page + 1
+  end
+end
+
+-- Whether the pull's head `sha` is taken as the issue's head (pr_head): none is recorded, or
+-- the pull's head is ahead of the recorded one. See the head, above.
+local function adopted(repo, number, recorded, sha)
+  if type(recorded) ~= "string" or recorded == "" then return true end
+  if recorded == sha then return false end
+  return among(repo, number, recorded)
+end
+
 local EMPTY = rela.sync and rela.sync.EMPTY or ""
 
 local function write(id, before, after)
@@ -279,9 +316,12 @@ for _, issue in ipairs(rela.list_entities("issue")) do
         end
       elseif after.pr_state == "open" and pull.head and pull.head.sha then
         local sha = pull.head.sha
-        after.pr_mergeable = mergeable(pull)
         local state, failed = checks(repo, sha)
         if state then
+          -- One write: the status, the mergeability and the head they were read for.
+          after.pr_checks_head = sha
+          after.pr_mergeable = mergeable(pull)
+          if adopted(repo, number, p.pr_head, sha) then after.pr_head = sha end
           after.pr_checks = state
           if state == "failure" then
             -- The log excerpt is read once per head.

@@ -284,7 +284,7 @@ defmodule RelaDSL.Flow.Subflow do
           line: 1,
           description:
             "subflow #{name}, #{where}: #{inspect(text)} is no condition a runner evaluates " <>
-              "(entity.<field> compared with a value, not (…), and, or, parentheses)"
+              "(entity.<field> compared with a value, or == or != another entity.<field>, not (…), and, or, parentheses)"
     end
   end
 end

@@ -126,6 +126,9 @@ defmodule AtlasCode.EffectsTest do
 
     assert url == "https://github.com/o/r/pull/8"
 
+    # The head it pushed, which the pull's CI is waited for on (IS-Atlas-120).
+    assert first["outputs"]["head"] == result
+
     assert %{"head" => ^result, "base" => "main", "title" => "Fix the README"} =
              pull = FakeGitHub.get_pull(c.gh, 8)
 
@@ -309,6 +312,7 @@ defmodule AtlasCode.EffectsTest do
              first = call(s, "submit", r)
 
     assert FakeGitHub.get_pull(c.gh, 9)["head"] == fixed
+    assert first["outputs"]["head"] == fixed
     assert call(s, "lookup", r) == first
     File.rm!(Path.join([c.dir, "effects", r["id"] <> ".json"]))
     assert call(s, "submit", r) == first
