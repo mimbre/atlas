@@ -3168,6 +3168,24 @@ defmodule AtlasControl.Pages do
     Map.get_lazy(m, :actors, fn -> configured_restart_actors(m) end)
   end
 
+  @doc """
+  The key of the configured decider: as the model's owners name it, else as the
+  environment's settings give it (`"actors": {"decider": …}`); nil when neither does.
+  """
+  def decider(m) do
+    case get_in(restart_actors(m), ["decider", "key"]) do
+      key when is_binary(key) -> key
+      _ -> configured_decider()
+    end
+  end
+
+  defp configured_decider do
+    case AtlasBus.Actors.configured() do
+      %{"decider" => key} when is_binary(key) and key != "" -> key
+      _ -> nil
+    end
+  end
+
   defp configured_restart_actors(m) do
     configured = AtlasBus.Actors.configured() || %{}
 

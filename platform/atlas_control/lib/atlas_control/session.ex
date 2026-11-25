@@ -1659,9 +1659,38 @@ defmodule AtlasControl.Session do
 
         page = route |> Pages.render(state.model, answers, viewer) |> Faults.with_action(route)
         set = ReadSet.of(PageReads.roles(route, state.model), answers, page.blocks)
-        {page, answers, set}
+        with_alerts(state, route, page, answers, set)
     end
   end
+
+  # The decider's start page carries the core's alerts on top (IS-Atlas-117): one per
+  # stall, worked out from the health report as the page is made, so nothing is stored
+  # or scheduled for them (D-0100). The page is read again when an alert may come or go
+  # (`AtlasControl.HealthPage.until/2`), a reconcile reading it then.
+  defp with_alerts(state, route, page, answers, set) do
+    decider = Pages.decider(state.model)
+
+    if start_route?(route) and is_binary(decider) and state.by == decider do
+      now = DateTime.utc_now()
+      report = health_report()
+      view = AtlasControl.HealthPage.alert_view(AtlasControl.HealthPage.alerts(report, now))
+
+      page = %{
+        page
+        | blocks: view.blocks ++ page.blocks,
+          markup: view.markup ++ (page.markup || [])
+      }
+
+      until = %ReadSet{as_of: set.as_of, until: AtlasControl.HealthPage.until(report, now)}
+      {page, answers, ReadSet.union(set, until)}
+    else
+      {page, answers, set}
+    end
+  end
+
+  defp start_route?(:home), do: true
+  defp start_route?({:assigned, _by}), do: true
+  defp start_route?(_route), do: false
 
   # The health page (IS-Atlas-117), for those who may read the Workers page: whom the
   # settings name, without asking Facts whether their fact exists, since the page is for
@@ -1671,14 +1700,15 @@ defmodule AtlasControl.Session do
     readers = get_in(state.model.settings || %{}, ["workers", "read", "actors"])
 
     if is_list(readers) and state.by in readers do
-      AtlasControl.HealthPage.render(%{
-        flow: ask_health(),
-        facts_waiting: AtlasBus.waiting(AtlasBus.store())
-      })
+      AtlasControl.HealthPage.render(health_report())
     else
       AtlasControl.WorkerPages.error("forbidden", "/workers")
     end
   end
+
+  # What the health page and the decider's alerts are made from.
+  defp health_report,
+    do: %{flow: ask_health(), facts_waiting: AtlasBus.waiting(AtlasBus.store())}
 
   defp ask_health do
     address = Application.get_env(:atlas_control, :health_endpoint, @flow_health)
