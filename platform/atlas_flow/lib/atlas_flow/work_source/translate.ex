@@ -142,13 +142,17 @@ defmodule AtlasFlow.WorkSource.Translate do
 
   @doc """
   The key of a subject run's latest result: its latest task (`pending.tasks`) that is no
-  review, whose folder is only read: its author's, or its fix's once one ran. Nil while it
-  has none.
+  review, whose folder is only read, and that ended with a result (completed or
+  check_failed): its author's, or its fix's once one ran. A task that ended stuck or
+  abandoned left none, so a task run again after it starts from the one before. Nil while
+  it has none.
   """
   def latest_result(tasks) do
     tasks
     |> Enum.reverse()
-    |> Enum.find_value(fn t -> t["task_kind"] != "review" and t["key"] end)
+    |> Enum.find_value(fn t ->
+      t["task_kind"] != "review" and t["outcome"] in ["completed", "check_failed"] and t["key"]
+    end)
   end
 
   @doc """

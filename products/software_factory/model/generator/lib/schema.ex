@@ -104,7 +104,9 @@ defmodule RelaDSL.Schema do
   subject's scope become new facts names their kind, `follow_ups: kind`: Flow makes one for
   each follow-up its answer gives, under the subject's nearest parent. A fix of something
   else than the latest review's findings names the subject's field that says what to fix,
-  `findings: field` (only a fix).
+  `findings: field` (only a fix). A task outside any ladder may name the subject's field
+  Flow writes why it ended without a result, `failure: field`: when it ends stuck or
+  abandoned, which task it was, the state it ran in, how it ended and its reason.
 
   With `ladder: true` a task is a step of the review → fix loop (F2, `AtlasFlow.Ladder`):
   its end leads where the ladder's next step says, so it maps `author`, `review`, `fix`,
@@ -309,6 +311,7 @@ defmodule RelaDSL.Schema do
     :writes,
     :follow_ups,
     :findings,
+    :failure,
     :records,
     :machinery,
     :field,
@@ -480,7 +483,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `note:`, `creates:`, `writes:`, `follow_ups:`, `findings:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `note:`, `creates:`, `writes:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1385,6 +1388,8 @@ defmodule RelaDSL.Schema do
         pre <> "follow_ups: must be a kind",
       not (spec[:findings] == nil or (kind == :fix and is_atom(spec[:findings]))) &&
         pre <> "findings: is a field of the subject, for a fix only",
+      not (spec[:failure] == nil or (spec[:ladder] == nil and is_atom(spec[:failure]))) &&
+        pre <> "failure: is a field of the subject, for a task outside any ladder",
       spec[:read_first] not in [nil, true] && pre <> "read_first: is true or left out",
       not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
     ]

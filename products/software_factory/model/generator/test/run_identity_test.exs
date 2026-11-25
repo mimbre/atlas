@@ -47,6 +47,22 @@ defmodule RelaDSL.RunIdentityTest do
 
     assert problems.([m(from: @a, to: @c, states: :same, reason: " ")]) == [{:reason, ["run"]}]
 
+    # reopen names states the migration maps; never with rekey.
+    stuck = [stuck: :open, done: :done]
+    assert problems.([m(from: @a, to: @c, states: stuck, reopen: [:stuck])]) == []
+
+    assert problems.([m(from: @a, to: @c, states: stuck, reopen: [:stuck], preserve_entry: true)]) ==
+             []
+
+    for bad <- [[:gone], [], :stuck, ["stuck"]] do
+      assert problems.([m(from: @a, to: @c, states: stuck, reopen: bad)]) == [{:reopen, ["run"]}]
+    end
+
+    assert problems.([
+             m(from: @a, to: @c, states: [open: :open, done: :done], reopen: [:done], rekey: true)
+           ]) ==
+             [{:reopen, ["run"]}]
+
     # One digest has one set of states, whichever migration names it.
     assert problems.([
              m(from: @a, to: @c, states: [open: :open]),

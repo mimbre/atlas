@@ -2776,7 +2776,9 @@ defmodule AtlasControl.Pages do
   # Pick up and Retry), and everything else, which its More… action opens. Nothing raw
   # where the flow covers it: no Delete where Remove ends the run instead, no change of
   # who has a supervised flow's work while nobody picked it up (D-0099), and no Create of
-  # what a flow makes under it. An action on the same key as a next step gives way to it.
+  # what a flow makes under it. An action on the same key as a next step gives way to it,
+  # and Pick up or Retry to an owner's answer of the same label: a state's own Retry
+  # (back to the step that failed, IS-Atlas-134) stands for the span's.
   defp offered(m, kind, k, fact, rest, form) do
     parts = item_parts(m, kind, rest)
     work = work_presentation(m, kind, fact, parts)
@@ -2786,8 +2788,13 @@ defmodule AtlasControl.Pages do
     {picks, supervising} =
       supervision_actions(m, kind, fact, work, candidates(m, kind, part_answers), form)
 
+    answers = answer_actions(kind, fact, todo)
+    answered = Enum.map(answers, & &1["label"])
+
     next =
-      answer_actions(kind, fact, todo) ++ restart_actions(m, kind, fact, parts, form) ++ picks
+      answers ++
+        restart_actions(m, kind, fact, parts, form) ++
+        Enum.reject(picks, &(&1["label"] in answered))
 
     span? = kind in span_kinds(m)
 

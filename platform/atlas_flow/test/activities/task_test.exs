@@ -956,6 +956,11 @@ defmodule AtlasFlow.Activities.TaskTest do
       refute Task.valid?(Map.put(spec, "profile", "light_work"))
       refute Task.valid?(Map.delete(spec, "records"))
 
+      # Why it failed goes to a field of the subject, for a task outside any ladder only.
+      assert Task.valid?(Map.put(spec, "failure", "task_failure"))
+      refute Task.valid?(Map.put(spec, "failure", ""))
+      refute Task.valid?(Map.merge(spec, %{"failure" => "task_failure", "ladder" => true}))
+
       # Never a URL: a scheme, or the `user@host:path` form, in either value.
       for {key, url} <- [
             {"repository", "https://example.org/acme/bench.git"},
