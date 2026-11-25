@@ -74,10 +74,19 @@ defmodule AtlasCode.Effects do
   the author's, both on `base`); an input without a `review` says that no review was made.
   Done, with `reference` and `outputs` `%{"url"}`, is that
   pull's web address. A repeat first looks the branch's pull up, so it is never opened
-  twice; a branch already at another commit is refused `branch_taken`. A result with no
-  changes against `base` (its tree is that of the commit it shares with Code's copy of
-  `base`: what the pull would show) is refused `no_changes` when it is accepted, and
-  nothing is pushed or opened.
+  twice; a branch already at another commit is refused `branch_taken`.
+
+  **No pull without changes** (IS-Atlas-64). A result with no changes against `base` is
+  refused `no_changes`, and no pull is opened. Code's copy tells first, when the request is
+  accepted: the result's tree is that of the commit it shares with `refs/heads/<base>`
+  (what the pull would show), and then nothing is pushed. When its copy cannot tell (it
+  lacks that branch, shares no commit with it, or Git fails), GitHub does, once the
+  result is pushed to its branch and before any pull is opened: its compare of
+  `base...<result>` lists the files the pull would show; none is `no_changes`. Neither
+  telling (GitHub refusing the compare, or answering without its files) is refused
+  `changes_unknown` (`details`: the `base` and why), and no pull is opened; GitHub
+  unreachable is asked again. Onto an open pull (below) a result whose changes Code's copy
+  cannot tell is refused `changes_unknown` when it is accepted, before anything is pushed.
 
   **Onto an open pull.** An `input` that names a `pull` (its web address, in that same
   repository; otherwise refused `invalid_pull`) puts the result on that pull instead: Code
@@ -219,9 +228,21 @@ defmodule AtlasCode.Effects do
                 do: fold(dir, commit, input["result"]),
                 else: commit
 
-            if unchanged?(dir, commit, input["base"]),
-              do: {:refused, "no_changes", %{"base" => input["base"]}},
-              else: {:ok, %{"dir" => dir, "commit" => commit}}
+            case {changes(dir, commit, input["base"]), Map.has_key?(input, "pull")} do
+              {:none, _} ->
+                {:refused, "no_changes", %{"base" => input["base"]}}
+
+              {:some, _} ->
+                {:ok, %{"dir" => dir, "commit" => commit}}
+
+              # Nothing pushed onto an open pull that may then show nothing.
+              {{:unknown, why}, true} ->
+                {:refused, "changes_unknown", %{"base" => input["base"], "why" => why}}
+
+              # GitHub tells, before any pull is opened.
+              {{:unknown, _why}, false} ->
+                {:ok, %{"dir" => dir, "commit" => commit, "changes" => "unknown"}}
+            end
 
           _ ->
             {:refused, "unknown_result", %{"result" => input["result"]}}
@@ -263,19 +284,38 @@ defmodule AtlasCode.Effects do
     end
   end
 
-  # Whether `commit` changes nothing against `base` in the Git repository `dir`: its tree is
-  # that of the commit it shares with the base branch, so its pull would have no files. A
-  # base Code's copy does not hold says nothing.
-  defp unchanged?(dir, commit, base) do
-    git = &System.cmd("git", ["--git-dir", dir | &1], stderr_to_stdout: true)
+  @doc """
+  Whether `commit` changes anything against the branch `base` in the Git repository `dir`
+  (Code's copy), as its pull would show it: `:none` when its tree is that of the commit it
+  shares with `refs/heads/<base>`, `:some` when it differs, `{:unknown, why}` when the copy
+  cannot tell: `"base_missing"` (no such branch), `"no_merge_base"` (no shared commit) or
+  `"git_failed"` (Git itself failed: no repository, no such commit).
+  """
+  @spec changes(Path.t(), String.t(), String.t()) :: :none | :some | {:unknown, String.t()}
+  def changes(dir, commit, base) do
+    git = fn args ->
+      try do
+        System.cmd("git", ["--git-dir", dir | args], stderr_to_stdout: true)
+      rescue
+        _ -> {"", :error}
+      end
+    end
 
-    with {out, 0} <- git.(["merge-base", commit, "refs/heads/" <> base]),
+    branch = "refs/heads/" <> base
+
+    with {:commit, {_, 0}} <- {:commit, git.(["cat-file", "-e", commit <> "^{commit}"])},
+         {:base, {_, 0}} <- {:base, git.(["rev-parse", "--verify", "--quiet", branch])},
+         {:shared, {out, 0}} <- {:shared, git.(["merge-base", commit, branch])},
          shared = String.trim(out),
-         {trees, 0} <- git.(["rev-parse", shared <> "^{tree}", commit <> "^{tree}"]),
-         [same, same] <- String.split(trees) do
-      true
+         {:trees, {trees, 0}} <-
+           {:trees, git.(["rev-parse", shared <> "^{tree}", commit <> "^{tree}"])},
+         [ours, theirs] <- String.split(trees) do
+      if ours == theirs, do: :none, else: :some
     else
-      _ -> false
+      # rev-parse --verify --quiet: 1 is no such ref; merge-base: 1 is no shared commit.
+      {:base, {_, 1}} -> {:unknown, "base_missing"}
+      {:shared, {_, 1}} -> {:unknown, "no_merge_base"}
+      _ -> {:unknown, "git_failed"}
     end
   end
 
@@ -423,11 +463,14 @@ defmodule AtlasCode.Effects do
 
     with {:ok, nil} <- module.find_pull(config, slug, branch),
          :ok <- module.push(config, slug, record["dir"], record["commit"], branch),
+         :some <- github_changes(s, record, slug),
          {:ok, url} <- module.create_pull(config, slug, pull) do
       {:outcome, published(url)}
     else
       {:ok, url} when is_binary(url) -> {:outcome, published(url)}
       {:error, :branch_taken} -> {:outcome, refused("branch_taken", %{"branch" => branch})}
+      :none -> {:outcome, refused("no_changes", %{"base" => r["input"]["base"]})}
+      {:unknown, details} -> {:outcome, refused("changes_unknown", details)}
       other -> other
     end
     |> unavailable(record["phase"])
@@ -467,6 +510,33 @@ defmodule AtlasCode.Effects do
     end
     |> unavailable(record["phase"])
   end
+
+  # Whether the pushed result changes anything against its base, as GitHub's compare of
+  # `base...<result>` lists the files its pull would show, when Code's copy could not tell
+  # (`"changes" => "unknown"`); `:some` when it could. GitHub unreachable asks again.
+  defp github_changes(s, %{"changes" => "unknown"} = record, slug) do
+    {module, config} = s.github
+    base = record["request"]["input"]["base"]
+
+    case module.compare(config, slug, base, record["commit"]) do
+      {:ok, %{"files" => 0}} ->
+        :none
+
+      {:ok, %{"files" => files}} when is_integer(files) and files > 0 ->
+        :some
+
+      {:ok, _} ->
+        {:unknown, %{"base" => base, "why" => "compare_without_files"}}
+
+      {:error, {:refused, reason}} ->
+        {:unknown, %{"base" => base, "why" => "compare_refused", "github" => reason}}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp github_changes(_s, _record, _slug), do: :some
 
   # The head is not the last one of the line: an update of it from its base, while one
   # was asked for, joins the line; anything else moved it.
