@@ -198,7 +198,8 @@ An alert is worked out from the health report each time the decider's start page
 Open with rela (D-0100). These could not be asked of the pinned rela here: the build sandbox cannot download it. To file with the rela project, after asking `rela scheduler --help` and `rela mcp`:
 
 - the core cannot tell when a scheduled task (`github-pull`) last succeeded or failed, so the syncs raise no alert yet;
-- a notification outside Control (mail, push), if the decider is to be alerted without a client open.
+- a notification outside Control (mail, push), if the decider is to be alerted without a client open;
+- a wakeup per fact (UC-Atlas-03): a durable "wake me at UTC time T about fact F" (or a scheduled task with a per-fact due field that rela evaluates), that survives a restart of rela and of its client, and fires overdue ones at once. Flow keeps each run's reconcile deadline and back-off in the run (`deadlines`) and wakes itself; with this, rela would hold the timer (and its flows engine, 26.11.9, could run Flow's timers itself).
 
 ### Secrets
 

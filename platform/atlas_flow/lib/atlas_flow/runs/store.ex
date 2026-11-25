@@ -52,7 +52,9 @@ defmodule AtlasFlow.Runs.Store do
         audit != nil ->
           {:error, :recovery_plan_conflict}
 
-        run != expected ->
+        # A reconcile back-off the engine noted since the review is not the obligation
+        # under review: it changes with every failed attempt.
+        Run.reconciled(run) != Run.reconciled(expected) ->
           {:error, :recovery_snapshot_changed}
 
         true ->
@@ -380,6 +382,31 @@ defmodule AtlasFlow.Runs.Store do
           admitted
 
       {:ok, %{runs: runs, subjects: Enum.uniq(subjects)}}
+    end
+  end
+
+  @doc """
+  Keep a failed reconcile's back-off in the run `key` names, durably (`deadlines.reconcile`:
+  `%{"due" => UTC, "failures" => n, "reason" => text}`), so a restarted engine restores it
+  instead of retrying at once. One versioned write; a completed or ended run, or one that
+  holds this back-off already, is left as it is. The next reaction of the run that ends
+  clears it (`AtlasFlow.Runs.Run.reconciled/1`). `{:ok, run}`: the run as Facts holds it.
+  """
+  def defer(nil, _key, _reconcile), do: {:ok, nil}
+
+  def defer(config, key, %{"due" => _, "failures" => _} = reconcile) do
+    with {:ok, %{} = fact} <- fetch(config, key),
+         {:ok, run} <- decode(config, fact) do
+      if run["status"] in ~w(completed ended) or run["deadlines"]["reconcile"] == reconcile do
+        {:ok, run}
+      else
+        deferred = put_in(run, ["deadlines", "reconcile"], reconcile)
+
+        with {:ok, d} <- write(config, %{fact: fact, stored: run, consumed: nil}, deferred),
+             do: {:ok, d.stored}
+      end
+    else
+      other -> {:error, {:invalid_run, key, other}}
     end
   end
 
@@ -932,9 +959,13 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # The end of a reaction: the run as Facts holds it.
+  # The end of a reaction: the run as Facts holds it. A reaction that ends has reconciled
+  # the run, so a reconcile back-off it carried (`defer/3`) is cleared in the same write.
   defp finish(config, d, run, flow, now, remaining),
-    do: stored(config, d, run, :all, flow, now, remaining, fn _d, run -> {:ok, run} end)
+    do:
+      stored(config, d, Run.reconciled(run), :all, flow, now, remaining, fn _d, run ->
+        {:ok, run}
+      end)
 
   # The accepted input the run names consumed, once per reaction, once the run that
   # accepted it is stored.

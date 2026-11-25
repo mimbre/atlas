@@ -897,6 +897,77 @@ defmodule AtlasFlow.Activities.TaskTest do
       # The run is stored before its write of the task's outcome is sent (intent first).
       wait_until(fn -> run(c)["state"] == "done" and task_values()["state"] == "completed" end)
     end
+
+    # UC-Atlas-03: killing a process or the node brings the item back with its owner. All of
+    # Flow is killed (no terminate, as a node lost) while the turn runs, and the Runtime
+    # that ran it is gone with it: it never reports that turn again.
+    test "Flow and the Runtime killed mid-turn: the run comes back in its state, with its supervisor, one task, the turn offered again once",
+         c do
+      source(c, engine: AtlasFlow.Engine)
+      bin("B-1", "mini")
+      engine = engine(c)
+      Engine.idle(engine)
+      wait_until(fn -> match?({:ok, _}, Bases.cached(@repository, "develop")) end)
+      supervise(c, "ada")
+      Engine.round(engine)
+      before = run(c)
+      assert {before["state"], before["supervised_by"]} == {"loading", "ada"}
+      %{lease_id: lease} = lease!(@mini)
+      assert {:recorded, _} = report(@mini, lease, 1, %{state: :accepted})
+      assert {:recorded, _} = report(@mini, lease, 2, %{state: :started})
+
+      # Killed, all at once; their supervisor starts each again, from Facts alone.
+      killed =
+        for name <- [AtlasFlow.Engine, Delivery, Dispatch, Bases] do
+          pid = Process.whereis(name)
+          Process.exit(pid, :kill)
+          {name, pid}
+        end
+
+      wait_until(fn ->
+        Enum.all?(killed, fn {name, old} -> Process.whereis(name) not in [nil, old] end)
+      end)
+
+      engine = Process.whereis(AtlasFlow.Engine)
+      Engine.idle(engine)
+
+      # The run is where it was, with its supervisor and its one task.
+      after_kill = run(c)
+
+      assert Map.take(after_kill, ~w(state entry status supervised_by)) ==
+               Map.take(before, ~w(state entry status supervised_by))
+
+      assert after_kill["pending"]["task"]["key"] == @task
+      assert FakeFacts.get("task", "TK-B-1-2") == nil
+
+      # The Runtime, started again, holds nothing: the cut-off turn is stopped (restart),
+      # runs out unrenewed and is lost at its expiry and grace.
+      assert {:polled, %{leases: []}} = poll(@mini, [], %{})
+      Dispatch.sweep()
+      AtlasFlow.FakeFacts.Leasing.advance(c, 900)
+      Dispatch.sweep()
+      AtlasFlow.FakeFacts.Leasing.advance(c, 120)
+      Dispatch.sweep()
+      wait_until(fn -> task_values()["lease_state"] == "lost" end)
+
+      # A silent turn: its run counts it at once (Delivery's reconcile on the fence), and it
+      # is offered again once, on a fresh attempt of the same task, to the same holder.
+      wait_until(fn ->
+        :sys.get_state(engine)
+        Translate.retried(run(c)["pending"]["task"]) == [1]
+      end)
+
+      %{lease_id: fresh, work: %{work_key: @task}} = lease!(@mini)
+      assert {:polled, %{leases: []}} = poll(@mini, [fresh])
+
+      assert fresh != lease and task_values()["attempt"] == 2
+      assert run(c)["supervised_by"] == "ada"
+
+      # It ends once: the run is done, and no second task was ever made.
+      assert {:recorded, _} = work(@mini, fresh, L.ended(nil, check: check(0)))
+      wait_until(fn -> run(c)["state"] == "done" and task_values()["state"] == "completed" end)
+      assert FakeFacts.get("task", "TK-B-1-2") == nil
+    end
   end
 
   describe "through the application" do

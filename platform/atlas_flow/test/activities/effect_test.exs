@@ -400,6 +400,39 @@ defmodule AtlasFlow.Activities.EffectTest do
       assert [_] = crates()
     end
 
+    # UC-Atlas-03: Flow killed mid-effect (no terminate, as a node lost) while the
+    # receiver works on the request: the answer reaches no one, and Flow, started again
+    # from the run in Facts alone, recovers it by lookup under the same id.
+    test "Flow killed while the receiver works on the effect: one operation, its original result",
+         c do
+      :sys.suspend(c.receiver)
+      {:ok, [sent]} = reconcile(c)
+      frozen = sent["pending"]["effect"]
+      assert sent["state"] == "publishing"
+
+      inbox = Process.whereis(Effect.Inbox)
+      Process.exit(inbox, :kill)
+      wait_until(fn -> Process.whereis(Effect.Inbox) not in [nil, inbox] end)
+      :sys.resume(c.receiver)
+      barrier(c)
+      [{id, "create", "artifact-1"}] = EffectReceiver.operations(c.dir)
+      assert id == frozen["request"]["id"]
+
+      # Its state and frozen request are as stored; the retry is a lookup, never a second
+      # create.
+      {:ok, [waiting]} = reconcile(c)
+      assert waiting["state"] == "publishing" and waiting["pending"]["effect"] == frozen
+      ManualClock.advance(c.clock, 1000)
+      {:ok, _} = reconcile(c)
+      barrier(c)
+      {:ok, [done]} = reconcile(c)
+      assert done["state"] == "done" and done["status"] == "completed"
+      assert [%{"request" => request, "result" => result}] = done["pending"]["effects"]
+      assert request == frozen["request"] and result["reference"] == "artifact-1"
+      assert length(EffectReceiver.operations(c.dir)) == 1
+      assert [_] = crates()
+    end
+
     test "a lookup that finds nothing submits the same request again, once", c do
       # The first submit never reaches the receiver.
       stop_supervised!(EffectReceiver)
@@ -587,6 +620,14 @@ defmodule AtlasFlow.Activities.EffectTest do
   end
 
   defp barrier_inbox, do: :sys.get_state(Effect.Inbox)
+
+  defp wait_until(fun, tries \\ 100) do
+    cond do
+      fun.() -> :ok
+      tries == 0 -> flunk("the condition did not hold")
+      true -> Process.sleep(10) && wait_until(fun, tries - 1)
+    end
+  end
 
   defp restart_inbox do
     :ok = Supervisor.terminate_child(AtlasFlow.Root, Effect.Inbox)
