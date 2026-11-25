@@ -41,9 +41,22 @@ defmodule AtlasFlow.BasesTest do
     do: fake |> FakeCode.calls() |> Enum.count(&(elem(&1, 0) == capability))
 
   # Once `until` holds, checked after each message Bases handles (its task's answer among
-  # them), each time once Bases has handled it.
+  # them), each time once Bases has handled it; then once Bases is done with the message
+  # the check may have seen it handling (its table is written before its retry is scheduled).
   defp settle(context, until) do
     assert AtlasTestAwait.until(until, wake: {:trace, context.name})
+    :sys.get_state(context.name)
+  end
+
+  # Once Code holds Bases' one call, checked after each message FakeCode handles: Bases'
+  # task makes that call, not Bases. Then once Bases has handled the request, the timeout it
+  # schedules after starting that task among it.
+  defp blocked(context) do
+    assert AtlasTestAwait.until(fn -> FakeCode.blocked(context.fake) == 1 end,
+             wake: {:trace, context.fake}
+           )
+
+    :sys.get_state(context.name)
   end
 
   describe "a base" do
@@ -527,7 +540,7 @@ defmodule AtlasFlow.BasesTest do
       assert {:ok, {caller_pid, :ok, :ok, :missing}} = Task.yield(caller, 1_000)
 
       # One resolution for both requests, waiting on Code in a process of its own.
-      settle(context, fn -> FakeCode.blocked(context.fake) == 1 end)
+      blocked(context)
       assert Bases.cached(@repository, "develop", context.name) == :missing
       callers = context.fake |> FakeCode.calls() |> Enum.map(&elem(&1, 1))
       refute caller_pid in callers
@@ -547,7 +560,7 @@ defmodule AtlasFlow.BasesTest do
       FakeCode.mode(context.fake, :blocked)
       start_bases(context)
       :ok = Bases.request(@repository, "develop", {self(), :ready}, context.name)
-      settle(context, fn -> FakeCode.blocked(context.fake) == 1 end)
+      blocked(context)
 
       ManualClock.advance(context.clock, 14_999)
       :sys.get_state(context.name)
