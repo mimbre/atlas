@@ -1901,7 +1901,8 @@ defmodule AtlasCode.Service do
          %{"target" => base, "title" => title, "body" => body} = request
        ) do
     body_file = file <> ".body.tmp"
-    File.write!(body_file, body)
+    # Merging the pull closes no other pull or issue (IS-Atlas-136).
+    File.write!(body_file, AtlasCode.ClosingKeywords.defuse(body))
 
     try do
       args = ["pr", "create", "--repo=" <> slug, "--head=" <> location, "--base=" <> base]

@@ -190,6 +190,67 @@ defmodule AtlasCode.EffectsTest do
     refute body =~ "**Fix.**"
   end
 
+  # GitHub's closing references, as GitHub reads them: a keyword, an optional colon, white
+  # space, then `#n` or `owner/repo#n`.
+  @github_closes ~r/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+(?:[\w.-]+\/[\w.-]+)?#\d+/i
+
+  test "a published pull's body closes no other pull or issue on merge (IS-Atlas-136)", c do
+    result = FakeGitHub.sha("closing")
+    ref = "refs/atlas/results/TK-JB-1-4"
+
+    results = fn
+      "github.com/o/r", ^ref -> {:ok, %{"dir" => "/cache.git", "commit" => result}}
+      _, _ -> :error
+    end
+
+    s =
+      Effects.new(
+        dir: c.dir,
+        github: {FakeGitHub, FakeGitHub.config(c.gh)},
+        repositories: ["o/r"],
+        results: results
+      )
+
+    description = "This fixes #12. Closes owner/repo#3; closed #512/#514 earlier. See #12."
+
+    r =
+      request(nil, %{
+        "id" => String.duplicate("8", 64),
+        "name" => "publish",
+        "subject" => "JB-1",
+        "operation" => "publish",
+        "fingerprint_definition" => %{"fields" => ["title"], "relations" => []},
+        "payload" => %{"title" => "Fix the README", "description" => description},
+        "input" => %{
+          "repository" => "github.com/o/r",
+          "base" => "main",
+          "result" => ref,
+          "review" => %{
+            "task" => "TK-JB-1-2",
+            "verdict" => "approved",
+            "findings" => ["Resolves: #7 too."]
+          },
+          "fix" => %{"task" => "TK-JB-1-3", "answer" => "FIXED #9"}
+        }
+      })
+      |> Map.drop(["target", "approved"])
+
+    assert Regex.match?(@github_closes, description)
+    assert %{"status" => "done", "outputs" => %{"url" => url}} = call(s, "submit", r)
+    number = url |> String.split("/") |> List.last() |> String.to_integer()
+    body = FakeGitHub.get_pull(c.gh, number)["body"]
+
+    refute Regex.match?(@github_closes, body), body
+    # A person still reads every reference; one without a keyword is untouched.
+    for reference <- ["#12", "owner/repo#3", "#512/#514", "#7", "#9"],
+        do: assert(body =~ reference)
+
+    assert body =~ "fixes (#12)"
+    assert body =~ "Closes (owner/repo#3)"
+    assert body =~ "closed (#512/#514)"
+    assert body =~ "See #12."
+  end
+
   test "a result onto an open pull is pushed to its branch, never forced; done with its address",
        c do
     # The pull Code opened from the author's result; the CI fix's result sits on it. Code's

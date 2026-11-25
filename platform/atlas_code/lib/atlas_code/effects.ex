@@ -662,7 +662,8 @@ defmodule AtlasCode.Effects do
   defp published(url), do: %{"status" => "done", "reference" => url, "outputs" => %{"url" => url}}
 
   # The pull's body: the subject's description, its review and fix, what merging it does, and
-  # who wrote it.
+  # who wrote it. No closing keyword in it reaches a reference (IS-Atlas-136): merging the pull
+  # closes nothing but what Atlas itself closes.
   defp body(r, task) do
     description = r["payload"]["description"]
 
@@ -677,6 +678,7 @@ defmodule AtlasCode.Effects do
       |> Enum.reject(&is_nil/1),
       "\n\n"
     )
+    |> AtlasCode.ClosingKeywords.defuse()
   end
 
   defp review(%{"task" => task} = review) do

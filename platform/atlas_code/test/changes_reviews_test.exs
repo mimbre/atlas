@@ -390,6 +390,15 @@ defmodule AtlasCode.ChangesReviewsTest do
       assert Enum.count(calls, &String.contains?(&1, "pr create")) == 1
     end
 
+    test "the review's pull closes no other pull or issue on merge (IS-Atlas-136)",
+         %{dir: dir} = context do
+      sealed(context, uuid(42), "github.com/test/app", %{"README.md" => "closing\n"})
+      input = %{review(uuid(43), uuid(42)) | body: "Fixes #12, see #13." <> @attribution}
+
+      assert %Outcome.Review{state: :open} = Boundary.create_review(@client, input)
+      assert File.read!(Path.join(dir, "pr-body")) == "Fixes (#12), see #13." <> @attribution
+    end
+
     test "a repository without a provider gets its pushed location as the review, no link",
          %{dir: dir, remote: remote} = context do
       sealed(context, uuid(42), "github.com/test/plain", %{"README.md" => "plain\n"})
