@@ -83,7 +83,7 @@ defmodule RelaDSL.Description.Subflows do
       case s.mechanism do
         {:task, %{} = spec} ->
           for(
-            name <- [spec[:findings], spec[:failure]],
+            name <- [spec[:findings], spec[:failure], asked_field(spec[:asks])],
             is_atom(name) and name != nil,
             do: to_string(name)
           ) ++ if(is_list(spec[:input]), do: update_field(spec[:input]), else: [])
@@ -104,6 +104,10 @@ defmodule RelaDSL.Description.Subflows do
             )
           )
   end
+
+  # The subject's field a task's questions go to (`asks:`).
+  defp asked_field(asks) when is_list(asks), do: if(Keyword.keyword?(asks), do: asks[:field])
+  defp asked_field(_asks), do: nil
 
   defp update_field(input) do
     case Keyword.keyword?(input) && input[:update] do

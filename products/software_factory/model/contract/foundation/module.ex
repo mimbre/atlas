@@ -1,6 +1,7 @@
 defmodule Model.Foundation do
   @moduledoc """
-  Foundation: the actors (people, agents and machinery), Assignments and turns, the
+  Foundation: the actors (people, agents and machinery), a machinery's upgrades,
+  Assignments and turns, the
   tasks Flow defines and their attempts, guidance records,
   the decision ledger with its gate verdicts, To-Dos (work no flow covers), and the
   durable flow runs. Every
@@ -14,6 +15,7 @@ defmodule Model.Foundation do
       Model.Assignment,
       Model.Turn,
       Model.Machinery,
+      Model.RuntimeUpgrade,
       Model.Task,
       Model.TaskAttempt,
       Model.Guidance,

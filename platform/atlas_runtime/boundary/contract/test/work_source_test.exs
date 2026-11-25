@@ -48,12 +48,13 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
                :policy_version,
                :offer,
                :holdings,
-               :configuration_refused
+               :configuration_refused,
+               :upgrade
              ]
 
     assert field(:poll_input, :offer).type == {:map, :integer}
     assert fields(:holding) == [:lease_id, :state, :last_progress_at]
-    assert fields(:polled) == [:leases, :cancel, :lease_lost, :timing, :configuration]
+    assert fields(:polled) == [:leases, :cancel, :lease_lost, :timing, :configuration, :upgrade]
     assert fields(:lease) == [:lease_id, :expires_at, :work]
     assert field(:timing, :poll_max).range == {1, 25}
   end
@@ -66,6 +67,20 @@ defmodule AtlasRuntimeBoundary.WorkSourceTest do
     assert field(:configuration_refusal, :reason).required
     refute field(:polled, :configuration).required
     assert field(:polled, :configuration).type == :string
+  end
+
+  test "IS-Atlas-26: an upgrade rides the poll, optional both ways" do
+    refute field(:poll_input, :upgrade).required
+    assert field(:poll_input, :upgrade).type == :upgrade_report
+    assert fields(:upgrade_report) == [:id, :mode, :busy, :update, :step, :reason]
+    assert field(:upgrade_report, :busy).type == {:list, :string}
+
+    assert field(:upgrade_report, :update).type ==
+             {:enum, [:none, :running, :refused, :failed, :installed]}
+
+    refute field(:polled, :upgrade).required
+    assert fields(:upgrade_order) == [:id, :build, :action]
+    assert field(:upgrade_order, :action).type == {:enum, [:drain, :update, :resume]}
   end
 
   test "§5.1: work as offered has no slot, folder, resume_from or repository; its input is a base" do

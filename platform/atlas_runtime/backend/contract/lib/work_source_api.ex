@@ -30,7 +30,9 @@ defmodule AtlasRuntimeBackend.WorkSource do
   # body may carry configuration_refused (boundary 0.4.0, IS-Atlas-27), sent only when the
   # Runtime has a refusal to report, so a 0.2.0 source never receives it. 0.4.0: put_blob is
   # gone (boundary 0.5.0, IS-Atlas-100); a 0.3.0 Runtime calls it only for blobs a source
-  # names as missing, and a 0.4.0 source names none.
+  # names as missing, and a 0.4.0 source names none. The poll body may also carry upgrade
+  # (boundary 0.5.0, IS-Atlas-26), sent only while a source ordered an upgrade, so a 0.3.0
+  # source never receives it.
   version "0.4.0"
   boundary AtlasRuntimeBoundary.WorkSource
 

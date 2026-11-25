@@ -165,6 +165,47 @@ defmodule Model.PipelineRunsTest do
     end
   end
 
+  # UC-Atlas-24: a scene too vague to design use cases from goes to its producer, whose
+  # answer takes it back to its break-down.
+  test "Design asks: its producer answers, and its break-down runs again" do
+    {:ok, actors} = AtlasBus.Actors.resolve(Model.AtlasEyra.actors(), %{"decider" => "someone"})
+
+    for env <- @envs do
+      f = flow(env, "break_down_scene")
+      values = %{"phase" => "break_down"}
+      run = new(env, "break_down_scene", "SC-1", values)
+      {:task, spec} = f.mechanism("break_down")
+      assert spec["asks"] == %{"field" => "questions", "file" => "questions.md"}
+      assert ~w(title description questions answers) -- spec["fields"] == []
+      assert spec["instructions"] =~ "write your questions to questions.md and nothing else"
+
+      # Asked: to its producer, the configured decider until a scene records its producer.
+      asked = %{"key" => "TK-SC-1-1", "outcome" => "completed"}
+      {:ok, clarifying} = Run.task_result(run, f, fact("SC-1", values), @now, "asked", asked, [])
+      assert at(clarifying) == {"clarifying", "active"}
+      assert written(clarifying) == [%{"verdict" => "none"}]
+      assert AtlasFlow.Model.owner(f.owner("clarifying")["default"], actors) == actors["decider"]
+
+      assert %{"expected" => "Answer its questions", "todo" => todo} =
+               f.present("clarifying", %{})
+
+      assert todo["section"] == %{"field" => "questions", "label" => "Its agent's questions"}
+
+      assert [%{"label" => "Answered", "note" => true, "change" => change}] = todo["answers"]
+      assert change["values"] == %{"verdict" => "answered", "answers" => "$note"}
+
+      # Answered: back to its break-down, in the same run, which keeps its supervisor.
+      answered = Map.merge(values, %{"verdict" => "answered", "answers" => "For newcomers."})
+      {:ok, again} = step(env, "break_down_scene", sent(clarifying), "SC-1", answered)
+      assert at(again) == {"break_down", "active"}
+      assert again["generation"] == run["generation"]
+
+      # The span is the whole flow, clarifying too.
+      [span] = Model.AtlasEyra.supervision()["spans"]["break_down_scene"]
+      assert "clarifying" in span["states"]
+    end
+  end
+
   test "a use case: Plan, then accepted by itself once its issues are done" do
     for env <- @envs do
       new_one = %{"phase" => "break_down"}

@@ -694,6 +694,48 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
+    # A proposing task may ask instead (`asks:`): a result of its own, `asked`, to map.
+    test "a task that may ask its questions ends asked, a result it maps" do
+      creates = ~s(creates: [kind: :page, file: "pages.json"],)
+      asks = ~s(asks: [field: :questions, file: "questions.md"],)
+      five = "on: [completed: :b, check_failed: :c, stuck: :c, abandoned: :c, asked: :c]"
+
+      [%{states: [a | _]}] = compile!(task_source(creates <> " " <> asks, five)).__flows__()
+
+      assert {:task, %{asks: [field: :questions, file: "questions.md"]}} = a.mechanism
+      assert {:c, ["atlas-flow"], "entity.task_result == 'asked'"} in branches(a)
+
+      refused(
+        task_source(creates <> " " <> asks),
+        6,
+        "state a: task author can give asked, which no branch takes"
+      )
+
+      refused(
+        task_source(creates, five),
+        6,
+        "state a: task author never gives asked"
+      )
+
+      refused(
+        task_source(asks, five),
+        6,
+        "state a: task author: asks: goes beside creates: or writes:, what it asks instead of"
+      )
+
+      refused(
+        task_source(creates <> ~s( asks: [field: :questions],), five),
+        6,
+        "state a: task author: asks: must be [field: field, file: text]"
+      )
+
+      refused(
+        task_source(creates <> ~s( asks: [field: :questions, file: "pages.json"],), five),
+        6,
+        "state a: task author: asks: names a file of its own, not its proposal's"
+      )
+    end
+
     # IS-Atlas-100: results travel over Git; no task is a step of a review → fix ladder,
     # and none starts from the loop's change set.
     test "a task is no ladder step: ladder: and the loop's [result:, access:] input are refused" do
@@ -960,6 +1002,17 @@ defmodule RelaDSL.SchemaTest do
 
       refused(
         owned("owner default: {:team, config: :desk, key: :desk}"),
+        2,
+        "owner default must be {kind, key} or {kind, config: role}"
+      )
+
+      # Kept from the run's supervisor inside a span: the configured actor still.
+      kept = compile!(owned("owner default: {:clerk, config: :decider, supervisor: false}"))
+      [flow] = kept.__flows__()
+      assert flow.owner.default == %{kind: :clerk, config: :decider, supervisor: false}
+
+      refused(
+        owned("owner default: {:clerk, config: :decider, supervisor: true}"),
         2,
         "owner default must be {kind, key} or {kind, config: role}"
       )

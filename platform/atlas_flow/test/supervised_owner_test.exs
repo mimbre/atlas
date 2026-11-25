@@ -635,5 +635,14 @@ defmodule AtlasFlow.SupervisedOwnerTest do
       ada = %{"kind" => "clerk", "key" => "ada"}
       assert AtlasFlow.Model.owner(ada, actors, run) == ada
     end
+
+    # A state that asks the subject's producer, in a span: the configured actor, while the
+    # run keeps its supervisor.
+    test "the decider that is not the supervisor stays the configured actor in a span" do
+      run = %{"state" => "check", "spans" => @spans, "supervised_by" => @sam}
+      producer = Map.put(@decider, "supervisor", false)
+      refute AtlasFlow.Model.supervisable?(producer)
+      assert AtlasFlow.Model.owner(producer, @actors, run) == %{"kind" => "clerk", "key" => "dee"}
+    end
   end
 end

@@ -75,7 +75,7 @@ defmodule Model.Issue do
 
     field(:gate_result, :string,
       description:
-        "Flow: the last gate verdict, or a maintainer's choice (none, review, rework, ready, person, close, retry, publish)"
+        "Flow: the last gate verdict, or a maintainer's choice (none, review, rework, ready, person, close, retry, publish, rebuild)"
     )
 
     field(:effect_result, :string,

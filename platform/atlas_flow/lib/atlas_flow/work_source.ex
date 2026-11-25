@@ -8,7 +8,7 @@ defmodule AtlasFlow.WorkSource do
 
   | Capability   | Outcomes                                                           |
   |--------------|--------------------------------------------------------------------|
-  | `poll/2`     | `{:polled, %{leases, cancel, lease_lost, timing, configuration?}}`, `{:rejected, :invalid}` |
+  | `poll/2`     | `{:polled, %{leases, cancel, lease_lost, timing, configuration?, upgrade?}}`, `{:rejected, :invalid}` |
   | `report/2`   | `{:recorded, %{missing}}`, `:lease_lost`, `{:rejected, :conflict \\| :invalid}`, `:unavailable` |
   | `get_blob/2` | `{:blob, %{sha256, size, content}}`, `:not_found`, `{:rejected, :invalid}` |
 
@@ -38,16 +38,31 @@ defmodule AtlasFlow.WorkSource do
   @doc """
   `poll`: renew holdings, grant leases within the offer, name cancels and lost leases; and
   the Runtime's configuration (IS-Atlas-27, `AtlasFlow.WorkSource.Configuration`), recorded
-  first and served in the answer while the Runtime runs another version.
+  first and served in the answer while the Runtime runs another version; and its upgrade
+  (IS-Atlas-26, `AtlasFlow.WorkSource.Upgrade`), moved on first and its order served.
   """
   def poll(client, input, opts \\ []) do
-    configuration = Delivery.configuration(client, input, Keyword.get(opts, :delivery, Delivery))
+    delivery = Keyword.get(opts, :delivery, Delivery)
+    configuration = Delivery.configuration(client, input, delivery)
+    upgrade = Delivery.upgrade(client, input, delivery)
 
-    case {Dispatch.poll(client, input, Keyword.get(opts, :dispatch, Dispatch)), configuration} do
-      {{:polled, polled}, {:serve, document}} ->
-        {:polled, Map.put(polled, :configuration, document)}
+    case Dispatch.poll(client, input, Keyword.get(opts, :dispatch, Dispatch)) do
+      {:polled, polled} ->
+        polled =
+          case configuration do
+            {:serve, document} -> Map.put(polled, :configuration, document)
+            :none -> polled
+          end
 
-      {answer, _} ->
+        polled =
+          case upgrade do
+            {:serve, order} -> Map.put(polled, :upgrade, order)
+            :none -> polled
+          end
+
+        {:polled, polled}
+
+      answer ->
         answer
     end
   end

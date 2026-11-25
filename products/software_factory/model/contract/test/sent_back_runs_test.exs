@@ -4,7 +4,9 @@ defmodule Model.SentBackRunsTest do
   its supervisor answers Not accepted, with a note (a use case's `supervisor_note`, a
   scene's `note`): Flow deletes what its agent's proposal made, leaves what was added by
   hand, and takes the run back to its break-down, whose new task reads the note under its
-  own heading. Run by `AtlasFlow.Runs.Store` with `AtlasFlow.FakeFacts`, the work source's
+  own heading. A scene too vague to design use cases from goes back the other way first
+  (UC-Atlas-24): its agent asks, Flow puts the questions on the scene, "Answer its
+  questions" goes to its producer, whose answer starts a fresh pass that reads them. Run by `AtlasFlow.Runs.Store` with `AtlasFlow.FakeFacts`, the work source's
   processes on `AtlasFlow.FakeCode` and a manual clock, as `Model.IssueRunsTest` is.
   """
   use ExUnit.Case, async: false
@@ -150,6 +152,78 @@ defmodule Model.SentBackRunsTest do
     end
   end
 
+  test "Design asks its producer instead of guessing, and continues once they answer", c do
+    p = @design
+    subject(p)
+    assert reconcile(c, p)["state"] == "break_down"
+    supervise(c, p)
+
+    first = "TK-#{p.key}-1"
+    run = intent(c, p)
+    assert run["pending"]["task"]["work"]["instructions"] =~ "`questions.md`"
+    assert {:ok, _} = AtlasFlow.Runs.Projection.project(c.runner, p.kind, p.key)
+
+    # Its agent writes questions, and no proposal.
+    questions = "1. Who are the newcomers?\n2. What do they read first?"
+    work(c, p, first, %{"questions.md" => questions <> "\n"})
+    clarifying = until(c, p, "clarifying")
+    assert [%{"key" => ^first, "outcome" => "completed"} = task] = clarifying["pending"]["tasks"]
+    refute Map.has_key?(task, "made")
+    assert clarifying["supervised_by"] == "ada"
+
+    # Flow wrote them on the scene, for its supervisor; nothing was made under it.
+    scene = FakeFacts.get("scene", p.key)
+    assert scene["values"]["questions"] == questions
+    assert [write] = for(w <- FakeFacts.stored_from_flow(), w["values"]["questions"], do: w)
+    assert {write["by"], write["cause"]} == {"flow", "For ada: asked by #{first}"}
+    assert FakeFacts.get("use_case", "UC-Atlas-01") == nil
+
+    # Its producer (the configured decider, here bo), not its supervisor ada, has the
+    # to-do, with the questions and Answered, once the Engine projects it.
+    FakeFacts.put("person", %{"key" => "bo"})
+    producer = AtlasFlow.Model.load(Model.AtlasEyra, :test, %{"decider" => "bo"})
+    assert {:ok, %{waits: nil}} = AtlasFlow.Runs.Projection.project(producer, p.kind, p.key)
+    assignment = FakeFacts.get("assignment", "AS-" <> p.key)
+    assert assignment["links"]["assigned_to"] == ["bo"]
+    assert assignment["values"]["flow_state"] == "clarifying"
+
+    presenter = Enum.find(Model.AtlasEyra.presentation(), &(&1["subject"] == p.kind))
+
+    shown =
+      AtlasFacts.Presentation.view(presenter, assignment, scene, [clarifying], fn -> false end)
+
+    parts = %{"assignment" => Map.put(assignment, "presentation", shown)}
+
+    assert %{expected: "Answer its questions", section: section, answers: [answered]} =
+             Model.AtlasEyra.todo(p.kind, scene, parts, %{key: "bo", kind: "person"})
+
+    assert section == %{heading: "Its agent's questions", text: questions}
+    assert %{label: "Answered", note: true, change: true} = answered
+
+    # It rewrites the description, then answers with a note (as Control writes the answer).
+    description = "Newcomers to the team read the README first, then the guides."
+    answers = "New developers. The README."
+    change(p, %{"description" => description, "verdict" => "answered", "answers" => answers})
+
+    # A fresh pass of its agent, in the same run, reads the questions, the answers and the
+    # description as it is now.
+    second = "TK-#{p.key}-2"
+    again = intent(c, p)
+    assert {again["state"], again["generation"]} == {"break_down", clarifying["generation"]}
+    assert again["supervised_by"] == "ada"
+    assert %{"key" => ^second} = again["pending"]["task"]
+    instructions = again["pending"]["task"]["work"]["instructions"]
+    assert instructions =~ "## description\n\n#{description}"
+    assert instructions =~ "## questions\n\n#{questions}"
+    assert instructions =~ "## answers\n\n#{answers}"
+
+    # It proposes this time, and Flow makes the use cases as before; Accept it is next.
+    work(c, p, second, %{p.file => JSON.encode!([%{"title" => "Read the README"}])})
+    accepting = until(c, p, "accepting")
+    assert [_, %{"key" => ^second, "made" => [[_, made]]}] = accepting["pending"]["tasks"]
+    assert FakeFacts.get(p.child, made)["links"][p.under] == [p.key]
+  end
+
   defp sent_back(c, p) do
     subject(p)
     assert reconcile(c, p)["state"] == "break_down"
@@ -261,20 +335,26 @@ defmodule Model.SentBackRunsTest do
     {lease, work}
   end
 
-  # The task's lease worked to its end, its result commit holding its proposal.
-  defp work(c, p, task, proposal) do
+  # The task's lease worked to its end, its result commit holding its proposal (or the
+  # files given).
+  defp work(c, _p, task, files) when is_map(files) do
     {lease, _work} = lease!()
 
-    FakeCode.put(c.code, @repository, "refs/atlas/results/" <> task, "rev_#{task}", %{
-      "README.md" => "# Atlas\n",
-      p.file => JSON.encode!(proposal)
-    })
+    FakeCode.put(
+      c.code,
+      @repository,
+      "refs/atlas/results/" <> task,
+      "rev_#{task}",
+      Map.put(files, "README.md", "# Atlas\n")
+    )
 
     report = &WorkSource.report(@mini, %{lease_id: lease, revision: &1, report: &2})
     assert {:recorded, _} = report.(1, %{state: :accepted})
     assert {:recorded, _} = report.(2, %{state: :started})
     assert {:recorded, _} = report.(3, L.ended(nil))
   end
+
+  defp work(c, p, task, proposal), do: work(c, p, task, %{p.file => JSON.encode!(proposal)})
 
   defp intent(c, p, rounds \\ 50) do
     run = reconcile(c, p)

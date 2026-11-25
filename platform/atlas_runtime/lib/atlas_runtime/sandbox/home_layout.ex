@@ -51,7 +51,11 @@ defmodule AtlasRuntime.Sandbox.HomeLayout do
               "clients.json",
               "sources",
               "local-source",
-              "bases"
+              "bases",
+              # A supervised upgrade's update command (IS-Atlas-26): its record, lock and log.
+              "update.json",
+              "update.lock",
+              "update.log"
             ]
 
   # The atomic-write temps in the home, in sensitiveHomeNames' order (codex.go:181-182): the
@@ -66,7 +70,10 @@ defmodule AtlasRuntime.Sandbox.HomeLayout do
     "availability.json.tmp",
     "execution-events.json.tmp",
     "mode.json.tmp",
-    "clients.json.tmp"
+    "clients.json.tmp",
+    "update.json.tmp",
+    "update.lock.tmp",
+    "update.log.tmp"
   ]
 
   # The managed repositories' worker directories (siblingWorkerGlobs, codex.go:224-258).
