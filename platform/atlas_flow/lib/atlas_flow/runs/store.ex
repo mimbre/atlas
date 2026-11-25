@@ -610,9 +610,26 @@ defmodule AtlasFlow.Runs.Store do
     matched = Run.match_states(run, flow)
 
     cond do
-      matched != run -> step(config, d, run, matched, flow, now, remaining)
-      Run.state_removed?(run, flow) -> finish(config, d, run, flow, now, remaining)
-      true -> resume(config, d, run, flow, now, remaining)
+      Run.state_removed?(run, flow) ->
+        state_removed(config, d, run, matched, flow, now, remaining)
+
+      matched != run ->
+        step(config, d, run, matched, flow, now, remaining)
+
+      true ->
+        resume(config, d, run, flow, now, remaining)
+    end
+  end
+
+  # A run in a state its subflow does not have reads nothing else, but it still ends when
+  # its subject is gone: else it would wait in every round's plan for a state to come back
+  # for a subject that never will.
+  defp state_removed(config, d, run, matched, flow, now, remaining) do
+    case Talk.read(run["subject_kind"], %{"key" => run["subject_key"], "plain" => true}) do
+      %{"fact" => %{}} when matched != run -> step(config, d, run, matched, flow, now, remaining)
+      %{"fact" => %{}} -> finish(config, d, run, flow, now, remaining)
+      %{"fact" => nil} -> subject_removed(config, d, run, flow, now, remaining)
+      other -> {:error, {:subject_unavailable, other}}
     end
   end
 
@@ -720,12 +737,16 @@ defmodule AtlasFlow.Runs.Store do
 
   # Store the new generation before consuming its request on the old one. A crash or
   # lost create acknowledgement finds the same next key, even if that run already ended.
-  defp restart_requested(config, _d, run, flow, input, now, remaining) do
-    with %{"fact" => %{} = subject} <-
-           Talk.read(run["subject_kind"], %{
-             "key" => run["subject_key"],
-             "plain" => true
-           }),
+  # A restart of a subject that is gone ends the run instead (`subject_removed`).
+  defp restart_requested(config, d, run, flow, input, now, remaining) do
+    case Talk.read(run["subject_kind"], %{"key" => run["subject_key"], "plain" => true}) do
+      %{"fact" => nil} -> subject_removed(config, d, run, flow, now, remaining)
+      answer -> restart(config, answer, run, flow, input, now, remaining)
+    end
+  end
+
+  defp restart(config, answer, run, flow, input, now, remaining) do
+    with %{"fact" => %{} = subject} <- answer,
          {:ok, new} <- Run.restart(run, flow, subject, now),
          new =
            put_in(new, ["pending", "restart"], %{
