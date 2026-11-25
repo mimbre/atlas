@@ -13,7 +13,8 @@ defmodule AtlasControl.HealthPage do
     until now; otherwise the last finished round, from its due to its end. Late past
     2 min. A Flow that does not answer is late.
   - **Facts' queue**: the requests waiting at Facts' endpoint, unread
-    (`AtlasBus.waiting/1`), counted without asking Facts. No limit yet: shown only.
+    (`AtlasBus.waiting/1`), counted without asking Facts: writes, and the few reads Facts
+    answers itself (most are answered where they are sent). No limit yet: shown only.
   - **Runtimes**: each Runtime's last poll of Dispatch, late past 10 min. Only Runtimes
     that polled since the core started are known.
 

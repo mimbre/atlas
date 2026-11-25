@@ -1,3 +1,10 @@
+defmodule AtlasBusTest.Reader do
+  @moduledoc "A store's reader: answers `here`, passes `pass`, fails on `fail`."
+  def answer(:reader, _envelope, %{"here" => n}), do: {:answer, %{"here" => n, "in" => self()}}
+  def answer(:reader, _envelope, %{"pass" => _}), do: :pass
+  def answer(:reader, _envelope, %{"fail" => _}), do: raise("the reader fails")
+end
+
 defmodule AtlasBusTest do
   use ExUnit.Case, async: false
 
@@ -26,6 +33,7 @@ defmodule AtlasBusTest do
       {:atlas_bus, envelope, content} -> send(test, {name, envelope, content})
       {:send, envelope, content} -> send(test, {:sent, name, AtlasBus.send(envelope, content)})
       {:settle, ref} -> send(test, {:settled, ref})
+      {:answer_reads, reader} -> send(test, {:answering, AtlasBus.answer_reads(reader)})
     end
 
     loop(test, name)
@@ -255,5 +263,77 @@ defmodule AtlasBusTest do
     assert AtlasBus.waiting("waiting-test") == 3
     assert AtlasBus.waiting("nobody-is-attached-as-this") == nil
     send(busy, :go)
+  end
+
+  defp answering(store) do
+    send(Process.get({:endpoint, store}), {:answer_reads, {AtlasBusTest.Reader, :reader}})
+    assert_receive {:answering, :ok}
+  end
+
+  test "a store's reader answers a read in the sending process, as the store", c do
+    store = endpoint(c.store)
+    sender = endpoint(c.sender)
+    answering(c.store)
+
+    read = Envelope.new("read", "thing")
+    :ok = send_from(sender, read, %{"here" => 1})
+    {sender_name, store_name, id} = {c.sender, c.store, read.id}
+
+    assert_receive {^sender_name, %Envelope{class: "answer", id: ^id, sender: ^store_name},
+                    %{"here" => 1, "in" => ^sender}}
+
+    settled(c.store)
+    refute_received {^store_name, _, _}
+    assert is_pid(store)
+  end
+
+  test "a read the reader passes or fails on goes to the store", c do
+    endpoint(c.store)
+    sender = endpoint(c.sender)
+    answering(c.store)
+    store_name = c.store
+
+    for content <- [%{"pass" => true}, %{"fail" => true}] do
+      read = Envelope.new("read", "thing")
+
+      ExUnit.CaptureLog.capture_log(fn -> :ok = send_from(sender, read, content) end)
+
+      id = read.id
+      assert_receive {^store_name, %Envelope{class: "read", id: ^id}, ^content}
+    end
+  end
+
+  test "a read after a fact its sender is not answered on yet goes to the store", c do
+    store = endpoint(c.store)
+    sender = endpoint(c.sender)
+    answering(c.store)
+    store_name = c.store
+
+    fact = Envelope.new("fact", "thing")
+    :ok = send_from(sender, fact)
+    assert_receive {^store_name, received, _}
+
+    read = Envelope.new("read", "thing")
+    :ok = send_from(sender, read, %{"here" => 1})
+    id = read.id
+    assert_receive {^store_name, %Envelope{class: "read", id: ^id}, _}
+
+    # Answered (stored or refused): the sender's reads are answered where they are sent.
+    for reply <- ["stored", "refused"] do
+      :ok = send_from(store, Envelope.reply(received, reply))
+      read = Envelope.new("read", "thing")
+      :ok = send_from(sender, read, %{"here" => 2})
+      {sender_name, id} = {c.sender, read.id}
+      assert_receive {^sender_name, %Envelope{class: "answer", id: ^id}, %{"here" => 2}}
+      :ok = send_from(sender, fact)
+      assert_receive {^store_name, %Envelope{class: "fact"}, _}
+    end
+  end
+
+  test "only the store's endpoint gives the reader", c do
+    endpoint(c.store)
+    endpoint(c.sender)
+    send(Process.get({:endpoint, c.sender}), {:answer_reads, {AtlasBusTest.Reader, :reader}})
+    assert_receive {:answering, {:error, :not_the_store}}
   end
 end
