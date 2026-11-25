@@ -8,7 +8,9 @@
 # from that git does not hold (the generated targets: run bin/generate first; the umbrella's
 # Hex dependencies: run mix deps.get in products/software_factory first, so the Runtime's
 # first start needs no network), plus BUILD and bin/atlas-runtime: the CLI, built without
-# a checkout location, so it runs the Runtime from the release it is in.
+# a checkout location, so it runs the Runtime from the release it is in. Next to it in OUT:
+# atlas-runtime-install.sh (macos/), the installer the command of `atlas runtime install`
+# fetches from the release (IS-Atlas-116).
 set -eu
 [ $# -ge 2 ] || { echo "usage: release.sh BUILD OUT [GOOS GOARCH]" >&2; exit 2; }
 build=$1 out=$2 goos=${3:-darwin} goarch=${4:-arm64}
@@ -34,5 +36,6 @@ CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go -C "$root/platform/atlas_runtime/host
 
 name="atlas-runtime-$build-$goos-$goarch.tar.gz"
 tar -C "$stage/tree" -czf "$out/$name" .
+cp "$root/platform/atlas_runtime/host/macos/atlas-runtime-install.sh" "$out/atlas-runtime-install.sh"
 (cd "$out" && { command -v sha256sum >/dev/null && sha256sum "$name" || shasum -a 256 "$name"; } >"$name.sha256")
 echo "$out/$name"

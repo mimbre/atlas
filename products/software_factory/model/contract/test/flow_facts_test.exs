@@ -97,15 +97,41 @@ defmodule Model.FlowFactsTest do
              Enum.sort(~w(title instructions acceptance after state task_result question
                retry_step answer))
 
-    # IS-Atlas-27: the Runtime's configuration, and what the Runtime did with it.
+    # IS-Atlas-27: the Runtime's configuration, and what the Runtime did with it;
+    # IS-Atlas-116: the digest of its credential, and the build and incarnation it polls from.
     assert Enum.sort(Map.keys(entities["machinery"]["properties"])) ==
-             ~w(applied_version configuration name refused_reason refused_version)
+             ~w(applied_version configuration credential_sha256 name refused_reason
+               refused_version runtime_build runtime_incarnation)
+  end
+
+  test "a supervisor makes a machinery with its credential's digest; what a poll says is Flow's (IS-Atlas-116)" do
+    sha = String.duplicate("ab", 32)
+    made = create("machinery", "new-mac", %{"name" => "new-mac", "credential_sha256" => sha})
+    assert check(made, @session) == :ok
+
+    assert get_in(extension(), ["relations", "runs_for", "set_by"]) == nil
+    assert get_in(schema(), ["relations", "runs_for", "from"]) == ["machinery"]
+    assert get_in(schema(), ["relations", "runs_for", "to"]) == ["person"]
+
+    for field <- ~w(runtime_build runtime_incarnation) do
+      assert {:refuse, [why]} =
+               check(create("machinery", "new-mac", %{"name" => "x", field => "y"}), @session)
+
+      assert why =~ "protected fields"
+      assert check(create("machinery", "new-mac", %{"name" => "x", field => "y"}), @flow) == :ok
+    end
   end
 
   test "every field and link of the new kinds is Flow's alone" do
     # Its supervisor sets a package's answer (F2-P), as a person sets a pull request's
-    # integration, and a Runtime's configuration (IS-Atlas-27): no set_by.
-    by_hand = [{"package", "answer"}, {"machinery", "configuration"}]
+    # integration, and a Runtime's configuration (IS-Atlas-27); and makes a machinery,
+    # naming it, with its credential's digest (IS-Atlas-116): no set_by.
+    by_hand = [
+      {"package", "answer"},
+      {"machinery", "configuration"},
+      {"machinery", "name"},
+      {"machinery", "credential_sha256"}
+    ]
 
     for {kind, name} <- by_hand,
         do: assert(get_in(extension(), ["entities", kind, "properties", name, "set_by"]) == nil)

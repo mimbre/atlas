@@ -19,6 +19,9 @@ defmodule AtlasAgent.CLI do
                                                            form, submitted; prints the page
                                                            after (--help: its page, unsubmitted)
       atlas plan --on <key or path> <request ...>          what the agent proposes; writes nothing
+      atlas runtime install --machine <name> ...          make a machinery; print the command
+                                                           that installs its Runtime on a Mac
+                                                           (AtlasAgent.RuntimeInstall)
 
   Every command takes --json: it then prints one JSON value on stdout, the item, the
   list, or `{"refused": [reasons]}` / `{"error": text}`; `actions` the actions and `do` the
@@ -83,6 +86,11 @@ defmodule AtlasAgent.CLI do
       {:ok, options} -> {:ok, {:runtime_discovery, options["machine"]}}
       {:invalid, why} -> {:error, why}
     end
+  end
+
+  defp parse(["runtime", "install" | args]) do
+    with {:ok, options} <- AtlasAgent.RuntimeInstall.options(args),
+         do: {:ok, {:runtime_install, options}}
   end
 
   defp parse(["facts", kind]), do: {:ok, {:facts, kind, nil}}
@@ -157,6 +165,9 @@ defmodule AtlasAgent.CLI do
   # A write answers with the item as it is now stored.
   defp run({:runtime_discovery, machine}, client),
     do: AtlasAgent.RuntimeDiscovery.read(client, machine)
+
+  defp run({:runtime_install, options}, client),
+    do: AtlasAgent.RuntimeInstall.run(options, client)
 
   # Links go through each association's own form once the fact is there; when one is
   # refused, the fact stays made and the refusal names its key, so it can be linked again.
@@ -267,6 +278,11 @@ defmodule AtlasAgent.CLI do
 
     code
   end
+
+  defp show({:runtime_install, made}, true), do: json(made, 0)
+
+  defp show({:runtime_install, made}, false),
+    do: IO.puts(AtlasAgent.RuntimeInstall.text(made)) && 0
 
   defp show({:turn, context}, true), do: json(context, 0)
 

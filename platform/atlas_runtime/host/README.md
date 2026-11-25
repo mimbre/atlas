@@ -865,20 +865,39 @@ Run one Code process per Code home; a second start, or `mix atlas_code.migrate`,
 
 ### Start at login (macOS)
 
-On a dedicated Mac, launchd starts the Runtime with its Bus link at login. The files are in [`macos/`](macos): `start.sh` (fetches the Bus token, writes `server.token` and `server.json`, waits for the Bus port, runs `atlas-runtime service start`), `secret.sh` (one secret from Infisical, with credentials from the login keychain) and `fly-proxy.sh` (the private Bus tunnel to a Fly app). `install.sh` copies them to `~/.config/atlas-runtime/` and writes their launch agents: `com.mimbre.atlas-runtime` (runs `start.sh` once at login) and, when configured, `com.mimbre.atlas-fly-proxy` (keeps `fly-proxy.sh` running). Logs: `~/Library/Logs/atlas-runtime-start.log` and `~/Library/Logs/atlas-fly-proxy.log`.
+On a dedicated Mac, launchd starts the Runtime and its Code service at login. The files are in [`macos/`](macos): `start.sh` (runs `atlas-runtime service start`; with `bus`, first fetches the Bus token, writes `server.token` and `server.json` and waits for the Bus port), `code.sh` (builds the `atlas_code` release of the build the Runtime runs, once, and runs Code on its home), `secret.sh` (one secret from Infisical, with credentials from the login keychain, handed to `infisical` by environment) and `fly-proxy.sh` (the private Bus tunnel to a Fly app). `install.sh` copies them to `~/.config/atlas-runtime/` and writes their launch agents: `com.mimbre.atlas-runtime` (runs `start.sh` once at login), with `code` `com.mimbre.atlas-code` (keeps `code.sh run` running) and, with `fly_proxy`, `com.mimbre.atlas-fly-proxy` (keeps `fly-proxy.sh` running). Logs: `~/Library/Logs/atlas-runtime-start.log`, `atlas-code.log` and `atlas-fly-proxy.log`.
 
 Everything machine-specific is in `~/.config/atlas-runtime/machine.json`, outside the repository; the scripts read it each time they run. See [`macos/machine.example.json`](macos/machine.example.json):
 
 | Key | Meaning |
 | --- | --- |
-| `machine`, `environment`, `workers` | written into `server.json` (see [Optional Atlas Server lifecycle reporting](#optional-atlas-server-lifecycle-reporting)) |
-| `runtime_home` | the Runtime home (`ATLAS_RUNTIME_HOME`); set the same value in `~/.zshenv` |
-| `path` | `PATH` for the service and its workers: `atlas-runtime`, the asdf shims (Elixir), `codex`/`claude` |
-| `bus.host`, `bus.port` | the Bus listener in `server.json`; `start.sh` waits up to 60 s for it |
+| `machine`, `environment`, `workers` | the machine's name (its machinery in Control), its environment and slots; with `bus` written into `server.json` (see [Optional Atlas Server lifecycle reporting](#optional-atlas-server-lifecycle-reporting)) |
+| `runtime_home` | the Runtime home (`ATLAS_RUNTIME_HOME`) |
+| `path` | `PATH` for the service, Code and the workers: `atlas-runtime`, the asdf shims (Elixir), `codex`/`claude` |
+| `source.name`, `.url`, `.git_url` | optional: the work source the Runtime pulls from and Code's Git endpoint; its credential is `<runtime_home>/sources/<name>/token` (mode 600). `install.sh` writes a starting `policy.json` with this source and the workers as slots when there is none |
+| `code.home`, `code.port` | optional: the Code service's home and port; `install.sh` writes the home's `config.json` and `runtime.token` and the Runtime's `code.json` when they are not there |
+| `bus.host`, `bus.port` | optional: the Bus listener in `server.json`; `start.sh` waits up to 60 s for it |
 | `fly_proxy.app`, `fly_proxy.remote_port` | optional: tunnel `127.0.0.1:bus.port` to that port of that Fly app; leave out when the Bus is reachable directly |
-| `infisical.domain`, `.project_id`, `.env`, `.path` | where this machine's secrets are: `ATLAS_BUS_LINK_TOKEN` (this machine's token) and, with `fly_proxy`, `FLY_API_TOKEN` |
+| `infisical.domain`, `.project_id`, `.env`, `.path` | with `bus` or `fly_proxy`: where this machine's secrets are: `ATLAS_BUS_LINK_TOKEN` (this machine's token) and, with `fly_proxy`, `FLY_API_TOKEN` |
 
-**Install on a new Mac.** Log in as the user that runs the Runtime, then:
+**Install on a new Mac through Atlas** (IS-Atlas-116, UC-Atlas-50). The supervisor asks Control for the install command:
+
+```sh
+atlas runtime install --env prod --machine new-mac --workers dev1,dev2 --for melle \
+  --build master-0123456789ab --source https://<core>.ts.net:7596 --git https://<core>.ts.net:7597
+```
+
+This makes the machinery `new-mac` (`runs_for` the supervisor) with only the sha256 of a credential made on the supervisor's machine; Flow's work source and Code's Git endpoint admit it from then on (`AtlasFlow.WorkSource.Registered`), with no core secret and no restart. It prints the command once, credential included; `--new-credential` makes a new one for a machinery that is there. On the Mac, logged in as the user that runs the Runtime, with the asdf Erlang/Elixir of the release (Code's release is built with it) and `codex`/`claude` installed, run only that command:
+
+```sh
+ curl -fsSL '…/atlas-runtime-BUILD/atlas-runtime-install.sh' | ATLAS_RUNTIME_CREDENTIAL='…' /bin/zsh -s -- '--build' 'BUILD' '--env' 'prod' '--machine' 'new-mac' …
+```
+
+[`atlas-runtime-install.sh`](macos/atlas-runtime-install.sh), published with each release, installs the release as `service update` does (`~/.local/share/atlas-runtime/releases/BUILD`, its SHA-256 checked, `~/.local/bin/atlas-runtime` linked to its CLI), writes the credential to the Runtime home and `machine.json`, and runs the release's `install.sh`. The credential is only ever in the installer's environment and the 600 credential file: no process has it, or any other secret, in its arguments. Running the command again changes nothing; it refuses, before changing anything, a `machine.json` that differs and an `atlas-runtime` that is no release. Then the supervisor gives the Runtime its configuration through Control (`atlas set new-mac configuration=@policy.json`, IS-Atlas-27): it keeps the starting policy's source. Control shows it linked once it polls: the machinery's `runtime_build`, `runtime_incarnation` and `applied_version`.
+
+`macos/test-install.sh` rehearses both scripts in a throwaway home, with `launchctl` and `mix` stubbed.
+
+**Install by hand** (a Bus-linked Runtime from a checkout, as before):
 
 1. Install Go, the asdf Erlang/Elixir of the checkout, `codex`/`claude`, the Infisical CLI and, for the tunnel, flyctl. Clone Atlas into its persistent place and build `~/.local/bin/atlas-runtime` [as above](#install).
 2. Create the Runtime home and put `export ATLAS_RUNTIME_HOME=/abs/runtime-home` in `~/.zshenv`.
@@ -897,11 +916,11 @@ Everything machine-specific is in `~/.config/atlas-runtime/machine.json`, outsid
    platform/atlas_runtime/host/macos/install.sh
    ```
 
-`install.sh` is idempotent: identical files are left alone, and an agent is (re)loaded only when its plist changed or it is not loaded. Loading the Runtime agent runs `start.sh`, which starts the service, or does nothing when it is already running; it never stops a running Runtime. Reloading the tunnel agent drops the Bus link for a moment; the Runtime links again by itself. A changed `start.sh` takes effect at its next run.
+`install.sh` is idempotent: identical files are left alone, and an agent is (re)loaded only when its plist changed (Code's also when its build did) or it is not loaded. Loading the Runtime agent runs `start.sh`, which starts the service, or does nothing when it is already running; it never stops a running Runtime. Reloading the Code agent restarts Code (workers keep running without it). Reloading the tunnel agent drops the Bus link for a moment; the Runtime links again by itself. A changed `start.sh` takes effect at its next run. A hand-made `com.mimbre.atlas-code` agent is replaced by the one `install.sh` writes once `machine.json` has `code`; the old agent's own start script is left where it was.
 
-**Update.** Upgrade the Runtime through Atlas ([Upgrading through Atlas](#upgrading-through-atlas)): nothing is typed on the machine. A changed `start.sh` or launch agent still needs `install.sh` again.
+**Update.** Upgrade the Runtime through Atlas ([Upgrading through Atlas](#upgrading-through-atlas)): nothing is typed on the machine. A changed `start.sh` or launch agent, and Code on the new build, still need the new release's `install.sh` (`~/.local/share/atlas-runtime/releases/BUILD/platform/atlas_runtime/host/macos/install.sh`).
 
-**What survives a reboot.** Launch agents run only in a logged-in session, and `secret.sh` can read the keychain only there. So the Mac must log in by itself: System Settings → Users & Groups → *Automatically log in as* this user (not available with FileVault on), with the login keychain's password equal to the login password, so that the login unlocks it. Then, after a reboot: the tunnel agent starts and is restarted every 10 s until it holds; `start.sh` retries the token for 5 minutes (the network or keychain may not be ready yet), writes `server.json`, waits for the Bus port and starts the service; `server.token` is deleted again once the service has read it. Turns running at the moment of the reboot do not continue, and their Server turns keep their lease until it runs out. Not managed here: sleep and power settings (for a server, `sudo pmset -a sleep 0` and `sudo pmset -a autorestart 1`), and the Code service.
+**What survives a reboot.** Launch agents run only in a logged-in session, and `secret.sh` can read the keychain only there. So the Mac must log in by itself: System Settings → Users & Groups → *Automatically log in as* this user (not available with FileVault on), with the login keychain's password equal to the login password, so that the login unlocks it. Then, after a reboot: the tunnel agent starts and is restarted every 10 s until it holds; `start.sh` retries the token for 5 minutes (the network or keychain may not be ready yet), writes `server.json`, waits for the Bus port and starts the service; `server.token` is deleted again once the service has read it. Turns running at the moment of the reboot do not continue, and their Server turns keep their lease until it runs out. With `code`, the Code agent starts with the session and is restarted every 10 s until it holds. Not managed here: sleep and power settings (for a server, `sudo pmset -a sleep 0` and `sudo pmset -a autorestart 1`).
 
 **Rehearse a reboot.** Only when no slot is busy:
 

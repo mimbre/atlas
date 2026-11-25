@@ -53,6 +53,7 @@ defmodule AtlasFlow.Application do
             [
               {AtlasFlow.Results, pins: &result_pins/0},
               AtlasFlow.Bases,
+              AtlasFlow.WorkSource.Registered,
               AtlasFlow.Dispatch,
               AtlasFlow.Delivery,
               AtlasFlow.Landing
