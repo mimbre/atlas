@@ -8,7 +8,13 @@ defmodule AtlasFlow.Dispatch do
   (`pending.task`, `AtlasFlow.WorkSource.Translate`), read from Facts at boot, on
   `ready/2` (the Engine's cast once it made an intent) and on every resync (60 s). Today's
   intents (version 1) are never offered. Tasks are offered oldest first (`created_at`)
-  among those whose profile the poll offers a slot for.
+  among those whose profile the poll offers a slot for. The profiles of a poll share the
+  Runtime's slots (it offers each profile its total of free slots): one poll is granted at
+  most the largest of its counts, and each profile at most its own (IS-Atlas-113). A task
+  Dispatch holds a lease of is not read for a grant: only once another writer changed its
+  task fact (Dispatch listens to the `task` hints; Delivery may have ended the lease
+  without a result), or once the sweep found the lease ended and let it go (a hint may be
+  lost).
 
   **Grant (race-safe; §3.2).** For one slot:
 
@@ -27,8 +33,18 @@ defmodule AtlasFlow.Dispatch do
   did not change (decision 2).
 
   **Renewals and expiry (§3.2 "Expiry fence").** `poll` renews, in memory only, the
-  holdings that are this Runtime's live leases; every other holding is `lease_lost`. The
-  sweep (every 5 s, and before every poll) fence-writes:
+  holdings that are this Runtime's live leases; every other holding is `lease_lost`. A
+  poll reads nothing but what its grants need: it renews, grants from the ready set
+  Dispatch holds, and answers within `poll_max`, however slow Facts is (IS-Atlas-110). It
+  starts no grant once half of `poll_max` has passed; the next poll takes the rest.
+
+  The sweep runs on its own timer (every 5 s) and on `sweep/1`, never on a poll, in
+  `AtlasFlow.Dispatch.Sweep`: a process of Dispatch's own that does the sweep's reads (up
+  to 6 s each when Facts is slow) while Dispatch answers polls. Facts takes the task
+  writes only from `flow/dispatch`, so the sweep hands each fence, with the fact it read,
+  back to Dispatch, which writes it as a fenced change of that fact (`{:fence, …}`). An
+  expiry fence is written only while the lease's renewed expiry has still passed: a lease a
+  poll renewed meanwhile is never fenced. The sweep fence-writes:
 
   - `lost` (`late_accept`) for a lease still `offered` 30 s after its `granted_at` (durable,
     so a restart does not move the deadline); the task is ready again at once;
@@ -45,8 +61,8 @@ defmodule AtlasFlow.Dispatch do
 
   **Boot.** Every live lease on a task fact counts as renewed at boot (§5.3 item 5). When
   Facts does not answer that read (a deploy that restarts rela with the core), every sweep
-  reads again until it does; until then a poll loses no holding, since Dispatch cannot tell
-  a live one from a lost one. Otherwise each Runtime would cancel its running work, and the
+  reads again (in the sweep's process) until it does; until then a poll loses no holding,
+  since Dispatch cannot tell a live one from a lost one. Otherwise each Runtime would cancel its running work, and the
   leases on the task facts would never be swept: their tasks leased forever.
 
   Options of `start_link/1`: `name` (default `AtlasFlow.Dispatch`), `model` (default the
@@ -60,8 +76,9 @@ defmodule AtlasFlow.Dispatch do
 
   require Logger
 
+  alias AtlasFlow.Dispatch.Sweep
   alias AtlasFlow.Runs.{Clock, Store}
-  alias AtlasFlow.Supervision
+  alias AtlasFlow.{Supervision, Talk}
   alias AtlasFlow.WorkSource.{Leases, Translate}
 
   @endpoint "flow/dispatch"
@@ -105,7 +122,7 @@ defmodule AtlasFlow.Dispatch do
 
   The cancel itself follows the durable record, not this cast. The Engine's store writes
   the task fact's `state: cancelled` only after the run that no longer holds the task is
-  stored (store first, then cancel). Every sweep (on its timer, and before each poll) cancels
+  stored (store first, then cancel). Every sweep (on its timer, and on `sweep/1`) cancels
   a live lease whose task fact says so, the way a supervision change cancels one: an
   `offered` lease is written `lost`, an `accepted` or `started` one `cancel_requested`
   and named in its holder's polls' `cancel` until its work ends; an `ended` one stands.
@@ -136,6 +153,8 @@ defmodule AtlasFlow.Dispatch do
     model = Keyword.get_lazy(opts, :model, &AtlasFlow.Model.configured!/0)
 
     :ok = AtlasBus.attach(@endpoint)
+    :ok = AtlasBus.listen(Leases.task_kind())
+    {:ok, sweeper} = Sweep.start_link(self())
 
     state = %{
       runner:
@@ -158,7 +177,10 @@ defmodule AtlasFlow.Dispatch do
       parked: %{},
       polls: %{},
       health: Keyword.get(opts, :health, AtlasFlow.Health),
-      booted: false
+      booted: false,
+      sweeper: sweeper,
+      sweep: nil,
+      touched: MapSet.new()
     }
 
     {:ok, state, {:continue, :boot}}
@@ -177,13 +199,15 @@ defmodule AtlasFlow.Dispatch do
       when is_binary(runtime_id) and is_binary(holder) do
     case poll_input(input, runtime_id) do
       {:ok, offer, holdings} ->
-        state = state |> boot_leases() |> sweep_now()
+        # No sweep here (IS-Atlas-110): it runs on its own, in `Sweep`.
+        budget = budget(state)
         state = put_in(state.polls[runtime_id], now(state))
         # Each Runtime's last poll, for Control's health page; never waits.
         AtlasFlow.Health.polled(runtime_id, state.polls[runtime_id], state.health)
+        state = late_accepts(state, runtime_id, holdings, budget)
         {renewed, lost, state} = renew(state, runtime_id, holdings)
         cancel = for id <- renewed, state.leases[id].cancel, do: id
-        {leases, state} = grant_offer(state, client, offer)
+        {leases, state} = grant_offer(state, client, offer, budget)
 
         answer = %{leases: leases, cancel: cancel, lease_lost: lost, timing: timing(state)}
 
@@ -201,11 +225,36 @@ defmodule AtlasFlow.Dispatch do
   def handle_call({:poll, _client, _input}, _from, state),
     do: {:reply, {:rejected, :invalid}, state}
 
-  def handle_call(:sweep, _from, state),
-    do: {:reply, :ok, state |> boot_leases() |> sweep_now() |> serve_parked()}
+  def handle_call(:sweep, from, state), do: {:noreply, start_sweep(state, from)}
 
   def handle_call(:resync, _from, state),
     do: {:reply, :ok, state |> resync_ready() |> serve_parked()}
+
+  # The sweep's fence of lease `id`, on the task fact it read (see `Sweep`).
+  def handle_call({:fence, id, fact, to, cause, apply}, _from, state) do
+    if apply == :expired and not due?(state, id) do
+      {:reply, :renewed, state}
+    else
+      change = Leases.change(fact, %{"lease_state" => to, "lease_end_cause" => cause})
+
+      case Talk.put(Leases.task_kind(), change) do
+        {:stored, _} ->
+          if to in ~w(expired lost),
+            do: AtlasFlow.Delivery.lease_fenced(fact["key"], id, cause, state.delivery)
+
+          {:reply, :ended, learn(state, id, apply)}
+
+        _refused_or_unanswered ->
+          {:reply, :refused, state}
+      end
+    end
+  end
+
+  # The leases the sweep read while Dispatch could not at boot.
+  def handle_call({:sweep_boot, facts}, _from, state) do
+    state = if state.booted, do: state, else: take_leases(state, facts)
+    {:reply, state.leases, state}
+  end
 
   def handle_call(:status, _from, state) do
     leases =
@@ -223,15 +272,39 @@ defmodule AtlasFlow.Dispatch do
   def handle_cast({:cancel, task_key, _cause}, state),
     do: {:noreply, %{state | ready: Map.delete(state.ready, task_key)}}
 
+  def handle_cast({:swept, id, what}, state), do: {:noreply, learn(state, id, what)}
+
   @impl true
   def handle_info(:tick, state) do
     every(state, :sweep_ms, :tick)
-    {:noreply, state |> boot_leases() |> sweep_now() |> serve_parked()}
+    {:noreply, start_sweep(state, nil)}
+  end
+
+  def handle_info({:swept, ref}, %{sweep: %{ref: ref} = sweep} = state) do
+    for from <- sweep.waiters, do: GenServer.reply(from, :ok)
+    state = serve_parked(%{state | sweep: nil})
+
+    case sweep.again do
+      [] -> {:noreply, state}
+      again -> {:noreply, start_sweep(state, again)}
+    end
   end
 
   def handle_info(:resync_tick, state) do
     every(state, :resync_ms, :resync_tick)
     {:noreply, state |> resync_ready() |> serve_parked()}
+  end
+
+  # Another writer (Delivery, Landing) changed a task fact Dispatch holds a lease of: the
+  # next grant reads it once, since the lease may have ended without a result.
+  def handle_info(
+        {:atlas_bus, %AtlasBus.Envelope{class: "stored", address: by}, %{"key" => key}},
+        state
+      )
+      when by != @endpoint and is_binary(key) do
+    if Enum.any?(state.leases, fn {_, l} -> l.task_key == key end),
+      do: {:noreply, %{state | touched: MapSet.put(state.touched, key)}},
+      else: {:noreply, state}
   end
 
   def handle_info({:poll_max, runtime_id, ref}, state) do
@@ -288,6 +361,49 @@ defmodule AtlasFlow.Dispatch do
     {Enum.reverse(renewed), Enum.reverse(lost), %{state | leases: leases}}
   end
 
+  # This Runtime's own holdings still offered past the accept deadline are fenced here, as
+  # the sweep would (`lost`, `late_accept`), so the poll answers them lost and grants their
+  # task again at once. Only within the poll's budget: past it, the sweep does it.
+  defp late_accepts(state, runtime_id, holdings, budget) do
+    now = now(state)
+
+    Enum.reduce(holdings, state, fn id, state ->
+      case state.leases[id] do
+        %{runtime: ^runtime_id, state: :offered} = lease ->
+          if DateTime.diff(now, lease.granted_at, :second) > state.deadline and
+               System.monotonic_time(:millisecond) < budget,
+             do: late_accept(state, id, lease),
+             else: state
+
+        _ ->
+          state
+      end
+    end)
+  end
+
+  defp late_accept(state, id, lease) do
+    case Leases.read(lease.task_key) do
+      {:ok, fact} ->
+        cond do
+          Leases.value(fact, "lease_id") == id and Leases.value(fact, "lease_state") == "offered" ->
+            case end_lease(state, lease.task_key, id, ["offered"], "lost", "late_accept") do
+              :ended -> drop(state, id)
+              _ -> state
+            end
+
+          # Accepted in time (Delivery's).
+          Leases.value(fact, "lease_id") == id ->
+            put_in(state.leases[id].state, :live)
+
+          true ->
+            drop(state, id)
+        end
+
+      {:error, _} ->
+        state
+    end
+  end
+
   # One open poll per Runtime: a newer one answers the one held before it, empty.
   defp park(state, runtime_id, from, client, offer, answer) do
     state =
@@ -308,8 +424,10 @@ defmodule AtlasFlow.Dispatch do
 
   # A held poll is answered as soon as there is a lease for it.
   defp serve_parked(state) do
+    budget = budget(state)
+
     Enum.reduce(state.parked, state, fn {runtime_id, parked}, state ->
-      case grant_offer(state, parked.client, parked.offer) do
+      case grant_offer(state, parked.client, parked.offer, budget) do
         {[], state} ->
           state
 
@@ -322,34 +440,94 @@ defmodule AtlasFlow.Dispatch do
 
   ## Grants
 
-  defp grant_offer(state, client, offer) do
-    Enum.reduce(Enum.sort(offer), {[], state}, fn {profile, free}, acc ->
-      Enum.reduce(1..free//1, acc, fn _, {leases, state} ->
-        case grant_one(state, client, profile) do
-          {nil, state} -> {leases, state}
-          {lease, state} -> {leases ++ [lease], state}
-        end
-      end)
-    end)
+  # The profiles of one poll share the Runtime's slots: each profile's count is the free
+  # slots it may take, and the poll's slots are the largest of those counts (the Runtime
+  # offers every profile its total), never their sum. Tasks are granted oldest first among
+  # the profiles that still have a slot, until the poll's slots are taken.
+  # Each grant reads and writes Facts; none is started once `budget` (monotonic ms) passed.
+  defp grant_offer(state, client, offer, budget) do
+    slots = offer |> Map.values() |> Enum.max(fn -> 0 end)
+    grant_slots(state, client, offer, slots, [], budget)
   end
 
-  defp grant_one(state, client, profile) do
-    # An expired lease holds its task until it is lost; any other may have ended meanwhile
-    # (Delivery's), so its task fact decides.
-    held = for {_, l} <- state.leases, l.state == :expired, into: MapSet.new(), do: l.task_key
+  defp grant_slots(state, _client, _offer, 0, leases, _budget), do: {leases, state}
+
+  defp grant_slots(state, client, offer, slots, leases, budget) do
+    open = for {profile, free} <- offer, free > 0, into: MapSet.new(), do: profile
+
+    case grant_one(state, client, open, budget) do
+      {nil, state} ->
+        {leases, state}
+
+      {{profile, lease}, state} ->
+        offer = Map.update!(offer, profile, &(&1 - 1))
+        grant_slots(state, client, offer, slots - 1, leases ++ [lease], budget)
+    end
+  end
+
+  # Half of poll_max: what a poll may spend on its grants, so it answers within poll_max.
+  defp budget(state), do: System.monotonic_time(:millisecond) + div(state.poll_max * 1000, 2)
+
+  defp grant_one(state, client, profiles, budget) do
+    # A task Dispatch holds a lease of is not read again for a grant (IS-Atlas-110: on a
+    # slow Facts each read takes up to 6 s). An expired lease holds its task until it is
+    # lost; a live one until another writer changed its task fact (a hint: it may have
+    # ended without a result, so the fact decides), or the sweep found it ended and dropped
+    # it (the hint may be lost).
+    held =
+      for {_, l} <- state.leases,
+          l.state == :expired or not MapSet.member?(state.touched, l.task_key),
+          into: MapSet.new(),
+          do: l.task_key
 
     state.ready
     |> Map.values()
     |> Enum.filter(
-      &(&1.intent["work"]["profile"] == profile and not MapSet.member?(held, &1.key))
+      &(MapSet.member?(profiles, &1.intent["work"]["profile"]) and
+          not MapSet.member?(held, &1.key))
     )
     |> Enum.sort_by(&{&1.intent["created_at"], &1.key})
     |> Enum.reduce_while({nil, state}, fn entry, {nil, state} ->
-      case grant(state, entry, client) do
-        {:ok, wire, state} -> {:halt, {wire, state}}
-        :skip -> {:cont, {nil, state}}
+      if System.monotonic_time(:millisecond) >= budget do
+        {:halt, {nil, state}}
+      else
+        with {:free, state} <- refresh(state, entry.key),
+             {:ok, wire, state} <- grant(state, entry, client) do
+          {:halt, {{entry.intent["work"]["profile"], wire}, state}}
+        else
+          {:held, state} -> {:cont, {nil, state}}
+          :skip -> {:cont, {nil, state}}
+        end
       end
     end)
+  end
+
+  # A task another writer changed while Dispatch holds a lease of it: its fact, read once,
+  # says whether that lease is over (`:free`, the lease dropped) or still holds it.
+  defp refresh(state, task_key) do
+    ids = for {id, l} <- state.leases, l.task_key == task_key, do: id
+
+    cond do
+      ids == [] ->
+        {:free, state}
+
+      not MapSet.member?(state.touched, task_key) ->
+        {:held, state}
+
+      true ->
+        case Leases.read(task_key) do
+          {:ok, fact} ->
+            state = %{state | touched: MapSet.delete(state.touched, task_key)}
+
+            if Leases.value(fact, "lease_id") in ids and
+                 Leases.value(fact, "lease_state") in @live,
+               do: {:held, state},
+               else: {:free, %{state | leases: Map.drop(state.leases, ids)}}
+
+          {:error, _} ->
+            {:held, state}
+        end
+    end
   end
 
   defp grant(state, %{subject: {kind, key}} = entry, {runtime_id, holder}) do
@@ -443,124 +621,48 @@ defmodule AtlasFlow.Dispatch do
 
   ## Sweep
 
-  defp sweep_now(state) do
-    now = now(state)
+  # One sweep at a time, in `Sweep`. `from` (a `sweep/1` caller, or a list of them) is
+  # answered once a sweep that began after its call ran: during one, the next is queued.
+  defp start_sweep(%{sweep: nil} = state, from) do
+    ref = make_ref()
 
-    {state, _supervision} =
-      state.leases
-      |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.reduce({state, %{}}, fn {id, lease}, {state, seen} ->
-        sweep_lease(state, seen, id, lease, now)
-      end)
+    Sweep.run(state.sweeper, %{
+      ref: ref,
+      now: now(state),
+      deadline: state.deadline,
+      grace: state.grace,
+      runner: state.runner,
+      leases: state.leases,
+      booted: state.booted
+    })
 
-    state
+    %{state | sweep: %{ref: ref, waiters: List.wrap(from), again: []}}
   end
 
-  defp sweep_lease(state, seen, id, lease, now) do
-    cond do
-      lease.state == :offered and
-          DateTime.diff(now, lease.granted_at, :second) > state.deadline ->
-        case Leases.read(lease.task_key) do
-          {:ok, fact} ->
-            if Leases.value(fact, "lease_id") == id and
-                 Leases.value(fact, "lease_state") == "offered" do
-              end_lease(state, lease.task_key, id, ["offered"], "lost", "late_accept")
-              {drop(state, id), seen}
-            else
-              # Accepted in time (Delivery's), or gone: look again as a live lease.
-              state = put_in(state.leases[id].state, :live)
+  defp start_sweep(state, nil), do: state
 
-              if Leases.value(fact, "lease_id") == id,
-                do: sweep_lease(state, seen, id, state.leases[id], now),
-                else: {drop(state, id), seen}
-            end
+  defp start_sweep(%{sweep: sweep} = state, from),
+    do: %{state | sweep: %{sweep | again: sweep.again ++ List.wrap(from)}}
 
-          {:error, _} ->
-            {state, seen}
-        end
-
-      lease.state == :expired and
-          DateTime.diff(now, lease.expires_at, :second) >= state.grace ->
-        case end_lease(state, lease.task_key, id, ["expired"], "lost", "expired") do
-          :unavailable -> {state, seen}
-          _ -> {drop(state, id), seen}
-        end
-
-      lease.state != :expired and DateTime.compare(now, lease.expires_at) != :lt ->
-        case end_lease(state, lease.task_key, id, @live, "expired", "expired") do
-          :ended -> {put_in(state.leases[id].state, :expired), seen}
-          :gone -> {drop(state, id), seen}
-          :unavailable -> {state, seen}
-        end
-
-      # The Engine cancelled its task (`cancel/3`): its stored task fact says so.
-      lease.state != :expired and lease.cancel != true and cancelled?(lease.task_key) ->
-        {cancel_lease(state, id, lease, "answer"), seen}
-
-      lease.state != :expired and lease.subject != nil ->
-        {answer, seen} = supervision(state, seen, lease.subject)
-        {supervise(state, id, lease, answer), seen}
-
-      true ->
-        {state, seen}
+  # Whether lease `id`'s renewed expiry has passed now: a poll may have renewed it since
+  # the sweep read it.
+  defp due?(state, id) do
+    case state.leases[id] do
+      %{state: s, expires_at: at} when s != :expired -> DateTime.compare(now(state), at) != :lt
+      _ -> false
     end
   end
 
-  # One read of a subject's supervision per sweep.
-  defp supervision(state, seen, {kind, key} = subject) do
-    case seen do
-      %{^subject => answer} -> {answer, seen}
-      _ -> Supervision.of(state.runner, kind, key) |> then(&{&1, Map.put(seen, subject, &1)})
-    end
-  end
+  # What the sweep found or fenced, on the lease Dispatch holds now.
+  defp learn(state, id, :drop), do: drop(state, id)
 
-  defp supervise(state, _id, %{holder: holder}, {:supervised, holder, _}), do: state
-  defp supervise(state, _id, _lease, :unavailable), do: state
-
-  defp supervise(state, id, lease, _changed), do: cancel_lease(state, id, lease, "supervision")
-
-  # The graceful cancel (§3.7): an offered lease is lost; an accepted or started one is
-  # cancel_requested, named in its holder's next poll; an ended one stands.
-  defp cancel_lease(state, id, lease, cause) do
-    case end_lease(state, lease.task_key, id, ["offered"], "lost", cause) do
-      :ended ->
-        drop(state, id)
-
-      :unavailable ->
-        state
-
-      :gone ->
-        case end_lease(
-               state,
-               lease.task_key,
-               id,
-               ["accepted", "started"],
-               "cancel_requested",
-               cause
-             ) do
-          :ended -> put_in(state.leases[id].cancel, true)
-          :gone -> cancelled_already(state, id, lease)
-          :unavailable -> state
-        end
-    end
-  end
-
-  defp cancelled_already(state, id, lease) do
-    case Leases.read(lease.task_key) do
-      {:ok, fact} ->
-        cond do
-          Leases.value(fact, "lease_id") != id ->
-            drop(state, id)
-
-          Leases.value(fact, "lease_state") == "cancel_requested" ->
-            put_in(state.leases[id].cancel, true)
-
-          true ->
-            state
-        end
-
-      _ ->
-        state
+  defp learn(state, id, what) do
+    case {state.leases[id], what} do
+      {nil, _} -> state
+      {_, :expired} -> put_in(state.leases[id].state, :expired)
+      {_, :cancel} -> put_in(state.leases[id].cancel, true)
+      {%{state: :offered}, :live} -> put_in(state.leases[id].state, :live)
+      _ -> state
     end
   end
 
@@ -591,15 +693,6 @@ defmodule AtlasFlow.Dispatch do
   end
 
   defp drop(state, id), do: %{state | leases: Map.delete(state.leases, id)}
-
-  # Whether the Engine wrote the task cancelled (F2-P); a failed read is no, for now: the
-  # next sweep reads it again.
-  defp cancelled?(task_key) do
-    case Leases.read(task_key) do
-      {:ok, fact} -> Leases.value(fact, "state") == "cancelled"
-      _ -> false
-    end
-  end
 
   ## Ready set and boot
 
@@ -637,50 +730,52 @@ defmodule AtlasFlow.Dispatch do
   end
 
   # Every live lease on a task fact counts as renewed now (§5.3 item 5); read once, at boot,
-  # and again at each sweep while Facts did not answer it.
-  defp boot_leases(%{booted: true} = state), do: state
-
+  # and again by each sweep while Facts did not answer it.
   defp boot_leases(state) do
     case Leases.all() do
       {:ok, facts} ->
-        now = now(state)
-
-        leases =
-          for fact <- facts,
-              id = Leases.value(fact, "lease_id"),
-              is_binary(id),
-              lease_state = Leases.value(fact, "lease_state"),
-              lease_state in ["expired" | @live],
-              into: %{} do
-            {id,
-             %{
-               lease_id: id,
-               task_key: fact["key"],
-               runtime: Leases.value(fact, "runtime"),
-               holder: List.first(Leases.links(fact, @done_for)),
-               subject: state.ready[fact["key"]] && state.ready[fact["key"]].subject,
-               granted_at: parse(Leases.value(fact, "granted_at")) || now,
-               expires_at:
-                 if(lease_state == "expired",
-                   do: now,
-                   else: DateTime.add(now, state.ttl, :second)
-                 ),
-               state:
-                 case lease_state do
-                   "offered" -> :offered
-                   "expired" -> :expired
-                   _ -> :live
-                 end,
-               cancel: lease_state == "cancel_requested"
-             }}
-          end
-
-        %{state | leases: Map.merge(leases, state.leases), booted: true}
+        take_leases(state, facts)
 
       {:error, why} ->
         Logger.warning("flow dispatch could not read the leases: #{inspect(why)}")
         state
     end
+  end
+
+  defp take_leases(state, facts) do
+    now = now(state)
+
+    leases =
+      for fact <- facts,
+          id = Leases.value(fact, "lease_id"),
+          is_binary(id),
+          lease_state = Leases.value(fact, "lease_state"),
+          lease_state in ["expired" | @live],
+          into: %{} do
+        {id,
+         %{
+           lease_id: id,
+           task_key: fact["key"],
+           runtime: Leases.value(fact, "runtime"),
+           holder: List.first(Leases.links(fact, @done_for)),
+           subject: state.ready[fact["key"]] && state.ready[fact["key"]].subject,
+           granted_at: parse(Leases.value(fact, "granted_at")) || now,
+           expires_at:
+             if(lease_state == "expired",
+               do: now,
+               else: DateTime.add(now, state.ttl, :second)
+             ),
+           state:
+             case lease_state do
+               "offered" -> :offered
+               "expired" -> :expired
+               _ -> :live
+             end,
+           cancel: lease_state == "cancel_requested"
+         }}
+      end
+
+    %{state | leases: Map.merge(leases, state.leases), booted: true}
   end
 
   defp parse(%DateTime{} = at), do: at

@@ -17,7 +17,8 @@ defmodule AtlasFlow.HealthTest do
     name
   end
 
-  defp at(clock), do: ManualClock.now(clock) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+  defp at(clock),
+    do: ManualClock.now(clock) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
   # The round ended, and the Engine has also set its next one (after answering).
   defp idle(engine) do

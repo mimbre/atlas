@@ -19,26 +19,26 @@ data="${ATLAS_RELA_DATA:-$root/rela}"
 bin="${ATLAS_RELA_BIN:-$root/bin}"
 port="${ATLAS_RELA_PORT:-7690}"
 
-version=26.11.3
+version=26.11.9
 # The archive for this machine: the MacBook and the Mac mini (darwin_arm64), CI (linux_amd64).
 case "$(uname -s)_$(uname -m)" in
   Darwin_arm64)
     platform=darwin_arm64
-    cli_archive_sha=a58f1c4b98788edd023ac9e0464bd4bb06beb2d9f95974512155e2e9b2a6477c
-    server_archive_sha=e912966778186f21c54652729aacd7a8a0ce8b139f72df4cb719f416ff831c5f
-    cli_sha=2d8968bf6bb00d96e90d937650bdb2488208653bb1e2f7615bb31e3a012b88d7
-    server_sha=e093883dec14eefb561635b8b2e594b1acd751726feafe8f394410f565fa73aa
-    sqlite_archive_sha=488fc2ecbbd9bff326a461c6646fe5d557a6710f1e9c237d22109c14970c0f67
-    sqlite_sha=72e2f50a181e0f8b4c6a511f4f9f9399308109b8fb09f4f3b3bc9b2aa07e29af
+    cli_archive_sha=9154163deaeba99ed2a4ee44a6ee7d8489c9a43412358aad7ac7074d54dd31aa
+    server_archive_sha=0c800303d43e00835c60cb97064a93cb02976edf3ed88f4e33a38770735aa31b
+    cli_sha=f5d5a24af08a88a6ea0a6fe2bd97677957ba16d3374813ec04743707e4972896
+    server_sha=46eb1b09b8240f2793b3313fc189db28fc6b821857f62ea920fae9b6bfa8e38b
+    sqlite_archive_sha=9ba610947262adf47913317631ba7b0ef531c2ed7acea4c44c510ff16bf5d9d2
+    sqlite_sha=7566e66382de2bc1e16ecef0ddc11250ae8603145d6da0226a6361b296012a64
     ;;
   Linux_x86_64)
     platform=linux_amd64
-    cli_archive_sha=fcc2ff25d1137870af23c7b75ad426d28b324ce70a2ca35ca4ebf033afdd532b
-    server_archive_sha=ff3e434c2dfbc353b70bfe404bb389c4a4450502beae84f1d74011c0e79dd1cd
-    cli_sha=fc582d94cc21d20d72b25118f40aeb4e6e7adb638eed6e2061abf033db4f32d4
-    server_sha=09906fa0fe550c40c119ba0f54998b2c47a25af73318d4e1c7c328ded4e7b9a6
-    sqlite_archive_sha=4988a201bc06c115b9e815d01e7628a3eb765029ce3f056d798f9506b4b21b12
-    sqlite_sha=c29587dcdb97dc48e5b5cd5d0b7cc8c0e9c58e8559b8dfe5504d87fd9564231b
+    cli_archive_sha=dc7e005265eb3f155f4fe2c1c498228f85ca9509cf23195ea3c7b9f9d8c20a1b
+    server_archive_sha=1eb170a955665cec5a3caadb3c32954f31eca0b9215590e74691dc42c6ea29c6
+    cli_sha=08bc2e47432ab45ce7e1e93aef93b4c8d1ae00438fbc03f3972b872c1cfc29f1
+    server_sha=7e579600d86a3b1a5a4bf0948ae8233a925c68d30b89ebab6b974879059eacd1
+    sqlite_archive_sha=2510bfcd2d3fde2e098ba6372e915709673c1aca7a13bca2b3d4e236e98cd51c
+    sqlite_sha=e2b1c0b20720c576c349ef24c442269b0c767d054c53ee2789ac91e72a52cf5d
     ;;
   *) echo "start-test: no rela $version archive known for $(uname -s) $(uname -m)" >&2; exit 1 ;;
 esac

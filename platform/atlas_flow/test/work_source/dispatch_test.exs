@@ -338,11 +338,10 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
       stored("B-1", task)
       assert L.values(task)["lease_state"] == "accepted"
 
-      # The manual clock's advance sends the tick; the status call after it is answered
-      # once the tick was taken (one sender, in order).
+      # The manual clock's advance sends the tick; the sweep it starts runs off Dispatch's
+      # own process (IS-Atlas-110), and answers Dispatch once it ran.
       L.advance(ctx, 1)
-      Dispatch.status()
-      assert cancel_requested?(task)
+      AtlasTestAwait.until(fn -> cancel_requested?(task) end, wake: {:trace, Dispatch})
     end
 
     test "a cancel whose run is never stored without the task (its store failed) cancels nothing",
@@ -410,6 +409,29 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
                poll(@mini, [], %{"deep_coding" => 2})
 
       assert {:polled, %{leases: []}} = poll(@mini, [], %{"deep_coding" => 1})
+    end
+
+    # IS-Atlas-113: the Runtime offers each profile its total of free slots; the profiles
+    # share them, so a poll is never granted more leases than that total.
+    test "two profiles sharing N slots: at most N leases, oldest first across both", ctx do
+      L.supervised_task("B-1", "ada", at: ~U[2026-11-17 11:00:00Z])
+      L.supervised_task("B-2", "ada", at: ~U[2026-11-17 11:10:00Z])
+      L.supervised_task("B-3", "ada", profile: "independent_review", at: ~U[2026-11-17 10:00:00Z])
+      L.supervised_task("B-4", "ada", profile: "independent_review", at: ~U[2026-11-17 12:00:00Z])
+      ready(ctx)
+
+      shared = %{"deep_coding" => 2, "independent_review" => 2}
+
+      assert {:polled,
+              %{leases: [%{work: %{work_key: "TK-B-3-1"}}, %{work: %{work_key: "TK-B-1-1"}}]}} =
+               poll(@mini, [], shared)
+
+      # A profile's own count still bounds it: one slot, and the next oldest goes.
+      assert {:polled, %{leases: [%{work: %{work_key: "TK-B-2-1"}}]}} =
+               poll(@mini, [], %{"deep_coding" => 1, "independent_review" => 1})
+
+      assert {:polled, %{leases: [%{work: %{work_key: "TK-B-4-1"}}]}} =
+               poll(@mini, [], shared)
     end
   end
 
@@ -628,6 +650,104 @@ defmodule AtlasFlow.WorkSource.DispatchTest do
       held_by_dispatch(held)
       L.advance(ctx, 25)
       assert {:polled, %{leases: []}} = Task.await(held)
+    end
+  end
+
+  # IS-Atlas-110: the sweep reads every lease's task fact (up to 6 s each on a throttled
+  # core); a poll never waits for it. Each read of a task fact here takes 250 ms (below
+  # Talk's 2 s retry), so the sweep of 12 leases takes some 3 s.
+  describe "a slow Facts (IS-Atlas-110)" do
+    @slow 250
+
+    defp leases!(n) do
+      for i <- 1..n, do: L.supervised_task("B-#{i}", "ada")
+      Dispatch.resync()
+
+      assert {:polled, %{leases: granted}} = poll(@mini, [], %{"deep_coding" => n})
+      ids = granted |> Enum.map(& &1.lease_id) |> Enum.sort()
+      assert length(ids) == n
+      for id <- ids, do: assert({:recorded, _} = report(@mini, id, 1, :accepted))
+      ids
+    end
+
+    defp timed_poll(client, holdings, offer \\ %{"deep_coding" => 1}) do
+      {us, answer} = :timer.tc(fn -> poll(client, holdings, offer) end)
+      {div(us, 1000), answer}
+    end
+
+    defp expires_at(id),
+      do: Enum.find(Dispatch.status().leases, &(&1.lease_id == id)).expires_at
+
+    test "polls are answered within poll_max during a sweep, with their renewals and grants; the sweep still fences the expired leases",
+         ctx do
+      ids = leases!(12)
+      {renewed, silent} = Enum.split(ids, 6)
+      late = List.last(silent)
+
+      # The first six are renewed a second before the others expire. With a free slot, the
+      # poll reads each task fact Delivery changed since (the accepts) once: nothing to grant.
+      L.advance(ctx, 899)
+      assert {:polled, %{lease_lost: [], leases: []}} = poll(@mini, renewed)
+      L.advance(ctx, 1)
+
+      L.supervised_task("B-13", "ada")
+      Dispatch.resync()
+      :ok = GenServer.call(FakeFacts, {:slow_read, "task", @slow})
+
+      sweep = Task.async(fn -> Dispatch.sweep() end)
+
+      AtlasTestAwait.until(fn -> :sys.get_state(Dispatch).sweep != nil end,
+        wake: {:trace, Dispatch}
+      )
+
+      # Answered while the sweep reads: the renewals applied (one of them of a lease the
+      # sweep found due) and the waiting task granted. poll_max is 25 s; each poll here
+      # takes a grant's one slow read at most.
+      assert {ms,
+              {:polled,
+               %{lease_lost: [], cancel: [], leases: [%{work: %{work_key: "TK-B-13-1"}}]}}} =
+               timed_poll(@mini, renewed ++ [late])
+
+      assert ms < 25_000 and ms < 2_000
+      assert {ms, {:polled, %{lease_lost: [], leases: []}}} = timed_poll(@mini, renewed ++ [late])
+      assert ms < 2_000
+      assert {ms, {:polled, %{leases: []}}} = timed_poll(@laptop, [])
+      assert ms < 2_000
+
+      for id <- renewed ++ [late],
+          do: assert(expires_at(id) == DateTime.add(L.now(ctx), 900))
+
+      # The sweep was still running all along: it reads 12 slow task facts.
+      assert Task.yield(sweep, 0) == nil
+      assert :ok = Task.await(sweep, 30_000)
+      :ok = GenServer.call(FakeFacts, {:fast_read, "task"})
+      delivered()
+
+      # The silent leases are fenced; the renewed ones, and the one renewed during the
+      # sweep, are not.
+      for id <- silent -- [late] do
+        {:ok, task, 1} = WorkSource.Leases.parse(id)
+        assert %{"lease_state" => "expired", "lease_end_cause" => "expired"} = L.values(task)
+      end
+
+      for id <- renewed ++ [late] do
+        {:ok, task, 1} = WorkSource.Leases.parse(id)
+        assert L.values(task)["lease_state"] == "accepted"
+      end
+
+      # And still lost at + grace; the one renewed during the sweep expires once silent.
+      L.advance(ctx, 120)
+      Dispatch.sweep()
+
+      for id <- silent -- [late] do
+        {:ok, task, 1} = WorkSource.Leases.parse(id)
+        assert L.values(task)["lease_state"] == "lost"
+      end
+
+      L.advance(ctx, 780)
+      Dispatch.sweep()
+      {:ok, task, 1} = WorkSource.Leases.parse(late)
+      assert L.values(task)["lease_state"] == "expired"
     end
   end
 

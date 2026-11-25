@@ -132,6 +132,38 @@ defmodule RelaDSL.Control.ModelTest do
              })
   end
 
+  test "an agent that assists the owner answers on their behalf, never with a self answer" do
+    flow = %{on: nil, on_kind: nil, owner_relation: "held_by", words: %{title: "Letter"}}
+
+    answers = [
+      %{"key" => "a", "label" => "Accept", "change" => %{"values" => %{"verdict" => "accept"}}},
+      %{"key" => "s", "label" => "Sign", "change" => %{"self" => "signed_by", "values" => %{}}}
+    ]
+
+    letter = %{
+      "key" => "LE-01",
+      "values" => %{},
+      "presentation" => %{
+        "owner" => ["ada"],
+        "actionable" => true,
+        "todo" => %{"answers" => answers}
+      }
+    }
+
+    item = %{"fact" => letter, "parts" => %{}}
+    agent = %{key: "clerk", kind: "agent", assists: "ada"}
+
+    assert Enum.map(Rules.todo(flow, letter, %{}, %{key: "ada"}).answers, & &1.key) == ~w(a s)
+    assert Enum.map(Rules.todo(flow, letter, %{}, agent).answers, & &1.key) == ~w(a)
+    assert Rules.todo(flow, letter, %{}, %{agent | assists: "bob"}) == nil
+
+    assert {:write, %{"on_behalf" => "ada", "values" => %{"verdict" => "accept"}}} =
+             Rules.answer(flow, "a", item, agent)
+
+    assert {:write, %{"on_behalf" => nil}} = Rules.answer(flow, "a", item, %{key: "ada"})
+    assert {:refuse, _} = Rules.answer(flow, "s", item, agent)
+  end
+
   test "a section shows the part of a field under its heading, or all of it under a label" do
     flow = %{on: nil, on_kind: nil, owner_relation: "held_by", words: %{title: "Letter"}}
 

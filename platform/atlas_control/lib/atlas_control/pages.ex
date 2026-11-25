@@ -1944,8 +1944,9 @@ defmodule AtlasControl.Pages do
     ])
   end
 
-  # Who views a page, as the model's callbacks take it.
-  defp viewer(form), do: %{key: form[:by], kind: form[:by_kind]}
+  # Who views a page, as the model's callbacks take it: also whom it assists, when it is
+  # an agent, so it is offered their answers on their behalf.
+  defp viewer(form), do: %{key: form[:by], kind: form[:by_kind], assists: form[:assists]}
 
   defp page({:list, kind}, kind, k, m, answers, form) do
     if open_work?(m, kind),

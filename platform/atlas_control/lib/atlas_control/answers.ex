@@ -1,9 +1,11 @@
 defmodule AtlasControl.Answers do
   @moduledoc """
   Build one declared owner answer as one Facts change: the change the model's `answer/4`
-  gives (`%{"values", "self", "label", "note"}`), by `by`, at `now`; `self` nil links
-  nobody. A value `"$now"` is the moment it is given, and `"$note"` the note it is given
-  with (as it is given, so a field can keep it as well as the change's cause).
+  gives (`%{"values", "self", "label", "note", "on_behalf"}`), by `by`, at `now`; `self`
+  nil links nobody. A value `"$now"` is the moment it is given, and `"$note"` the note it
+  is given with (as it is given, so a field can keep it as well as the change's cause).
+  An answer an agent gives for whom it assists (`on_behalf`) stays the agent's; its cause
+  says on whose behalf.
   """
 
   def change(answer, key, by, note, now) do
@@ -33,7 +35,14 @@ defmodule AtlasControl.Answers do
         "version" => nil
       }
 
-      cause = if note == "", do: "#{answer["label"]} by #{by}", else: note
+      cause =
+        case {note, answer["on_behalf"]} do
+          {"", nil} -> "#{answer["label"]} by #{by}"
+          {"", who} -> "#{answer["label"]} by #{by} on behalf of #{who}"
+          {note, nil} -> note
+          {note, who} -> "#{note} (#{by} on behalf of #{who})"
+        end
+
       {:ok, content, cause}
     end
   end
