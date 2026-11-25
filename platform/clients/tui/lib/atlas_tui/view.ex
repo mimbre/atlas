@@ -100,6 +100,11 @@ defmodule AtlasTui.View do
 
   # Body
 
+  # Closed by Control: why, in full, in place of a page that is no longer current (a build
+  # too old for Control says what is true and what to do, IS-Atlas-76).
+  defp body(%Model{connected: false, closed: true, notice: %{text: text}}, width, _room),
+    do: [[] | Enum.map(AtlasTui.Text.wrap(text, width - 2), &[{:error, " " <> &1}])]
+
   # Waiting for a page that is not shown yet; a page kept for it (back, a tab) shows.
   defp body(%Model{console: %{expected: target, restoring: false}, path: path}, _width, _room)
        when target != nil and target != path,

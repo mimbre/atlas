@@ -807,7 +807,7 @@ final class ContractTests: XCTestCase {
     }
 
     func test_control_message_bye_decodes_and_round_trips() throws {
-        let text = ##"{"op":"bye","text":"text 1"}"##
+        let text = ##"{"op":"bye","reason":"reason 1","spec":"spec 1","text":"text 1"}"##
         let message = try decode(ControlMessage.self, text)
         guard case .bye = message else { return XCTFail("decoded as \(message)") }
         try assertRoundTrip(message, text)

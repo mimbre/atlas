@@ -620,7 +620,7 @@ defmodule AtlasControl.SessionTest do
     assert FakeStore.last_fact() == nil
   end
 
-  test "hello carries the contract version: an older client, or one without, is told it is too old",
+  test "hello carries the contract version: an older client, or one without, is told which contract each side speaks",
        %{port: port} do
     version = AtlasControl.Blocks.version()
 
@@ -631,12 +631,15 @@ defmodule AtlasControl.SessionTest do
       hello = %{"op" => "hello", "env" => "test", "client" => "tui"}
       put(socket, if(spec, do: Map.put(hello, "spec", spec), else: hello))
 
-      assert %{"op" => "bye", "text" => text} = next(socket, "bye")
+      assert %{"op" => "bye", "text" => text, "reason" => "too_old", "spec" => ^version} =
+               next(socket, "bye")
 
-      assert text =~
-               "This client implements contract #{spec || "(none)"}; Control test speaks #{version}."
+      # What is true on each side, and no remedy the client may not take (IS-Atlas-76).
+      assert text ==
+               "This client implements contract #{spec || "(none)"}; Control test speaks " <>
+                 "#{version}, and no older one."
 
-      assert text =~ "It is too old"
+      refute text =~ "update"
       assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
     end
 

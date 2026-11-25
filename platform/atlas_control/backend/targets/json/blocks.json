@@ -3062,6 +3062,16 @@
           "name": "text",
           "required": true,
           "type": "string"
+        },
+        {
+          "name": "reason",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "spec",
+          "required": false,
+          "type": "string"
         }
       ],
       "name": "bye"
@@ -5524,6 +5534,10 @@
         {
           "effect": "terminal",
           "name": "bye",
+          "optional": {
+            "reason": "string",
+            "spec": "string"
+          },
           "required": {
             "text": "string"
           },
