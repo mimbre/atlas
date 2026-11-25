@@ -34,7 +34,7 @@ defmodule AtlasRuntime.Sandbox.HomeLayoutTest do
     assert HomeLayout.atomic_temps() == layout["atomic_temps"]
 
     assert HomeLayout.atomic_temps() ==
-             ~w(code.json.tmp server.json.tmp backends.json.tmp policy.json.tmp availability.json.tmp execution-events.json.tmp mode.json.tmp clients.json.tmp)
+             ~w(code.json.tmp server.json.tmp backends.json.tmp policy.json.tmp availability.json.tmp execution-events.json.tmp mode.json.tmp clients.json.tmp update.json.tmp update.lock.tmp update.log.tmp)
 
     assert HomeLayout.managed_denied() == HomeLayout.denied() ++ HomeLayout.atomic_temps()
     for name <- HomeLayout.atomic_temps(), do: refute(name in HomeLayout.denied(), name)
@@ -56,13 +56,13 @@ defmodule AtlasRuntime.Sandbox.HomeLayoutTest do
              &(&1 != "" and &1 not in [".", ".."] and not String.contains?(&1, "/"))
            )
 
-    assert Enum.map(names, &HomeLayout.class/1) |> Enum.frequencies() == %{denied: 35, chain: 1}
+    assert Enum.map(names, &HomeLayout.class/1) |> Enum.frequencies() == %{denied: 41, chain: 1}
     assert HomeLayout.class("not-a-home-name") == nil
   end
 
   test "the reserved and recently found names are denied (P0, SP5)" do
     for name <-
-          ~w(backend.sock work admissions preparations packets submissions rebinds frozen execution-events.json mode.json clients.json sources local-source bases availability.json.tmp execution-events.json.tmp),
+          ~w(backend.sock work admissions preparations packets submissions rebinds frozen execution-events.json mode.json clients.json sources local-source bases update.json update.lock update.log availability.json.tmp execution-events.json.tmp update.json.tmp),
         do: assert(HomeLayout.class(name) == :denied, name)
   end
 

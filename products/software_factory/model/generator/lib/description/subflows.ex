@@ -83,7 +83,7 @@ defmodule RelaDSL.Description.Subflows do
       case s.mechanism do
         {:task, %{} = spec} ->
           for(
-            name <- [spec[:findings], spec[:failure]],
+            name <- [spec[:findings], spec[:failure], asked_field(spec[:asks])],
             is_atom(name) and name != nil,
             do: to_string(name)
           ) ++ if(is_list(spec[:input]), do: update_field(spec[:input]), else: [])
@@ -104,6 +104,10 @@ defmodule RelaDSL.Description.Subflows do
             )
           )
   end
+
+  # The subject's field a task's questions go to (`asks:`).
+  defp asked_field(asks) when is_list(asks), do: if(Keyword.keyword?(asks), do: asks[:field])
+  defp asked_field(_asks), do: nil
 
   defp update_field(input) do
     case Keyword.keyword?(input) && input[:update] do
@@ -231,8 +235,28 @@ defmodule RelaDSL.Description.Subflows do
 
         _ ->
           []
-      end
+      end ++ producer(o[:default], kind, schema, here)
   end
+
+  # A default that asks the subject's producer: its relation leads from the subject to one
+  # fact of the default's kind.
+  defp producer(%{producer: name, kind: k}, kind, schema, here) do
+    r = relation(schema, name) || %{}
+
+    if kind in (r["from"] || []) and to_string(k) in (r["to"] || []) and r["max_outgoing"] == 1,
+      do: [],
+      else: [
+        here.(
+          problem(
+            :owner_producer,
+            [name, kind, k],
+            "owner default's producer #{name} does not lead from #{kind} to one #{k} (max_outgoing 1)"
+          )
+        )
+      ]
+  end
+
+  defp producer(_default, _kind, _schema, _here), do: []
 
   defp present(nil, _kind, _schema, _here), do: []
 
@@ -517,10 +541,36 @@ defmodule RelaDSL.Description.Subflows do
               else: []
             ) ++
             restart_by(o, projection, flows, at) ++
+            completed(f, kind, o, extension, at) ++
             verification(schema, kind, o[:verification], at) ++
             order(schema, kind, states, o[:order], at)
       end
     end)
+  end
+
+  # The final state a run of a completed subject ends in (`completed:`): one the subflow
+  # has, on a kind with a completion rule (Facts derives whether its fact is completed).
+  defp completed(f, kind, o, extension, at) do
+    report = fn message -> [at.(problem(:completed, [kind], "completed: " <> message))] end
+
+    case Keyword.fetch(o, :completed) do
+      :error ->
+        []
+
+      {:ok, state} ->
+        final = for s <- f.states, s.final, do: s.name
+
+        cond do
+          not is_atom(state) or state not in final ->
+            report.("#{inspect(state)} is no final state of #{f.name}")
+
+          get_in(extension || %{}, ["entities", kind, "completion"]) in [nil, []] ->
+            report.("#{kind} has no completion rule, so no #{kind} is ever completed")
+
+          true ->
+            []
+        end
+    end
   end
 
   # Who may ask for an explicit restart of a completed run: `:owner` (whom the projection's

@@ -11,7 +11,7 @@ defmodule Model.IssueRunsTest do
   """
   use ExUnit.Case, async: false
 
-  alias AtlasFlow.{Bases, Delivery, Dispatch, FakeCode, FakeFacts, ManualClock, Results}
+  alias AtlasFlow.{Bases, Delivery, Dispatch, FakeCode, FakeFacts, ManualClock}
   alias AtlasFlow.WorkSource
   alias AtlasFlow.FakeFacts.Leasing, as: L
   alias AtlasFlow.Runs.{Run, Store}
@@ -54,7 +54,6 @@ defmodule Model.IssueRunsTest do
 
     code = start_supervised!({FakeCode, %{}}, id: :code)
     FakeCode.put(code, @repository, "develop", "rev_1", %{"README.md" => "# Atlas\n"})
-    start_supervised!({Results, dir: dir, clock: clock, sweep_ms: 86_400_000, pins: fn -> [] end})
     start_supervised!({Bases, client: FakeCode.client(code), clock: clock})
 
     start_supervised!(
@@ -566,6 +565,45 @@ defmodule Model.IssueRunsTest do
     assert until(c, "ci_failing")["state"] == "ci_failing"
   end
 
+  # Nothing to merge (IS-Atlas-63): its agent changed nothing, so Code opened no pull
+  # request. Its supervisor may build it again: a new author on a fresh base of develop.
+  test "Nothing to merge: Build it again starts a new author on a fresh base of develop", c do
+    first = unchanged(c)
+    assert answers("unchanged") == ["Build it again", "Close it"]
+    assert owner(c, until(c, "unchanged")) == "ada"
+
+    # develop moved meanwhile: the new author's base is a fresh one of it.
+    FakeCode.put(c.code, @repository, "develop", "rev_3", %{"README.md" => "# Atlas 3\n"})
+    ManualClock.advance(elem(c.clock, 1), 60_000)
+    decide("rebuild")
+    working = intent(c)
+    assert {working["state"], working["status"]} == {"working", "active"}
+    assert working["supervised_by"] == "ada"
+    assert %{"key" => @fix} = working["pending"]["task"]
+    assert FakeFacts.get("task", @fix)["values"]["kind"] == "author"
+    {_, again} = leased = lease!()
+    refute again.input.base.base_id == first.input.base.base_id
+    assert again.input.result_ref == "refs/atlas/results/" <> @fix
+
+    values = FakeFacts.get("issue", @key)["values"]
+    assert {values["retry_step"], values["task_failure"]} == {"author", "none"}
+
+    # Its new author's result goes on to Reviewing, as any author's.
+    finish(lease: leased, answer: "Done.")
+
+    FakeCode.put(c.code, @repository, "refs/atlas/results/" <> @fix, "rev_4", %{
+      "README.md" => "# Atlas 3\n\nChanged.\n"
+    })
+
+    assert intent(c)["state"] == "reviewing"
+  end
+
+  test "Nothing to merge: Close it ends it", c do
+    unchanged(c)
+    decide("close")
+    assert until(c, "done")["status"] == "completed"
+  end
+
   test "Close ends a stuck issue", c do
     started(c)
     finish(kind: :failed, reason: "time_limit")
@@ -578,6 +616,239 @@ defmodule Model.IssueRunsTest do
     review_failed(c)
     decide("close")
     assert until(c, "done")["status"] == "completed"
+  end
+
+  # Its pull request closed on GitHub without merging (IS-Atlas-11, IS-Atlas-119): its
+  # supervisor decides, with Build it again and Close it.
+  @waiting ~w(checking ci_fixing ci_fixing_again ci_pushing ci_failing updating update_pushing update_failing merging)
+
+  test "closed while waiting for its CI: its supervisor decides; Build it again opens a new pull request",
+       c do
+    published(c)
+    assert_received {:published, %{"name" => "publish"}}
+    sync(%{"pr_state" => "closed", "pr_checks" => "failure", "pr_checks_failure" => @red})
+    closed = until(c, "pr_closed")
+    assert {closed["status"], closed["supervised_by"]} == {"active", "ada"}
+    assert owner(c, closed) == "ada"
+    assert closed["pending"]["task"] == nil
+    assert answers("pr_closed") == ["Build it again", "Close it"]
+
+    # A fresh author on a fresh base of develop.
+    decide("rebuild")
+    working = intent(c)
+    assert {working["state"], working["supervised_by"]} == {"working", "ada"}
+    assert %{"key" => @fix} = working["pending"]["task"]
+    assert FakeFacts.get("task", @fix)["values"]["kind"] == "author"
+    finish(answer: "Done again.")
+
+    FakeCode.put(c.code, @repository, "refs/atlas/results/" <> @fix, "rev_5", %{
+      "README.md" => "# Atlas\n\nChanged again.\n"
+    })
+
+    assert intent(c)["state"] == "reviewing"
+    finish(answer: verdict("approved", [], []))
+
+    # Its new pull request: the old one's closed is not taken for it, and its counts start
+    # again.
+    assert until(c, "checking")["state"] == "checking"
+    assert_received {:published, %{"name" => "publish", "input" => %{"result" => result}}}
+    assert result == "refs/atlas/results/" <> @fix
+    values = FakeFacts.get("issue", @key)["values"]
+
+    assert {values["pr_state"], values["ci_fixes"], values["pr_updates"]} ==
+             {"open", "none", "none"}
+
+    assert settle(c)["state"] == "checking"
+  end
+
+  test "closed while its CI fix runs: the fix is cancelled and its supervisor decides; Close it ends it",
+       c do
+    published(c)
+    sync(%{"pr_checks" => "failure", "pr_checks_failure" => @red})
+    assert %{"key" => @fix} = intent(c)["pending"]["task"]
+    {lease, _} = lease!()
+    run(lease)
+
+    sync(%{"pr_state" => "closed"})
+    closed = until(c, "pr_closed")
+    assert closed["pending"]["task"] == nil
+    assert FakeFacts.get("task", @fix)["values"]["state"] == "cancelled"
+
+    # Its Runtime is told on its next poll; its late result is never taken.
+    Dispatch.sweep()
+    assert FakeFacts.get("task", @fix)["values"]["lease_state"] == "cancel_requested"
+
+    decide("close")
+    assert until(c, "done")["status"] == "completed"
+  end
+
+  test "closed at Merge it: its supervisor decides; reopened on GitHub, it waits for its CI again",
+       c do
+    published(c)
+    sync(%{"pr_checks" => "success", "pr_mergeable" => "clean"})
+    assert until(c, "merging")["state"] == "merging"
+
+    sync(%{"pr_state" => "closed"})
+    assert until(c, "pr_closed")["state"] == "pr_closed"
+
+    sync(%{"pr_state" => "open"})
+    assert until(c, "checking")["state"] == "checking"
+  end
+
+  # Every state that waits on its pull request, as Flow moves it: a task's state by its
+  # plain branches (its task cancelled), an effect's before Code is asked, any other by its
+  # branches. Closed outranks what would move it on otherwise (green and mergeable, red).
+  test "closed in every state that waits on its pull request leads to its supervisor", c do
+    flow = c.runner.flows["issue"]
+
+    subject = %{
+      "key" => @key,
+      "version" => 9,
+      "values" => %{
+        "pr_state" => "closed",
+        "pr_checks" => "success",
+        "pr_mergeable" => "clean",
+        "ci_fixes" => "one"
+      }
+    }
+
+    task = %{"key" => "TK-IS-Atlas-01-9"}
+
+    for state <- @waiting do
+      moved =
+        case flow.mechanism(state) do
+          {:task, _} ->
+            assert {:ok, run, ^task} =
+                     Run.unheld(
+                       put_in(waiting(state), ["pending", "task"], task),
+                       flow,
+                       subject,
+                       @now
+                     )
+
+            run
+
+          {:effect, _} ->
+            assert {:ok, run} = Run.unfrozen(waiting(state), flow, subject, @now)
+            run
+
+          nil ->
+            assert {:ok, run} = Run.step(waiting(state), flow, subject, @now)
+            run
+        end
+
+      assert {state, moved["state"], moved["status"]} == {state, "pr_closed", "active"}
+      assert moved["pending"]["task"] == nil
+    end
+
+    # Open, nothing moves a task's state by a plain branch.
+    open = put_in(subject, ["values", "pr_state"], "open")
+    assert Run.unheld(waiting("ci_fixing"), flow, open, @now) == :stay
+  end
+
+  # A change merged elsewhere (IS-Atlas-34): a merged pull request linked to the issue by
+  # hand (`in_issue`), or one that also did it (`done_in`), completes it as Facts derives
+  # it, and its run goes to Done.
+  test "a merged pull request linked to it while its author runs: Done, its author cancelled",
+       c do
+    started(c)
+    {lease, _} = lease!()
+    run(lease)
+
+    url = "https://github.com/mimbre/atlas/pull/436"
+    pr = "PR-mimbre-atlas-436"
+
+    FakeFacts.put("pull_request", %{
+      "key" => pr,
+      "values" => %{"url" => url, "state" => "merged"},
+      "links" => %{"in_issue" => [@key]}
+    })
+
+    # Facts wires the issue completed on a read with its progress, never on a plain one.
+    completed(%{"over" => "in_issue", "key" => pr, "field" => "state", "value" => "merged"})
+    done = until(c, "done")
+    assert done["status"] == "completed"
+    assert FakeFacts.get("task", @author)["values"]["state"] == "cancelled"
+  end
+
+  test "a merged pull request that also did it ends a stuck issue", c do
+    started(c)
+    finish(kind: :failed, reason: "time_limit")
+    assert until(c, "stuck")["state"] == "stuck"
+
+    completed(%{
+      "through" => "done_in",
+      "key" => "PR-mimbre-atlas-437",
+      "field" => "state",
+      "value" => "merged"
+    })
+
+    assert until(c, "done")["status"] == "completed"
+  end
+
+  test "a completed issue's run goes to Done from every open state", c do
+    flow = c.runner.flows["issue"]
+    assert c.runner.config["selection"]["issue"]["completed"] == "done"
+
+    subject = %{
+      "key" => @key,
+      "version" => 9,
+      "values" => %{},
+      "completion" => %{"done" => true, "over" => "in_issue", "key" => "PR-x"}
+    }
+
+    task = %{"key" => "TK-IS-Atlas-01-9"}
+
+    for state <- flow.states(), not flow.final?(state) do
+      run = put_in(waiting(state), ["pending", "task"], task)
+      assert {:ok, done, ^task} = Run.completed(run, flow, subject, "done", @now)
+      assert {state, done["state"], done["status"]} == {state, "done", "completed"}
+    end
+
+    # Not completed, nothing ends it; a push Code was asked for is answered first.
+    assert Run.completed(
+             waiting("working"),
+             flow,
+             Map.delete(subject, "completion"),
+             "done",
+             @now
+           ) ==
+             :stay
+
+    asked = put_in(waiting("ci_pushing"), ["pending", "effect"], %{"id" => "e"})
+    assert Run.completed(asked, flow, subject, "done", @now) == :stay
+  end
+
+  # A run of the issue active in `state`, its entry's writes acknowledged.
+  defp waiting(state),
+    do: %{
+      "key" => Run.key("issue", "issue", @key, 1),
+      "flow" => "issue",
+      "subject_kind" => "issue",
+      "subject_key" => @key,
+      "generation" => 1,
+      "entry" => 4,
+      "state" => state,
+      "status" => "active",
+      "entered_at" => DateTime.to_iso8601(@now),
+      "input_cursor" => 0,
+      "last_input" => %{"version" => 1},
+      "blocked_reason" => "",
+      "pending" => %{"version" => 1, "writes" => []},
+      "deadlines" => %{"version" => 1, "timers" => []}
+    }
+
+  # The issue completed, as Facts derives it (`why`, the way that holds).
+  defp completed(why) do
+    fact = FakeFacts.get("issue", @key)
+
+    FakeFacts.put(
+      "issue",
+      Map.merge(fact, %{
+        "completion" => Map.put(why, "done", true),
+        "version" => (fact["version"] || 1) + 1
+      })
+    )
   end
 
   # The issue picked up by ada, its author task made.
@@ -609,6 +880,55 @@ defmodule Model.IssueRunsTest do
 
     assert FakeFacts.get("issue", @key)["values"]["task_failure"] ==
              "The review task #{@review} (in reviewing) ended stuck: time_limit."
+  end
+
+  # Its author and review done, Code refused its publication `no_changes`: with its
+  # supervisor in Nothing to merge. The author's lease's work, as it was leased.
+  defp unchanged(c) do
+    refuse_no_changes()
+    started(c)
+    {_, work} = leased = lease!()
+    finish(lease: leased, answer: "Done.")
+    author_result(c)
+    assert intent(c)["state"] == "reviewing"
+    finish(answer: verdict("approved", [], []))
+    unchanged = until(c, "unchanged")
+    assert {unchanged["status"], unchanged["supervised_by"]} == {"active", "ada"}
+    assert unchanged["pending"]["task"] == nil
+    assert FakeFacts.get("issue", @key)["values"]["publication"] == "no_changes"
+    work
+  end
+
+  # Code's effect receiver on the Bus, refusing every publication `no_changes`.
+  defp refuse_no_changes do
+    test = self()
+
+    spawn_link(fn ->
+      :ok = AtlasBus.attach("code/effects")
+      send(test, :attached)
+      refuse(test)
+    end)
+
+    assert_receive :attached
+  end
+
+  defp refuse(test) do
+    receive do
+      {:atlas_bus, %AtlasBus.Envelope{class: "request"} = e, %{"request" => r} = body} ->
+        send(test, {:published, r})
+
+        AtlasBus.send(AtlasBus.Envelope.reply(e, "answer"), %{
+          "version" => 1,
+          "id" => r["id"],
+          "digest" => body["digest"],
+          "fingerprint" => r["fingerprint"],
+          "status" => "refused",
+          "reason" => "no_changes",
+          "details" => %{"base" => "develop"}
+        })
+    end
+
+    refuse(test)
   end
 
   # The lease accepted and started on the mac-mini: its attempt runs.

@@ -14,6 +14,10 @@ defmodule AtlasCode.FakeGitHub do
   receiver that stops between GitHub's merge and its own outcome; `fail(pid, :merge,
   :lost)` merges and answers `{:error, :unavailable}`, as a response lost on the way;
   `:delayed` holds the merge until `complete_merges/1`, returning unavailable meanwhile.
+
+  A commit changes one file unless `files/3` says how many (0: it changes nothing);
+  `compare` counts the files of the commits `head` is ahead by, nil when one of them is
+  `:unlisted` (GitHub's answer without its files).
   """
   use Agent
   @behaviour AtlasCode.Effects.GitHub
@@ -26,6 +30,8 @@ defmodule AtlasCode.FakeGitHub do
           branches: %{},
           pulls: %{},
           checks: %{},
+          files: %{},
+          compares: [],
           writes: [],
           updates: [],
           pending_merges: [],
@@ -65,6 +71,12 @@ defmodule AtlasCode.FakeGitHub do
 
   def set_pull(pid, number, values),
     do: Agent.update(pid, &update_in(&1, [:pulls, number], fn p -> Map.merge(p, values) end))
+
+  @doc "How many files `commit` changes (default 1), or `:unlisted`."
+  def files(pid, commit, n), do: Agent.update(pid, &put_in(&1, [:files, sha(commit)], n))
+
+  @doc "Every compare asked of it, oldest first: `{base, head}`."
+  def compares(pid), do: Agent.get(pid, &Enum.reverse(&1.compares))
 
   def ci(pid, commit, result), do: Agent.update(pid, &put_in(&1, [:checks, sha(commit)], result))
 
@@ -116,16 +128,21 @@ defmodule AtlasCode.FakeGitHub do
 
   @impl true
   def compare(%{"fake" => pid}, _slug, base, head) do
+    Agent.update(pid, &%{&1 | compares: [{base, head} | &1.compares]})
+
     fault(pid, :compare) ||
       Agent.get(pid, fn s ->
         base = s.branches[base] || base
         a = ancestors(s.commits, head)
         b = ancestors(s.commits, base)
+        ahead = MapSet.difference(a, b)
+        counts = Enum.map(ahead, &Map.get(s.files, &1, 1))
 
         {:ok,
          %{
-           "ahead_by" => MapSet.size(MapSet.difference(a, b)),
-           "behind_by" => MapSet.size(MapSet.difference(b, a))
+           "ahead_by" => MapSet.size(ahead),
+           "behind_by" => MapSet.size(MapSet.difference(b, a)),
+           "files" => if(:unlisted in counts, do: nil, else: Enum.sum(counts))
          }}
       end)
   end

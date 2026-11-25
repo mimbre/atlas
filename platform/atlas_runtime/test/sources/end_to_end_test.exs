@@ -106,15 +106,9 @@ defmodule AtlasRuntime.Sources.EndToEndTest do
              leases(ctx.source, "task-1")
 
     assert %S.Result{kind: :completed} = ended.result
-
-    assert [%S.ChangeRoot{root: "atlas", fingerprint: "csf_" <> _, entries: entries}] =
-             ended.change_set.roots
-
-    writes = for %{op: :write, sha256: sha} <- entries, do: sha
-    assert Enum.sort(writes) == Enum.sort([Source.sha256("alpha\n"), Source.sha256("beta\n")])
-    # The blobs follow the recorded ended.
-    await(fn -> Enum.all?(writes, &Map.has_key?(Source.blobs(ctx.source), &1)) end)
-    for sha <- writes, do: assert(Source.sha256(Source.blobs(ctx.source)[sha]) == sha)
+    # A result travels over Git (IS-Atlas-100): no change set, and no blob follows.
+    assert ended.change_set == nil
+    refute Map.has_key?(Source.blobs(ctx.source), Source.sha256("alpha\n"))
   end
 
   test "two Runtimes: the lost one self-fences and lands nothing; the other takes a fresh lease",

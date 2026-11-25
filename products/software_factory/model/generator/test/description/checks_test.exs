@@ -396,6 +396,18 @@ defmodule RelaDSL.Description.ChecksTest do
     assert selects(select(", reopen: :always")) == [{:reopen_policy, [":always"]}]
   end
 
+  test "a select ends a completed subject's run in a final state, on a kind with a completion rule" do
+    completion = "completion field: :state, value: :done"
+    completed = &concept(entity: completion, concept: @subflow <> "\nselect :thing#{&1}")
+
+    assert selects(completed.(", completed: :closed")) == []
+    assert selects(completed.(", completed: :open")) == [{:completed, ["thing"]}]
+    assert selects(completed.(", completed: :gone")) == [{:completed, ["thing"]}]
+
+    # A kind without a completion rule is never completed: nothing would end its runs.
+    assert selects(select(", completed: :closed")) == [{:completed, ["thing"]}]
+  end
+
   test "restart policy requires a projected owner or a declared configured actor" do
     projection = "projection: [field: :expected, owner_relation: :kept_by]"
     assert selects(select(", #{projection}, restart_by: [:owner]")) == []

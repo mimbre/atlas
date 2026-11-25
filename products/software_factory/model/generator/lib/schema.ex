@@ -100,26 +100,22 @@ defmodule RelaDSL.Schema do
   when it has text, under that heading (what its supervisor said when it sent the proposal
   back). One that writes a field of the subject
   names it, `writes: [field: field, file: name]`: its agent writes the field's text to the
-  file, and Flow puts it in that field once the task completed. A review whose findings outside the
+  file, and Flow puts it in that field once the task completed. A task that proposes may
+  instead ask the one who wrote its subject, `asks: [field: field, file: name]` beside
+  `creates:` or `writes:`: when its agent finds the subject too vague to propose from, it
+  writes its questions to that file and nothing else; Flow, the only writer, puts their
+  text in that field of the subject, makes nothing, and the task ends `asked`, a result of
+  its own to map in `on:`. A review whose findings outside the
   subject's scope become new facts names their kind, `follow_ups: kind`: Flow makes one for
   each follow-up its answer gives, under the subject's nearest parent. A fix of something
   else than the latest review's findings names the subject's field that says what to fix,
-  `findings: field` (only a fix). A task outside any ladder may name the subject's field
+  `findings: field` (only a fix). A task may name the subject's field
   Flow writes why it ended without a result, `failure: field`: when it ends stuck or
   abandoned, which task it was, the state it ran in, how it ended and its reason.
 
-  With `ladder: true` a task is a step of the review → fix loop (F2, `AtlasFlow.Ladder`):
-  its end leads where the ladder's next step says, so it maps `author`, `review`, `fix`,
-  `diagnose`, `fresh`, `stronger`, `ready`, `held`, `escalate` and `abandon` (the
-  supervisor abandoned it while its task ran, F2-P) instead of the four results. A ladder author or fix needs `check` (lesson 7: `bin/check` is the mandatory
-  after-check), so every fix and fresh or stronger author the ladder runs is checked. As
-  a rule of its own (not lesson 7), a step leads to a state whose task is a ladder task
-  of its kind (`fresh` and `stronger` an author, `stronger` on `deep_coding_max`). A review, fix or diagnose
-  starts from the loop's latest result, `input: [result: :latest, access: :read]` (a
-  fix: `:write`); no other kind does (`input_problem/2`). The subject's `answer` field
-  is the supervisor's answer while the ladder waits.
-
-  A review or fix outside any ladder (a subject's) starts from the run's latest result as a
+  A task's result travels over Git (IS-Atlas-100): no task is a step of a review → fix
+  ladder, and none reads a change set. A review or fix (a subject's) starts from the run's
+  latest result as a
   base of a Code repository, `input: [repository: name, result: :latest]`: a Git checkout
   of the result its author's Runtime pushed, which Code serves like a branch. Such a
   review also gives `changes_required`, when its verdict asks for changes.
@@ -138,7 +134,10 @@ defmodule RelaDSL.Schema do
   writes; a composition (`RelaDSL.Schema.Composition`) says what writes it.
 
   Branches are tried in the order written; a mechanism's branches sit where the
-  mechanism is written.
+  mechanism is written. A plain branch (of no role) in a state with a mechanism moves a
+  run as in a state without one: in an effect's state only until the service is asked,
+  in a task's state whether its task waits, runs or ended (the task is then cancelled
+  and its result never taken).
 
   ## Owners and what they see
 
@@ -147,7 +146,14 @@ defmodule RelaDSL.Schema do
   `default: {kind, key}`, who owns it while no one is assigned. A default may name a
   configured actor instead of a key, `default: {kind, config: role}`: each environment's
   settings say who that is (`actors`), so the model names nobody; the role is one of
-  the composition's `actors/0`. Every subflow names an
+  the composition's `actors/0`. Inside a supervised span the `decider`'s state goes to the
+  run's human supervisor instead; `default: {kind, config: role, supervisor: false}` keeps
+  it with the configured actor there too, for a state that asks someone else than the
+  supervisor. `default: {kind, config: role, producer: relation}` asks the subject's
+  producer (SC-Atlas-09): whom the subject links to through `relation` (an item's
+  `produced_by`, which Flow sets when a run makes it), and the configured actor when it
+  links to nobody (an item made by hand, or before it was recorded); never the run's
+  supervisor. Every subflow names an
   owner, and every state that is not final resolves to exactly one: its own (`owner`
   inside the state, with the same options) or the subflow's. Waiting is not a status:
   `wait_for` names the roles that decide, and the owner still answers for the item.
@@ -263,40 +269,16 @@ defmodule RelaDSL.Schema do
   @writer "atlas-flow"
   @effect_results [:done, :refused]
   @task_results [:completed, :check_failed, :stuck, :abandoned]
-  # A review (outside any ladder, on the run's latest result) also ends asking for
+  # A task that may ask instead of proposing (`asks:`) also ends `asked`.
+  @asks_results @task_results ++ [:asked]
+  # A review (on the run's latest result) also ends asking for
   # changes, its verdict.
   @verdict_review_results @task_results ++ [:changes_required]
-  # What a ladder task's end leads to (`AtlasFlow.Ladder`'s steps, F2): the next task's
-  # step, or ready, held, escalate; or abandon, the supervisor's answer while the task ran
-  # on the default (F2-P, Main's D1 ruling).
-  @ladder_results [
-    :author,
-    :review,
-    :fix,
-    :diagnose,
-    :fresh,
-    :stronger,
-    :ready,
-    :held,
-    :escalate,
-    :abandon
-  ]
-  @ladder_kinds [
-    author: :author,
-    review: :review,
-    fix: :fix,
-    diagnose: :diagnose,
-    fresh: :author,
-    stronger: :author
-  ]
   @task_kinds [:plan, :author, :review, :fix, :diagnose]
   @task_roles [:architect, :developer, :investigator]
   @task_profiles [:deep_coding, :independent_review, :deep_coding_max]
   @task_costs [:low, :standard, :high]
-  # The kinds whose input may be the latest result of the loop, and how they read it.
-  @result_access [review: :read, diagnose: :read, fix: :write]
   @task_keys [
-    :ladder,
     :role,
     :profile,
     :cost_class,
@@ -309,6 +291,7 @@ defmodule RelaDSL.Schema do
     :note,
     :creates,
     :writes,
+    :asks,
     :follow_ups,
     :findings,
     :failure,
@@ -483,7 +466,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `note:`, `creates:`, `writes:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `note:`, `creates:`, `writes:`, `asks:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1043,9 +1026,20 @@ defmodule RelaDSL.Schema do
 
   defp owner_of(opts) when is_list(opts) do
     case Map.new(opts) do
-      %{default: {kind, [config: role]}} = o -> %{o | default: %{kind: kind, config: role}}
-      %{default: {kind, key}} = o -> %{o | default: %{kind: kind, key: key}}
-      o -> o
+      %{default: {kind, [config: role]}} = o ->
+        %{o | default: %{kind: kind, config: role}}
+
+      %{default: {kind, [config: role, supervisor: false]}} = o ->
+        %{o | default: %{kind: kind, config: role, supervisor: false}}
+
+      %{default: {kind, [config: role, producer: relation]}} = o ->
+        %{o | default: %{kind: kind, config: role, producer: relation}}
+
+      %{default: {kind, key}} = o ->
+        %{o | default: %{kind: kind, key: key}}
+
+      o ->
+        o
     end
   end
 
@@ -1092,6 +1086,17 @@ defmodule RelaDSL.Schema do
 
   defp default_problems(:none, _pre), do: []
 
+  defp default_problems({kind, [config: role, supervisor: false]}, pre),
+    do: default_problems({kind, [config: role]}, pre)
+
+  defp default_problems({kind, [config: role, producer: relation]}, pre),
+    do:
+      default_problems({kind, [config: role]}, pre) ++
+        if(valid_name?(relation),
+          do: [],
+          else: [pre <> "default's producer #{inspect(relation)} is not a valid name"]
+        )
+
   defp default_problems({kind, [config: role]}, pre) do
     for {what, v} <- [kind: kind, role: role],
         not valid_name?(v),
@@ -1107,7 +1112,7 @@ defmodule RelaDSL.Schema do
   defp default_problems(other, pre),
     do: [
       pre <>
-        "default must be {kind, key} or {kind, config: role}, such as {:team, :desk}; " <>
+        "default must be {kind, key} or {kind, config: role} (and supervisor: false, or producer: relation), such as {:team, :desk}; " <>
         "got #{inspect(other)}"
     ]
 
@@ -1187,8 +1192,8 @@ defmodule RelaDSL.Schema do
 
     values =
       cond do
-        opts[:ladder] == true -> @ladder_results
         kind == :review and base_result_input?(opts[:input]) -> @verdict_review_results
+        opts[:asks] != nil -> @asks_results
         true -> @task_results
       end
 
@@ -1308,11 +1313,6 @@ defmodule RelaDSL.Schema do
     {add_branches(s, field, mapping, [@writer]), problems ++ ps}
   end
 
-  # Lesson 7 (Flow plan §11 row 7, F1.3; Main's D4): bin/check is the mandatory
-  # after_check. Every author or fix the ladder runs (the fix, and the fresh or stronger
-  # author) is a ladder task of one of these kinds, so each one declares its check.
-  @checked_ladder_kinds [:author, :fix]
-
   # What the task activity needs to run a task, and nothing else (D44: no path).
   defp task_problems(kind, opts, spec) do
     text? = &(is_binary(&1) and String.trim(&1) != "")
@@ -1325,7 +1325,6 @@ defmodule RelaDSL.Schema do
 
     [
       unknown != [] && pre <> "knows no #{list(unknown)}",
-      spec[:ladder] not in [nil, true] && pre <> "ladder: is true or left out",
       kind not in @task_kinds && pre <> "kind must be one of #{list(@task_kinds)}",
       spec[:role] not in @task_roles && pre <> "role: must be one of #{list(@task_roles)}",
       spec[:profile] not in @task_profiles &&
@@ -1341,18 +1340,10 @@ defmodule RelaDSL.Schema do
           "input: repository and base are a Code repository's name and a reference, " <>
           "never a URL",
       input_problem(kind, input) == :input_result_kind &&
-        pre <> "input: only a review, fix or diagnose starts from the latest result",
-      input_problem(kind, input) == :input_access &&
-        pre <> "input: a review or diagnose reads the result (access: :read); a fix writes",
-      (result_input?(input) and spec[:ladder] != true) &&
-        pre <> "input: the latest result is the loop's; it needs ladder: true",
-      (base_result_input?(input) and spec[:ladder] == true) &&
-        pre <> "input: a ladder task reads the loop's latest result as [result:, access:]",
+        pre <> "input: only a review or fix starts from the latest result",
       not (spec[:check] == nil or
              (is_list(spec[:check]) and spec[:check] != [] and Enum.all?(spec[:check], text?))) &&
         pre <> "check: must be a command, a list of texts",
-      (spec[:ladder] == true and kind in @checked_ladder_kinds and spec[:check] == nil) &&
-        pre <> "check: a ladder author or fix runs its check after the work (bin/check)",
       not text?.(spec[:instructions]) && pre <> "instructions: must be a text",
       not (is_list(spec[:fields] || []) and Enum.all?(spec[:fields] || [], &is_atom/1)) &&
         pre <> "fields: must be a list of the subject's fields",
@@ -1384,17 +1375,33 @@ defmodule RelaDSL.Schema do
         pre <> "writes: must be [field: field, file: text]",
       (spec[:creates] != nil and spec[:writes] != nil) &&
         pre <> "creates: and writes: exclude each other",
+      not (spec[:asks] == nil or
+             (Keyword.keyword?(spec[:asks]) and
+                Enum.sort(Keyword.keys(spec[:asks])) == [:field, :file] and
+                is_atom(spec[:asks][:field]) and spec[:asks][:field] != nil and
+                text?.(spec[:asks][:file]))) &&
+        pre <> "asks: must be [field: field, file: text]",
+      (spec[:asks] != nil and spec[:creates] == nil and spec[:writes] == nil) &&
+        pre <> "asks: goes beside creates: or writes:, what it asks instead of",
+      (file_of(spec[:asks]) != nil and
+         file_of(spec[:asks]) in [file_of(spec[:creates]), file_of(spec[:writes])]) &&
+        pre <> "asks: names a file of its own, not its proposal's",
       not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
         pre <> "follow_ups: must be a kind",
       not (spec[:findings] == nil or (kind == :fix and is_atom(spec[:findings]))) &&
         pre <> "findings: is a field of the subject, for a fix only",
-      not (spec[:failure] == nil or (spec[:ladder] == nil and is_atom(spec[:failure]))) &&
-        pre <> "failure: is a field of the subject, for a task outside any ladder",
+      not (spec[:failure] == nil or is_atom(spec[:failure])) &&
+        pre <> "failure: is a field of the subject",
       spec[:read_first] not in [nil, true] && pre <> "read_first: is true or left out",
       not text?.(spec[:machinery]) && pre <> "machinery: must be the kind of its assignee"
     ]
     |> Enum.filter(& &1)
   end
+
+  defp file_of(spec) when is_list(spec),
+    do: if(Keyword.keyword?(spec), do: spec[:file])
+
+  defp file_of(_spec), do: nil
 
   @doc """
   What is wrong with a task's `input`, as a tag a test compares (never the text): nil
@@ -1423,28 +1430,21 @@ defmodule RelaDSL.Schema do
   end
 
   @doc """
-  What is wrong with a task of `kind`'s `input`, as a tag (`input_problem/1`'s, and two
-  of F2's): the input may also be `[result: :latest, access: :read | :write]`, the
-  latest result of the review → fix loop (`AtlasFlow.Ladder`), but only for a review or
-  diagnose, which read it, and a fix, which writes on it; or `[repository: name, result:
-  :latest]`, the run's latest result as a base of that repository, only for a review or a
-  fix; or `[repository: name, base: ref, update: field]`, `ref` merged into the open pull
-  request whose address the subject's `field` holds, only for a fix.
-  `:input_result_kind` when another kind starts from it (an author starts from a base);
-  `:input_access` when the access is not its kind's.
+  What is wrong with a task of `kind`'s `input`, as a tag (`input_problem/1`'s, and one
+  more): the input may also be `[repository: name, result: :latest]`, the run's latest
+  result as a base of that repository, only for a review or a fix; or `[repository: name,
+  base: ref, update: field]`, `ref` merged into the open pull request whose address the
+  subject's `field` holds, only for a fix. `:input_result_kind` when another kind starts
+  from it (an author starts from a base).
   """
-  @spec input_problem(atom(), term()) ::
-          nil | :input_shape | :input_url | :input_result_kind | :input_access
+  @spec input_problem(atom(), term()) :: nil | :input_shape | :input_url | :input_result_kind
   def input_problem(kind, input) do
     cond do
       update_input?(input) and kind != :fix -> :input_result_kind
       update_input?(input) -> input_problem(Keyword.delete(input, :update))
       base_result_input?(input) and kind not in [:review, :fix] -> :input_result_kind
       base_result_input?(input) -> input_problem(repository: input[:repository], base: "latest")
-      not result_input?(input) -> input_problem(input)
-      not Keyword.has_key?(@result_access, kind) -> :input_result_kind
-      input[:access] != @result_access[kind] -> :input_access
-      true -> nil
+      true -> input_problem(input)
     end
   end
 
@@ -1453,11 +1453,6 @@ defmodule RelaDSL.Schema do
       is_list(input) and Keyword.keyword?(input) and
         Enum.sort(Keyword.keys(input)) == [:base, :repository, :update] and
         is_atom(input[:update]) and input[:update] != nil
-
-  defp result_input?(input),
-    do:
-      is_list(input) and Keyword.keyword?(input) and
-        Enum.sort(Keyword.keys(input)) == [:access, :result] and input[:result] == :latest
 
   defp base_result_input?(input),
     do:
@@ -1571,27 +1566,10 @@ defmodule RelaDSL.Schema do
 
     states = Enum.flat_map(flow.states, &check_state(&1, by_name))
     reach = if initial, do: unreachable(flow, by_name), else: []
-    header = header ++ owners(flow, pre) ++ ladders(flow, by_name)
+    header = header ++ owners(flow, pre)
 
     for {line, p} <- header ++ states ++ reach, p, do: {line, p}
   end
-
-  # A ladder task's next step runs where its branch leads (F2): a state whose task is a
-  # ladder task of the step's kind, so the Engine never starts a step in a state that runs
-  # another kind (a stronger author also on a stronger profile).
-  defp ladders(flow, by_name) do
-    for %{mechanism: {:task, %{ladder: true} = spec}} = s <- flow.states,
-        {step, kind} <- @ladder_kinds,
-        b <- s.branches,
-        b.when == "entity.#{spec.field} == '#{step}'",
-        problem = ladder_problem(by_name[b.to], step, kind),
-        do: {s.line, "state #{s.name}: task #{spec.kind}: #{step} " <> problem}
-  end
-
-  defp ladder_problem(%{mechanism: {:task, %{ladder: true, kind: kind} = spec}}, step, kind),
-    do: if(step == :stronger and spec.profile != :deep_coding_max, do: "needs deep_coding_max")
-
-  defp ladder_problem(_target, _step, kind), do: "must lead to a ladder task #{kind}"
 
   # The supervised spans (work acquisition design 2026-11-17, §5.6): each names states of this subflow
   # that are not final, a state lies in at most one span, and a span is named once.

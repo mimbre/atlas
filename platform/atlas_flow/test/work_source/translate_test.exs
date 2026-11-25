@@ -45,7 +45,7 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
       work = Translate.offered_work(intent)
 
       assert Map.keys(work) -- @contract_fields == []
-      assert Map.keys(work.input) -- [:base, :change_set, :permissions] == []
+      assert Map.keys(work.input) -- [:base, :permissions] == []
 
       walk(work, fn
         key when is_atom(key) -> refute Atom.to_string(key) in @forbidden
@@ -107,36 +107,6 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
     end
   end
 
-  describe "the stored result manifest (fix path b)" do
-    defp reported(opts \\ []),
-      do: Translate.normal(L.ended(L.change_set([{"a.txt", "a\n"}], "sha256:b", opts)))
-
-    test "is the plain change set: valid as an input manifest, its fingerprints beside it" do
-      ended = reported()
-      manifest = Translate.manifest(ended)
-      fingerprints = Translate.ended_values(ended)["result_fingerprints"]
-
-      assert Enum.all?(manifest["roots"], &(Map.keys(&1) |> Enum.sort() == ~w(entries root)))
-      assert AtlasChangeset.validate(manifest) == :ok
-      assert Translate.fingerprints_hold?(manifest, fingerprints)
-      assert Translate.fingerprints_hold?(manifest, JSON.decode!(fingerprints))
-    end
-
-    test "fingerprints that do not recompute, or none, do not hold" do
-      bad = reported(fingerprint: "csf_" <> String.duplicate("0", 64))
-      manifest = Translate.manifest(bad)
-
-      refute Translate.fingerprints_hold?(
-               manifest,
-               Translate.ended_values(bad)["result_fingerprints"]
-             )
-
-      refute Translate.fingerprints_hold?(Translate.manifest(reported()), nil)
-      refute Translate.fingerprints_hold?(Translate.manifest(reported()), [])
-      refute Translate.fingerprints_hold?(Translate.manifest(reported()), "not json")
-    end
-  end
-
   test "a review reads only; the other kinds may write" do
     assert Translate.permissions("review") == "read-only"
     for kind <- ~w(plan author fix), do: assert(Translate.permissions(kind) == "workspace-write")
@@ -181,15 +151,15 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
       assert String.valid?(answer)
     end
 
-    test "fingerprints are the roots' csf_; with no change set none, and every field is given" do
-      v = Translate.ended_values(Translate.normal(L.ended(L.change_set([{"a", "a"}], "b"))))
-
-      assert [%{"root" => "repo", "fingerprint" => "csf_" <> _}] =
-               JSON.decode!(v["result_fingerprints"])
-
+    test "every field is given; a change set an older Runtime reports is not read (IS-Atlas-100)" do
       v = values([])
-      assert Map.has_key?(v, "result_fingerprints") and v["result_fingerprints"] == nil
+      assert Map.has_key?(v, "answer") and v["answer"] == nil
       assert v["result_kind"] == "completed"
+
+      with_change_set =
+        Translate.ended_values(Translate.normal(L.ended(L.change_set([{"a", "a"}], "b"))))
+
+      assert with_change_set == v
     end
   end
 
@@ -225,11 +195,7 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
     defp fact(values), do: %{"values" => values}
 
     test "completed with a check that exited 0 and no ending; check_failed otherwise" do
-      done = %{
-        "lease_state" => "done",
-        "result_kind" => "completed",
-        "result_state" => "complete"
-      }
+      done = %{"lease_state" => "done", "result_kind" => "completed"}
 
       assert {:result, "completed", _} =
                Translate.outcome(fact(Map.merge(done, %{"check_exit_status" => 0})), true)
@@ -242,12 +208,9 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
 
       assert {:result, "check_failed", _} = Translate.outcome(fact(done), true)
       assert {:result, "completed", _} = Translate.outcome(fact(done), false)
-
-      assert {:result, "completed", _} =
-               Translate.outcome(fact(Map.delete(done, "result_state")), false)
     end
 
-    test "refused, too large, invalid and other kinds are stuck, each with its reason" do
+    test "refused and other kinds are stuck, each with its reason" do
       assert {:result, "stuck", %{"reason" => "refused: invalid"}} =
                Translate.outcome(
                  fact(%{
@@ -258,18 +221,6 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
                  false
                )
 
-      for state <- ~w(too_large invalid) do
-        assert {:result, "stuck", %{"reason" => ^state}} =
-                 Translate.outcome(
-                   fact(%{
-                     "lease_state" => "done",
-                     "result_kind" => "completed",
-                     "result_state" => state
-                   }),
-                   false
-                 )
-      end
-
       assert {:result, "stuck", %{"reason" => "failed"}} =
                Translate.outcome(
                  fact(%{"lease_state" => "done", "result_kind" => "failed"}),
@@ -277,19 +228,9 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
                )
     end
 
-    test "no result yet, or one still incomplete, waits; a result-less ending retries" do
+    test "no result yet waits; a result-less ending retries" do
       assert :waiting = Translate.outcome(nil, false)
       assert :waiting = Translate.outcome(fact(%{"lease_state" => "started"}), false)
-
-      assert :waiting =
-               Translate.outcome(
-                 fact(%{
-                   "lease_state" => "done",
-                   "result_kind" => "completed",
-                   "result_state" => "incomplete"
-                 }),
-                 false
-               )
 
       # The result-less endings of §3.5 and D-0102, as Delivery writes them.
       for {kind, reason, check_ending, cause} <- [
@@ -351,13 +292,10 @@ defmodule AtlasFlow.WorkSource.TranslateTest do
       assert Translate.empty(nothing) == "empty"
       assert {:empty, "empty", 1} = Translate.outcome(fact(nothing), false)
 
-      # With an answer, or a result, it said something: stuck, as before.
+      # With an answer it said something: stuck, as before.
       said = Map.put(nothing, "answer", "I stopped because …")
       assert Translate.empty(said) == nil
       assert {:result, "stuck", _} = Translate.outcome(fact(said), false)
-
-      made = Map.merge(nothing, %{"result_state" => "complete", "result_manifest" => "m"})
-      assert Translate.empty(made) == nil
 
       # A failure names its cause; a completed end is a result.
       failed = %{"lease_state" => "done", "result_kind" => "failed", "reason" => "time_limit"}

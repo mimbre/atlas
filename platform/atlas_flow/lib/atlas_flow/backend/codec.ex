@@ -17,7 +17,7 @@ defmodule AtlasFlow.Backend.Codec do
 
   alias AtlasFlow.WorkSource.Translate
 
-  @poll_fields ~w(runtime_id incarnation build policy_version offer holdings configuration_refused)
+  @poll_fields ~w(runtime_id incarnation build policy_version offer holdings configuration_refused upgrade)
   @report_fields ~w(revision report)
 
   @doc "The fields a capability's request body holds; nil for a route without a JSON body."
@@ -45,14 +45,14 @@ defmodule AtlasFlow.Backend.Codec do
 
   @doc """
   An answer of `AtlasFlow.WorkSource` as `{outcome, fields}`. `:unavailable` (Facts did not
-  answer a report or a `put_blob`) as it is: the router answers it 503. `:error` for
+  answer a report) as it is: the router answers it 503. `:error` for
   anything that is no outcome of `capability`.
   """
   @spec outcome(atom(), term()) :: {atom(), map() | nil} | :unavailable | :error
   def outcome(:poll, {:polled, polled}) when is_map(polled), do: {:polled, polled(polled)}
   def outcome(:report, {:recorded, recorded}), do: {:recorded, recorded(recorded)}
   def outcome(:get_blob, {:blob, blob}), do: {:blob, blob}
-  def outcome(capability, :unavailable) when capability in [:report, :put_blob], do: :unavailable
+  def outcome(:report, :unavailable), do: :unavailable
   def outcome(capability, {:rejected, reason}), do: rejected(capability, reason)
 
   def outcome(capability, name) when is_atom(name) do
@@ -63,12 +63,11 @@ defmodule AtlasFlow.Backend.Codec do
 
   defp nil_outcomes(:report), do: [:lease_lost]
   defp nil_outcomes(:get_blob), do: [:not_found]
-  defp nil_outcomes(:put_blob), do: [:stored, :lease_lost, :too_large, :not_referenced]
   defp nil_outcomes(_), do: []
 
-  @reasons [:invalid, :conflict, :digest_mismatch]
+  @reasons [:invalid, :conflict]
 
-  defp rejected(capability, reason) when capability in [:poll, :report, :get_blob, :put_blob] do
+  defp rejected(capability, reason) when capability in [:poll, :report, :get_blob] do
     {reason, detail} =
       case reason do
         %{} = map -> {map[:reason] || map["reason"], map[:detail] || map["detail"]}
@@ -95,9 +94,18 @@ defmodule AtlasFlow.Backend.Codec do
       "timing" => Translate.normal(get.(:timing))
     }
 
-    case get.(:configuration) do
-      document when is_binary(document) -> Map.put(polled, "configuration", document)
-      _ -> polled
+    polled =
+      case get.(:configuration) do
+        document when is_binary(document) -> Map.put(polled, "configuration", document)
+        _ -> polled
+      end
+
+    case get.(:upgrade) do
+      %{} = order ->
+        Map.put(polled, "upgrade", Map.take(Translate.normal(order), ~w(id build action)))
+
+      _ ->
+        polled
     end
   end
 

@@ -82,12 +82,12 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
   - one current lease per work; `poll` renews only current, unexpired holdings and names
     every other one in `lease_lost`; a lease expired for `lease_ttl + grace` is lost and
     its work offered again as a fresh lease;
-  - every `report` and `put_blob` is fenced on the current, unexpired lease; an
+  - every `report` is fenced on the current, unexpired lease; an
     `accepted` after the accept deadline loses the lease;
   - reports are idempotent by (lease, revision);
   - `get_blob` serves only blobs the current lease's input names, from this source's own
-    store; `put_blob` takes only blobs the lease's recorded `ended` references, and
-    answers `too_large` past the per-result or the store cap, also while it reads.
+    store. There is no `put_blob` (`work_source` 0.5.0): `recorded.missing` is always
+    empty, and a result travels over Git.
 
   Each source is an Agent; a process calls the one it set with `use/1`. Time is the
   source's own, in seconds, moved on by `advance/2`.
@@ -345,66 +345,6 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
     end)
   end
 
-  @impl true
-  def put_blob({runtime_id, _rights}, %F.PutBlobInput{lease_id: id, sha256: sha} = input) do
-    # Checked before a byte is read: fenced, referenced, within the caps.
-    checked =
-      call(fn s ->
-        s = sweep(s)
-
-        with {:lease, {:ok, lease}} when lease.runtime_id == runtime_id <- {:lease, live(s, id)},
-             {:ref, true} <- {:ref, MapSet.member?(lease.referenced, sha)},
-             room = room(s, lease),
-             {:room, true} <- {:room, input.size <= room} do
-          {{:ok, room}, s}
-        else
-          {:lease, _} -> {%F.Outcome.LeaseLost{}, s}
-          {:ref, _} -> {%F.Outcome.NotReferenced{}, s}
-          {:room, _} -> {%F.Outcome.TooLarge{}, s}
-        end
-      end)
-
-    case checked do
-      {:ok, room} -> receive_blob(id, input, room)
-      outcome -> outcome
-    end
-  end
-
-  # Read in the caller (the bytes are its stream), counting as it goes: never more than
-  # the room is read.
-  defp receive_blob(id, input, room) do
-    read =
-      Enum.reduce_while(input.content, {[], 0}, fn chunk, {acc, n} ->
-        n = n + byte_size(chunk)
-        if n > room, do: {:halt, :too_large}, else: {:cont, {[acc, chunk], n}}
-      end)
-
-    case read do
-      :too_large ->
-        %F.Outcome.TooLarge{}
-
-      {iodata, n} ->
-        bytes = IO.iodata_to_binary(iodata)
-
-        if n != input.size or sha256(bytes) != input.sha256 do
-          %F.Outcome.Rejected{reason: :digest_mismatch}
-        else
-          call(fn s ->
-            # Fenced again at the write: the lease may have been lost while it streamed.
-            case live(s, id) do
-              {:ok, _lease} ->
-                s = store(s, input.sha256, bytes)
-                s = update_in(s.leases[id].result_bytes, &(&1 + n))
-                {%F.Outcome.Stored{}, s}
-
-              _ ->
-                {%F.Outcome.LeaseLost{}, s}
-            end
-          end)
-        end
-    end
-  end
-
   ## Rules
 
   defp call(fun), do: Agent.get_and_update(Process.get(__MODULE__), fun)
@@ -429,8 +369,6 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
       done: false,
       cancel: false,
       reports: [],
-      referenced: MapSet.new(),
-      result_bytes: 0,
       entry: entry
     }
 
@@ -481,27 +419,9 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
 
   defp apply_report(lease, %F.Accepted{}), do: %{lease | accepted: true}
 
-  defp apply_report(lease, %F.Ended{change_set: change_set}) do
-    referenced =
-      for %{entries: entries} <- (change_set && change_set.roots) || [],
-          %{op: :write, sha256: sha} when is_binary(sha) <- entries,
-          into: MapSet.new(),
-          do: sha
-
-    %{lease | referenced: referenced}
-  end
-
   defp apply_report(lease, _report), do: lease
 
-  defp recorded(s, lease) do
-    missing =
-      case List.last(lease.reports) do
-        %F.Ended{} -> lease.referenced |> Enum.reject(&Map.has_key?(s.blobs, &1)) |> Enum.sort()
-        _ -> []
-      end
-
-    %F.Outcome.Recorded{missing: missing}
-  end
+  defp recorded(_s, _lease), do: %F.Outcome.Recorded{missing: []}
 
   # A refused or ended lease is done: its work is not offered again.
   defp release(s, lease), do: put_in(s.leases[lease.id].done, true)
@@ -526,8 +446,6 @@ defmodule AtlasRuntime.Test.FakeWorkSource do
       end
     end)
   end
-
-  defp room(s, lease), do: min(s.result_cap - lease.result_bytes, s.store_cap - s.stored_bytes)
 
   defp store(s, sha, bytes) do
     if Map.has_key?(s.blobs, sha),
@@ -609,12 +527,6 @@ defmodule AtlasRuntime.Test.FakeSourceTarget do
   def report(ref, report) do
     FakeWorkSource.use(ref.source)
     InBeamTarget.report(ref, report)
-  end
-
-  @impl AtlasRuntime.Sources.Upload
-  def put_blob(ref, blob) do
-    FakeWorkSource.use(ref.source)
-    InBeamTarget.put_blob(ref, blob)
   end
 
   defp hooked(%{source: source, hooks: hooks}, call, input, real) do

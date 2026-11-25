@@ -28,13 +28,32 @@ defmodule Model.Delivery do
   the same pull request (`update_pushing`); one update per conflict (`pr_updates`), then
   its supervisor decides (`update_failing`). A result without changes against develop
   opens no pull request: Code refuses it (`no_changes`) and the issue goes to its
-  supervisor (`unchanged`). No second review; its supervisor decides. No package.
+  supervisor (`unchanged`), who closes it or builds it again (a fresh author on a fresh
+  base of develop). A result Code cannot tell has changes is refused too, and goes to its
+  supervisor with Retry (`stuck`); never an empty pull request. No second review; its
+  supervisor decides.
+
+  No item waits for ever on a pull request that is gone (IS-Atlas-11, IS-Atlas-119):
+  closed on GitHub without merging while it waits for its CI, a fix or update of it, its
+  push, a decision or its merge, it goes to its supervisor (`pr_closed`), who builds it
+  again (a fresh author on a fresh base of develop, and a new pull request) or closes it. A
+  task under way then is cancelled (a task state's plain branch takes it, whether its
+  task waits, runs or ended); a push Code is not asked for yet is not made, and one it was
+  asked for is answered first, which leads on to a state that asks. Entering the CI gate
+  says its pull request is open (`pr_state`), so a closed one built again is not taken for
+  the new one; rela's GitHub sync writes closed again on its next read if it still is.
+  Reopened on GitHub, it waits for its CI again.
+
+  An issue whose change was merged elsewhere (IS-Atlas-34) is completed, as its
+  composition's completion says: a merged pull request linked to it by hand (`in_issue`)
+  or one that also did it (`done_in`). Its run then goes to `done` from any open state
+  (its selection's `completed:`), the task it held cancelled.
 
   No item gets stuck (IS-Atlas-60, IS-Atlas-18): an agent task that ends without a result
   (`stuck` or `abandoned`), or Code refusing its pull request, keeps the issue in its span
   with its supervisor (`stuck`), with why: Flow writes which task ended how, and its
   reason (`task_failure`, the task's `failure:`). Each task state records its step as it is
-  entered (`retry_step`, as the package subflow's held state reads it), so Retry goes back
+  entered (`retry_step`, which its supervisor states read), so Retry goes back
   to that state for a fresh task: the author on a fresh base of develop, any other on the
   latest result that has one. A review that ends so leaves its author's result complete in
   Code (`review_stuck`): its supervisor may also publish it without a review, its pull
@@ -45,17 +64,17 @@ defmodule Model.Delivery do
   no result, is an empty turn. The first starts the same task once more on its own, on a
   fresh attempt, with nobody asked; the second in a row ends it `abandoned`, which goes
   to that state's supervisor state with why ("its agent went silent twice") and Retry.
-  Flow keeps that count in the run, by the package ladder's rule (`AtlasFlow.Ladder`).
+  Flow keeps that count in the run (`AtlasFlow.Ladder.again?/2`).
   Work interrupted by an update, a Runtime stop or crash, or a restart of its machine is
   no empty turn: it runs again by itself from the step it was in, as often as it happens.
 
   Every task reads the issue's title and description, and those of its use case and its
   scene (`parents:`): why it is to be done.
 
-  The span `build` holds until the pull request is merged; the runs of its packages
-  (`package`, under it through `package_of`) and of pull requests linked to it
-  (`pull_request`, through `in_issue`) belong to it: a person item of theirs goes to its
-  supervisor (rule S3).
+  The span `build` holds until the pull request is merged; the runs of pull requests linked
+  to it (`pull_request`, through `in_issue`) belong to it: a person item of theirs goes to
+  its supervisor (rule S3). Its result travels over Git only: each task's Runtime pushes its
+  result commit to `refs/atlas/results/<task>` in Code.
   """
   use RelaDSL
 
@@ -97,11 +116,12 @@ defmodule Model.Delivery do
         :update_pushing,
         :update_failing,
         :merging,
+        :pr_closed,
         :unchanged,
         :stuck,
         :review_stuck
       ],
-      with: [:package, :pull_request]
+      with: [:pull_request]
 
     state :working, label: "Working" do
       set retry_step: :author, task_failure: :none
@@ -209,7 +229,7 @@ defmodule Model.Delivery do
     # base; Flow names the result by its ref only. Its CI is waited for (`checking`) before
     # anyone is asked to merge it.
     state :publishing, label: "Opening its pull request" do
-      set ci_fixes: :none
+      set ci_fixes: :none, pr_updates: :none
 
       present(
         expected: "Let Code open its pull request",
@@ -241,7 +261,7 @@ defmodule Model.Delivery do
     # supervisor is asked to merge it only when it is green and mergeable. Merged meanwhile
     # is done.
     state :checking, label: "Waiting for CI" do
-      set pr_checks: :pending, pr_mergeable: :unknown
+      set pr_checks: :pending, pr_mergeable: :unknown, pr_state: :open
 
       present(
         expected: "Wait for its CI",
@@ -251,6 +271,7 @@ defmodule Model.Delivery do
       )
 
       branch to: :done, when: "entity.pr_state == 'merged'"
+      branch to: :pr_closed, when: "entity.pr_state == 'closed'"
 
       branch to: :update_failing,
              when:
@@ -303,6 +324,8 @@ defmodule Model.Delivery do
           abandoned: :update_failing
         ]
       )
+
+      branch to: :pr_closed, when: "entity.pr_state == 'closed'"
     end
 
     # Code pushes the update, on top of the pull request's head, to its branch
@@ -326,6 +349,8 @@ defmodule Model.Delivery do
         input: [repository: "github.com/mimbre/atlas", base: "develop", onto: :pr_url],
         on: [done: :checking, no_changes: :update_failing, refused: :update_failing]
       )
+
+      branch to: :pr_closed, when: "entity.pr_state == 'closed'"
     end
 
     # Its pull request still conflicts with develop after its update, or the update could
@@ -345,6 +370,7 @@ defmodule Model.Delivery do
 
       branch to: :done, when: "entity.gate_result == 'close'"
       branch to: :done, when: "entity.pr_state == 'merged'"
+      branch to: :pr_closed, when: "entity.pr_state == 'closed'"
       branch to: :checking, when: "entity.pr_mergeable == 'clean'"
     end
 
@@ -380,6 +406,8 @@ defmodule Model.Delivery do
           abandoned: :stuck
         ]
       )
+
+      branch to: :pr_closed, when: "entity.pr_state == 'closed'"
     end
 
     # The second and last fix of its failing CI.
@@ -413,6 +441,8 @@ defmodule Model.Delivery do
           abandoned: :stuck
         ]
       )
+
+      branch to: :pr_closed, when: "entity.pr_state == 'closed'"
     end
 
     # Code pushes the CI fix's result, on top of the published one, to the branch of its
@@ -436,6 +466,8 @@ defmodule Model.Delivery do
         input: [repository: "github.com/mimbre/atlas", base: "develop", onto: :pr_url],
         on: [done: :checking, no_changes: :ci_failing, refused: :stuck]
       )
+
+      branch to: :pr_closed, when: "entity.pr_state == 'closed'"
     end
 
     # Its CI still fails after two fixes: its supervisor decides, with what failed in front
@@ -455,6 +487,7 @@ defmodule Model.Delivery do
 
       branch to: :done, when: "entity.gate_result == 'close'"
       branch to: :done, when: "entity.pr_state == 'merged'"
+      branch to: :pr_closed, when: "entity.pr_state == 'closed'"
 
       branch to: :merging,
              when: "entity.pr_checks == 'success' and entity.pr_mergeable == 'clean'"
@@ -476,6 +509,7 @@ defmodule Model.Delivery do
       )
 
       branch to: :done, when: "entity.pr_state == 'merged'"
+      branch to: :pr_closed, when: "entity.pr_state == 'closed'"
 
       branch to: :checking,
              when: "entity.pr_mergeable == 'conflicting' or entity.pr_mergeable == 'behind'"
@@ -484,9 +518,37 @@ defmodule Model.Delivery do
              when: "entity.pr_checks == 'failure' or entity.pr_checks == 'pending'"
     end
 
+    # Its pull request was closed on GitHub without merging (IS-Atlas-11, IS-Atlas-119),
+    # while it waited for its CI, a fix or update of it, or its merge: its supervisor
+    # decides. Build it again goes back to Working, for a fresh author on a fresh base of
+    # develop, whose result Code opens a new pull request from (`gate_result: rebuild`);
+    # Close it ends it (`gate_result: close`, so rela's GitHub sync leaves the pull request
+    # closed). Reopened on GitHub, it waits for its CI again; merged meanwhile is done.
+    state :pr_closed, label: "Its pull request was closed" do
+      owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
+      set gate_result: :none
+
+      present(
+        expected: "Decide what to do with it",
+        why: "its pull request was closed without merging",
+        instructions:
+          "Its pull request was closed on GitHub without merging, so nothing of it reaches develop; any agent task or push of it that was under way was cancelled. Build it again for a fresh author on a fresh base of develop, whose result Code opens a new pull request from, or close it. Reopening its pull request on GitHub takes it back to waiting for its CI.",
+        answers: [
+          [key: "b", label: "Build it again", change: %{values: %{gate_result: :rebuild}}],
+          [key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]
+        ]
+      )
+
+      branch to: :done, when: "entity.gate_result == 'close'"
+      branch to: :working, when: "entity.gate_result == 'rebuild'"
+      branch to: :done, when: "entity.pr_state == 'merged'"
+      branch to: :checking, when: "entity.pr_state == 'open'"
+    end
+
     # Its agent changed nothing (author's and fix's result alike): Code opened no pull
-    # request, and its supervisor is told. They close it (a maintainer's choice,
-    # `gate_result: close`) when nothing was to change.
+    # request, and its supervisor is told (IS-Atlas-63). They close it (a maintainer's
+    # choice, `gate_result: close`) when nothing was to change, or build it again: back to
+    # Working, for a fresh author on a fresh base of develop (`gate_result: rebuild`).
     state :unchanged, label: "Nothing to merge" do
       owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
       set gate_result: :none
@@ -495,11 +557,15 @@ defmodule Model.Delivery do
         expected: "Decide what to do with it",
         why: "its agent changed nothing",
         instructions:
-          "Its result has no changes against develop, so Code opened no pull request. Close it when nothing was to change.",
-        answers: [[key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]]
+          "Its result has no changes against develop, so Code opened no pull request. Build it again for a fresh author on a fresh base of develop (when its agent failed to change what it should), or close it when nothing was to change.",
+        answers: [
+          [key: "b", label: "Build it again", change: %{values: %{gate_result: :rebuild}}],
+          [key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]
+        ]
       )
 
       branch to: :done, when: "entity.gate_result == 'close'"
+      branch to: :working, when: "entity.gate_result == 'rebuild'"
     end
 
     # An agent task ended without a result (stuck or abandoned), or Code refused its pull

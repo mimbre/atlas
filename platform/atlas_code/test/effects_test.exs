@@ -192,9 +192,17 @@ defmodule AtlasCode.EffectsTest do
 
   test "a result onto an open pull is pushed to its branch, never forced; done with its address",
        c do
-    # The pull Code opened from the author's result; the CI fix's result sits on it.
-    published = FakeGitHub.commit(c.gh, "published", ["base"])
-    fixed = FakeGitHub.commit(c.gh, "ci fix", ["published"])
+    # The pull Code opened from the author's result; the CI fix's result sits on it. Code's
+    # copy holds them on its main, and so does GitHub.
+    {git_dir, commit} = copy(c.dir)
+    base = commit.("base", nil, %{"README.md" => "base\n"})
+    published = commit.("published", base, %{"README.md" => "published\n"})
+    fixed = commit.("ci fix", published, %{"README.md" => "fixed\n"})
+    other = commit.("other", base, %{"OTHER.md" => "other\n"})
+
+    for {sha, parents} <- [{base, []}, {published, [base]}, {fixed, [published]}, {other, [base]}],
+        do: FakeGitHub.commit(c.gh, sha, parents)
+
     FakeGitHub.branch(c.gh, "atlas/TK-JB-1-1", published)
     FakeGitHub.put_pull(c.gh, 9, %{"head" => published, "head_ref" => "atlas/TK-JB-1-1"})
     url = "https://github.com/o/r/pull/9"
@@ -202,10 +210,10 @@ defmodule AtlasCode.EffectsTest do
 
     results = fn
       "github.com/o/r", ^ref ->
-        {:ok, %{"dir" => "/cache.git", "commit" => fixed}}
+        {:ok, %{"dir" => git_dir, "commit" => fixed}}
 
       "github.com/o/r", "refs/atlas/results/TK-JB-1-6" ->
-        {:ok, %{"dir" => "/cache.git", "commit" => c.revision}}
+        {:ok, %{"dir" => git_dir, "commit" => other}}
 
       _, _ ->
         :error
@@ -320,7 +328,209 @@ defmodule AtlasCode.EffectsTest do
     assert %{"status" => "refused", "reason" => "no_changes", "details" => %{"base" => "main"}} =
              call(s, "submit", r)
 
+    # Code's copy told: nothing asked of GitHub.
     assert FakeGitHub.writes(c.gh) == []
+    assert FakeGitHub.compares(c.gh) == []
+  end
+
+  # No pull without changes (IS-Atlas-64): when Code's copy cannot tell, GitHub's compare
+  # does, before any pull is opened; when neither can, the publication is refused.
+  describe "a result whose copy cannot tell its changes" do
+    # Code's copy of the repository without its base branch (main): only `develop`, with
+    # the base commit and the result on it, which GitHub holds too. What its pull would
+    # show is GitHub's to say (`FakeGitHub.files/3`: 0 is no changes).
+    setup c do
+      {git_dir, commit} = copy(c.dir, "develop")
+      base = commit.("base", nil, %{"README.md" => "base\n"})
+      result = commit.("result", base, %{"README.md" => "result\n"})
+      FakeGitHub.commit(c.gh, base)
+      FakeGitHub.commit(c.gh, result, [base])
+      FakeGitHub.branch(c.gh, "main", base)
+      %{copy: git_dir, result: result}
+    end
+
+    test "its base branch missing: Code's copy says so; GitHub's compare finds no changes, no pull is opened",
+         c do
+      assert Effects.changes(c.copy, c.result, "main") == {:unknown, "base_missing"}
+      FakeGitHub.files(c.gh, c.result, 0)
+      s = publisher(c, c.copy, c.result)
+
+      assert %{"status" => "refused", "reason" => "no_changes", "details" => %{"base" => "main"}} =
+               first = call(s, "submit", publication())
+
+      assert [{"main", c.result}] == FakeGitHub.compares(c.gh)
+      assert [{:push, "atlas/TK-JB-3-1", _}] = FakeGitHub.writes(c.gh)
+      assert call(s, "lookup", publication()) == first
+      refute Enum.any?(FakeGitHub.writes(c.gh), &match?({:create_pull, _}, &1))
+    end
+
+    test "its base branch missing: GitHub's compare finds changes, its pull is opened", c do
+      s = publisher(c, c.copy, c.result)
+
+      assert %{"status" => "done", "outputs" => %{"url" => "https://github.com/o/r/pull/8"}} =
+               call(s, "submit", publication())
+
+      assert [{"main", c.result}] == FakeGitHub.compares(c.gh)
+    end
+
+    test "Git failing (no copy): GitHub's compare tells, and an empty result opens no pull", c do
+      assert Effects.changes(Path.join(c.dir, "none.git"), c.result, "main") ==
+               {:unknown, "git_failed"}
+
+      FakeGitHub.files(c.gh, c.result, 0)
+      s = publisher(c, Path.join(c.dir, "none.git"), c.result)
+
+      assert %{"status" => "refused", "reason" => "no_changes"} =
+               call(s, "submit", publication())
+
+      refute Enum.any?(FakeGitHub.writes(c.gh), &match?({:create_pull, _}, &1))
+    end
+
+    test "GitHub refusing its compare, or answering without its files: refused changes_unknown, no pull",
+         c do
+      s = publisher(c, c.copy, c.result)
+      FakeGitHub.fail(c.gh, :compare, {:refused, "not_found"})
+
+      assert %{
+               "status" => "refused",
+               "reason" => "changes_unknown",
+               "details" => %{
+                 "base" => "main",
+                 "why" => "compare_refused",
+                 "github" => "not_found"
+               }
+             } = refused = call(s, "submit", publication())
+
+      assert call(s, "lookup", publication()) == refused
+
+      FakeGitHub.files(c.gh, c.result, :unlisted)
+      unlisted = publication(String.duplicate("2", 64))
+
+      assert %{
+               "status" => "refused",
+               "reason" => "changes_unknown",
+               "details" => %{"why" => "compare_without_files"}
+             } = call(s, "submit", unlisted)
+
+      refute Enum.any?(FakeGitHub.writes(c.gh), &match?({:create_pull, _}, &1))
+    end
+
+    test "GitHub unreachable for its compare: still working, no pull; told later", c do
+      s = publisher(c, c.copy, c.result)
+      FakeGitHub.fail(c.gh, :compare, :unavailable)
+      assert %{"status" => "working"} = call(s, "submit", publication())
+      refute Enum.any?(FakeGitHub.writes(c.gh), &match?({:create_pull, _}, &1))
+
+      FakeGitHub.files(c.gh, c.result, 0)
+      assert %{"status" => "refused", "reason" => "no_changes"} = call(s, "lookup", publication())
+      refute Enum.any?(FakeGitHub.writes(c.gh), &match?({:create_pull, _}, &1))
+    end
+
+    test "onto an open pull: refused changes_unknown before anything is pushed", c do
+      FakeGitHub.put_pull(c.gh, 9, %{"head" => c.result, "head_ref" => "atlas/TK-JB-3-0"})
+      s = publisher(c, c.copy, c.result)
+      onto = publication(String.duplicate("3", 64), %{"pull" => "https://github.com/o/r/pull/9"})
+
+      assert %{
+               "status" => "refused",
+               "reason" => "changes_unknown",
+               "details" => %{"base" => "main", "why" => "base_missing"}
+             } = call(s, "submit", onto)
+
+      assert FakeGitHub.writes(c.gh) == []
+      assert FakeGitHub.compares(c.gh) == []
+    end
+  end
+
+  test "Code's copy tells a result's changes against its base: none, some, or not" do
+    dir = Path.join(System.tmp_dir!(), "changes-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    {git_dir, commit} = copy(dir)
+    base = commit.("base", nil, %{"README.md" => "base\n"})
+    same = commit.("same", base, %{"README.md" => "base\n"})
+    changed = commit.("changed", base, %{"README.md" => "changed\n"})
+    lone = commit.("lone", :root, %{"README.md" => "lone\n"})
+    {_, 0} = System.cmd("git", ["--git-dir", git_dir, "update-ref", "refs/heads/main", base])
+
+    assert Effects.changes(git_dir, same, "main") == :none
+    assert Effects.changes(git_dir, changed, "main") == :some
+    assert Effects.changes(git_dir, changed, "develop") == {:unknown, "base_missing"}
+    assert Effects.changes(git_dir, lone, "main") == {:unknown, "no_merge_base"}
+    assert Effects.changes(git_dir, String.duplicate("0", 40), "main") == {:unknown, "git_failed"}
+    assert Effects.changes(Path.join(dir, "none.git"), same, "main") == {:unknown, "git_failed"}
+  end
+
+  # A Git copy of a repository in `dir`, as Code's (a bare one), and how to commit to it:
+  # `commit.(message, parent, files)` makes a commit of exactly `files` on `parent` (nil:
+  # the branch's first, which it moves; `:root`: a commit on no branch and no parent) and
+  # answers its SHA. `branch` is the one branch it holds.
+  defp copy(dir, branch \\ "main") do
+    git_dir = Path.join(dir, "copy-#{System.unique_integer([:positive])}.git")
+    {_, 0} = System.cmd("git", ["init", "-q", "--bare", git_dir])
+
+    identity =
+      [{"GIT_AUTHOR_NAME", "t"}, {"GIT_AUTHOR_EMAIL", "t@t"}] ++
+        [{"GIT_COMMITTER_NAME", "t"}, {"GIT_COMMITTER_EMAIL", "t@t"}]
+
+    git = fn args, input ->
+      {out, 0} =
+        System.cmd(
+          "sh",
+          ["-c", ~s(printf '%s' "$INPUT" | git --git-dir "$0" "$@"), git_dir | args],
+          env: [{"INPUT", input} | identity]
+        )
+
+      String.trim(out)
+    end
+
+    commit = fn message, parent, files ->
+      entries =
+        for {name, content} <- files do
+          "100644 blob #{git.(["hash-object", "-w", "--stdin"], content)}\t#{name}\n"
+        end
+
+      tree = git.(["mktree"], Enum.join(entries))
+      parents = if is_binary(parent), do: ["-p", parent], else: []
+      sha = git.(["commit-tree", tree | parents] ++ ["-m", message], "")
+      if parent == nil, do: git.(["update-ref", "refs/heads/" <> branch, sha], "")
+      sha
+    end
+
+    {git_dir, commit}
+  end
+
+  # Code's receiver whose result refs/atlas/results/TK-JB-3-1 is `commit` in `git_dir`.
+  defp publisher(c, git_dir, commit) do
+    Effects.new(
+      dir: c.dir,
+      github: {FakeGitHub, FakeGitHub.config(c.gh)},
+      repositories: ["o/r"],
+      results: fn "github.com/o/r", "refs/atlas/results/TK-JB-3-1" ->
+        {:ok, %{"dir" => git_dir, "commit" => commit}}
+      end
+    )
+  end
+
+  # A publication of refs/atlas/results/TK-JB-3-1 onto main, as Flow's effect asks it.
+  defp publication(id \\ String.duplicate("1", 64), input \\ %{}) do
+    request(nil, %{
+      "id" => id,
+      "name" => "publish",
+      "subject" => "JB-3",
+      "operation" => "publish",
+      "fingerprint_definition" => %{"fields" => ["title"], "relations" => []},
+      "payload" => %{"title" => "Fix the README"},
+      "input" =>
+        Map.merge(
+          %{
+            "repository" => "github.com/o/r",
+            "base" => "main",
+            "result" => "refs/atlas/results/TK-JB-3-1"
+          },
+          input
+        )
+    })
+    |> Map.drop(["target", "approved"])
   end
 
   test "red CI: blocked with the failing checks, nothing merged", c do

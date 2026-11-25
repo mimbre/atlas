@@ -17,7 +17,7 @@ defmodule AtlasFlow.Runs.Store do
   """
 
   require Logger
-  alias AtlasFlow.{Dispatch, Results, Supervision}
+  alias AtlasFlow.{Dispatch, Supervision}
   alias AtlasFlow.Runs.{HandOver, Run}
   alias AtlasFlow.Talk
   alias AtlasFlow.Activities.Gate
@@ -610,9 +610,26 @@ defmodule AtlasFlow.Runs.Store do
     matched = Run.match_states(run, flow)
 
     cond do
-      matched != run -> step(config, d, run, matched, flow, now, remaining)
-      Run.state_removed?(run, flow) -> finish(config, d, run, flow, now, remaining)
-      true -> resume(config, d, run, flow, now, remaining)
+      Run.state_removed?(run, flow) ->
+        state_removed(config, d, run, matched, flow, now, remaining)
+
+      matched != run ->
+        step(config, d, run, matched, flow, now, remaining)
+
+      true ->
+        resume(config, d, run, flow, now, remaining)
+    end
+  end
+
+  # A run in a state its subflow does not have reads nothing else, but it still ends when
+  # its subject is gone: else it would wait in every round's plan for a state to come back
+  # for a subject that never will.
+  defp state_removed(config, d, run, matched, flow, now, remaining) do
+    case Talk.read(run["subject_kind"], %{"key" => run["subject_key"], "plain" => true}) do
+      %{"fact" => %{}} when matched != run -> step(config, d, run, matched, flow, now, remaining)
+      %{"fact" => %{}} -> finish(config, d, run, flow, now, remaining)
+      %{"fact" => nil} -> subject_removed(config, d, run, flow, now, remaining)
+      other -> {:error, {:subject_unavailable, other}}
     end
   end
 
@@ -663,18 +680,11 @@ defmodule AtlasFlow.Runs.Store do
             :ok ->
               step(config, d, run, sent(run), flow, now, remaining)
 
-            # A hand-over's To-Do number was taken meanwhile: the run is stored with the
-            # next one before it is sent again.
-            {:renumbered, writes} ->
-              step(
-                config,
-                d,
-                run,
-                put_in(run, ["pending", "writes"], writes),
-                flow,
-                now,
-                remaining
-              )
+            # A hand-over's To-Do number, or that of a fact a proposal makes, was taken
+            # meanwhile or is held back: the run is stored with the next one before it is
+            # sent again.
+            {:renumbered, renumbered} ->
+              step(config, d, run, renumbered, flow, now, remaining)
 
             # A write Facts refuses because the run's subject is gone: the run ends.
             error ->
@@ -727,12 +737,16 @@ defmodule AtlasFlow.Runs.Store do
 
   # Store the new generation before consuming its request on the old one. A crash or
   # lost create acknowledgement finds the same next key, even if that run already ended.
-  defp restart_requested(config, _d, run, flow, input, now, remaining) do
-    with %{"fact" => %{} = subject} <-
-           Talk.read(run["subject_kind"], %{
-             "key" => run["subject_key"],
-             "plain" => true
-           }),
+  # A restart of a subject that is gone ends the run instead (`subject_removed`).
+  defp restart_requested(config, d, run, flow, input, now, remaining) do
+    case Talk.read(run["subject_kind"], %{"key" => run["subject_key"], "plain" => true}) do
+      %{"fact" => nil} -> subject_removed(config, d, run, flow, now, remaining)
+      answer -> restart(config, answer, run, flow, input, now, remaining)
+    end
+  end
+
+  defp restart(config, answer, run, flow, input, now, remaining) do
+    with %{"fact" => %{} = subject} <- answer,
          {:ok, new} <- Run.restart(run, flow, subject, now),
          new =
            put_in(new, ["pending", "restart"], %{
@@ -761,11 +775,10 @@ defmodule AtlasFlow.Runs.Store do
   end
 
   defp look_subject(config, d, run, flow, inputs, cursor?, now, remaining) do
-    # Recover prepared writes first, then fetch the subject's current ETag.
-    case Talk.read(run["subject_kind"], %{
-           "key" => run["subject_key"],
-           "plain" => true
-         }) do
+    # Recover prepared writes first, then fetch the subject's current ETag. A subflow whose
+    # selection ends a completed subject's run (`completed:`) reads it with what Facts
+    # derives (its completion), without what points at it; any other plainly.
+    case Talk.read(run["subject_kind"], subject_read(config, run)) do
       %{"fact" => %{} = subject} = answer ->
         subject =
           Map.put(subject, "position", answer["position"] || subject["position"] || 0)
@@ -807,6 +820,15 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
+  defp subject_read(config, run) do
+    if completed_state(config, run),
+      do: %{"key" => run["subject_key"], "incoming" => false},
+      else: %{"key" => run["subject_key"], "plain" => true}
+  end
+
+  # The final state the run's selection ends a completed subject's run in, or nil.
+  defp completed_state(config, run), do: config["selection"][run["flow"]]["completed"]
+
   # A deleted subject ends its run (`ended`, `subject_removed`), stored before the task it
   # holds is cancelled: nothing moves it or is written for it any more, and a round does
   # not read it again (`plan/2`). The other runs go on (a parent counts its children as
@@ -844,18 +866,18 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  defp cancel_task(run, cause, now) do
-    with %{"key" => task} <- run["pending"]["task"] do
-      Dispatch.cancel(task, cause)
-      Results.unpin(task, now)
-    end
+  defp cancel_task(run, cause, _now) do
+    with %{"key" => task} <- run["pending"]["task"], do: Dispatch.cancel(task, cause)
   end
 
   defp activity?(run, flow), do: run["status"] == "active" and flow.mechanism(run["state"]) != nil
 
   # A run whose subject was deleted stays ended. A fact made later under the same key
   # (Facts frees a deleted key after a while) is another subject: once its selection
-  # admits it, it gets the next generation, a new run, and never this one.
+  # admits it, it gets the next generation, a new run, and never this one. The new run
+  # knows the keys of the tasks the generations before it made (`pending.former_tasks`),
+  # so its tasks are numbered past them: Remove deleted those with the subject, and Facts
+  # may still hold their keys back (IS-Atlas-77).
   defp reused(config, d, run, flow, now, remaining) do
     selection = config["selection"][run["flow"]]
 
@@ -865,7 +887,12 @@ defmodule AtlasFlow.Runs.Store do
 
         if Run.holds?(selection["admission"], subject["values"] || %{}) do
           generation = run["generation"] + 1
-          new = Run.new(run["flow"], flow, subject, selection["imports"], now, generation)
+
+          new =
+            run["flow"]
+            |> Run.new(flow, subject, selection["imports"], now, generation)
+            |> Run.former_tasks(run)
+
           step(config, d, run, new, flow, now, remaining)
         else
           finish(config, d, run, flow, now, remaining)
@@ -1032,10 +1059,11 @@ defmodule AtlasFlow.Runs.Store do
     end
   end
 
-  # Each pending write, in order, under its stable id. A hand-over's To-Do create that
-  # Facts refuses because its key is taken (another fact holds it, or it is held back
-  # after a delete) is renumbered: `{:renumbered, writes}`, the run's pending writes with
-  # the next free number, under that number's ids, stored before they are sent again.
+  # Each pending write, in order, under its stable id. A hand-over's To-Do create, or a
+  # create of a fact a proposal or a review's follow-ups make (IS-Atlas-38), that Facts
+  # refuses because its key is taken (another fact holds it, or it is held back after a
+  # delete) is renumbered: `{:renumbered, run}`, the run with its pending writes from the
+  # next free number on, under that number's ids, stored before they are sent again.
   defp send_writes(config, run) do
     writes = run["pending"]["writes"]
 
@@ -1048,6 +1076,7 @@ defmodule AtlasFlow.Runs.Store do
           case taken(config, write, refusal_code(error)) do
             :ours -> {:cont, :ok}
             {:taken, number} -> {:halt, {:renumbered, renumber(config, run, write, number)}}
+            {:numbered, first} -> {:halt, {:renumbered, Task.renumber(run, write, first)}}
             :unknown -> {:halt, {:error, {:pending, error}}}
           end
       end
@@ -1062,6 +1091,20 @@ defmodule AtlasFlow.Runs.Store do
   # taken and never this create's; otherwise by what Facts holds at the key
   # (`AtlasFlow.Runs.HandOver.met/2`). Facts answers a resend of the refused id from its
   # ledger, so a taken key is only ever left for the next number's ids.
+  defp taken(_config, %{"numbered" => %{} = mark} = write, code) do
+    with :taken <- held(write, code) do
+      after_ = mark["number"] + 1
+
+      case Talk.read(write["kind"], %{"plain" => true}) do
+        %{"facts" => facts} ->
+          {:numbered, max(after_, HandOver.next_number(mark, Enum.map(facts, & &1["key"])))}
+
+        _ ->
+          {:numbered, after_}
+      end
+    end
+  end
+
   defp taken(config, write, code) do
     with true <- config["hand_over"] != nil and HandOver.create?(write),
          :taken <- held(write, code) do
@@ -1092,12 +1135,16 @@ defmodule AtlasFlow.Runs.Store do
 
   defp renumber(config, run, write, number),
     do:
-      HandOver.renumber(
-        config["hand_over"],
+      put_in(
         run,
-        run["pending"]["writes"],
-        write["hand_over"]["input"],
-        number
+        ["pending", "writes"],
+        HandOver.renumber(
+          config["hand_over"],
+          run,
+          run["pending"]["writes"],
+          write["hand_over"]["input"],
+          number
+        )
       )
 
   # The run once its pending writes are acknowledged: none left, and its hand-over, once
@@ -1432,17 +1479,18 @@ defmodule AtlasFlow.Runs.Store do
       end)
 
     retried = Run.retry(run, flow, first, subject, now)
-
-    case {run["pending"]["task"], flow.mechanism(run["state"])} do
-      {%{"key" => key} = intent, {:task, spec}} ->
-        Dispatch.cancel(key, "retry")
-        Results.unpin(key, now)
-        {:ok, update_in(retried, ["pending", "writes"], &[Task.cancelled(intent, spec) | &1])}
-
-      _ ->
-        {:ok, retried}
-    end
+    {:ok, dropped(retried, run["pending"]["task"], flow.mechanism(run["state"]), "retry", now)}
   end
+
+  # The task a run held when it left its state other than by the task's result (a retry, a
+  # plain branch, its subject completed): Dispatch drops it now, and its fact says so once
+  # the run is stored (`cancelled`, a write of the run's next entry).
+  defp dropped(run, %{"key" => key} = intent, {:task, spec}, cause, _now) do
+    Dispatch.cancel(key, cause)
+    update_in(run, ["pending", "writes"], &[Task.cancelled(run, intent, spec) | &1])
+  end
+
+  defp dropped(run, _intent, _mechanism, _cause, _now), do: run
 
   defp moved(config, run, flow, subject, now, inputs) do
     mechanism = if run["status"] == "active", do: flow.mechanism(run["state"])
@@ -1451,7 +1499,18 @@ defmodule AtlasFlow.Runs.Store do
     # Reopened work starts a new generation only when the selection declares it.
     opts = [reopen: config["selection"][run["flow"]]["reopen"]]
 
+    # A completed subject (its change merged elsewhere, say) ends its run from any
+    # open state, ahead of its mechanism; a plain branch that holds takes a task's state
+    # the same way, whether its task waits, runs or ended. Either cancels the task it held.
+    completed = Run.completed(run, flow, subject, completed_state(config, run), now)
+    unheld = if completed == :stay, do: Run.unheld(run, flow, subject, now), else: completed
+
     cond do
+      unheld != :stay ->
+        {:ok, left, intent} = unheld
+        cause = if completed == :stay, do: "branch", else: "completed"
+        {:ok, dropped(left, intent, mechanism, cause, now)}
+
       match?({:effect, _}, mechanism) ->
         effect_next(config, run, flow, subject, now, elem(mechanism, 1))
 
@@ -1658,6 +1717,7 @@ defmodule AtlasFlow.Runs.Store do
       now: now,
       parents: config["parents"] || %{},
       ids: config["ids"] || %{},
+      producer: producer(config),
       read_first: config["read_first"]
     }
 
@@ -1675,6 +1735,18 @@ defmodule AtlasFlow.Runs.Store do
       # A ladder task's outcome is the ladder's step; its ladder is kept (F2).
       {:result, outcome, result, writes, ladder} ->
         Run.task_result(run, flow, subject, now, outcome, result, writes, ladder)
+    end
+  end
+
+  # The relation from an item to its producer (SC-Atlas-09), as the model's supervision
+  # names it (`supervision.producer`), with the kinds it leads from: `{relation, kinds}`,
+  # or nil. What a task's proposal makes of those kinds is linked to the run's supervisor.
+  defp producer(config) do
+    with relation when is_binary(relation) <- get_in(config, ["supervision", "producer"]),
+         %{"from" => from} <- (config["relations"] || %{})[relation] do
+      {relation, from}
+    else
+      _ -> nil
     end
   end
 

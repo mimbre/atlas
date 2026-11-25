@@ -241,8 +241,9 @@ var sensitiveHomeNames = append(slices.Clone(runtimeSockets), "turns", "code.jso
 	"backends.json", "policy.json", "availability.json", "service.log", "service.lock", "passes",
 	"snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets",
 	"submissions", "rebinds", "frozen", "execution-events.json", "mode.json", "clients.json", "sources", "local-source", "bases",
+	"update.json", "update.lock", "update.log",
 	"code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp", "availability.json.tmp",
-	"execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp")
+	"execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp", "update.json.tmp", "update.lock.tmp", "update.log.tmp")
 
 // repositoryRuntimeEntries are the runtimeEntries of a Codex dedicated repository. Codex cannot even
 // lstat below a denied directory, and Git lstats every ancestor of its worktree, so a Runtime home or

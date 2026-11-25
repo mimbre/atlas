@@ -128,8 +128,16 @@ defmodule AtlasFlow.Model do
 
   Except one: the `decider` role, on a `run` whose state lies in one of its subflow's
   supervised `spans` and that has a human supervisor (`supervised_by`, `%{"kind",
-  "key"}`) of the owner's kind, is that supervisor. With no supervisor, outside every
-  span, or with no run, it is the configured actor. The projection passes the run with
+  "key"}`) of the owner's kind, is that supervisor, unless the owner says it is not
+  (`"supervisor" => false`: a state that asks someone else, such as the subject's
+  producer, while its run keeps its supervisor). With no supervisor, outside every
+  span, or with no run, it is the configured actor.
+
+  An owner that asks the subject's producer (`"producer" => relation`, SC-Atlas-09) is
+  the one the subject links to through that relation, which the projection passes as the
+  run's `producer` (`%{"kind", "key"}` or nil): the human supervisor of the run that made
+  the subject. With none (an item made by hand, or before its producer was recorded), it
+  is the configured actor. Never the run's own supervisor. The projection passes the run with
   its subflow's `spans` and its supervisor as the run's fact links it, of the
   supervision relation's holder kind (`AtlasFlow.Runs.Projection`). A run of a subflow a
   span names in its `with:` lies in no span of its own: the projection passes it with
@@ -137,6 +145,13 @@ defmodule AtlasFlow.Model do
   run's supervisor instead.
   """
   def owner(owner, actors, run \\ nil)
+
+  def owner(%{"config" => _, "producer" => _} = owner, actors, run) do
+    case producer(owner, run) do
+      %{} = producer -> producer
+      nil -> owner(Map.delete(owner, "producer"), actors, nil)
+    end
+  end
 
   def owner(%{"config" => role} = owner, actors, run) do
     case supervisor(owner, run) do
@@ -154,7 +169,21 @@ defmodule AtlasFlow.Model do
   def owner(owner, _actors, _run), do: owner
 
   @doc "Whether `owner` (a state's default) may go to a run's human supervisor (`owner/3`)."
-  def supervisable?(owner), do: match?(%{"config" => @supervised_role}, owner)
+  def supervisable?(owner),
+    do:
+      match?(%{"config" => @supervised_role}, owner) and owner["supervisor"] != false and
+        not Map.has_key?(owner, "producer")
+
+  @doc "Whether `owner` (a state's default) asks the subject's producer: its relation, or nil."
+  def producer(%{"producer" => relation}) when is_binary(relation), do: relation
+  def producer(_owner), do: nil
+
+  # The subject's producer, as the projection passes it, when it is of the owner's kind.
+  defp producer(%{"kind" => kind}, %{"producer" => %{"kind" => kind, "key" => key}})
+       when is_binary(key) and key != "",
+       do: %{"kind" => kind, "key" => key}
+
+  defp producer(_owner, _run), do: nil
 
   defp supervisor(
          %{"kind" => kind} = owner,

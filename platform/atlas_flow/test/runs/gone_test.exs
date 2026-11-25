@@ -129,4 +129,64 @@ defmodule AtlasFlow.Runs.GoneTest do
     assert run("B-2")["status"] == "active"
     left_alone(c, "B-2", "design")
   end
+
+  test "a run in a state its subflow no longer has ends once its subject is gone", c do
+    # Blocked for a removed state, then its subject deleted (no hint): it does not wait
+    # for the state to come back.
+    removed = Map.put(run("B-1"), "state", "sorting")
+    fact = FakeFacts.get("cursor", removed["key"])
+    FakeFacts.put("cursor", Map.put(fact, "values", Store.encode(c.config, removed)))
+    :ok = Engine.round(c.engine)
+    assert run("B-1")["blocked_reason"] == "state_removed: sorting"
+
+    GenServer.call(FakeFacts, {:drop, "box", "B-1"})
+    :ok = Engine.round(c.engine)
+
+    ended = run("B-1")
+    assert {ended["status"], ended["blocked_reason"]} == {"ended", "subject_removed"}
+    assert ended["state"] == "sorting"
+    left_alone(c, "B-1")
+    unplanned(c, "B-1")
+  end
+
+  test "a restart asked for a deleted subject ends its run once instead", c do
+    config = put_in(c.config, ["selection", "sort", "restart_by"], ["owner"])
+    flows = %{"sort" => TestModel.sort()}
+    FakeFacts.put("box", %{"key" => "B-3", "values" => %{"phase" => "first", "result" => "ok"}})
+    {:ok, _} = Store.reconcile(config, flows, ~U[2026-11-25 00:00:00Z])
+    done = run("B-3")
+    assert done["status"] == "completed"
+
+    request = %{
+      "op" => "submit",
+      "key" => "restart-B-3",
+      "values" => %{
+        "run" => done["key"],
+        "entry" => done["entry"],
+        "roles" => ["restart"],
+        "changed_fields" => %{}
+      }
+    }
+
+    assert {:stored, _} = Talk.put("choice", request, "restart-B-3")
+    GenServer.call(FakeFacts, {:drop, "box", "B-3"})
+    assert {:ok, _} = Store.reconcile(config, flows, ~U[2026-11-25 00:01:00Z])
+
+    ended = run("B-3")
+    assert {ended["status"], ended["blocked_reason"]} == {"ended", "subject_removed"}
+    assert ended["generation"] == 1
+    assert FakeFacts.get("cursor", Run.key("sort", "box", "B-3", 2)) == nil
+
+    sent = FakeFacts.sent()
+
+    log =
+      capture_log(fn ->
+        for _ <- 1..2, do: {:ok, _} = Store.reconcile(config, flows, ~U[2026-11-25 00:02:00Z])
+      end)
+
+    assert log == ""
+    assert run("B-3") == ended
+    assert FakeFacts.sent() == sent
+    unplanned(c, "B-3")
+  end
 end

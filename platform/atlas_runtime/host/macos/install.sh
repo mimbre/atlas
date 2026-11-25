@@ -1,9 +1,15 @@
 #!/bin/zsh
 # Installs, or brings up to date, this Mac's Runtime launch agents from this checkout:
-#   ~/.config/atlas-runtime/{start,secret,fly-proxy}.sh     copies of the scripts next to this one
+#   ~/.config/atlas-runtime/{start,secret,fly-proxy,code}.sh copies of the scripts next to this one
 #   ~/Library/LaunchAgents/com.mimbre.atlas-runtime.plist    runs start.sh at login
 #   ~/Library/LaunchAgents/com.mimbre.atlas-fly-proxy.plist  keeps fly-proxy.sh running (only
 #                                                            with "fly_proxy" in machine.json)
+#   ~/Library/LaunchAgents/com.mimbre.atlas-code.plist       keeps code.sh running: the Code
+#                                                            service of the installed release
+#                                                            (only with "code" in machine.json),
+#                                                            with its home's config.json and
+#                                                            runtime.token, and the Runtime
+#                                                            home's code.json pointing at it
 # Machine-specific settings stay in ~/.config/atlas-runtime/machine.json (machine.example.json).
 # Idempotent: unchanged files are left alone; an agent is (re)loaded only when its plist changed
 # or it is not loaded. It never stops or restarts a running Runtime.
@@ -16,13 +22,14 @@ LOGS=$HOME/Library/Logs
 M=$C/machine.json
 RUNTIME=com.mimbre.atlas-runtime
 PROXY=com.mimbre.atlas-fly-proxy
+CODE=com.mimbre.atlas-code
 DRY=
 case "${1:-}" in --dry-run) DRY=1 ;; "") ;; *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;; esac
 
 die() { echo "install: $*" >&2; exit 1 }
 [[ $(uname) == Darwin ]] || die "macOS only"
 [[ -f $M ]] || die "no $M; start from $SRC/machine.example.json"
-has() { /usr/bin/plutil -extract "$1" json -o /dev/null "$M" 2>/dev/null }
+has() { /usr/bin/plutil -extract "$1" json -o /dev/null "$M" >/dev/null 2>&1 }
 get() { /usr/bin/plutil -extract "$1" "${2:-raw}" -o - "$M" 2>/dev/null || die "$M: no $1" }
 word() { local v; v=$(get $1); [[ $v =~ '^[A-Za-z0-9._/:-]+$' ]] || die "$M: $1 '$v' is not a plain name"; print -r -- $v }
 
@@ -44,6 +51,23 @@ if has fly_proxy; then
   [[ $(get fly_proxy.remote_port) == <1-65535> ]] || die "$M: fly_proxy.remote_port must be a port number"
   PATH=/opt/homebrew/bin:/usr/local/bin:$PATH whence -p fly >/dev/null || die "flyctl (fly) not installed"
 fi
+if has code; then
+  CODE_HOME=$(word code.home)
+  [[ $CODE_HOME == /* ]] || die "$M: code.home $CODE_HOME is not an absolute path"
+  [[ ${CODE_HOME:A} != ${HOME_DIR:A} ]] || die "$M: code.home must not be the Runtime home"
+  [[ $(get code.config.port) == <1-65535> ]] || die "$M: code.config.port must be a port number (code.json names it)"
+  has code.config.repositories || die "$M: code.config.repositories: the repositories Code serves"
+  # The Code release is the installed Runtime release's: a CLI built from a checkout has none.
+  ROOT=$(PATH=$PATH_FOR_RUNTIME atlas-runtime version | /usr/bin/plutil -extract root raw -o - - 2>/dev/null) ||
+    die "atlas-runtime version names no release"
+  [[ -x $ROOT/code/bin/atlas_code ]] ||
+    die "no atlas_code release in $ROOT: install a released build (atlas-runtime service update --build BUILD)"
+  PATH=$PATH_FOR_RUNTIME whence -p erl >/dev/null || die "erl is not on machine.json's path (the Code release carries no ERTS)"
+  # It boots on this Mac's Erlang (in the tree, as code.sh runs it), which must be the one it was built with.
+  WANT=$(<$ROOT/code/releases/start_erl.data); WANT=${WANT%% *}
+  HAVE=$(cd $ROOT && PATH=$PATH_FOR_RUNTIME erl -noshell -eval 'io:format("~s",[erlang:system_info(version)]),halt().' 2>/dev/null) || HAVE=none
+  [[ $HAVE == $WANT ]] || die "the Code release needs ERTS $WANT (the Erlang of $ROOT/.tool-versions); erl here runs $HAVE"
+fi
 for s in atlas-infisical-client-id atlas-infisical-client-secret; do
   security find-generic-password -a "$MACHINE" -s $s >/dev/null 2>&1 ||
     die "no keychain item $s for account $MACHINE: security add-generic-password -a $MACHINE -s $s -w"
@@ -51,7 +75,7 @@ done
 [[ -z ${ATLAS_RUNTIME_HOME:-} || ${ATLAS_RUNTIME_HOME:A} == ${HOME_DIR:A} ]] ||
   echo "install: warning: shell ATLAS_RUNTIME_HOME=$ATLAS_RUNTIME_HOME differs from runtime_home $HOME_DIR" >&2
 
-T=$(mktemp -d); trap 'rm -rf $T' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/atlas-install.XXXXXX"); trap 'rm -rf $T' EXIT
 typeset -A CHANGED
 # place FILE DEST MODE [LABEL]: installs FILE as DEST unless identical; marks LABEL changed.
 place() {
@@ -127,5 +151,29 @@ if has fly_proxy; then
 else
   unload $PROXY
   [[ -n $DRY || ! -f $C/fly-proxy.sh ]] || rm -f $C/fly-proxy.sh
+fi
+if has code; then
+  if [[ -z $DRY ]]; then mkdir -p -m 700 $CODE_HOME; chmod 700 $CODE_HOME; fi
+  /usr/bin/plutil -extract code.config json -o $T/config.json $M
+  place $T/config.json $CODE_HOME/config.json 600 $CODE
+  # Code's runtime token: made once, never replaced (the Runtime reads it through code.json).
+  if [[ ! -f $CODE_HOME/runtime.token ]]; then
+    if [[ -n $DRY ]]; then echo "would write $CODE_HOME/runtime.token (a new token)"
+    else (umask 077; /usr/bin/openssl rand -hex 32 > $CODE_HOME/runtime.token); CHANGED[$CODE]=1; echo "wrote $CODE_HOME/runtime.token"; fi
+  fi
+  printf '{"url":"http://127.0.0.1:%s","token_file":"%s"}\n' "$(get code.config.port)" "$CODE_HOME/runtime.token" > $T/code.json
+  place $T/code.json $HOME_DIR/code.json 600
+  place $SRC/code.sh $C/code.sh 700 $CODE
+  agent $CODE code.sh '
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>' > $T/code.plist
+  place $T/code.plist $LA/$CODE.plist 644 $CODE
+  load $CODE
+elif grep -qF "$C/code.sh" $LA/$CODE.plist 2>/dev/null; then
+  # Only an agent this script wrote; a hand-made com.mimbre.atlas-code is left alone.
+  unload $CODE
+  [[ -n $DRY || ! -f $C/code.sh ]] || rm -f $C/code.sh
 fi
 load $RUNTIME
