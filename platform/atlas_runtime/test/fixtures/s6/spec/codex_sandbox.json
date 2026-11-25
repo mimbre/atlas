@@ -1036,7 +1036,7 @@
             "-c",
             "default_permissions=\"atlas_repository\"",
             "-c",
-            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/w1/repositories/r\"=\"write\",\"{home}/workers/w1/repositories/r/.git\"=\"write\",\"{home}/workers/w1/repositories/r/.agents\"=\"read\",\"{home}/workers/w1/repositories/r/.codex\"=\"read\",\"{home}/workers/w1/repositories/r/.aws\"=\"read\",\"{home}/workers/w2\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/work\"=\"none\",\"{home}/admissions\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/sources\"=\"none\",\"{home}/local-source\"=\"none\",\"{home}/bases\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/workers/[!w]*\"=\"none\",\"{home}/workers/[!w]*/**\"=\"none\",\"{home}/workers/w[!1]*\"=\"none\",\"{home}/workers/w[!1]*/**\"=\"none\",\"{home}/workers/[w]\"=\"none\",\"{home}/workers/[w]/**\"=\"none\",\"{home}/workers/w1[!/]*\"=\"none\",\"{home}/workers/w1[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
+            "permissions={atlas_repository={extends=\":read-only\",filesystem={\"{home}/workers/w1/repositories/r\"=\"write\",\"{home}/workers/w1/repositories/r/.git\"=\"write\",\"{home}/workers/w1/repositories/r/.agents\"=\"read\",\"{home}/workers/w1/repositories/r/.codex\"=\"read\",\"{home}/workers/w1/repositories/r/.aws\"=\"read\",\"{home}/workers/w2\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/turns\"=\"none\",\"{home}/code.json\"=\"none\",\"{home}/server.json\"=\"none\",\"{home}/backends.json\"=\"none\",\"{home}/policy.json\"=\"none\",\"{home}/availability.json\"=\"none\",\"{home}/service.log\"=\"none\",\"{home}/service.lock\"=\"none\",\"{home}/passes\"=\"none\",\"{home}/snapshots\"=\"none\",\"{home}/materializations\"=\"none\",\"{home}/scratch\"=\"none\",\"{home}/work\"=\"none\",\"{home}/admissions\"=\"none\",\"{home}/preparations\"=\"none\",\"{home}/packets\"=\"none\",\"{home}/submissions\"=\"none\",\"{home}/rebinds\"=\"none\",\"{home}/frozen\"=\"none\",\"{home}/execution-events.json\"=\"none\",\"{home}/mode.json\"=\"none\",\"{home}/clients.json\"=\"none\",\"{home}/sources\"=\"none\",\"{home}/local-source\"=\"none\",\"{home}/bases\"=\"none\",\"{home}/update.lock\"=\"none\",\"{home}/update.log\"=\"none\",\"{home}/update.json\"=\"none\",\"{home}/upgrade.json\"=\"none\",\"{home}/code.json.tmp\"=\"none\",\"{home}/server.json.tmp\"=\"none\",\"{home}/backends.json.tmp\"=\"none\",\"{home}/policy.json.tmp\"=\"none\",\"{home}/availability.json.tmp\"=\"none\",\"{home}/execution-events.json.tmp\"=\"none\",\"{home}/mode.json.tmp\"=\"none\",\"{home}/clients.json.tmp\"=\"none\",\"{home}/update.json.tmp\"=\"none\",\"{home}/upgrade.json.tmp\"=\"none\",\"{home}/workers/[!w]*\"=\"none\",\"{home}/workers/[!w]*/**\"=\"none\",\"{home}/workers/w[!1]*\"=\"none\",\"{home}/workers/w[!1]*/**\"=\"none\",\"{home}/workers/[w]\"=\"none\",\"{home}/workers/[w]/**\"=\"none\",\"{home}/workers/w1[!/]*\"=\"none\",\"{home}/workers/w1[!/]*/**\"=\"none\"},network={enabled=true,domains={\"github.com\"=\"allow\",\"api.github.com\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -1189,6 +1189,22 @@
                 "none"
               ],
               [
+                "{home}/update.lock",
+                "none"
+              ],
+              [
+                "{home}/update.log",
+                "none"
+              ],
+              [
+                "{home}/update.json",
+                "none"
+              ],
+              [
+                "{home}/upgrade.json",
+                "none"
+              ],
+              [
                 "{home}/code.json.tmp",
                 "none"
               ],
@@ -1218,6 +1234,14 @@
               ],
               [
                 "{home}/clients.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/update.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/upgrade.json.tmp",
                 "none"
               ],
               [
@@ -1303,6 +1327,10 @@
             "sources",
             "local-source",
             "bases",
+            "update.lock",
+            "update.log",
+            "update.json",
+            "upgrade.json",
             "code.json.tmp",
             "server.json.tmp",
             "backends.json.tmp",
@@ -1310,7 +1338,9 @@
             "availability.json.tmp",
             "execution-events.json.tmp",
             "mode.json.tmp",
-            "clients.json.tmp"
+            "clients.json.tmp",
+            "update.json.tmp",
+            "upgrade.json.tmp"
           ],
           "kind": "pre_exec",
           "runner": "codex-sandbox",
@@ -1495,6 +1525,22 @@
                 "none"
               ],
               [
+                "{home}/update.lock",
+                "none"
+              ],
+              [
+                "{home}/update.log",
+                "none"
+              ],
+              [
+                "{home}/update.json",
+                "none"
+              ],
+              [
+                "{home}/upgrade.json",
+                "none"
+              ],
+              [
                 "{home}/code.json.tmp",
                 "none"
               ],
@@ -1524,6 +1570,14 @@
               ],
               [
                 "{home}/clients.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/update.json.tmp",
+                "none"
+              ],
+              [
+                "{home}/upgrade.json.tmp",
                 "none"
               ],
               [
@@ -1609,6 +1663,10 @@
             "sources",
             "local-source",
             "bases",
+            "update.lock",
+            "update.log",
+            "update.json",
+            "upgrade.json",
             "code.json.tmp",
             "server.json.tmp",
             "backends.json.tmp",
@@ -1616,7 +1674,9 @@
             "availability.json.tmp",
             "execution-events.json.tmp",
             "mode.json.tmp",
-            "clients.json.tmp"
+            "clients.json.tmp",
+            "update.json.tmp",
+            "upgrade.json.tmp"
           ],
           "kind": "pre_exec",
           "runner": "codex-sandbox",

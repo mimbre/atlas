@@ -71,6 +71,10 @@ var censusHome = map[string]censusEntry{
 	"sources":               {"denied", "the work sources' credentials and per-source stores, e.g. sources/<name>/token (work acquisition M2, F4; code site sources/credential.ex, W3)", false},
 	"local-source":          {"denied", "the local work source's queue store and its results (work acquisition M2, F4; code sites sources/local/store.ex, W7, and sources/local.ex, A5)", false},
 	"bases":                 {"denied", "every client's uploaded base records and the import staging (S5c); code site sources/import.ex (work acquisition M2 W5)", false},
+	"update.lock":           {"denied", "the lock an atlas-runtime update holds, so a second update is refused (host/update.go, IS-Atlas-26)", false},
+	"update.log":            {"denied", "the log of a detached atlas-runtime update (host/update.go, IS-Atlas-26)", false},
+	"update.json":           {"denied", "the outcome of the last atlas-runtime update: done, or the step that failed (host/update.go, upgrade.ex, IS-Atlas-26)", false},
+	"upgrade.json":          {"denied", "the upgrade the Runtime runs for its work source: its id, build and step (upgrade.ex, IS-Atlas-26)", false},
 	"workers":               {"chain", "the managed repositories' worker directories", false},
 }
 
@@ -85,6 +89,11 @@ var censusNotHome = map[string]string{
 	"shell-snapshots": "Claude configuration directory",
 	"session-env":     "Claude configuration directory",
 	"config.toml":     "a Codex configuration directory",
+	// The installed command and the released builds (host/update.go, IS-Atlas-26).
+	"bin":          "user home (~/.local/bin/atlas-runtime, the installed command), or a release folder (<release>/bin/atlas-runtime)",
+	"share":        "user home (~/.local/share/atlas-runtime/releases, the downloaded releases)",
+	"releases":     "user home (~/.local/share/atlas-runtime/releases, the downloaded releases)",
+	"release.json": "a release folder (<release>/release.json, what the release is built for)",
 	// Projects, repositories and folders.
 	".git":              "a project, repository or folder root",
 	".agents":           "a dedicated repository root",

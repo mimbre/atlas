@@ -129,8 +129,8 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 		var paths []string
 		for _, name := range []string{"runtime.sock", "backend.sock", "turns", "code.json", "server.json", "backends.json", "policy.json", "availability.json", "service.log",
 			"service.lock", "passes", "snapshots", "materializations", "scratch", "work", "admissions", "preparations", "packets", "submissions", "rebinds",
-			"frozen", "execution-events.json", "mode.json", "clients.json", "sources", "local-source", "bases", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
-			"availability.json.tmp", "execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp"} {
+			"frozen", "execution-events.json", "mode.json", "clients.json", "sources", "local-source", "bases", "update.lock", "update.log", "update.json", "upgrade.json", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp",
+			"availability.json.tmp", "execution-events.json.tmp", "mode.json.tmp", "clients.json.tmp", "update.json.tmp", "upgrade.json.tmp"} {
 			if !slices.Contains(skip, name) {
 				paths = append(paths, filepath.Join(home, name))
 			}
@@ -205,8 +205,8 @@ func TestCodexManagedRepositoryDeniesTheRuntimeHomeBesideItsAncestors(t *testing
 	// siblings (<file>.tmp, renamed over <file>) of the outbox, the availability and the other home files,
 	// which hold the whole new content until the rename.
 	for _, name := range []string{"backend.sock", "work", "admissions", "preparations", "packets", "submissions", "rebinds",
-		"execution-events.json", "mode.json", "clients.json", "sources", "local-source", "bases", "execution-events.json.tmp", "availability.json.tmp",
-		"mode.json.tmp", "clients.json.tmp", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp"} {
+		"execution-events.json", "mode.json", "clients.json", "sources", "local-source", "bases", "update.lock", "update.log", "update.json", "upgrade.json", "execution-events.json.tmp", "availability.json.tmp",
+		"mode.json.tmp", "clients.json.tmp", "code.json.tmp", "server.json.tmp", "backends.json.tmp", "policy.json.tmp", "update.json.tmp", "upgrade.json.tmp"} {
 		path := filepath.Join(home, name)
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
 			t.Fatalf("%s exists before launch, so this row does not test an absent entry: %v", path, err)

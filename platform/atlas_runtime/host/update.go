@@ -220,31 +220,6 @@ func detachUpdate(dir string, args []string) (map[string]any, error) {
 	return map[string]any{"update": "started", "pid": pid, "log": logPath, "outcome": filepath.Join(dir, "update.json")}, nil
 }
 
-// record writes update.json: done with the result, or the step that failed and why.
-func record(dir, wanted string, result map[string]any, err error) {
-	outcome := map[string]any{"build": wanted, "at": time.Now().UTC().Format(time.RFC3339)}
-	if err == nil {
-		for key, value := range result {
-			outcome[key] = value
-		}
-		outcome["result"], outcome["state"] = result["state"], "done"
-	} else {
-		outcome["state"] = "failed"
-		outcome["error"] = err.Error()
-		var failure interface{ Result() map[string]any }
-		if errors.As(err, &failure) {
-			for key, value := range failure.Result() {
-				outcome[key] = value
-			}
-		}
-	}
-	data, _ := json.Marshal(outcome)
-	temporary := filepath.Join(dir, "update.json.tmp")
-	if os.WriteFile(temporary, append(data, '\n'), 0600) == nil {
-		os.Rename(temporary, filepath.Join(dir, "update.json"))
-	}
-}
-
 // takeUpdateLock holds update.lock until the returned function runs; another update that
 // holds it is a refusal, never a wait.
 func takeUpdateLock(dir string) (func(), error) {
