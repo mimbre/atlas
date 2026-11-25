@@ -462,12 +462,13 @@ defmodule Model.Scene do
   # Design: its agent asks the scene's producer instead of guessing (UC-Atlas-24): a task
   # that ends asked goes to "Answer its questions" (`clarifying`), new, whose Answered
   # takes it back to its break-down. Every state there was stays, and a run keeps its
-  # entry: one in its break-down keeps its task, whose late end maps as before.
+  # entry: one in its break-down keeps its task, whose late end maps as before. Its states
+  # are named, not `:same`: `:same` would say the old digest had `clarifying` too.
   migrate(:break_down_scene,
     from: "c7f67e0c0f7dc9247c959f1ccf90fb95ab65ceab1c746d025336b77a1f1b7092",
     to: "963e46fcbfaeac3007a22ad7154c588cce751f376ebe72c7717afa99f62f4e9d",
     preserve_entry: true,
-    states: :same,
+    states: [accepting: :accepting, break_down: :break_down, broken_down: :broken_down],
     reason: "Design: its agent asks the scene's producer instead of guessing"
   )
 end
