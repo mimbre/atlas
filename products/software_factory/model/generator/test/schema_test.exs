@@ -1011,6 +1011,17 @@ defmodule RelaDSL.SchemaTest do
       [flow] = kept.__flows__()
       assert flow.owner.default == %{kind: :clerk, config: :decider, supervisor: false}
 
+      # Asks the subject's producer, through a relation; the configured actor when none.
+      asked = compile!(owned("owner default: {:clerk, config: :decider, producer: :made_by}"))
+      [flow] = asked.__flows__()
+      assert flow.owner.default == %{kind: :clerk, config: :decider, producer: :made_by}
+
+      refused(
+        owned(~s|owner default: {:clerk, config: :decider, producer: "Made by"}|),
+        2,
+        ~s|default's producer "Made by" is not a valid name|
+      )
+
       refused(
         owned("owner default: {:clerk, config: :decider, supervisor: true}"),
         2,

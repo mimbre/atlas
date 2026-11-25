@@ -92,6 +92,23 @@ defmodule Model.AtlasEyra do
     set_by: [:flow]
   )
 
+  # Every item records its producer (SC-Atlas-09): the human supervisor of the run that
+  # made it. Flow links what a task's proposal makes (`creates:`) to its run's supervisor;
+  # nobody else sets it. A scene made by hand, and an item from before, records none: a
+  # state that asks its producer then asks the configured decider.
+  relation(:produced_by,
+    label: "produced by",
+    description:
+      "Its producer: the human supervisor of the run that made it; at most one. Only Flow sets it.",
+    from: [:scene, :use_case, :issue],
+    to: [:person],
+    max_outgoing: 1,
+    inverse: {:produced, "produced"},
+    set_by: [:flow]
+  )
+
+  producer(relation: :produced_by)
+
   relation(:about,
     label: "about",
     description: "The fact a gate verdict decided on; any kind the composition has.",

@@ -21,6 +21,9 @@ defmodule AtlasFlow.Runs.Projection do
     * an owner that does not exist yet is not written: what is expected is, and the
       result names the owner it waits for, so its creation projects the fact again;
     * when Facts does not say whether the owner exists, nothing is written;
+    * a state whose owner asks the subject's producer goes to whom the subject links to
+      through that relation (`produced_by`), else to the configured actor
+      (`AtlasFlow.Model.owner/3`);
     * a state owned by the configured `decider` goes to the run's human supervisor inside
       a supervised span (`AtlasFlow.Model.owner/3`): its own subflow's span, or, for a run
       of a subflow a span names in its `with:`, the span of the nearest spanned run above
@@ -83,6 +86,7 @@ defmodule AtlasFlow.Runs.Projection do
          {:ok, %{} = run} <- Store.latest(config, name, kind, fact["key"]),
          false <- Run.state_removed?(run, subflow),
          {:ok, run} <- supervised(runner, subflow, run) do
+      run = produced(subflow, run, fact)
       {:ok, Presentation.of_run(run, subflow, fact, &owner(runner, &1, run)) |> entered(run)}
     else
       # Facts did not say who supervises the run: write nothing, never the decider.
@@ -137,6 +141,30 @@ defmodule AtlasFlow.Runs.Projection do
 
       true ->
         {:ok, run}
+    end
+  end
+
+  # The run with its subject's producer (`producer`, `%{"kind", "key"}` or nil), only when
+  # its state's owner asks the producer (`AtlasFlow.Model.owner/3`): whom the subject, as
+  # this projection read it, links to through that owner's relation, of the owner's kind.
+  defp produced(subflow, run, fact) do
+    default = (subflow.owner(run["state"]) || %{})["default"] || %{}
+
+    case AtlasFlow.Model.producer(default) do
+      nil ->
+        run
+
+      relation ->
+        producer =
+          case List.wrap(get_in(fact, ["links", relation])) do
+            [key | _] when is_binary(key) and key != "" ->
+              %{"kind" => default["kind"], "key" => key}
+
+            _ ->
+              nil
+          end
+
+        Map.put(run, "producer", producer)
     end
   end
 

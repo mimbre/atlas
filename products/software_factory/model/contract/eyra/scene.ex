@@ -18,8 +18,8 @@ defmodule Model.Scene do
       producer's note and proposes only what is missing: nothing under the scene is redone.
       A scene too vague to design use cases from is not guessed at (UC-Atlas-24): its agent
       writes its questions instead (`asks:`), Flow puts them in the scene's `questions`,
-      and "Answer its questions" (`clarifying`) goes to its producer (the configured
-      decider until a scene records who produced it), who may rewrite the description and
+      and "Answer its questions" (`clarifying`) goes to its producer (`produced_by`; the
+      configured decider for a scene that records none, as one made by hand), who may rewrite the description and
       answers with a note (`answers`); a fresh pass of its agent then reads the questions,
       the answers and the description as they are now. The run keeps its supervisor.
       Its supervisor's "Not accepted", with a note (the scene's `note`), throws the proposal
@@ -193,15 +193,15 @@ defmodule Model.Scene do
     end
 
     # Its agent found it too vague to design use cases from and asked (UC-Atlas-24): its
-    # producer (the configured decider until a scene records who produced it) answers,
-    # after rewriting its description by hand if they like; a fresh pass of its agent then
-    # reads the questions, the answers and the description. The run keeps its supervisor.
-    # Its producer, not its supervisor (`supervisor: false`), though it lies in the span.
+    # producer (`produced_by`; the configured decider for a scene that records none, as
+    # one made by hand) answers, after rewriting its description by hand if they like; a
+    # fresh pass of its agent then reads the questions, the answers and the description.
+    # The run keeps its supervisor. Its producer, not its supervisor, though it lies in the span.
     state :clarifying, label: "Answer its questions" do
       owner(
         via: :assignment,
         relation: :assigned_to,
-        default: {:person, config: :decider, supervisor: false}
+        default: {:person, config: :decider, producer: :produced_by}
       )
 
       set(verdict: :none)
