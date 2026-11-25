@@ -365,7 +365,9 @@ defmodule AtlasFlow.Delivery do
         ended_with_result(fact, lease, report, result, state)
 
       cause ->
-        # No result: the work is offered again as a fresh attempt (Q8).
+        # No result (returned, any interruption, a check cut short, a supervision cancel):
+        # the stored result is unpinned and the same step is offered again as a fresh
+        # attempt (Q8, D-0102).
         values =
           Map.merge(result, %{
             "lease_state" => "done",

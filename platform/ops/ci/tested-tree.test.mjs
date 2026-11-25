@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  baseRecord, checkWorkflow, deployClauses, describeProblem, find, findRecord, githubApi, keys,
+  checkWorkflow, deployClauses, describeProblem, find, findRecord, githubApi, keys,
   looksUp, suiteRecord, summaryLines, workflowPathOf
 } from './tested-tree.mjs';
 
@@ -20,8 +20,6 @@ const repositoryId = 1001;
 const workflowPath = '.github/workflows/ci.yml';
 const tree = 'a'.repeat(40);
 const otherTree = 'b'.repeat(40);
-const baseKey = 'c'.repeat(40);
-const otherBaseKey = 'd'.repeat(40);
 
 const artifact = (name = suiteRecord(tree), runId = 77, overrides = {}) => ({
   name,
@@ -130,7 +128,6 @@ test('the workflow path comes from GITHUB_WORKFLOW_REF of this repository', () =
 
 const env = (overrides = {}) => ({
   TREE: `${tree}\n`,
-  BASE_KEY: baseKey,
   GITHUB_EVENT_NAME: 'push',
   GITHUB_REF: 'refs/heads/develop',
   GITHUB_BASE_REF: '',
@@ -141,49 +138,17 @@ const env = (overrides = {}) => ({
   ...overrides
 });
 const releasePr = { GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/9/merge', GITHUB_BASE_REF: 'master' };
-const skippedAll = { tree, base_key: baseKey, tested: 'true', run_id: '77', base_tested: 'true', base_run_id: '78' };
-
-test('find: suite and base records for this tree and base key skip both', async () => {
-  const { api } = fakeApi({
-    artifacts: [artifact(), artifact(baseRecord(tree, baseKey), 78)],
-    runs: { 77: run(), 78: run({ id: 78 }) }
-  });
+test('find: a record for this tree skips the tests', async () => {
+  const { api } = fakeApi({ artifacts: [artifact()], runs: { 77: run() } });
   const found = await find(env(), api);
-  assert.deepEqual(found.outputs, skippedAll);
+  assert.deepEqual(found.outputs, { tree, tested: 'true', run_id: '77' });
   for (const line of summaryLines(found)) assert.ok(line.includes(tree));
-});
-
-test('find: the same tree against another base file runs the base job, skips the suite (release PR)', async () => {
-  const { api } = fakeApi({
-    artifacts: [artifact(), artifact(baseRecord(tree, otherBaseKey), 78)],
-    runs: { 77: run(), 78: run({ id: 78 }) }
-  });
-  const found = await find(env(releasePr), api);
-  assert.deepEqual(found.outputs, { ...skippedAll, base_tested: 'false', base_run_id: '' });
-  assert.equal(found.base.code, 'none');
-});
-
-test('find: a base record alone skips nothing, so every skipped job is explained by tested', async () => {
-  const { api, calls } = fakeApi({ artifacts: [artifact(baseRecord(tree, baseKey), 78)], runs: { 78: run({ id: 78 }) } });
-  const found = await find(env(), api);
-  assert.equal(found.outputs.tested, 'false');
-  assert.equal(found.outputs.base_tested, 'false');
-  assert.equal(found.base.code, 'suite-runs');
-  assert.equal(calls.length, 1);
-});
-
-test('find: a base without the base file is its own key', async () => {
-  const { api } = fakeApi({
-    artifacts: [artifact(), artifact(baseRecord(tree, 'none'), 78)],
-    runs: { 77: run(), 78: run({ id: 78 }) }
-  });
-  assert.equal((await find(env({ BASE_KEY: 'none' }), api)).outputs.base_tested, 'true');
-  assert.equal((await find(env({ BASE_KEY: '' }), api)).base.code, 'no-base');
+  assert.equal((await find(env(releasePr), api)).outputs.tested, 'true');
 });
 
 test('find: a different tree runs everything', async () => {
   const found = await find(env({ TREE: otherTree }), fakeApi({ artifacts: [artifact()], runs: { 77: run() } }).api);
-  assert.deepEqual(found.outputs, { tree: otherTree, base_key: baseKey, tested: 'false', run_id: '', base_tested: 'false', base_run_id: '' });
+  assert.deepEqual(found.outputs, { tree: otherTree, tested: 'false', run_id: '' });
   for (const line of summaryLines(found)) assert.ok(line.includes(otherTree));
 });
 
@@ -208,40 +173,28 @@ test('find: no tree or no context runs everything without asking', async () => {
 test('find survives an api that throws synchronously', async () => {
   const found = await find(env(), () => { throw new Error('boom'); });
   assert.equal(found.outputs.tested, 'false');
-  assert.equal(found.outputs.base_tested, 'false');
 });
 
-// Real Git in a scratch repository: a commit with the base file, one without, a merge-like
-// second commit with the same tree.
+// Real Git in a scratch repository: two commits with the same tree.
 const gitEnv = {
   ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
   GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t'
 };
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, env: gitEnv, encoding: 'utf8' }).trim();
 
-test('keys: the tree, the base commit and the blob of the base file there', async () => {
+test('keys: the tree, the same for another commit on it', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'tested-tree-'));
   try {
     git(dir, 'init', '-q');
-    await writeFile(join(dir, 'a.txt'), 'a\n');
+    await mkdir(join(dir, 'sub'));
+    await writeFile(join(dir, 'sub', 'a.txt'), 'a\n');
     git(dir, 'add', '.');
-    git(dir, 'commit', '-q', '-m', 'without');
-    const without = git(dir, 'rev-parse', 'HEAD');
-    await mkdir(join(dir, 'proof'));
-    await writeFile(join(dir, 'proof', 'base.json'), '{}\n');
-    git(dir, 'add', '.');
-    git(dir, 'commit', '-q', '-m', 'with');
-    const withFile = git(dir, 'rev-parse', 'HEAD');
-    const blob = git(dir, 'rev-parse', 'HEAD:proof/base.json');
-    const head = keys({ cwd: dir, base: withFile, file: 'proof/base.json', env: gitEnv });
-    assert.deepEqual(head, { tree: git(dir, 'rev-parse', 'HEAD^{tree}'), base_commit: withFile, base_key: blob });
-    assert.equal(keys({ cwd: dir, base: without, file: 'proof/base.json', env: gitEnv }).base_key, 'none');
-    assert.deepEqual(keys({ cwd: dir, base: 'nowhere', file: 'proof/base.json', env: gitEnv }), { tree: head.tree, base_commit: '', base_key: '' });
-    assert.equal(keys({ cwd: dir, base: '', file: 'proof/base.json', env: gitEnv }).base_key, '');
-    // Another commit on the same tree has the same key.
+    git(dir, 'commit', '-q', '-m', 'first');
+    const head = keys({ cwd: dir, env: gitEnv });
+    assert.deepEqual(head, { tree: git(dir, 'rev-parse', 'HEAD^{tree}') });
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'merge');
-    assert.equal(keys({ cwd: dir, base: withFile, file: 'proof/base.json', env: gitEnv }).tree, head.tree);
-    assert.deepEqual(keys({ cwd: join(dir, 'proof'), base: withFile, file: 'proof/base.json', env: gitEnv }), head);
+    assert.deepEqual(keys({ cwd: dir, env: gitEnv }), head);
+    assert.deepEqual(keys({ cwd: join(dir, 'sub'), env: gitEnv }), head);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -250,7 +203,7 @@ test('keys: the tree, the base commit and the blob of the base file there', asyn
 test('keys outside a repository gives empty values', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'tested-tree-'));
   try {
-    assert.deepEqual(keys({ cwd: dir, base: 'HEAD', file: 'x', env: gitEnv }), { tree: '', base_commit: '', base_key: '' });
+    assert.deepEqual(keys({ cwd: dir, env: gitEnv }), { tree: '' });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -305,9 +258,9 @@ test('the find command exits 0 and writes outputs and summary, also when the API
       assert.equal(result.code, 0, result.stderr);
     });
     assert.deepEqual(parseOutputs(await readFile(output, 'utf8')),
-      { tree, base_key: baseKey, tested: 'false', run_id: '', base_tested: 'false', base_run_id: '' });
+      { tree, tested: 'false', run_id: '' });
     const summary = (await readFile(stepSummary, 'utf8')).trim().split('\n');
-    assert.equal(summary.length, 2);
+    assert.equal(summary.length, 1);
     for (const line of summary) assert.ok(line.includes(tree));
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -318,9 +271,9 @@ test('the keys command exits 0 and writes its outputs, also outside a repository
   const dir = await mkdtemp(join(tmpdir(), 'tested-tree-'));
   try {
     const output = join(dir, 'output');
-    const result = await runCli(['keys'], { ...gitEnv, CI_BASE: 'HEAD', CI_BASE_FILE: 'x', GITHUB_OUTPUT: output }, dir);
+    const result = await runCli(['keys'], { ...gitEnv, GITHUB_OUTPUT: output }, dir);
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(parseOutputs(await readFile(output, 'utf8')), { tree: '', base_commit: '', base_key: '' });
+    assert.deepEqual(parseOutputs(await readFile(output, 'utf8')), { tree: '' });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -330,15 +283,13 @@ test('the keys command exits 0 and writes its outputs, also outside a repository
 const workflow = jobs => `name: CI\non:\n  push:\njobs:\n${jobs}`;
 const job = (id, lines) => `  ${id}:\n${lines.map(l => `    ${l}\n`).join('')}    runs-on: ubuntu-latest\n`;
 const testJob = id => job(id, ['needs: tested-tree', "if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}"]);
-const baseJob = id => job(id, ['needs: tested-tree', "if: ${{ !cancelled() && needs.tested-tree.outputs.base_tested != 'true' }}"]);
 const treeJob = job('tested-tree', []);
 const record = (id, needs, condition = "needs.tested-tree.outputs.tested != 'true'") =>
   job(id, [`needs: [${needs.join(', ')}]`, 'if: >-', `  ${condition}`]);
 const deploy = (needs, clauses = deployClauses) =>
   job('deploy-test', [`needs: [${needs.join(', ')}]`, 'if: >-', "  ${{ github.event_name == 'push'", ...clauses.map(c => `  && ${c}`), '  }}']);
 const good = ({ deployJob = deploy(['tested-tree', 'unit']), recordTree = record('record-tested-tree', ['tested-tree', 'unit', 'swift']), extra = '' } = {}) =>
-  workflow(treeJob + testJob('unit') + testJob('swift') + baseJob('base') + extra + recordTree +
-    record('record-tested-base', ['tested-tree', 'base'], "needs.base.outputs.tree != ''") + deployJob);
+  workflow(treeJob + testJob('unit') + testJob('swift') + extra + recordTree + deployJob);
 const codes = text => checkWorkflow(text).map(({ job, code, need, clause }) => ({ job, code, ...(need ? { need } : {}), ...(clause ? { clause } : {}) }));
 
 test('the workflow scheme: every job joined and recorded', () => {
@@ -352,8 +303,6 @@ test('the workflow scheme: a new job without needs/if, or missing from its recor
     [{ job: 'record-tested-tree', code: 'not-recorded', need: 'swift' }]);
   assert.deepEqual(codes(good({ recordTree: record('record-tested-tree', ['tested-tree', 'unit', 'swift', 'gone']) })),
     [{ job: 'record-tested-tree', code: 'unknown-need', need: 'gone' }]);
-  assert.deepEqual(codes(good({ extra: baseJob('base2') })),
-    [{ job: 'record-tested-base', code: 'not-recorded', need: 'base2' }]);
 });
 
 test('the workflow scheme: a deploy keeps tested-tree and every clause of its if', () => {
@@ -369,9 +318,7 @@ test('the workflow scheme: the record jobs keep their implicit success condition
     assert.deepEqual(codes(good({ recordTree: record('record-tested-tree', ['tested-tree', 'unit', 'swift'], `${status} && true`) })),
       [{ job: 'record-tested-tree', code: 'record-condition' }]);
   }
-  assert.deepEqual(codes(workflow(treeJob)), [
-    { job: 'record-tested-tree', code: 'missing-job' }, { job: 'record-tested-base', code: 'missing-job' }
-  ]);
+  assert.deepEqual(codes(workflow(treeJob)), [{ job: 'record-tested-tree', code: 'missing-job' }]);
   assert.deepEqual(codes('name: CI\n'), [{ job: null, code: 'no-jobs' }]);
 });
 
@@ -383,11 +330,9 @@ test('every problem code has words', () => {
   ]) assert.ok(describeProblem(problem).length > 0);
 });
 
-test('the real workflow is in the scheme, with model-base as its base job', () => {
+test('the real workflow is in the scheme', () => {
   const text = readFileSync(join(here, '..', '..', '..', '.github', 'workflows', 'ci.yml'), 'utf8');
   assert.deepEqual(checkWorkflow(text), []);
-  assert.deepEqual(codes(text.replace(/^( {4}if: .*outputs\.)base_tested( != 'true'.*)$/m, '$1tested$2')),
-    [{ job: 'record-tested-tree', code: 'not-recorded', need: 'model-base' }]);
 });
 
 test('the check-workflow command exits 1 on a job outside the scheme, 0 on the real workflow', async () => {

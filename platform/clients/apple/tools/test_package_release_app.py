@@ -79,12 +79,6 @@ class ReleaseAppTest(unittest.TestCase):
         current.write_text(json.dumps({"build": 41}))
         self.assertEqual(self.feed(42, current).returncode, 0)
 
-    def test_the_contract_version(self):
-        swift = self.dir / "Contract.swift"
-        swift.write_text('public enum Contract {\n    public static let version = "0.24.0"\n}\n')
-        result = run("contract", str(swift))
-        self.assertEqual(result.stdout.strip(), "0.24.0")
-
 
 if __name__ == "__main__":
     unittest.main()

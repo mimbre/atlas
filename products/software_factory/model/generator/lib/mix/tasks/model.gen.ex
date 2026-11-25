@@ -1,16 +1,14 @@
 defmodule Mix.Tasks.Model.Gen do
   @shortdoc "Generate the targets of the configured model"
   @moduledoc """
-      mix model.gen                     # write them
-      mix model.gen --check             # fail when one is stale, missing or left over (CI)
-      mix model.gen --check --base REF  # also check the run identities against REF's
+      mix model.gen                          # write them
       mix model.gen --contract M --out DIR   # only the Rela project of M, into DIR
 
   Run in a model's project, which configures its contract and target folders:
 
       config :rela_dsl,
         contract: MyModel.Office,
-        targets: [atlas: "../targets/atlas", diagrams: "../targets/diagrams", proof: "../targets/proof"],
+        targets: [atlas: "../targets/atlas", diagrams: "../targets/diagrams"],
         environment_targets: [test: [rela: "../targets/test/rela", atlas: "../targets/test/atlas"]],
         rela_project: "../../rela",
         root: "../.."
@@ -22,12 +20,10 @@ defmodule Mix.Tasks.Model.Gen do
   model's files are relative to. The targets:
 
     * `rela` (subflows alone): `flows.yaml`, every subflow in Rela's format;
-    * `atlas`: `flows.json`, what Atlas runs them by, and every gate (`RelaDSL.Atlas`),
-      bound to that run's `flows.yaml` by its SHA-256; with the contract's composition
-      (`__composition__/0`), its links and counts as versioned data too;
-    * `diagrams`: `<subflow>.md` for each subflow, its state diagram as Rela draws it;
-    * `proof` (a composition): `digests.json`, each subflow's digest and states per
-      environment, with its history (`RelaDSL.RunIdentity`).
+    * `atlas`: `flows.json`, what Atlas runs them by, and every gate (`RelaDSL.Atlas`);
+      with the contract's composition (`__composition__/0`), its links and counts as
+      versioned data too;
+    * `diagrams`: `<subflow>.md` for each subflow, its state diagram as Rela draws it.
 
   `environment_targets` write a `flows.yaml` and `flows.json` pair per environment,
   with that environment's gate limits.
@@ -41,38 +37,30 @@ defmodule Mix.Tasks.Model.Gen do
   `--contract` (a composition, such as a test profile) into `DIR` instead, with a copy
   of the configured project's `data-entry.yaml`, and nothing else.
 
-  **The base.** `--base REF` reads `products/software_factory/model/targets/proof/digests.json` (below `root`)
-  as `git show REF:…` gives it, and fails on what `RelaDSL.RunIdentity.base_problems/3`
-  refuses, so a change cannot approve its own migration. A base that holds no
-  `digests.json` yet predates the proof: the task says so and checks nothing against it.
-
   **Rela.** When `ATLAS_RELA_BIN` names the folder holding the pinned `rela` (26.11.9),
   the task runs Rela on the generated `flows.yaml` and fails on what Rela refuses,
   then draws each diagram with `rela flow show`. With `rela_project`, Rela validates
   the whole description in a temporary copy of it, with the generated files in place;
   without it, in a scratch project derived from the subflows (`RelaDSL.Rela.check/4`).
-  Without `ATLAS_RELA_BIN`, nothing is validated and diagrams are neither drawn nor
-  compared; the task says so. It still fails on a missing or left-over diagram.
+  Without `ATLAS_RELA_BIN`, nothing is validated and no diagram is drawn; the task says
+  so, and names each diagram that is missing.
 
-  Every file in a target's folder starts with an `RelaDSL.Header`. A file there without
-  exactly that header is hand-written and never overwritten. A file with it that the
-  task no longer writes is left over: the task removes it, and `--check` fails on it,
-  as on a file that would change.
+  The task only writes (a file it would write unchanged is left alone). Every file
+  in a target's folder starts with an `RelaDSL.Header`. A file there without exactly
+  that header is hand-written and never overwritten. A file with it that the task no
+  longer writes is left over: the task removes it.
   """
   use Mix.Task
 
-  alias RelaDSL.{Atlas, Header, Project, Rela, RunIdentity}
+  alias RelaDSL.{Atlas, Header, Project, Rela}
 
   @requirements ["compile"]
-  @targets [:rela, :atlas, :diagrams, :proof]
-  @digests "products/software_factory/model/targets/proof/digests.json"
+  @targets [:rela, :atlas, :diagrams]
 
   @impl true
   def run(args) do
     {opts, rest} =
-      OptionParser.parse!(args,
-        strict: [check: :boolean, base: :string, out: :string, contract: :string]
-      )
+      OptionParser.parse!(args, strict: [out: :string, contract: :string])
 
     if rest != [], do: Mix.raise("unexpected argument #{Enum.join(rest, " ")}")
 
@@ -86,7 +74,7 @@ defmodule Mix.Tasks.Model.Gen do
 
       out(contract, Path.expand(opts[:out]))
     else
-      generate(contract, composition?, opts)
+      generate(contract, composition?)
     end
   end
 
@@ -110,18 +98,18 @@ defmodule Mix.Tasks.Model.Gen do
     Mix.shell().info("wrote the Rela project of #{inspect(contract)} to #{dir}")
   end
 
-  defp generate(contract, composition?, opts) do
-    targets = targets!(composition?)
+  defp generate(contract, composition?) do
+    targets = targets!()
     gates = gates!(contract, composition?)
     flows = RelaDSL.Limits.resolve(contract.__flows__(), gates, :prod)
     yaml = flows_yaml(contract, flows)
 
-    # flows.json also comes from the gates, and is bound to this run's flows.yaml.
+    # flows.json also comes from the gates.
     json =
       Header.put(
         ".json",
         source(contract, flows ++ gates),
-        atlas_json!(flows, gates, Atlas.sha256(yaml), composition(contract))
+        atlas_json!(flows, gates, composition(contract))
       )
 
     project = if composition?, do: project_files(contract, yaml), else: []
@@ -135,7 +123,7 @@ defmodule Mix.Tasks.Model.Gen do
             Header.put(
               ".json",
               source(contract, resolved ++ gates),
-              atlas_json!(resolved, gates, Atlas.sha256(pair_yaml), composition(contract))
+              atlas_json!(resolved, gates, composition(contract))
             ),
           {dir, file, body} <- [
             {dirs[:rela], "flows.yaml", pair_yaml},
@@ -143,23 +131,10 @@ defmodule Mix.Tasks.Model.Gen do
           ],
           do: {Path.join(dir, file), body}
 
-    proof =
-      if composition? and targets[:proof] do
-        description = contract.__rela__(:description)
-        body = RelaDSL.Description.Json.write(description.digests)
-
-        [
-          {Path.join(targets[:proof], "digests.json"),
-           Header.put(".json", source(contract, flows), body)}
-        ]
-      else
-        []
-      end
-
     always =
       pairs ++
         for(dir <- List.wrap(targets[:rela]), do: {Path.join(dir, "flows.yaml"), yaml}) ++
-        for(dir <- List.wrap(targets[:atlas]), do: {Path.join(dir, "flows.json"), json}) ++ proof
+        for(dir <- List.wrap(targets[:atlas]), do: {Path.join(dir, "flows.json"), json})
 
     diagram_paths =
       for dir <- List.wrap(targets[:diagrams]), f <- flows, do: Path.join(dir, "#{f.name}.md")
@@ -169,7 +144,7 @@ defmodule Mix.Tasks.Model.Gen do
         nil ->
           {:not_drawn,
            "rela not run (ATLAS_RELA_BIN is not set): flows.yaml was not validated and " <>
-             "the diagrams were neither drawn nor compared"}
+             "no diagram was drawn"}
 
         binary ->
           case Rela.check(binary, yaml, flows,
@@ -199,59 +174,28 @@ defmodule Mix.Tasks.Model.Gen do
       leftovers(targets ++ pair_dirs, Enum.map(always, &elem(&1, 0)) ++ diagram_paths) ++
         owned_leftovers(composition?, Enum.map(project, &elem(&1, 0)))
 
-    note = fn -> if rela_note, do: Mix.shell().error(rela_note) end
-    base = if opts[:base], do: base_problems!(contract, composition?, opts[:base]), else: []
+    owned = Enum.map(project, &elem(&1, 0))
 
-    cond do
-      opts[:check] && (stale != [] or missing != [] or leftovers != [] or base != []) ->
-        note.()
+    for path <- stale,
+        path not in owned,
+        File.exists?(path),
+        not generated?(path),
+        do: Mix.raise("#{path} has no generated header; it is not overwritten")
 
-        problems =
-          stale ++
-            Enum.map(missing, &"#{&1} (missing)") ++ Enum.map(leftovers, &"#{&1} (left over)")
-
-        Mix.raise(
-          if(problems != [],
-            do: "out of date, run `mix model.gen`: " <> Enum.join(problems, ", "),
-            else: ""
-          ) <>
-            if(base != [],
-              do: "\nagainst the base #{opts[:base]}:\n  " <> Enum.join(base, "\n  "),
-              else: ""
-            )
-        )
-
-      opts[:check] ->
-        Mix.shell().info("generated files are up to date")
-        note.()
-
-      true ->
-        if base != [],
-          do: Mix.raise("against the base #{opts[:base]}:\n  " <> Enum.join(base, "\n  "))
-
-        owned = Enum.map(project, &elem(&1, 0))
-
-        for path <- stale,
-            path not in owned,
-            File.exists?(path),
-            not generated?(path),
-            do: Mix.raise("#{path} has no generated header; it is not overwritten")
-
-        for path <- leftovers do
-          File.rm!(path)
-          Mix.shell().info("removed #{path} (left over)")
-        end
-
-        for {path, body} <- files, path in stale do
-          File.mkdir_p!(Path.dirname(path))
-          File.write!(path, body)
-          Mix.shell().info("wrote #{path}")
-        end
-
-        if stale == [] and leftovers == [], do: Mix.shell().info("generated files are up to date")
-        for path <- missing, do: Mix.shell().error("#{path} is missing and was not drawn")
-        note.()
+    for path <- leftovers do
+      File.rm!(path)
+      Mix.shell().info("removed #{path} (left over)")
     end
+
+    for {path, body} <- files, path in stale do
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, body)
+      Mix.shell().info("wrote #{path}")
+    end
+
+    if stale == [] and leftovers == [], do: Mix.shell().info("generated files are up to date")
+    for path <- missing, do: Mix.shell().error("#{path} is missing and was not drawn")
+    if rela_note, do: Mix.shell().error(rela_note)
   end
 
   defp flows_yaml(contract, flows),
@@ -309,34 +253,12 @@ defmodule Mix.Tasks.Model.Gen do
         do: path
   end
 
-  defp base_problems!(_contract, false, _ref),
-    do: Mix.raise("--base checks a composition's run identities")
-
-  defp base_problems!(contract, true, ref) do
-    root = Path.expand(Application.get_env(:rela_dsl, :root, "."))
-
-    case System.cmd("git", ["-C", root, "show", "#{ref}:#{@digests}"], stderr_to_stdout: true) do
-      {text, 0} ->
-        base = JSON.decode!(text)
-        description = contract.__rela__(:description)
-        RunIdentity.base_problems(base, description.digests, contract.__rela__(:migrations))
-
-      {message, _} ->
-        if message =~ ~r/does not exist|exists on disk, but not in/ do
-          Mix.shell().info("the base #{ref} holds no #{@digests} yet; its history starts here")
-          []
-        else
-          Mix.raise("--base #{ref}: #{String.trim(message)}")
-        end
-    end
-  end
-
   defp composition(contract) do
     if function_exported?(contract, :__composition__, 0), do: contract.__composition__()
   end
 
-  defp atlas_json!(flows, gates, sha, composition) do
-    Atlas.flows_json(flows, gates, sha, composition)
+  defp atlas_json!(flows, gates, composition) do
+    Atlas.flows_json(flows, gates, composition)
   rescue
     e in ArgumentError -> Mix.raise("flows.json: " <> Exception.message(e))
   end
@@ -412,14 +334,13 @@ defmodule Mix.Tasks.Model.Gen do
 
   defp gates!(contract, false), do: Application.get_env(:rela_dsl, :gates, contract).__gates__()
 
-  defp targets!(composition?) do
+  defp targets! do
     targets = Application.get_env(:rela_dsl, :targets, [])
 
     for {target, _dir} <- targets, target not in @targets do
       Mix.raise("unknown target #{inspect(target)}; known: #{inspect(@targets)}")
     end
 
-    if targets[:proof] && not composition?, do: Mix.raise("the proof target needs a composition")
     targets
   end
 end

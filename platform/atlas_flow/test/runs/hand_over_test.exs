@@ -23,8 +23,6 @@ defmodule AtlasFlow.Runs.HandOverTest do
     @impl true
     def selection(name), do: @watch.selection(name)
     @impl true
-    def migrations, do: @watch.migrations()
-    @impl true
     def composition, do: @watch.composition()
     @impl true
     def actors, do: @watch.actors()

@@ -2,11 +2,12 @@ defmodule Model.RepositoryAllowlistTest do
   @moduledoc """
   Every allow-list of Code's integrate receiver (`code.repositories`) holds the repository the
   model's work tasks build from (the package's `author` task, `input: [repository: …]` in
-  `model/contract/software/package.ex`), read from the generated flows. Otherwise Atlas builds
+  `model/contract/software/package.ex`), read from the compiled model's flows, per
+  environment. Otherwise Atlas builds
   on one repository and its receiver refuses every pull request of it as
   `repository_not_allowed` (`AtlasCode.Effects`, an exact owner/repo match).
 
-  A static check of the files only (no Atlas started), so it runs with the model's tests, in
+  A static check of the compiled model and the environments' files (no Atlas started), so it runs with the model's tests, in
   CI's `model-contract` job.
 
   An environment may instead allow no repository at all, on purpose: then its receiver refuses
@@ -18,14 +19,20 @@ defmodule Model.RepositoryAllowlistTest do
   @factory Path.expand("../../..", __DIR__)
   @allows_none ["test"]
 
-  # {flows file, flow, owner/repo} of every task input that names a repository.
+  @model Model.AtlasEyra
+
+  # Each environment the model is compiled for.
+  defp model_environments, do: @model.__rela__(:description).environments
+
+  # {environment, flow, owner/repo} of every task input that names a repository.
   defp built do
-    for file <- Path.wildcard(Path.join(@factory, "model/targets/**/flows.json")),
-        {flow, spec} <- JSON.decode!(File.read!(file))["flows"],
+    for env <- model_environments(),
+        {flow, spec} <-
+          RelaDSL.Flow.Subflow.definitions(@model.__flows__(), @model.__rela__(:gates), env),
         {_state, state} <- spec["states"] || %{},
         url = get_in(state, ["spec", "input", "repository"]),
         is_binary(url),
-        do: {Path.relative_to(file, @factory), flow, owner_repo(url)}
+        do: {env, flow, owner_repo(url)}
   end
 
   defp owner_repo(input), do: github_repo(input) || flunk("#{input} names no GitHub repository")
@@ -75,17 +82,12 @@ defmodule Model.RepositoryAllowlistTest do
     end
   end
 
-  test "the package task names the repository it builds from, in every generated target" do
+  test "the package task names the repository it builds from, in every environment" do
     built = built()
-    targets = Path.wildcard(Path.join(@factory, "model/targets/**/flows.json"))
 
-    assert targets != []
-
-    for target <- targets do
-      assert Enum.any?(built, fn {file, flow, _} ->
-               file == Path.relative_to(target, @factory) and flow == "package"
-             end),
-             "#{target} has no package task with a repository input"
+    for env <- model_environments() do
+      assert Enum.any?(built, fn {e, flow, _} -> e == env and flow == "package" end),
+             "#{env} has no package task with a repository input"
     end
   end
 

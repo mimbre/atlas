@@ -9,7 +9,7 @@ platform/atlas_code/test/core_test.exs  sleep  1  pending (develop, port): local
 platform/atlas_control/test/output_test.exs  receive_timeout  3  pending: three negative checks over 20 ms windows on Runtime requests; needs a barrier on the session
 platform/atlas_control/test/output_test.exs  sleep  1  pending: local eventually/2 polls every 10 ms
 platform/atlas_facts/test/connector_test.exs  sleep  1  pending: local eventually/2 polls every 20 ms
-platform/atlas_facts/test/guidance_native_test.exs  sleep  1  pending: polls a native rela every 20 ms (integration-tagged)
+platform/atlas_facts/test/support/native_rela.ex  sleep  1  pending: polls a native rela every 20 ms until it answers (integration-tagged tests only)
 platform/atlas_flow/test/activities/task_test.exs  receive_timeout  2  pending (develop, port): two negative checks (100 ms, 50 ms) that no reconcile cast arrives; needs a Bases/Engine barrier
 platform/atlas_flow/test/activities/task_test.exs  sleep  1  pending (develop, port): local wait_until/2 polls Bases, FakeCode and the run every 20 ms; wake on {:trace, Bases} and the fakes
 platform/atlas_flow/test/runtime/client_http_test.exs  receive_timeout  1  pending: negative check over 300 ms on a stub HTTP server

@@ -49,14 +49,13 @@ defmodule AtlasFlow.Runs.RefusedTallyRecoveryTest do
     assert original["pending"]["writes"] != []
   end
 
-  test "reentry refuses finals, definitions, identities, timers, frozen activities and non-singleton outboxes" do
+  test "reentry refuses finals, identities, timers, frozen activities and non-singleton outboxes" do
     original = run()
 
     variants =
       [
         Map.put(original, "status", "completed"),
         Map.put(original, "status", "blocked"),
-        Map.put(original, "definition_sha256", "another-definition"),
         Map.put(original, "state", "done"),
         Map.put(original, "key", "different-run"),
         Map.put(original, "generation", 2),

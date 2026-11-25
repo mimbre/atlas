@@ -8,7 +8,6 @@ end
 defmodule AtlasRuntimeModel.LocalSourceTest do
   use ExUnit.Case, async: true
 
-  alias AtlasRuntimeModel.Generator.{Header, Targets.Json}
   alias AtlasRuntimeModel.Test.LocalSource, as: Target
   alias AtlasRuntimeModel.Test.LocalSource.{QueueKeyEntry, QueuedWork}
 
@@ -113,15 +112,6 @@ defmodule AtlasRuntimeModel.LocalSourceTest do
     test "the model target has the contract's __schema__/0" do
       assert Target.__schema__() == AtlasRuntimeModel.LocalSource.__schema__()
       assert Enum.map(Target.records(), &elem(&1, 0)) == [:queued_work, :queue_key_entry]
-    end
-
-    test "targets/json/local_source.json is what the contract generates (golden)" do
-      schema = AtlasRuntimeModel.LocalSource.__schema__()
-      [{"local_source.json", body}] = Json.files(:local_source, schema)
-      root = Path.expand("../../../..", File.cwd!())
-      source = List.to_string(AtlasRuntimeModel.LocalSource.module_info(:compile)[:source])
-      expected = Header.put(".json", Path.relative_to(source, root), body)
-      assert File.read!("../targets/json/local_source.json") == expected
     end
   end
 

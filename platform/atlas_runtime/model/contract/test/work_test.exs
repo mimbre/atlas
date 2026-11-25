@@ -1,7 +1,6 @@
 defmodule AtlasRuntimeModel.WorkTest do
   use ExUnit.Case, async: true
 
-  alias AtlasRuntimeModel.Generator.{Header, Targets.Json}
   alias AtlasRuntimeModel.Test.Work
   alias Work.{Attempt, Folder, KeyIndexEntry, Option, Provenance, Repository, WorkRecord}
   alias Work.{Base, CheckResult, FromWork, Source}
@@ -260,15 +259,6 @@ defmodule AtlasRuntimeModel.WorkTest do
       # r2's folder.base_id is not added (r3, G1).
       assert Enum.map(entities.folder.fields, & &1.name) == [:path, :permissions]
       assert entities.work_record.persistence.format_version == 1
-    end
-
-    test "targets/json/work.json is what the contract generates (golden)" do
-      schema = AtlasRuntimeModel.Work.__schema__()
-      [{"work.json", body}] = Json.files(:work, schema)
-      root = Path.expand("../../../..", File.cwd!())
-      source = List.to_string(AtlasRuntimeModel.Work.module_info(:compile)[:source])
-      expected = Header.put(".json", Path.relative_to(source, root), body)
-      assert File.read!("../targets/json/work.json") == expected
     end
   end
 

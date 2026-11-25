@@ -133,14 +133,13 @@ try do
   put.("issue", %{"op" => "change", "key" => "IS-Gate-01", "links" => %{"based_on" => ["D-9997"]}})
 
   # A deploy starts the core over existing Facts, rather than first scanning an empty store.
-  # Seed the slice-1 cursor before starting Flow's engine. The native gate must record
-  # one verdict for its fresh migrated entry, including after engine restart.
+  # Seed a cursor in the gate's state, its request not yet asked, before starting Flow's
+  # engine. The native gate must record one verdict for it, including after engine restart.
   old = AtlasFlow.Runs.Run.new("decide", flows["decide"], read.("decision", "D-9997"), [], now)
 
   old =
     Map.merge(old, %{
-      "definition_sha256" => "8ca16b332a083209e6e44ffc3feeca0f152c632caa4d5206ab24fe540ab3770c",
-      "state" => "proposed",
+      "state" => "deciding",
       "entry" => 1,
       "pending" => %{"version" => 1, "writes" => []}
     })
@@ -171,9 +170,7 @@ try do
   first = Enum.find(runs, &(&1["subject_key"] == "D-9997"))
   fixed = Enum.find(runs, &(&1["subject_key"] == "D-9998"))
   assert first["state"] == "for_person"
-  assert first["entry"] == 3
-  assert [migration] = first["pending"]["migrations"]
-  assert migration["from"] == old["definition_sha256"]
+  assert first["entry"] == 2
   %{"facts" => verdicts} = Talk.read("gate_verdict", %{})
   assert Enum.count(verdicts, &(&1["values"]["subject"] == "D-9997")) == 1
   assert fixed["state"] == "for_person_always" and fixed["deadlines"]["timers"] == []

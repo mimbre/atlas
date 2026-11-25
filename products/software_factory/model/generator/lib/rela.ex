@@ -12,9 +12,8 @@ defmodule RelaDSL.Rela do
   The style is fixed and part of the contract: Rela's flow version hashes the YAML,
   including scalar style (quoting one label changes it; a comment does not). So:
   block mappings for flows and states, flow mappings for branches and timers, plain
-  scalars where that is certainly safe, `when` always double-quoted. The golden file
-  `test/golden/example.flows.yaml` pins it; changing it gives every flow a new
-  version and needs an ADR note.
+  scalars where that is certainly safe, `when` always double-quoted. Changing it gives
+  every flow a new Rela version.
 
   ## The project Rela checks against
 
@@ -276,7 +275,9 @@ defmodule RelaDSL.Rela do
   @doc """
   Runs the pinned Rela `binary` on `flows_yaml` (the file's exact bytes) in a scratch
   project built by `check_project(flows)`, in a temporary folder removed afterwards.
-  With `project:`, the scratch project is a copy of that Rela description instead.
+  With `project:`, the scratch project is a copy of that Rela description instead, with
+  `files:` (`[{path, body}]`, such as the generated description) written over it; the
+  description's `schema.yaml` is on disk or among those files.
   Returns `{:ok, shown}`, `shown` being what `rela flow show <name> -o json` gives
   for each subflow, in order; or `{:error, message}` with Rela's own words when the
   binary is not 26.11.9 or `rela flow validate` refuses the file.
@@ -288,7 +289,8 @@ defmodule RelaDSL.Rela do
       (v = version(binary)) != @version ->
         {:error, "expected #{@version} at #{binary}, got #{v}"}
 
-      project && not File.regular?(Path.join(project, "schema.yaml")) ->
+      project && not File.regular?(Path.join(project, "schema.yaml")) &&
+          not List.keymember?(opts[:files] || [], "schema.yaml", 0) ->
         {:error, "no Rela description at #{project} (no schema.yaml)"}
 
       true ->

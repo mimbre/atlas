@@ -71,13 +71,11 @@ decisions, Flow owns this field, so a deadline set by hand does not stay.
 - **Facts:** a kind with `delete_error` (here `decision`, declared in
   `products/software_factory/model/contract/foundation/decision.ex` and generated into `products/software_factory/model/targets/rela/atlas.json`) refuses every delete with that sentence.
   Control then offers no `d`.
-- **Migration:** the `migrate` declarations beside the subflow (generated into
-  `products/software_factory/model/targets/rela/flow-runtime.json`) map the previous canonical digests
-  (test `e2d4c41b…`, prod `d9aadf74…`) to the new ones with `preserve_entry`.
-  State, entry, deadlines and pending work stay. Flow then reprojects the owner
-  and the deadline.
+- **Runs:** a run keeps its flow and state by name (D-0102), so a live decide run
+  continues where it is: state, entry, deadlines and pending work stay. Flow then
+  reprojects the owner and the deadline.
 
 ## Prod at merge
 
 Deploy as usual: restart the core; rela gets the regenerated description. Live
-decide runs migrate on boot without moving.
+decide runs continue on boot without moving.

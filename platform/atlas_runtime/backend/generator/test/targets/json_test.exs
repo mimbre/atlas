@@ -4,11 +4,10 @@ defmodule AtlasRuntimeBackend.Generator.Targets.JsonTest do
   alias AtlasRuntimeBackend.Generator.Example.Api
   alias AtlasRuntimeBackend.Generator.Targets.Json
 
-  @golden Path.expand("../golden/api.json", __DIR__)
-
-  test "the example contract's file matches the golden file" do
+  test "keys sorted, indented by two, one trailing newline; the contract's version" do
     assert [{"api.json", body}] = Json.files(Api.__schema__(), name: "api")
-    assert body == File.read!(@golden)
+    assert body == layout(JSON.decode!(body))
+    assert JSON.decode!(body)["version"] == Api.__schema__().version
   end
 
   test "exposure, rights, events and the target's routes and statuses as data" do
@@ -47,4 +46,21 @@ defmodule AtlasRuntimeBackend.Generator.Targets.JsonTest do
 
     refute Map.has_key?(refused, "status")
   end
+
+  # The layout the file target promises: keys sorted, two spaces per level, a newline at the end.
+  defp layout(value), do: IO.iodata_to_binary(layout(value, "")) <> "\n"
+
+  defp layout(map, at) when is_map(map) and map_size(map) > 0 do
+    inner =
+      for {k, v} <- Enum.sort(map), do: [at, "  ", JSON.encode!(k), ": ", layout(v, at <> "  ")]
+
+    ["{\n", Enum.intersperse(inner, ",\n"), "\n", at, "}"]
+  end
+
+  defp layout(list, at) when is_list(list) and list != [] do
+    inner = for v <- list, do: [at, "  ", layout(v, at <> "  ")]
+    ["[\n", Enum.intersperse(inner, ",\n"), "\n", at, "]"]
+  end
+
+  defp layout(value, _at), do: JSON.encode!(value)
 end

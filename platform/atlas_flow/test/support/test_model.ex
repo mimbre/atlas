@@ -32,8 +32,6 @@ defmodule AtlasFlow.TestModel do
           Map.get_lazy(@parts[:selection] || %{}, name, fn -> AtlasFlow.Depot.selection(name) end)
 
       @impl true
-      def migrations, do: []
-      @impl true
       def composition, do: Map.get_lazy(@parts, :composition, &AtlasFlow.Depot.composition/0)
       @impl true
       def actors, do: Map.get(@parts, :actors, [])
@@ -92,7 +90,7 @@ defmodule AtlasFlow.TestModel.Watch do
     relation(:chosen_by, label: "chosen by", from: [:bin], to: [:clerk], max_outgoing: 1)
 
     entity :cursor, label: "Cursor", plural: "cursors", id_type: :manual do
-      for f <- ~w(flow subject_kind subject_key definition_sha256 state entered_at status
+      for f <- ~w(flow subject_kind subject_key state entered_at status
                   deadlines pending last_input blocked_reason)a,
           do: field(f, :string)
 

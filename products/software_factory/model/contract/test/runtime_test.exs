@@ -3,10 +3,9 @@ defmodule Model.RuntimeTest do
 
   alias Model.AtlasEyra
 
-  @committed "../targets/rela/atlas.json" |> File.read!() |> JSON.decode!()
-  @selection ("../targets/rela/flow-runtime.json"
-              |> File.read!()
-              |> JSON.decode!())["flow_runtime"][
+  @description AtlasEyra.__rela__(:description)
+  @extension @description.extension
+  @selection RelaDSL.Description.Plain.unorder(@description.flow_runtime)["flow_runtime"][
                "selection"
              ]
 
@@ -24,8 +23,8 @@ defmodule Model.RuntimeTest do
         do: %{"kind" => kind, "owner_relation" => relation}
   end
 
-  test "the turn, its agent and the guidance records are the committed description's" do
-    names = @committed["runtime"]["turn"]
+  test "the turn, its agent and the guidance records are the description's" do
+    names = @extension["runtime"]["turn"]
     turn = AtlasEyra.turn()
 
     assert Map.drop(turn, ["items", "on_kinds"]) == names
@@ -34,10 +33,10 @@ defmodule Model.RuntimeTest do
 
     assert AtlasEyra.agent() == %{
              "kind" => hd(relations()[names["by"]]["to"]),
-             "cannot_run" => @committed["runtime"]["agent"]["cannot_run"]
+             "cannot_run" => @extension["runtime"]["agent"]["cannot_run"]
            }
 
-    assert AtlasEyra.guidance() == @committed["guidance"]
+    assert AtlasEyra.guidance() == @extension["guidance"]
   end
 
   test "every composition gives Runtime what it runs" do

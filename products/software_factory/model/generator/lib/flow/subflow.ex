@@ -1,8 +1,9 @@
 defmodule RelaDSL.Flow.Subflow do
   @moduledoc """
   One subflow in one environment, compiled into a module a runner calls: what it runs
-  on, its identity, where a run starts, what entering a state does, where a change or a
-  result leads, its timers, mechanism, owner and what its owner sees.
+  on, where a run starts, what entering a state does, where a change or a result leads,
+  its timers, mechanism, owner and what its owner sees. A run names its subflow and its
+  state by name.
 
   A composition (`RelaDSL.Composition`) compiles each subflow it runs, per environment.
   A module can also compile one subflow of a flow module by itself:
@@ -16,12 +17,10 @@ defmodule RelaDSL.Flow.Subflow do
   `behaviour:` is declared on the module, so the compile checks its callbacks.
 
   The module is built from the subflow's data as `flows.json` holds it, with the
-  environment's limits (`RelaDSL.Atlas.definitions/2`), and `digest/0` is the
-  `RelaDSL.DefinitionDigest` of that data, so a run started under it keeps its identity.
-  Nothing is read from a file. Its callbacks, with state names as text:
+  environment's limits (`RelaDSL.Atlas.definitions/2`). Nothing is read from a file. Its
+  callbacks, with state names as text:
 
-    * `name/0`, `label/0`, `subject/0`, `digest/0`, `initial/0`, `states/0` (sorted),
-      `per_subject/0`;
+    * `name/0`, `label/0`, `subject/0`, `initial/0`, `states/0` (sorted), `per_subject/0`;
     * `start?(:create | :predicate, values)`: whether that trigger starts a run;
     * `enter(state, values)`: what entering the state writes, in order:
       `{:set, %{field => value}}` and `{:create, %{"type", "properties", "relate"}}`;
@@ -38,7 +37,7 @@ defmodule RelaDSL.Flow.Subflow do
       `expected` filled from `values`.
   """
 
-  alias RelaDSL.{Atlas, DefinitionDigest, Limits}
+  alias RelaDSL.{Atlas, Limits}
   alias RelaDSL.Flow.Condition
 
   defmacro __using__(opts) do
@@ -120,7 +119,6 @@ defmodule RelaDSL.Flow.Subflow do
       def name, do: unquote(name)
       def label, do: unquote(definition["label"])
       def subject, do: unquote(definition["subject"])
-      def digest, do: unquote(DefinitionDigest.of(definition))
       def initial, do: unquote(definition["initial"])
       def states, do: unquote(names)
       def per_subject, do: unquote(definition["per_subject"])

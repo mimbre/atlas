@@ -156,24 +156,35 @@ defmodule AtlasFlow.Activities.ReviewFixTest do
       assert String.contains?(intent(run)["work"]["instructions"], tail)
     end
 
-    test "an unfinished check is a failed one: the fix runs the check again (#297 case 4)", c do
-      started(c)
-      finish(@mini, files: @author, check: :unfinished)
+    # D-0102: a restart during the after-check leaves a check without an exit status. The
+    # ending is result-less: the run stays in its step and the same task runs again.
+    test "an unfinished check is no result: the same author task runs again, then its result counts",
+         c do
+      started = started(c)
+      %{lease_id: lease, work: first} = lease!(@mini)
+      unfinished = %{exit_status: nil, output_tail: ""}
+      change_set = L.change_set(@author, first.input.base.base_id)
+
+      assert {:recorded, _} = report(@mini, lease, 1, %{state: :accepted})
+      assert {:recorded, _} = report(@mini, lease, 2, %{state: :started})
+
+      assert {:recorded, %{missing: []}} =
+               report(@mini, lease, 3, L.ended(change_set, check: unfinished))
+
       a = task_values("TK-B-1-1")
-      assert {a["check_exit_status"], a["check_ending"]} == {nil, "no_exit_status"}
+      assert {a["check_ending"], a["lease_end_cause"]} == {"no_exit_status", "check_interrupted"}
+      assert a["result_manifest"] == nil
 
       run = settle(c)
-      assert run["state"] == "fixing"
+      assert {run["state"], intent(run)["key"]} == {started["state"], "TK-B-1-1"}
+
+      %{work: again} = finish(@mini, files: @author, check: 0)
+      assert again == first
+      assert task_values("TK-B-1-1")["attempt"] == 2
+
+      run = settle(c)
+      assert run["state"] == "reviewing"
       assert given(run) == change_set_of("TK-B-1-1")
-      fix = intent(run)["work"]
-      assert fix["after_check"] == %{"command" => ["loop/bin/check"]}
-      # Told to run its check (the command it is given, as the repository names it: the
-      # after-check carries it from the pulled folder, at the root `loop`), not shown the
-      # ending as a failure.
-      [program] = fix["after_check"]["command"]
-      assert String.contains?(fix["instructions"], Path.relative_to(program, "loop"))
-      refute String.contains?(fix["instructions"], a["check_ending"])
-      refute String.contains?(fix["instructions"], a["check_output_tail"])
     end
 
     test "two fixes per rung, then a diagnosis (a), a fresh author (b) and a stronger one (c), each on the original base",

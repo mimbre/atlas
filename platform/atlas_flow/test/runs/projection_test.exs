@@ -27,8 +27,7 @@ defmodule AtlasFlow.Runs.ProjectionTest do
             "owner_relation" => "owned_by"
           },
           "admission" => %{},
-          "imports" => [],
-          "migrations" => []
+          "imports" => []
         }
       },
       relations:
@@ -56,8 +55,7 @@ defmodule AtlasFlow.Runs.ProjectionTest do
             "owner_relation" => "owned_by"
           },
           "admission" => %{},
-          "imports" => [],
-          "migrations" => []
+          "imports" => []
         }
       },
       relations:

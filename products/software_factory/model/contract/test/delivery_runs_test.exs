@@ -5,8 +5,7 @@ defmodule Model.DeliveryRunsTest do
   from the pull request as it was, the review and test it waits for through the
   composition's links (only those of its current revision), its integration by Code's
   receiver (approved by its own run's links, of its current revision only), `blocked` and
-  its exits, and the migrations from the base's digests, on the compiled subflow of both
-  environments.
+  its exits, on the compiled subflow of both environments.
 
   Slice 9: the issue too, in place of the old flow `build_and_merge`: the same, with
   what it presents and to whom kept from the old flow, and its pull request's outcome
@@ -22,10 +21,6 @@ defmodule Model.DeliveryRunsTest do
   @envs [:prod, :test]
   @name "pull_request"
 
-  # The digest the base recorded before slice 8 (the same in prod and test).
-  @base "0d65d9a4aa1cdf916e022547e3f4a1974505cd94c349e9809f1a441f13cd8335"
-  # And the one slice 8 recorded, merged by hand (the same in prod and test).
-  @by_hand "e183d55ea7eb411d29dd812053dff89078b4ef131068a3223d40c22617bffbd0"
   @url "https://github.com/o/r/pull/1"
   @r2 "2222222222222222222222222222222222222222"
 
@@ -470,70 +465,6 @@ defmodule Model.DeliveryRunsTest do
     end
   end
 
-  test "the changes from the base's digests are declared state migrations, never a re-key" do
-    for env <- @envs do
-      f = flow(env)
-      [first, m] = selection()["migrations"]
-      # Slice 8's, kept: its `to` is the `from` of the next one.
-      assert {first["from"], first["to"]} == {@base, @by_hand}
-      assert {m["from"], m["to"]} == {@by_hand, f.digest()}
-      kept = ~w(changes_requested checking closed integrated)
-      assert m["states"] == Map.put(Map.new(kept, &{&1, &1}), "integrating", "blocked")
-
-      for x <- [first, m],
-          do: refute(Map.has_key?(x, "rekey") or Map.has_key?(x, "preserve_entry"))
-
-      migrations = selection()["migrations"]
-
-      old = fn values, state ->
-        new(env, values)
-        |> sent()
-        |> Map.merge(%{"definition_sha256" => @by_hand, "state" => state})
-      end
-
-      # A run waiting for the merge by hand waits blocked, with links approving its revision
-      # or none: nothing is integrated at the deploy, nothing is written, and merged or
-      # closed by hand still ends it (a retry integrates it).
-      open = %{"state" => "open", "url" => @url, "revision" => @r2}
-
-      for waiting <- [
-            old.(open, "integrating"),
-            old.(open, "integrating") |> approved(@r2)
-          ] do
-        assert {:ok, moved} = Run.migrate(waiting, f, migrations, @now)
-        assert at(moved) == {"blocked", "active", 2}
-        assert moved["definition_sha256"] == f.digest()
-        assert moved["pending"]["writes"] == []
-        assert moved["pending"]["composition"] == waiting["pending"]["composition"]
-        assert f.mechanism("blocked") == nil
-        assert {:ok, ^moved} = Run.step(moved, f, subject(open), @now)
-
-        for {state, final} <- [{"merged", "integrated"}, {"closed", "closed"}] do
-          assert {:ok, ended} = Run.step(moved, f, subject(Map.put(open, "state", state)), @now)
-          assert {ended["state"], ended["status"]} == {final, "completed"}
-        end
-
-        assert {:ok, retried} =
-                 Run.step(moved, f, subject(Map.put(open, "integration", "retry")), @now)
-
-        assert at(retried) == {"integrating", "active", 3}
-      end
-
-      # The others re-enter where they were; history stays as it was.
-      for state <- ~w(checking changes_requested) do
-        assert {:ok, again} = Run.migrate(old.(%{"state" => "open"}, state), f, migrations, @now)
-        assert at(again) == {state, "active", 2}
-      end
-
-      done = new(env, %{"state" => "merged"}) |> Map.put("definition_sha256", @by_hand)
-      assert {:ok, ^done} = Run.migrate(done, f, migrations, @now)
-
-      # No run kept the first digest (none had it); one that did would be refused, blocked.
-      older = old.(%{"state" => "open"}, "blocked") |> Map.put("definition_sha256", @base)
-      assert {:error, :definition_changed} = Run.migrate(older, f, migrations, @now)
-    end
-  end
-
   # -- Slice 9: the issue -------------------------------------------------------------------
 
   @issue "issue"
@@ -639,8 +570,7 @@ defmodule Model.DeliveryRunsTest do
         stored = %{"key" => run["key"], "values" => Store.encode(config, run)}
         assert {:ok, ^run} = Store.decode(config, stored)
 
-        assert {:ok, ^run} =
-                 Run.migrate(run, issue_flow(env), issue_selection()["migrations"], @now)
+        assert Run.match_states(run, issue_flow(env)) == run
 
         assert {:ok, ^run} = Run.step(run, issue_flow(env), issue(@live), @now)
       end

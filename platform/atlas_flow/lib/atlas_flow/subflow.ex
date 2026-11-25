@@ -14,8 +14,6 @@ defmodule AtlasFlow.Subflow do
   @callback label() :: String.t() | nil
   @doc "The kind of fact it runs on."
   @callback subject() :: String.t()
-  @doc "Its identity: the digest of its canonical data; a run keeps the digest it started with."
-  @callback digest() :: String.t()
   @callback initial() :: state
   @doc "Its states, sorted."
   @callback states() :: [state]

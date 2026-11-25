@@ -1,7 +1,7 @@
 defmodule RelaDSL.Description.ChecksTest do
   use ExUnit.Case, async: true
 
-  alias RelaDSL.{Composition, Problem, RunIdentity}
+  alias RelaDSL.{Composition, Problem}
   alias RelaDSL.Description.{Build, Check, Subflows}
 
   # A small concept, compiled from text with one change at a time. A concept alone is not
@@ -415,30 +415,6 @@ defmodule RelaDSL.Description.ChecksTest do
         ] do
       assert [{:restart_policy, _}] = selects(select(", #{selection}"))
     end
-  end
-
-  test "a migration leads to a current digest and maps states it knows" do
-    a = String.duplicate("a", 64)
-
-    migrated = fn to ->
-      c =
-        concept(
-          concept:
-            @subflow <>
-              "\nmigrate :thing, from: #{inspect(a)}, to: #{inspect(to)}, reason: \"r\", states: :same"
-        )
-
-      current = RunIdentity.current(c.flows, [], [:prod])
-
-      migrations =
-        for %{kind: :migrate, value: {s, o}} = i <- c.items,
-            do: %{subflow: s, opts: o, file: i.file, line: i.line}
-
-      keys(RunIdentity.problems(current, migrations))
-    end
-
-    assert migrated.(String.duplicate("b", 64)) == [{:not_current, ["thing"]}]
-    assert {:digests, ["thing"]} in migrated.("short")
   end
 
   test "a composition refuses at the file and line that wrote the mistake" do

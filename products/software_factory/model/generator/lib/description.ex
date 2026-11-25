@@ -18,7 +18,6 @@ defmodule RelaDSL.Description do
   | inside `entity`: `top`, `primary`, `plural_label`, `start`, `create`, `completion`, `progress`, `connector`, `agent`, `order`, `by_hand`, `late`, `action`, `counts`, `requires`, `authority`, `frozen`, `replaces`, `layering`, `sealed`, `delete_error` | one rule of the kind each | `atlas.json` `entities` |
   | inside `entity`: `flag field, value:, label:` | the kind's flag | `flow-runtime.json` `flags` |
   | `select subflow, choices:, roles:, projection:, admission:, imports:, verification:, reopen:` | how a subflow's runs are selected (`roles:` each role and the relation whose target makes it, from the subject or its component; `nil` among allowed values: no value; an import row may also say `completed:`; `reopen: :new_generation` restarts reopened work, else only an explicit restart does) | `flow-runtime.json` `selection` |
-  | `migrate subflow, from:, to:, states:, rekey:, preserve_entry:, reopen:, reason:` | an approved run migration | `flow-runtime.json`, `digests.json` |
 
   `action`, `counts` and `requires` add one item each to the kind's list; the others
   are given once. `completion` takes one rule (a keyword list) or a list of them.
@@ -95,7 +94,7 @@ defmodule RelaDSL.Description do
     extend_relation: 2
   ]
 
-  @concept [type: 2, entity: 2, entity: 3, relation: 2, select: 2, migrate: 2, start: 1, start: 2]
+  @concept [type: 2, entity: 2, entity: 3, relation: 2, select: 2, start: 1, start: 2]
 
   # The root keys of atlas.json each root construct writes.
   @root_keys %{
@@ -186,9 +185,6 @@ defmodule RelaDSL.Description do
   state. A subject without a number never waits.
   """
   defmacro select(subflow, opts), do: item(:select, subflow, opts)
-
-  @doc "An approved migration of the runs of `subflow`: `from:` digest, `to:` digest, `states:` (a map, or `:same`)."
-  defmacro migrate(subflow, opts), do: item(:migrate, subflow, opts)
 
   @doc "In an entity: the start page action of the kind. In a subflow: a start trigger."
   defmacro start(arg, opts \\ []) do

@@ -15,16 +15,13 @@ defmodule RelaDSL.Description.Json do
   def write(value, layout \\ fn _ -> :pretty end),
     do: IO.iodata_to_binary([pretty(value, [], "", layout), "\n"])
 
-  @doc "The layout of `flow-runtime.json`: flags, reviews and choices inline, each migration compact."
+  @doc "The layout of `flow-runtime.json`: flags, reviews and choices inline."
   def flow_runtime_layout(["flow_runtime", "flags", _]), do: :inline
   def flow_runtime_layout(["flow_runtime", "reviews", _]), do: :inline
 
   def flow_runtime_layout(["flow_runtime", "selection", _, k])
       when k in ["choices", "choice_states"],
       do: :inline
-
-  def flow_runtime_layout(["flow_runtime", "selection", _, "migrations", i]) when is_integer(i),
-    do: :compact
 
   def flow_runtime_layout(_path), do: :pretty
 

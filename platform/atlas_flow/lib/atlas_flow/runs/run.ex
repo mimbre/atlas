@@ -10,8 +10,8 @@ defmodule AtlasFlow.Runs.Run do
   alias AtlasFlow.Activities.Effect
   alias AtlasFlow.Activities.Task
 
-  # A subflow's identity is its compiled digest (`flow.digest()`); stable internal
-  # request identities keep their term encoding so pending writes keep their keys.
+  # Stable internal request identities: a run's key and the ids of its pending writes are
+  # digests of their terms, so a replay keeps the same keys.
   def digest(term),
     do: :crypto.hash(:sha256, :erlang.term_to_binary(term)) |> Base.encode16(case: :lower)
 
@@ -20,7 +20,7 @@ defmodule AtlasFlow.Runs.Run do
   @doc "Pure one-time retirement/reentry. Receipt and composition checks belong to Store."
   def reenter_refused_tally_wait(run, flow, subject, retirement, now) do
     safe =
-      run["status"] == "active" and run["definition_sha256"] == flow.digest() and
+      run["status"] == "active" and
         run["subject_kind"] == flow.subject() and run["subject_key"] == subject["key"] and
         is_integer(run["entry"]) and run["entry"] > 0 and is_integer(run["generation"]) and
         run["generation"] > 0 and
@@ -43,7 +43,6 @@ defmodule AtlasFlow.Runs.Run do
           "state" => run["state"],
           "run_key" => run["key"],
           "generation" => run["generation"],
-          "definition_sha256" => run["definition_sha256"],
           "retired" => Map.take(run["pending"], ~w(writes synthetic composition))
         })
 
@@ -60,177 +59,43 @@ defmodule AtlasFlow.Runs.Run do
   end
 
   @doc """
-  The run on the subflow's current digest, along the approved migration from its own
-  (`{:ok, run}`), or `{:error, :definition_changed}` when none moves it safely.
-
-  A completed run stays completed: its final state maps to a final state. Only a
-  migration that names its state in `reopen` (a final state of `from` that maps to an open
-  one) takes it back: the run is entered there again, active, with nothing pending, and
-  with the supervisor `opts[:supervisor]` names (its key, or nil), so a state in a span is
-  its supervisor's again.
+  `run` on its subflow's current states, which it is matched to by name. A run whose state
+  is a state of `flow` (an idle run has none yet) continues there; one that was blocked
+  with its status kept in `pending.definition_block` gets that status back. A run whose
+  state is not a state of `flow` is blocked with `"state_removed: <state>"`, its status
+  kept in `pending.definition_block`, so it continues once its subflow has the state again.
   """
-  def migrate(run, flow, migrations, now, opts \\ []) do
-    if run["definition_sha256"] == flow.digest() do
-      {:ok, run}
-    else
-      migrate_changed(run, flow, migrations, now, opts)
+  def match_states(run, flow) do
+    block = run["pending"]["definition_block"]
+
+    cond do
+      not state_removed?(run, flow) and block != nil ->
+        run
+        |> Map.put("status", block["status"])
+        |> Map.put("blocked_reason", "")
+        |> update_in(["pending"], &Map.delete(&1, "definition_block"))
+
+      not state_removed?(run, flow) ->
+        run
+
+      true ->
+        run
+        |> Map.put("status", "blocked")
+        |> Map.put("blocked_reason", "state_removed: #{run["state"]}")
+        |> update_in(
+          ["pending"],
+          &Map.put_new(&1, "definition_block", %{"status" => run["status"]})
+        )
     end
   end
 
   @doc """
-  The approved migration of `run` to the subflow's current digest when it reopens the
-  completed run (its state is in the migration's `reopen`), else nil.
+  Whether `run` is in a state its subflow `flow` does not have. An idle run (also one
+  blocked while idle) is in none yet.
   """
-  def reopening(run, flow, migrations) do
-    with %{} = mapping <- mapping(run, flow, migrations),
-         true <- run["status"] == "completed" and run["state"] in (mapping["reopen"] || []),
-         state when is_binary(state) <- mapping["states"][run["state"]],
-         true <- state in flow.states() and not flow.final?(state) do
-      mapping
-    else
-      _ -> nil
-    end
-  end
-
-  defp mapping(run, flow, migrations),
-    do:
-      Enum.find(
-        migrations,
-        &(&1["from"] == run["definition_sha256"] and &1["to"] == flow.digest())
-      )
-
-  defp migrate_changed(run, flow, migrations, now, opts) do
-    mapping = mapping(run, flow, migrations)
-
-    if reopening(run, flow, migrations),
-      do: reopen(run, flow, mapping, now, opts[:supervisor]),
-      else: migrate_mapped(run, flow, mapping, now)
-  end
-
-  # A completed run taken back into the open state its final one maps to: entered there,
-  # active, nothing of its last entry pending (a final state holds no activity), and its
-  # migration in its audit.
-  defp reopen(run, flow, mapping, now, supervisor) do
-    state = mapping["states"][run["state"]]
-
-    migration = %{
-      "from" => run["definition_sha256"],
-      "to" => flow.digest(),
-      "state" => run["state"],
-      "entry" => run["entry"],
-      "at" => DateTime.to_iso8601(now),
-      "reason" => mapping["reason"] || "explicit state migration",
-      "reopened" => true
-    }
-
-    reopened =
-      run
-      |> Map.put("definition_sha256", flow.digest())
-      |> update_in(["pending"], fn pending ->
-        Map.update(pending, "migrations", [migration], &(&1 ++ [migration]))
-      end)
-      |> enter(flow, state, now, true)
-
-    {:ok,
-     if(is_binary(supervisor) and supervisor != "",
-       do: Map.put(reopened, "supervised_by", supervisor),
-       else: Map.delete(reopened, "supervised_by")
-     )}
-  end
-
-  defp migrate_mapped(run, flow, mapping, now) do
-    state = mapping && mapping["states"][run["state"]]
-    preserve? = mapping != nil and (mapping["rekey"] == true or mapping["preserve_entry"] == true)
-    {run, retired} = if preserve?, do: retire_passes(run), else: {run, %{}}
-
-    safe =
-      state != nil and state in flow.states() and run["pending"]["writes"] == [] and
-        run["pending"]["gate"] == nil and run["pending"]["pass"] == nil and
-        run["pending"]["effect"] == nil and run["pending"]["task"] == nil and
-        run["deadlines"]["timers"] == []
-
-    original = run
-
-    run =
-      if run["pending"]["definition_block"] do
-        run
-        |> Map.put("status", run["pending"]["definition_block"]["status"])
-        |> Map.put("blocked_reason", "")
-        |> update_in(["pending"], &Map.delete(&1, "definition_block"))
-      else
-        run
-      end
-
-    migration = %{
-      "from" => original["definition_sha256"],
-      "to" => flow.digest(),
-      "state" => original["state"],
-      "entry" => original["entry"],
-      "at" => DateTime.to_iso8601(now),
-      "reason" => (mapping && mapping["reason"]) || "explicit state migration"
-    }
-
-    migration = if retired == %{}, do: migration, else: Map.put(migration, "retired", retired)
-
-    migrated =
-      run
-      |> Map.put("definition_sha256", flow.digest())
-      |> update_in(["pending"], fn pending ->
-        Map.update(pending, "migrations", [migration], &(&1 ++ [migration]))
-      end)
-
-    cond do
-      preserve? ->
-        # An explicitly reviewed encoding change carries the exact same definition.
-        # Keep entry, deadlines, frozen requests and outbox IDs intact, even mid-entry.
-        if state != nil and state == run["state"] and state in flow.states(),
-          do: {:ok, migrated},
-          else: {:error, :definition_changed}
-
-      not safe ->
-        {:error, :definition_changed}
-
-      run["status"] == "completed" and flow.final?(state) ->
-        # Historical imports are evidence, not executable entries.
-        if run["last_input"]["import"],
-          do: {:ok, run},
-          else: {:ok, Map.put(migrated, "state", state)}
-
-      run["status"] == "active" ->
-        {:ok, enter(migrated, flow, state, now, true)}
-
-      true ->
-        {:error, :definition_changed}
-    end
-  end
-
-  # Flow has no pass (F0). What a run of a subflow that had one still holds of it (its
-  # frozen request, with any result, `pass`; the passes it left or that answered, `passes`;
-  # a pass's last result, `pass_result`) is retired from the run into its migration's
-  # audit (`retired`), so nothing asks for it, waits on it or takes its late reply again.
-  # Only an entry-preserving migration carries pending state across; any other one still
-  # refuses a run with a frozen activity (`safe` above).
-  @pass_state ~w(pass passes pass_result)
-
-  defp retire_passes(%{"pending" => %{} = pending} = run) do
-    case Map.take(pending, @pass_state) do
-      empty when empty == %{} -> {run, %{}}
-      retired -> {Map.put(run, "pending", Map.drop(pending, @pass_state)), retired}
-    end
-  end
-
-  defp retire_passes(run), do: {run, %{}}
-
-  def block_definition(run, flow) do
-    run
-    |> Map.put("status", "blocked")
-    |> Map.put(
-      "blocked_reason",
-      "definition_changed: #{run["definition_sha256"]} -> #{flow.digest()}; no safe state migration"
-    )
-    |> update_in(["pending"], fn pending ->
-      Map.put_new(pending, "definition_block", %{"status" => run["status"]})
-    end)
+  def state_removed?(run, flow) do
+    status = get_in(run, ["pending", "definition_block", "status"]) || run["status"]
+    status != "idle" and run["state"] not in flow.states()
   end
 
   @doc """
@@ -436,7 +301,6 @@ defmodule AtlasFlow.Runs.Run do
       "subject_kind" => kind,
       "subject_key" => subject["key"],
       "generation" => generation,
-      "definition_sha256" => flow.digest(),
       "entry" => 0,
       "input_cursor" => 0,
       "last_input" => %{"version" => 1},
@@ -529,9 +393,6 @@ defmodule AtlasFlow.Runs.Run do
   """
   def step(run, flow, subject, now, inputs \\ [], opts \\ []) do
     cond do
-      run["definition_sha256"] != flow.digest() ->
-        {:error, :definition_changed}
-
       run["status"] == "idle" and starts?(flow, subject) ->
         {:ok, enter(run, flow, flow.initial(), now, true, subject)}
 

@@ -42,7 +42,6 @@ defmodule RelaDSL.Description.Build do
     :restart_by,
     :order
   ]
-  @migrate_keys [:from, :to, :states, :rekey, :preserve_entry, :reopen, :reason]
   @flow_runtime_keys [:runs, :writer, :inputs, :supervision, :senders]
   @supervision_keys [:relation, :operation, :hand_to]
   @work_keys [:kind, :of, :for, :ended]
@@ -153,9 +152,6 @@ defmodule RelaDSL.Description.Build do
 
       %{kind: :select, value: {name, opts}} = i ->
         unknown(i, {"select", name}, opts, @select_keys)
-
-      %{kind: :migrate, value: {name, opts}} = i ->
-        unknown(i, {"migrate", name}, opts, @migrate_keys)
 
       %{kind: :root, value: {:flow_runtime, opts}} = i ->
         case unknown(i, {"flow_runtime"}, opts, @flow_runtime_keys) do
@@ -352,10 +348,9 @@ defmodule RelaDSL.Description.Build do
 
   @doc """
   The run mapping, as `{:ordered, …}`, or nil when no contribution declares
-  `flow_runtime`. `flows` are the subflows the composition runs, `states` maps each
-  digest to its states (`RelaDSL.RunIdentity`), `acl` the roles.
+  `flow_runtime`. `flows` are the subflows the composition runs, `roles` the roles.
   """
-  def flow_runtime(items, flows, states, roles) do
+  def flow_runtime(items, flows, roles) do
     case for(%{kind: :root, value: {:flow_runtime, opts}} <- items, do: opts) do
       [] ->
         nil
@@ -365,9 +360,6 @@ defmodule RelaDSL.Description.Build do
         inputs = to_string(opts[:inputs])
         running = MapSet.new(flows, & &1.name)
         selects = for %{kind: :select, value: {name, o}} <- items, name in running, do: {name, o}
-
-        migrations =
-          for %{kind: :migrate, value: {name, o}} <- items, name in running, do: {name, o}
 
         flags =
           for %{kind: :entity, value: e} <- items, {:flag, {field, o}, _} <- e.notes do
@@ -397,13 +389,11 @@ defmodule RelaDSL.Description.Build do
         selection =
           for {name, o} <- selects do
             flow = Enum.find(flows, &(&1.name == name))
-            mine = for {^name, m} <- migrations, do: migration(m, states)
 
             pairs =
               [
                 {"choices", Plain.of(o[:choices])},
                 {"choice_states", Enum.map(choice_states(flow, o[:choices] || []), &to_string/1)},
-                {"migrations", mine},
                 {"subject", to_string(flow.subject)}
               ] ++
                 for k <- [
@@ -511,7 +501,7 @@ defmodule RelaDSL.Description.Build do
   # sets; the fields of a pickup or hand-over input (`operation`, `hand_to`); and each
   # running subflow's supervised spans, as its `supervise` gives them; and, when
   # `supervised_work` gives it, what a supervisor's running work is (`work`). It sits
-  # beside the subflows, never in one, so it changes no subflow's digest.
+  # beside the subflows, never in one.
   defp supervision(nil, _flows, _work), do: []
 
   defp supervision(opts, flows, work) do
@@ -849,23 +839,4 @@ defmodule RelaDSL.Description.Build do
         end),
         do: s.name
   end
-
-  defp migration(opts, states) do
-    {:ordered,
-     for {k, v} <- opts do
-       case k do
-         :states -> {"states", {:ordered, expand_states(v, opts[:to], states)}}
-         _ -> {to_string(k), Plain.of(v)}
-       end
-     end}
-  end
-
-  @doc "A migration's `states:`, as sorted `[{from_state, to_state}]` strings; `:same` maps each state of `to` to itself."
-  def expand_states(:same, to, states),
-    do: for(s <- Enum.sort(Map.get(states, to, [])), do: {s, s})
-
-  def expand_states(map, _to, _states) when is_list(map) or is_map(map),
-    do: map |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end) |> Enum.sort()
-
-  def expand_states(_, _, _), do: []
 end

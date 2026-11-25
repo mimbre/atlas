@@ -97,15 +97,4 @@ defmodule Model.PrTest do
       [when: [], state: :working]
     ]
   )
-
-  # The approved migration of its runs, from the digest the base branch recorded
-  # (RelaDSL.RunIdentity); the same in prod and test. No run had that digest: the
-  # subflow was never selected before slice 7. A run that did would move along it as a
-  # state migration (re-entering its state), never as a re-key, since the pass went.
-  migrate(:pr_test,
-    from: "43fcbbf9a95d4e5bbac5c72d2dc878c28e56b48f7dd865e43d57cdb5e6bd5644",
-    to: "909f7ac67ca0c71b562b6828d4e92cb38b057cfdb7d2afb7b4f95c7edd1a2237",
-    states: :same,
-    reason: "Slice 7: selected without its pass; superseded taken as written"
-  )
 end

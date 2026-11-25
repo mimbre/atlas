@@ -43,7 +43,7 @@ defmodule AtlasRuntime.TestModel.Box do
 
   # The runs of its subflow, as Flow keeps them (a cursor each).
   entity :job, label: "Job", plural: "jobs", id_type: :manual do
-    for f <- ~w(flow subject_kind subject_key definition_sha256 state entered_at status
+    for f <- ~w(flow subject_kind subject_key state entered_at status
                 deadlines pending last_input blocked_reason)a,
         do: field(f, :string)
 

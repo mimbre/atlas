@@ -4,11 +4,17 @@ How to build and run the tests: see the Develop section of the [README](../../RE
 
 The umbrella (`products/software_factory`) runs every app's tests with `mix test`. To run single test files of one app, run `mix test test/<file>` from that app's folder (`platform/atlas_<part>`; its `mix.exs` uses the umbrella's config and `_build`). `mix test ../../platform/<app>/test/<file>` from `products/software_factory` runs the file under another app: Mix matches umbrella file arguments only under `apps/`.
 
+## Generated targets
+
+What the generators write from the contracts and the model (`products/software_factory/model/targets/`, `platform/atlas_control/backend/targets/`, `platform/atlas_runtime/*/targets/`, `platform/atlas_code/boundary/targets/`) is build output: it is not kept in git (`.gitignore`), and nothing compares it with earlier output. Only the hand-written files inside those folders are tracked: the Rela project's `data-entry.yaml`, `schedules.yaml` and `scripts/github.lua`, and the Swift package's `Tests/Fixtures/`.
+
+`bin/generate` writes them all from this checkout; `bin/generate <name> ...` only some (`model`, `atlas`, `runtime_boundary`, `code_boundary`, `runtime_model`, `runtime_backend`). Each runs `mix deps.get` and its generator in the contract's project; a run over unchanged contracts writes nothing. `model` validates and draws with the rela that `platform/atlas_facts/rela/scripts/start-test.sh` pins, from `${XDG_CACHE_HOME:-~/.cache}/atlas/rela-<version>`, installed there when missing; never a rela from `PATH` or `ATLAS_RELA_BIN`. Run it after a clone and after changing a contract, before tests that read the targets (the TUI, the umbrella's, the model's). The Runtime's boundary and backend contracts generate their own in `test/test_helper.exs`. A deploy, `atlas-ops restart`/`up` and `bin/atlas-dev` run it themselves, and so do the CI jobs whose tests read the targets.
+
 ## Rules the tests check
 
 - Layers talk only over the Bus: no layer depends on, calls or names another (`platform/atlas_bus/test/boundary_test.exs`).
 - Nothing on the BEAM side, in the TUI or in the agents' command line names an entity; entities live in the model (`products/software_factory/model/contract`) and the description it generates (`products/software_factory/model/targets/rela/`) only (same test).
-- The generated files match the contract, and none is left over (`mix atlas.gen --check` in `platform/atlas_control/backend/contract`).
+- Generated files carry a header naming the contract file, and a generator never overwrites a file without one; it removes a generated file no target writes any more.
 - The generator holds none of Atlas's values and compiles without the contract; its targets read only `__schema__/0`.
 
 ## The end-to-end test

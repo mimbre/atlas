@@ -6,13 +6,17 @@
 # Each app with its own token, when given: ATLAS_FLY_TOKEN_RELA for the rela app,
 # ATLAS_FLY_TOKEN_CORE for the core's (else flyctl's own login).
 #
-#  1. Before anything changes: does this build's description describe all the data rela
+#  1. Generates the targets from the model (bin/generate model): the images carry the Rela
+#     project it writes, which is not kept in git.
+#  2. Before anything changes: does this build's description describe all the data rela
 #     holds on Fly? It is checked on the rela machine itself, on a copy (what `atlas-ops
-#     restart` checks on a Mac, IS-Atlas-73). When it does not, nothing is deployed, and
-#     the environment keeps running the build before: that data needs a migration first
-#     (docs/guides/test-on-fly.md, "A migration").
-#  2. Deploys rela, then the core, both labelled <image label>.
-#  3. The smoke check (platform/ops/smoke.sh), which reads only.
+#     restart` checks on a Mac, IS-Atlas-73). And does the new model keep the flow and state
+#     of every open run the running model has (platform/ops/runs-fit.py; a run continues by
+#     its flow's and state's names, D-0102)? When either is not so, nothing is deployed, and the
+#     environment keeps running the build before: that data needs a migration first
+#     (docs/guides/test-on-fly.md, "A migration"), or those runs need to finish or move on.
+#  3. Deploys rela, then the core, both labelled <image label>.
+#  4. The smoke check (platform/ops/smoke.sh), which reads only.
 #
 # A held environment (atlas-ops fetch-from-fly --hold: a migration is under way) is deployed
 # without waiting for health checks, and has no smoke check: it serves nothing until the
@@ -36,8 +40,8 @@ as() { # rela|core, then a flyctl command
 }
 machines() { as "$1" status -a "$2" --json | jq '.Machines | length'; }
 
-# The description is generated from the model: refuse a stale one before anything is uploaded.
-(cd "$root/products/software_factory/model/contract" && mix deps.get --check-locked && mix model.gen --check)
+# 1. The targets, generated from the model with the pinned toolchain.
+"$root/bin/generate" model
 
 held=""
 if [ "$(machines rela "$rela_app")" -gt 0 ]; then
@@ -68,10 +72,31 @@ if [ "$(machines rela "$rela_app")" -gt 0 ]; then
       fail "nothing deployed; $env keeps its build. Migrate that data first (docs/guides/test-on-fly.md, \"A migration\")"
     fi
     echo "deploy: this build's description describes all of rela $env's data"
+
+    # Every open run the running model has a place for must keep its flow and state in the
+    # new model. The runs: rela's own API on the machine's loopback (the port behind
+    # rela-gate.py: core.json's rela port + 1). The running model: the deployed core's
+    # compiled one (none while the core has no machine). The new one: this build's.
+    rela_port="$(jq -er .rela.url "$root/products/software_factory/environments/$env/core.json" | sed -E 's#^[a-z]+://[^/]*:([0-9]+)/.*#\1#')"
+    [[ "$rela_port" =~ ^[0-9]+$ ]] || fail "no port in .rela.url of environments/$env/core.json"
+    as rela ssh sftp put -a "$rela_app" "$root/platform/ops/runs-fit.py" /tmp/next/runs-fit.py >/dev/null
+    as rela ssh console -q -a "$rela_app" -C "python3 /tmp/next/runs-fit.py open $((rela_port + 1))" | tr -d '\r' > "$next/runs.json"
+    if [ "$(machines core "$app")" -gt 0 ]; then
+      as core ssh console -q -a "$app" -C "/app/release/bin/atlas eval 'IO.puts(JSON.encode!(Map.new(Application.fetch_env!(:atlas, :model).subflows(:$env), fn m -> {m.name(), m.states()} end)))'" | tr -d '\r' | tail -n 1 > "$next/current.json"
+    else
+      echo '{}' > "$next/current.json"
+    fi
+    (cd "$root/products/software_factory/model/contract" && mix model.flows --env "$env") | tail -n 1 > "$next/flows.json"
+    if ! misfits="$("${ATLAS_CONFIG_PYTHON:-python3}" "$root/platform/ops/runs-fit.py" check "$next/runs.json" "$next/current.json" "$next/flows.json")"; then
+      echo "deploy: this build's model takes out the flow or state of open runs of $env:" >&2
+      echo "$misfits" | sed 's/^/  /' >&2
+      fail "nothing deployed; $env keeps its build. Let those runs finish or move them on first"
+    fi
+    echo "deploy: this build's model keeps the flow and state of every open run of $env"
   fi
 fi
 
-# 2. rela, then the core.
+# 3. rela, then the core.
 strategy=()
 [ -z "$held" ] || strategy=(--strategy immediate)
 as rela deploy "$root" --config "$root/products/software_factory/environments/$env/rela.toml" --dockerfile "$root/platform/ops/rela.Dockerfile" \
@@ -92,7 +117,7 @@ if [ -z "$held" ]; then
   as rela ssh console -q -a "$rela_app" -C "env ATLAS_RELA_DATA=/data/rela /app/platform/atlas_facts/rela/scripts/description.sh same" || fail 'rela runs another schema closure'
 fi
 
-# 3. The smoke check, as the core's token.
+# 4. The smoke check, as the core's token.
 if [ -n "$held" ]; then
   echo "deploy: $env is held; no smoke check. atlas-ops move-to-fly --env $env ends the hold."
 else

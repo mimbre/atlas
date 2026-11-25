@@ -6,11 +6,11 @@ Architect design under D-0083. No product code changes. Paths are relative to `a
 
 | # | Decision (D-0083) | In this design |
 | --- | --- | --- |
-| 1 | The DSL compiles to runnable Elixir behind platform behaviours | Contract modules `use RelaDSL` (`type`, `entity`, `relation`, `answer`, `subflow`, `defgate`, `migrate`). The macros generate callback implementations of `AtlasFlow.Model`, `AtlasGates.Model`, `AtlasFacts.Model`, `AtlasRuntime.Model` and `AtlasControl.Model` (§2). No `.ex` is written to disk; nothing generated is checked in except targets. |
+| 1 | The DSL compiles to runnable Elixir behind platform behaviours | Contract modules `use RelaDSL` (`type`, `entity`, `relation`, `answer`, `subflow`, `defgate`, `select`). The macros generate callback implementations of `AtlasFlow.Model`, `AtlasGates.Model`, `AtlasFacts.Model`, `AtlasRuntime.Model` and `AtlasControl.Model` (§2). No `.ex` is written to disk; nothing generated is checked in except targets. |
 | 2 | Runtime code never reads generated JSON, also not at compile time | §5 cuts over every reader: `AtlasFlow.Generated`, `AtlasGates.Definitions`, `AtlasFacts.Subflows`, Facts' `extra`/`flow_runtime` loading, and the description interpreters in Flow, Runtime and Control. |
-| 3 | Targets are output only | `mix model.gen [--check] [--base REF]` writes Rela's inputs to `products/software_factory/model/targets/rela/`: `schema.yaml`, `modules/**/schema.yaml`, `compositions/<org>/bindings.yaml`, `acl.yaml`, `flows.yaml` and `atlas.manifest.json`. It writes proofs to `products/software_factory/model/targets/proof/`: `description.json`, `flows.<env>.json`, `runtime.json` and `digests.json`. `--check` fails on any difference, so a macro-only change shows as a target diff. Unit tests may read proofs; runtime code may not. |
-| 4 | `digest/0` per subflow, at compile time | The macro builds the same string-keyed canonical data that `flows.json` holds today and hashes it with today's canonical-JSON encoding (§3). |
-| 5 | Run migrations are DSL | `migrate :decide, from:, to:, states:, rekey:, reason:` beside the subflow. `from` must occur in the **base branch's** committed `digests.json`, never only in the new one (§3). |
+| 3 | Targets are output only | `mix model.gen` writes Rela's inputs to `products/software_factory/model/targets/rela/`: `schema.yaml`, `modules/**/schema.yaml`, `compositions/<org>/bindings.yaml`, `acl.yaml`, `atlas.json`, `flow-runtime.json`, `flows.yaml` and `atlas.manifest.json`; `flows.json` per environment to `targets/atlas/` and `targets/test/atlas/`; each subflow's diagram to `targets/diagrams/`. A build generates them with the pinned toolchain; they are not kept in git and never compared (D-0102). The task only writes, and never overwrites a hand-written file. Tests read the model's in-memory values or generate into a temporary folder; runtime code reads no target. |
+| 4 | A run names its subflow and state (D-0102) | Nothing hashes a subflow's definition; a run continues in its state by name (§3). |
+| 5 | No run migrations (D-0102) | An update keeps every run where it is by name. Removing or renaming a flow or a state goes through only once no run is in it; a check before the update enforces that with `mix model.flows --env <env>` (§3). |
 | 6 | Platform/domain boundary | Platform apps hold the behaviours and the generic kernel. The domain is the app `:model` (`products/software_factory/model/contract`). The umbrella release depends on it, but no platform app does. It is wired at boot by configuration (§1). |
 | 7 | No hybrid | One path per component, cut over in one slice that removes its old reader. Consumers go first (Flow, Runtime, Control), then the producer (Facts). Cutting the producer first would need a description shim (§5). |
 | 8 | Done by #109 | Ledger/`delete_error`, `a` Accept / `f` Reject for the owner person, the deadline shown, and the decide run migration are not in the plan. They appear in the example as existing behaviour. |
@@ -21,7 +21,7 @@ Architect design under D-0083. No product code changes. Paths are relative to `a
 ```
 model/
   dsl/        app :rela_dsl (was flow/generator): macros, checks, introspection (__rela__/1),
-              writers, canonical digest, mix model.gen; no domain words (CI grep)
+              writers, mix model.gen, mix model.flows; no domain words (CI grep)
   contract/   app :model (was flow/contract): the domain, by module and concept
     foundation/{module,person,agent,assignment,turn,guidance,decision,gate_verdict,flow_run,gates}.ex
     foundation/audit/{module,agent_request,agent_step}.ex
@@ -29,7 +29,7 @@ model/
     <org>/{module,scene,use_case}.ex
     compositions/<org>.ex        # Model.<Org>: the root module that implements the behaviours
     profiles/{foundation,incident}.ex   # compiled in MIX_ENV=test only; e2e selects them by config
-  targets/proof/{description.json,flows.prod.json,flows.test.json,runtime.json,digests.json}
+  targets/{rela,atlas,test,diagrams}/   # written by mix model.gen at build time; not in git
 ```
 
 The folder is renamed from `generator` to `dsl` because it no longer generates code files.
@@ -52,13 +52,12 @@ The kernel passes `lookup`, its reader of related facts and links, so generated 
 ```elixir
 # atlas_flow: lib/atlas_flow/model.ex
 @callback subflows(env :: atom) :: [module]          # each implements AtlasFlow.Subflow
-@callback migrations() :: [%{subflow: atom, from: digest, to: digest, states: map, rekey: boolean}]
 @callback selection(subflow :: atom) :: %{admission: ..., imports: ..., projection: ...}
 @callback actors() :: [{role :: atom, kind}]          # configured actors the model needs ([decider: "person"])
 @callback composition() :: %{"version" => 1, "links" => [...], "counts" => [...]}  # flow-runs slice 6; also in flows.<env>.json
 
 # AtlasFlow.Subflow, one compiled module per subflow and environment
-@callback name() :: atom;  subject() :: String.t();  digest() :: String.t();  initial() :: atom
+@callback name() :: atom;  subject() :: String.t();  states() :: [String.t()];  initial() :: atom
 @callback start?(trigger, fact) :: boolean
 @callback enter(state, fact) :: [output]              # resets, sets, creates, in order
 @callback next(state, fact, input) :: {:to, state} | :stay   # ordered branches, compiled conditions
@@ -105,7 +104,7 @@ The kernel passes `lookup`, its reader of related facts and links, so generated 
 | `connector` | `connector` | `connector/1` |
 | `relations.*.{parent,add,actions}`, `todo`, `shell`, `start` | relation options, `todo_words`, `shell`, `start_page` | `actions/3`, `todo/4`, `shell/1`, `start_page/0` |
 | `runtime.{turn,agent}`, `guidance`, `read_first` | `runtime`, `guidance`, `read_first` | `AtlasRuntime.Model` |
-| flow-runtime `kind/fields/writer/inputs/selection/migrations` | `flow_runtime`, `select`, `migrate` | `selection/1`, `migrations/0`, `check/4` (writer rule) |
+| flow-runtime `kind/fields/writer/inputs/selection` | `flow_runtime`, `select` | `selection/1`, `check/4` (writer rule) |
 | `acl.yaml` roles/assignments | `role`, `assign` | `acl.yaml` target only (Rela checks flows against it) |
 | test-env patch in `platform/ops/core.Dockerfile` (`guidance.control`, Workers tab) | environment settings | `shell/1(env)`, `guidance/0` + `products/software_factory/environments/test.json` |
 
@@ -125,19 +124,11 @@ value) retains the existing authority checks. The other write rules still run. T
 does not authorize acceptance, reinterpret Flow as a person, or relax frozen fields.
 The private native regression is `products/software_factory/integration/flow_tally_authority_native.exs`.
 
-## 3. Digests, proofs and migrations
+## 3. Runs by name (D-0102)
 
-- **Digest.** `digest/0` is `sha256(canonical(data))`. `data` is exactly the string-keyed map that today's Atlas writer emits per subflow, with limits resolved per environment, so prod and test have separate compiled modules. `canonical/1` is today's `DefinitionDigest.canonical/1`, moved into `rela_dsl`. Nothing is read from disk.
-- **Digest proof (test).** For every subflow and environment, the compiled `digest/0` equals the digest of the committed `flows.<env>.json` entry. It also equals the pinned live digests in `definition_digest_test`. In this checkout those are prod `d9aadf74…` and test `e2d4c41b…`; the test pins develop's post-#109 values. A pure move or a pure cutover must leave them all unchanged.
-- **`digests.json`.** Per subflow and environment it holds the current digest and its state names, plus an append-only history of `{digest, states}`.
-- **`--check --base origin/develop`** (CI) reads the base branch's `digests.json` with `git show` and refuses:
-  1. a history entry that was removed or changed;
-  2. a subflow whose compiled digest differs from the base's current one without a `migrate from: <base digest>, to: <compiled digest>`;
-  3. a `migrate` whose `from` is absent from the base history; a `migrate` whose `to` is not a compiled digest;
-  4. a `migrate` whose `states` keys are not states of `from`, or whose values are not states of `to`;
-  5. `rekey: true` without identity maps.
-
-  A change therefore cannot approve its own migration.
+- **Identity.** A run is matched to its subflow by its `flow` and continues in its `state` as long as that state is in the compiled subflow's `states/0`. Nothing hashes a subflow's definition and there are no migrations between versions: a change to texts, owners, timers or branches applies to every run at once. The flow_run field `definition_sha256` is kept as history only; Flow neither reads nor writes it.
+- **A state that is gone.** A run whose state is not a state of its subflow is blocked (`state_removed: <state>`) until its subflow has the state again. The check before an update prevents it.
+- **The check before an update.** `mix model.flows --env <env>` prints the compiled model's subflows of that environment with their state names, as JSON (`{"<flow>": ["<state>", …]}`), without rela or any file. The update compares it with the runs in the store and refuses to remove or rename a flow or a state while a run is in it.
 
 ## 4. Example: `products/software_factory/model/contract/foundation/decision.ex`
 
@@ -249,9 +240,6 @@ defmodule Model.Decision do
     projection: [on: :assignment, state_field: :flow_state, handover_field: :handover,
                  owner_relation: :assigned_to, field: :expected]
 
-  migrate :decide, from: "118c1cf3…", to: "d9aadf74…", rekey: true, states: :same,
-    reason: "Canonical JSON identity; unchanged prod subflow data"               # history, as today
-  # … the other entries of today's flow-runtime.json, and #109's
 end
 ```
 
@@ -271,7 +259,7 @@ def __facts_check__("decision", %{after: a} = change, actor, lookup) do
 end
 
 # AtlasFlow.Subflow: Model.Decision.Decide.Prod (and .Test, with the test limits)
-def digest, do: "d9aadf74d08e0fb4ee4ada4d17980c10aafd4424f251061779cbd61b1c01c7aa"   # computed at compile time
+def states, do: ["accepted", "deciding", "for_agent", "for_agent_unverified", "for_person", "for_person_always", "rejected"]
 def next(:for_person, %{"status" => "accepted"}, %{roles: r}) when "decider" in r, do: {:to, :accepted}
 def next(:for_person, %{"status" => "rejected"}, %{roles: r}) when "decider" in r, do: {:to, :rejected}
 def next(:for_person, _fact, _input), do: :stay
@@ -289,12 +277,11 @@ Compile-time checks:
 - answer writes in `authority.writes` require `as: authority.by` and a `for:` kind that authority allows;
 - the decider gate has `purpose: :decider`, and its relation leads from `gate_verdict` to `decision`;
 - `select` refers to `wait_for` fields and states that exist;
-- `owner default: {:person, config: r}` adds `r` to `actors/0`;
-- the `digests.json` rules of §3.
+- `owner default: {:person, config: r}` adds `r` to `actors/0`.
 
 ## 5. Slices
 
-Each slice is mergeable alone and green; runs keep their identity unless a slice says otherwise.
+Each slice is mergeable alone and green; runs keep their identity unless a slice says otherwise. The slices predate D-0102: what they say of digests, `digests.json`, `migrate` and `--check` was removed by it (§3).
 
 | # | Slice | Deletes | Proof |
 | --- | --- | --- | --- |
@@ -315,7 +302,6 @@ Each slice is mergeable alone and green; runs keep their identity unless a slice
 2. **Compile coupling.** A behaviour change in a platform app forces a model recompile. That is fine in one release build, but behaviour changes need a version note.
 3. **Boot misconfiguration.** A missing model, an unconfigured actor (`actors.<role>`), or a rela schema that differs from `rela_schema/0` refuses boot. There is no fallback, by design (decision 7).
 4. **YAML fidelity.** This is a slice 0 / slice 2 risk: normalise the sources and never add style hints.
-5. **Slice 7 re-keys live runs.** The rekey keeps state, entry and deadlines (`run.ex`).
 
 **Stays hand-written**
 
@@ -324,21 +310,21 @@ Each slice is mergeable alone and green; runs keep their identity unless a slice
 | `products/software_factory/model/targets/rela/data-entry.yaml` | rela-server setting |
 | `products/software_factory/environments/<env>.json`, `products/software_factory/environments/<env>/core.json` | environment settings (clients; the core on Fly); the core's now also has `actors` |
 | `platform/atlas_facts/rela/scripts/{config.py,verify.py,*.sh}`, `platform/atlas_facts/rela/tests/test_config.py` | packaging and fits; existing Python only |
-| golden files, ADRs | approval records |
+| ADRs | approval records |
 
-`flow-runtime.json` is no longer hand-written: migrations are DSL, approved against the base proof.
+`flow-runtime.json` is no longer hand-written: it is generated from `select` and `flow_runtime`.
 
 **Adding a kind** (with a subflow, assignable, gated, a new role)
 
 | | Today | After |
 | --- | --- | --- |
-| Hand-edited | 8 files (module YAML, module JSON, bindings, acl, subflow file, composition, golden, golden test) | 3 files + golden: `products/software_factory/model/contract/<module>/<kind>.ex` (new), `<module>/module.ex`, `compositions/<org>.ex` |
+| Hand-edited | 8 files (module YAML, module JSON, bindings, acl, subflow file, composition, golden, golden test) | 3 files: `products/software_factory/model/contract/<module>/<kind>.ex` (new), `<module>/module.ex`, `compositions/<org>.ex` |
 | Platform code touched | 0 | 0 (callbacks are generated) |
-| Generated | 8, from 2 commands | Rela inputs + proofs, from 1 command; `--check` shows the macro output |
+| Generated | 8, from 2 commands | Rela inputs and `flows.json`, from 1 command, at build time |
 
 The exact inventories (`products/software_factory/e2e/test/composition_test.exs`, Flow goldens) are still updated in the same change.
 
 ## 7. Open product questions
 
 1. **What happens when an environment has no `actors.decider` configured?** *Recommendation:* refuse boot. A fallback to the coordinator agent would be a hidden second path.
-2. **Is one deciding person per environment enough, or is a list needed (any of them may answer)?** *Recommendation:* one now. `config: role` can later resolve to a list in `products/software_factory/environments/<env>.json` without changing the contract or any digest.
+2. **Is one deciding person per environment enough, or is a list needed (any of them may answer)?** *Recommendation:* one now. `config: role` can later resolve to a list in `products/software_factory/environments/<env>.json` without changing the contract.

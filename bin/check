@@ -10,11 +10,13 @@
 #
 # It reads the jobs from ci.yml, so it stays in step with CI. It runs each job's `run:` steps in
 # the job's working directory with the job's own env, but ONLY the fast static checks: format,
-# compile with warnings as errors, lock check, generated-file `--check`s and the boundary greps.
-# Test suites (`mix test`, `go test`, unittest, integration scripts) are left to CI. Also skipped, because they only make sense on a
-# CI runner: `uses:` steps, steps that need a GitHub expression (`${{ … }}`) or an env value that
-# comes from one, installers (pip, hex/rebar, the pinned rela), and the macOS, record and deploy
-# jobs. A failing step fails its job; the other jobs still run. Exit 1 when any job failed.
+# compile with warnings as errors, lock check and the boundary greps. Test suites (`mix test`,
+# `go test`, unittest, integration scripts) are left to CI, and so is generating the targets
+# (bin/generate, a generator task) that only tests read. Also skipped, because they only make
+# sense on a CI runner: `uses:` steps, steps that need a GitHub expression (`${{ … }}`) or an
+# env value that comes from one, installers (pip, hex/rebar, the pinned rela), and the macOS,
+# record and deploy jobs. A failing step fails its job; the other jobs still run. Exit 1 when
+# any job failed.
 #
 # One check is bin/check's own, not a ci.yml job: test-waits (bin/lib/test_waits.rb, with
 # its test and its allowlist test_waits.allow) fails when a test under platform/ or
@@ -34,7 +36,7 @@ skip_jobs = ->(id, job) {
   id == 'tested-tree' || id.start_with?('record-', 'deploy-') || job['runs-on'].to_s.include?('macos')
 }
 skip_run = /\$\{\{|pip install|local\.hex|local\.rebar|start-test\.sh install|mix test|go( -C \S+)? test|unittest|mix run /
-fast = /mix format|mix compile|deps\.get --check-locked|\.gen --check|grep /
+fast = /mix format|mix compile|deps\.get --check-locked|grep /
 
 linux = jobs.reject { |id, job| skip_jobs.(id, job) }
 
@@ -106,7 +108,7 @@ selected.each do |id|
     original = run
     # A multi-line step that mixes fast checks with tests: keep only its plain fast commands.
     if run.lines.size > 1 && run.match?(skip_run) && !run.include?('${{')
-      run = run.lines.map(&:strip).grep(/\Amix (format|compile|deps\.get --check-locked|\S+\.gen --check)/).join("\n")
+      run = run.lines.map(&:strip).grep(/\Amix (format|compile|deps\.get --check-locked)/).join("\n")
       run = nil if run.empty?
     end
     if run.nil? || run.match?(skip_run) || !run.match?(fast) || step_dropped.any? { |k| run.match?(/\$\{?#{k}\b/) }

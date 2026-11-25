@@ -1,33 +1,27 @@
 # CI tests a tree once (docs/guides/prod.md, "CI tests a tree once"). Job tested-tree
-# computes this run's git tree and base key (the blob of CI_BASE_FILE at CI_BASE). On a push
-# to develop or master, and on a pull request into master, it looks for the records of
-# successful runs of this workflow (artifacts tested-tree-<tree> and
-# tested-base-<tree>-<base key>, platform/ops/ci/tested-tree.mjs). With the first, the test jobs
-# are skipped; with both, the base job too. The deploys still run.
+# computes this run's git tree. On a push to develop or master, and on a pull request into
+# master, it looks for the record of a successful run of this workflow on that tree
+# (artifact tested-tree-<tree>, platform/ops/ci/tested-tree.mjs). With it, the test jobs are
+# skipped. The deploys still run.
+#
+# Generated targets are not in git: a job whose tests read them writes them first with
+# bin/generate <names>, from this tree's contracts, and nothing compares them.
 #
 # A new test job joins the scheme with these two lines:
 #     needs: tested-tree
 #     if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
 # and its id in record-tested-tree's needs (and in a deploy's needs when that deploy waits
-# for it). A job whose result depends on the base as well as the tree is a base job instead:
-#     if: ${{ !cancelled() && needs.tested-tree.outputs.base_tested != 'true' }}
-# and its id in record-tested-base's needs. Exempt from both: tested-tree, the two record
-# jobs (they keep the implicit success() condition), and every job named deploy-*, which
-# needs tested-tree and keeps the four clauses of its if (no failure, no cancel, skipped
-# only when tested). tested-tree runs platform/ops/ci/tested-tree.mjs check-workflow on this file:
-# CI fails while a job is outside the scheme, so nothing is recorded without that job.
+# for it). Exempt: tested-tree, record-tested-tree (it keeps the implicit success()
+# condition), and every job named deploy-*, which needs tested-tree and keeps the four
+# clauses of its if (no failure, no cancel, skipped only when tested). tested-tree runs
+# platform/ops/ci/tested-tree.mjs check-workflow on this file: CI fails while a job is
+# outside the scheme, so nothing is recorded without that job.
 name: CI
 
 on:
   push:
     branches: [develop, master]
   pull_request:
-
-# The base a base job checks against: a pull request's base branch, or a push's branch as it
-# was before the push.
-env:
-  CI_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
-  CI_BASE_FILE: products/software_factory/model/targets/proof/digests.json
 
 jobs:
   tested-tree:
@@ -38,11 +32,8 @@ jobs:
       contents: read
     outputs:
       tree: ${{ steps.find.outputs.tree }}
-      base_key: ${{ steps.find.outputs.base_key }}
       tested: ${{ steps.find.outputs.tested }}
       run_id: ${{ steps.find.outputs.run_id }}
-      base_tested: ${{ steps.find.outputs.base_tested }}
-      base_run_id: ${{ steps.find.outputs.base_run_id }}
       # The macOS jobs (swift, apple) run only when this change touches what they test.
       apple: ${{ steps.apple.outputs.apple }}
       # The Fly deploys run only when something that ends up on Fly changed.
@@ -50,25 +41,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The base commit, for the base key.
+          # The base commit, for what this change touches (below).
           fetch-depth: 0
       - name: Every job is in the scheme, and the lookup's own tests pass
         run: |
           node platform/ops/ci/tested-tree.mjs check-workflow .github/workflows/ci.yml
           node --test platform/ops/ci/tested-tree.test.mjs
       # Neither step fails: without a trusted record everything runs.
-      - name: This tree and base key
+      - name: This tree
         id: keys
         run: node platform/ops/ci/tested-tree.mjs keys
-      - name: Look for the records of this tree
+      - name: Look for the record of this tree
         id: find
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TREE: ${{ steps.keys.outputs.tree }}
-          BASE_KEY: ${{ steps.keys.outputs.base_key }}
         run: node platform/ops/ci/tested-tree.mjs find
       # Waiting for a macOS runner is the slowest part of a run; skip it when nothing Apple
-      # changed. No usable base (first push, unknown commit) means run them.
+      # changed (the Apple tests read the model's generated description too). No usable base (first push, unknown commit) means run them.
       - name: Does this change touch the Apple clients or the Control backend?
         id: apple
         env:
@@ -78,7 +68,7 @@ jobs:
             || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             echo "apple=true" >> "$GITHUB_OUTPUT"
           elif git diff --name-only "$BASE" HEAD \
-            | grep -qE '^(platform/clients/apple/|platform/atlas_control/backend/|\.github/workflows/ci\.yml$)'; then
+            | grep -qE '^(platform/clients/apple/|platform/atlas_control/backend/|products/software_factory/model/|\.github/workflows/ci\.yml$)'; then
             echo "apple=true" >> "$GITHUB_OUTPUT"
           else
             echo "apple=false" >> "$GITHUB_OUTPUT"
@@ -163,8 +153,7 @@ jobs:
           elixir-version: "1.18"
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file in platform/atlas_runtime/boundary/targets differs from what the contract generates, or is left over.
-      - run: mix runtime_boundary.gen --check
+      # The tests read platform/atlas_runtime/boundary/targets: test_helper.exs writes them first.
       - run: mix test --warnings-as-errors
 
   code-boundary-generator:
@@ -210,8 +199,8 @@ jobs:
           elixir-version: "1.18"
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file in platform/atlas_code/boundary/targets differs from what the contract generates, or is left over.
-      - run: mix code_boundary.gen --check
+      # Writes platform/atlas_code/boundary/targets from the contract.
+      - run: mix code_boundary.gen
       - run: mix test --warnings-as-errors
 
   contract:
@@ -230,8 +219,8 @@ jobs:
           elixir-version: "1.18"
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file in platform/atlas_control/backend/targets differs from what the contract generates, or is left over.
-      - run: mix atlas.gen --check
+      # Writes platform/atlas_control/backend/targets from the contract.
+      - run: mix atlas.gen
       - run: mix test --warnings-as-errors
       - run: python3 -m unittest discover -s platform/ops/tests -v
         working-directory: .
@@ -262,7 +251,7 @@ jobs:
       # and depends on its own generator only.
       - name: The model contract names no boundary or backend
         run: |
-          if grep -rnE --exclude-dir=_build --exclude-dir=deps 'AtlasRuntimeBoundary|AtlasRuntimeBackend|AtlasRuntimeBFF|AtlasBFF|AtlasControl|atlas_runtime_boundary|atlas_runtime_backend|atlas_runtime_bff|boundary/|backend/|bff/' contract targets || grep -rniE --exclude-dir=_build --exclude-dir=deps 'atlas_bff|atlas_control|control/' contract targets || grep -oE 'path: *"[^"]*"' contract/mix.exs | grep -vxF 'path: "../generator"'; then
+          if grep -rnE --exclude-dir=_build --exclude-dir=deps 'AtlasRuntimeBoundary|AtlasRuntimeBackend|AtlasRuntimeBFF|AtlasBFF|AtlasControl|atlas_runtime_boundary|atlas_runtime_backend|atlas_runtime_bff|boundary/|backend/|bff/' contract || grep -rniE --exclude-dir=_build --exclude-dir=deps 'atlas_bff|atlas_control|control/' contract || grep -oE 'path: *"[^"]*"' contract/mix.exs | grep -vxF 'path: "../generator"'; then
             echo "::error::platform/atlas_runtime/model refers to boundary, backend or Control. The boundary maps the model, never the other way round."
             exit 1
           fi
@@ -279,8 +268,8 @@ jobs:
         working-directory: platform/atlas_runtime/model/contract
       - run: mix format --check-formatted
         working-directory: platform/atlas_runtime/model/contract
-      # Fails when platform/atlas_runtime/model/targets differs from what the model generates (the format on disk), or is left over.
-      - run: mix runtime_model.gen --check
+      # Writes platform/atlas_runtime/model/targets (the format on disk) from the model.
+      - run: mix runtime_model.gen
         working-directory: platform/atlas_runtime/model/contract
       - run: mix test --warnings-as-errors
         working-directory: platform/atlas_runtime/model/contract
@@ -317,10 +306,6 @@ jobs:
     needs: tested-tree
     if: ${{ !cancelled() && needs.tested-tree.outputs.tested != 'true' }}
     runs-on: ubuntu-latest
-    env:
-      # The pinned rela: --check validates flows.yaml with it and redraws the diagrams,
-      # and the contract's :rela tests run.
-      ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
     defaults:
       run:
         working-directory: products/software_factory/model/contract
@@ -338,19 +323,14 @@ jobs:
         with:
           otp-version: "28"
           elixir-version: "1.18"
-      # rela, pinned in platform/atlas_facts/rela/scripts/start-test.sh; it downloads it when missing.
+      # rela, pinned in platform/atlas_facts/rela/scripts/start-test.sh: bin/generate model
+      # installs it into ~/.cache/atlas when missing and validates and draws with it; the
+      # Rela scripts' tests and the contract's :rela tests use the same (ATLAS_RELA_BIN).
       - uses: actions/cache@v4
         with:
-          path: .rela-bin
+          path: ~/.cache/atlas
           key: rela-26.11.9-linux_amd64
-      - run: platform/atlas_facts/rela/scripts/start-test.sh install
-        working-directory: .
-      # The Rela scripts' own tests, against the pinned rela above (ATLAS_RELA_BIN): the closure
-      # equals the #79 baseline plus the named additions, natively and as rela serves it.
-      - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
-        working-directory: .
-      - run: python3 -m unittest discover -s platform/atlas_facts/rela/tests -v
-        working-directory: .
+      - run: echo "ATLAS_RELA_BIN=$HOME/.cache/atlas/rela-26.11.9" >> "$GITHUB_ENV"
       # It compiles platform/atlas_runtime as a path dependency, so needs its Hex dependencies
       # (Plug, Bandit) too, as products/software_factory/mix.lock pins them (the model's
       # lockfile). Hex and rebar (telemetry builds with rebar3) first.
@@ -358,50 +338,19 @@ jobs:
       - run: mix deps.get --check-locked
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file of the Rela project (products/software_factory/model/targets/rela) or of products/software_factory/model/targets differs from what
-      # the model generates, is missing or left over, or when rela refuses the generated
-      # description. The run identities against the base: job model-base.
-      - run: mix model.gen --check
-      - run: mix test --warnings-as-errors
-
-  # A base job: its result depends on the tree and on the base's digests.json, so it is
-  # recorded per base key and skipped only when this tree passed against the same file.
-  model-base:
-    name: The model's run identities against the base
-    needs: tested-tree
-    if: ${{ !cancelled() && needs.tested-tree.outputs.base_tested != 'true' }}
-    runs-on: ubuntu-latest
-    outputs:
-      tree: ${{ steps.keys.outputs.tree }}
-      base_key: ${{ steps.keys.outputs.base_key }}
-      base_commit: ${{ steps.keys.outputs.base_commit }}
-    defaults:
-      run:
-        working-directory: products/software_factory/model/contract
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # --base reads the base's digests.json.
-          fetch-depth: 0
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: "28"
-          elixir-version: "1.18"
-      - name: This tree and base key
-        id: keys
-        run: node platform/ops/ci/tested-tree.mjs keys
+      # Writes the Rela project (products/software_factory/model/targets/rela) and the rest of
+      # products/software_factory/model/targets; fails when rela refuses the generated description.
+      # The tests read what it wrote.
+      - run: bin/generate model
         working-directory: .
-      # It compiles platform/atlas_runtime as a path dependency (Plug, Bandit), as
-      # products/software_factory/mix.lock pins them.
-      - run: mix local.hex --force && mix local.rebar --force && mix deps.get --check-locked
-      # Fails when a subflow's run identity changed without a migration the base can
-      # approve (its digests.json). record-tested-base keys its record on what this job checked.
-      - name: The run identities against the base
-        env:
-          BASE: ${{ steps.keys.outputs.base_commit }}
-        run: |
-          [ -n "$BASE" ] || { echo "::error::The base $CI_BASE is no commit of this repository"; exit 1; }
-          mix model.gen --check --base "$BASE"
+      # The Rela scripts' own tests, on the project just written and against the pinned rela
+      # above (ATLAS_RELA_BIN): the closure equals the #79 baseline plus the named additions,
+      # natively and as rela serves it.
+      - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
+        working-directory: .
+      - run: python3 -m unittest discover -s platform/atlas_facts/rela/tests -v
+        working-directory: .
+      - run: mix test --warnings-as-errors
 
   runtime-backend-generator:
     name: Runtime backend generator on its own
@@ -457,8 +406,9 @@ jobs:
       - run: mix deps.get
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      # Fails when a file in platform/atlas_runtime/backend/targets (S3: rest/<contract>/routes.json, rest/<contract>/openapi.json) differs from what the contracts (work_api, operations_api, history_api) generate, or is left over.
-      - run: mix runtime_backend.gen --check
+      # The tests read platform/atlas_runtime/backend/targets (rest/<contract>/routes.json,
+      # rest/<contract>/openapi.json of work_api, operations_api and history_api): test_helper.exs
+      # writes them first.
       - run: mix test --warnings-as-errors
 
   beam:
@@ -502,6 +452,15 @@ jobs:
       # mix.lock pins them: the host's service test builds the umbrella too.
       - run: mix local.hex --force && mix local.rebar --force
       - run: mix deps.get --check-locked
+      # The tests read generated targets: the Rela project (Facts' native tests), the Runtime's
+      # work source routes and boundary (Flow's conformance, the Runtime's change sets). The
+      # pinned rela, which bin/generate model installs when missing.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/atlas
+          key: rela-26.11.9-linux_amd64
+      - run: bin/generate model runtime_boundary runtime_backend
+        working-directory: .
       - run: go -C ../../platform/atlas_runtime/host test ./...
       - run: python3 -m pip install -r ../../platform/atlas_facts/rela/scripts/requirements.txt
       - run: mix compile --warnings-as-errors
@@ -527,6 +486,14 @@ jobs:
         with:
           otp-version: "28"
           elixir-version: "1.18"
+      # The tests read the product's description (targets/rela/atlas.json), which
+      # bin/generate model writes with the pinned rela it installs when missing.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/atlas
+          key: rela-26.11.9-linux_amd64
+      - run: bin/generate model
+        working-directory: .
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       - run: mix test --warnings-as-errors
@@ -560,16 +527,16 @@ jobs:
         working-directory: platform/atlas_control/backend/targets/swift
     steps:
       - uses: actions/checkout@v4
-      # platform/atlas_control/backend/targets/swift is what `mix atlas.gen` writes (the contract job checks it is up to
-      # date), and the message lines kept in Tests/Fixtures; a transport or app lives elsewhere.
-      - name: The package holds only generated code and kept fixtures
-        run: |
-          handwritten=$(for f in $(find . -name '*.swift' -not -path './.build/*' -not -path './.swiftpm/*'); do head -2 "$f" | grep -q '^// Generated by atlas (mix atlas.gen)\. Do not edit' || echo "$f"; done)
-          others=$(find . -type f -not -name '*.swift' -not -path './Tests/Fixtures/*' -not -path './.build/*' -not -path './.swiftpm/*')
-          if [ -n "$handwritten$others" ]; then
-            echo "::error::platform/atlas_control/backend/targets/swift holds files mix atlas.gen does not write: $handwritten $others"
-            exit 1
-          fi
+      # The package is build output, not in git: generated here from this tree's contract
+      # (bin/generate atlas), next to the message lines kept in Tests/Fixtures.
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - run: bin/generate atlas
+        working-directory: .
+      - run: python3 -B platform/clients/apple/tools/test_atlas_swift.py
+        working-directory: .
       - run: swift --version
       - run: swift build
       - run: swift test
@@ -584,10 +551,31 @@ jobs:
     defaults:
       run:
         working-directory: platform/clients/apple
+    env:
+      # The package generated from this tree's contract instead of the published one: its
+      # version may not be published yet (Package.swift).
+      ATLAS_SWIFT_PACKAGE: ../../atlas_control/backend/targets/swift
     steps:
       - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      # The pinned rela that bin/generate model installs when missing.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/atlas
+          key: rela-26.11.9-darwin_arm64
+      # AtlasControlKit, and the product's description ShellTabsTests reads.
+      - run: bin/generate atlas model
+        working-directory: .
+      - name: Package.swift depends on the contract's version
+        run: |
+          version=$(python3 -B tools/atlas_swift.py version)
+          grep -q "^let contractVersion: Version = \"$version\"$" Package.swift \
+            || { echo "::error::platform/clients/apple/Package.swift: set contractVersion to $version, the contract's version"; exit 1; }
       - run: swift --version
-      # ControlSession, BlockViews and the macOS app (AtlasMac), on AtlasControlKit by path.
+      # ControlSession, BlockViews and the macOS app (AtlasMac), on AtlasControlKit.
       - run: swift build
       # A unit run: fakes for the connection and the clock. ControlIntegration is skipped
       # without ATLAS_ENV_FILE (docs/design/apple-clients.md §7).
@@ -716,45 +704,17 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-  # The base job passed: record this tree against the base key it checked.
-  record-tested-base:
-    name: Record the tree checked against its base
-    needs: [tested-tree, model-base]
-    if: >-
-      needs.model-base.outputs.tree != '' && needs.model-base.outputs.base_key != ''
-      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Write the record
-        env:
-          TREE: ${{ needs.model-base.outputs.tree }}
-          BASE_KEY: ${{ needs.model-base.outputs.base_key }}
-          BASE_COMMIT: ${{ needs.model-base.outputs.base_commit }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/tested-base"
-          jq -n --arg tree "$TREE" --arg base_key "$BASE_KEY" --arg base_commit "$BASE_COMMIT" --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" \
-            --argjson run_id "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" \
-            '{tree: $tree, base_key: $base_key, base_commit: $base_commit, run_id: $run_id, attempt: $attempt, sha: $sha, ref: $ref}' \
-            > "$RUNNER_TEMP/tested-base/record.json"
-          echo "recorded: tree $TREE passed against base file $BASE_KEY in run $GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tested-base-${{ needs.model-base.outputs.tree }}-${{ needs.model-base.outputs.base_key }}
-          path: ${{ runner.temp }}/tested-base/record.json
-          if-no-files-found: error
-          overwrite: true
-
   # A merge deploys its environment on Fly (d-0014): develop deploys test (IS-Atlas-26),
   # master deploys prod (IS-Atlas-79), once every check above passed, or was skipped because
-  # this tree passed them before (tested-tree). platform/ops/deploy.sh first checks that this build's
-  # description describes the data rela holds there (else it deploys nothing), then deploys
-  # rela and the core, then runs the smoke check, which reads only. Each app has its own
-  # deploy token (fly tokens create deploy -a <app>).
+  # this tree passed them before (tested-tree). platform/ops/deploy.sh generates the model's
+  # targets (bin/generate model, with the pinned rela cached below), checks that this build's
+  # description describes the data rela holds there and that every open run is in a flow and
+  # state this build's model has (else it deploys nothing), then deploys rela and the core,
+  # then runs the smoke check, which reads only. Each app has its own deploy token (fly
+  # tokens create deploy -a <app>).
   deploy-test:
     name: Deploy test on Fly, and a smoke check
-    needs: [tested-tree, generator, contract, model-dsl, model-contract, model-base, beam, tui, agent, runtime-backend-generator, runtime-backend-contract]
+    needs: [tested-tree, generator, contract, model-dsl, model-contract, beam, tui, agent, runtime-backend-generator, runtime-backend-contract]
     if: >-
       ${{ !cancelled()
       && github.event_name == 'push' && github.ref == 'refs/heads/develop'
@@ -762,8 +722,6 @@ jobs:
       && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
       && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
     runs-on: ubuntu-latest
-    env:
-      ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
     # Readiness order is not commit order. Keep queued jobs, then admit only the
     # current develop head inside the slot. Never cancel midway through a pair.
     concurrency:
@@ -778,8 +736,10 @@ jobs:
           elixir-version: "1.18"
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
-      - name: Install the pinned schema validator in this deployment job
-        run: platform/atlas_facts/rela/scripts/start-test.sh install
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/atlas
+          key: rela-26.11.9-linux_amd64
       - run: sudo apt-get update && sudo apt-get install -y lsof netcat-openbsd jq
       - name: Deploy test (rela, then the core), then the smoke check
         env:
@@ -794,15 +754,13 @@ jobs:
   # succeeds without deploying, so deploy-mac-app follows every merge to master.
   deploy-prod:
     name: Deploy prod on Fly, and a smoke check
-    needs: [tested-tree, generator, contract, model-dsl, model-contract, model-base, beam, tui, agent, runtime-backend-generator, runtime-backend-contract]
+    needs: [tested-tree, generator, contract, model-dsl, model-contract, beam, tui, agent, runtime-backend-generator, runtime-backend-contract]
     if: >-
       ${{ !cancelled()
       && github.event_name == 'push' && github.ref == 'refs/heads/master'
       && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
       && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
     runs-on: ubuntu-latest
-    env:
-      ATLAS_RELA_BIN: ${{ github.workspace }}/.rela-bin
     # One deploy at a time; a newer merge waits for the running one.
     concurrency:
       group: fly-deploy-prod
@@ -822,9 +780,11 @@ jobs:
         if: needs.tested-tree.outputs.deploy != 'false'
       - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
         if: needs.tested-tree.outputs.deploy != 'false'
-      - name: Install the pinned schema validator in this deployment job
+      - uses: actions/cache@v4
         if: needs.tested-tree.outputs.deploy != 'false'
-        run: platform/atlas_facts/rela/scripts/start-test.sh install
+        with:
+          path: ~/.cache/atlas
+          key: rela-26.11.9-linux_amd64
       - run: sudo apt-get update && sudo apt-get install -y lsof netcat-openbsd jq
         if: needs.tested-tree.outputs.deploy != 'false'
       - name: Deploy prod (rela, then the core), then the smoke check
@@ -837,8 +797,47 @@ jobs:
           [ -n "$ATLAS_FLY_TOKEN_CORE" ] || { echo "::error::Add the secret FLY_API_TOKEN_PROD (fly tokens create deploy -a eyra-atlas)"; exit 1; }
           platform/ops/deploy.sh prod "master-$GITHUB_SHA"
 
+  # Each release publishes the Swift package of Control's contract (AtlasControlKit) to
+  # github.com/mimbre/atlas-swift, tagged with the contract version, when that tag is
+  # missing; otherwise it does nothing (platform/clients/apple/tools/atlas_swift.py).
+  # deploy-mac-app builds against it. It pushes with a deploy key of mimbre/atlas-swift that
+  # may write (secret ATLAS_SWIFT_DEPLOY_KEY, its private half).
+  deploy-swift-package:
+    name: Publish the contract's Swift package (mimbre/atlas-swift)
+    needs: [tested-tree, generator, contract]
+    if: >-
+      ${{ !cancelled()
+      && github.event_name == 'push' && github.ref == 'refs/heads/master'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+      && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: atlas-swift-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - run: bin/generate atlas
+      - name: Publish this contract version, unless it is
+        env:
+          ATLAS_SWIFT_DEPLOY_KEY: ${{ secrets.ATLAS_SWIFT_DEPLOY_KEY }}
+        run: |
+          [ -n "$ATLAS_SWIFT_DEPLOY_KEY" ] || { echo "::error::Add the secret ATLAS_SWIFT_DEPLOY_KEY: the private key of a deploy key of mimbre/atlas-swift with write access"; exit 1; }
+          key="$RUNNER_TEMP/atlas-swift-key"
+          trap 'rm -f "$key"' EXIT
+          (umask 077 && printf '%s\n' "$ATLAS_SWIFT_DEPLOY_KEY" > "$key")
+          # GitHub's published host key.
+          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$RUNNER_TEMP/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts"
+          python3 -B platform/clients/apple/tools/atlas_swift.py publish platform/atlas_control/backend/targets/swift \
+            git@github.com:mimbre/atlas-swift.git --source "$GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+
   # Each prod release publishes the Mac app at its revision (IS-Atlas-66): after
-  # deploy-prod, AtlasMac is tested and built at this commit, bundled as `Atlas Console.app`
+  # deploy-prod and deploy-swift-package, AtlasMac is tested and built at this commit against
+  # the published AtlasControlKit, bundled as `Atlas Console.app`
   # (its version master-<commit>, its contract, this run's number as its build), signed with
   # the Developer ID, and published as the GitHub release atlas-console-<commit>; the release
   # atlas-console holds feed.json, naming the newest. Installed apps read that feed when they
@@ -846,7 +845,7 @@ jobs:
   # (platform/clients/apple, AppUpdate). The feed never goes back to an earlier build.
   deploy-mac-app:
     name: Publish the Mac app of this release
-    needs: [tested-tree, deploy-prod]
+    needs: [tested-tree, deploy-prod, deploy-swift-package]
     if: >-
       ${{ !cancelled()
       && github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -869,15 +868,18 @@ jobs:
       run:
         working-directory: platform/clients/apple
     steps:
-      - name: The signing secrets are there
-        working-directory: .
-        env:
-          MAC_SIGNING_CERTIFICATE: ${{ secrets.MAC_SIGNING_CERTIFICATE }}
-          MAC_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MAC_SIGNING_CERTIFICATE_PASSWORD }}
-        run: |
-          [ -n "$MAC_SIGNING_CERTIFICATE" ] || { echo "::error::Add the secret MAC_SIGNING_CERTIFICATE: the Developer ID Application certificate with its private key, exported from Keychain Access as a .p12, base64 (base64 -i developer-id.p12 | pbcopy)"; exit 1; }
-          [ -n "$MAC_SIGNING_CERTIFICATE_PASSWORD" ] || { echo "::error::Add the secret MAC_SIGNING_CERTIFICATE_PASSWORD: the password of the .p12 in MAC_SIGNING_CERTIFICATE"; exit 1; }
       - uses: actions/checkout@v4
+      # ShellTabsTests reads the product's description: generate it (with the pinned rela).
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.18"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/atlas
+          key: rela-26.11.9-darwin_arm64
+      - run: bin/generate model
+        working-directory: .
       - run: swift --version
       # What is published is what was tested: the unit run and the packager's own tests.
       - run: swift test
@@ -887,7 +889,15 @@ jobs:
         run: |
           swift build -c release --product AtlasMac
           echo "binary=$(swift build -c release --product AtlasMac --show-bin-path)/AtlasMac" >> "$GITHUB_OUTPUT"
-          echo "contract=$(python3 -B tools/package_release_app.py contract ../../atlas_control/backend/targets/swift/Sources/AtlasControlKit/Contract.swift)" >> "$GITHUB_OUTPUT"
+          echo "contract=$(python3 -B tools/atlas_swift.py version)" >> "$GITHUB_OUTPUT"
+      - name: The signing secrets are there
+        working-directory: .
+        env:
+          MAC_SIGNING_CERTIFICATE: ${{ secrets.MAC_SIGNING_CERTIFICATE }}
+          MAC_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MAC_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          [ -n "$MAC_SIGNING_CERTIFICATE" ] || { echo "::error::Add the secret MAC_SIGNING_CERTIFICATE: the Developer ID Application certificate with its private key, exported from Keychain Access as a .p12, base64 (base64 -i developer-id.p12 | pbcopy)"; exit 1; }
+          [ -n "$MAC_SIGNING_CERTIFICATE_PASSWORD" ] || { echo "::error::Add the secret MAC_SIGNING_CERTIFICATE_PASSWORD: the password of the .p12 in MAC_SIGNING_CERTIFICATE"; exit 1; }
       - name: Bundle Atlas Console.app
         env:
           BINARY: ${{ steps.build.outputs.binary }}

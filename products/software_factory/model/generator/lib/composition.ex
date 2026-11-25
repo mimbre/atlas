@@ -27,7 +27,7 @@ defmodule RelaDSL.Composition do
   `schema` writes the root `schema.yaml`, which includes each module's file and then
   `compositions/<name>/bindings.yaml`, the relations written here. `acl`, `role` and
   `assign` write `acl.yaml`. `defcomposition` is `RelaDSL.Schema.Composition`'s.
-  `environments` names the environments whose limits give the subflows their digests
+  `environments` names the environments whose limits the subflows are compiled with
   (default `[:prod]`).
 
   ## Checks
@@ -42,7 +42,6 @@ defmodule RelaDSL.Composition do
       (`RelaDSL.Description.Subflows`);
     * every module a subflow comes from is a concept of a selected module, and a
       subflow's gates are among the concepts' gates;
-    * the migrations follow `RelaDSL.RunIdentity`'s rules on the model;
     * root keys of Rela's schema that Atlas does not use (`worlds`, `copies`,
       `default_world`, root `validations`) are refused: no construct writes them.
 
@@ -62,15 +61,13 @@ defmodule RelaDSL.Composition do
   ## Introspection
 
   `__rela__(:description)` is everything the targets are written from: the schema
-  documents, `atlas.json`, the run mapping, the roles and `digests.json`.
+  documents, `atlas.json`, the run mapping and the roles.
   `__rela__({:entity, kind})` and `__rela__({:relation, name})` give one kind's or
-  relation's part of the schema and of `atlas.json`; `__rela__(:gates)` every gate;
-  `__rela__(:digests)` each subflow's digest and states per environment;
-  `__rela__(:migrations)` the declared migrations.
+  relation's part of the schema and of `atlas.json`; `__rela__(:gates)` every gate.
   """
 
   alias RelaDSL.Description.{Build, Check, Plain, Subflows}
-  alias RelaDSL.{Problem, RunIdentity}
+  alias RelaDSL.Problem
 
   @unused [:worlds, :copies, :default_world, :validations]
   @schema_keys [:version, :namespace, :description, :comment]
@@ -101,7 +98,7 @@ defmodule RelaDSL.Composition do
   @doc "The bindings file: its first line's `comment:`."
   defmacro bindings(opts), do: item(:bindings, opts)
 
-  @doc "The environments whose limits give the subflows their digests."
+  @doc "The environments whose limits the subflows are compiled with."
   defmacro environments(list), do: item(:environments, list)
 
   @doc "`acl.yaml`: its `comment:` lines."
@@ -265,20 +262,6 @@ defmodule RelaDSL.Composition do
       )
 
     selects = for %{kind: :select} = i <- all, do: i
-
-    running = Enum.map(flows, & &1.name)
-
-    migrations =
-      for %{kind: :migrate, value: {s, o}} = i <- all,
-          s in running,
-          do: %{subflow: s, opts: o, file: i.file, line: i.line}
-
-    current = RunIdentity.current(flows, gates, environments)
-    states = RunIdentity.states(current, migrations)
-
-    run_problems =
-      for {m, message} <- RunIdentity.problems(current, migrations), do: {m.file, m.line, message}
-
     select_problems = Subflows.selects(selects, flows, schema, extension)
     acl_problems = acl_problems(acl, schema, items)
 
@@ -292,14 +275,13 @@ defmodule RelaDSL.Composition do
         strays ++
         subflow_problems ++
         select_problems ++
-        run_problems ++
         acl_problems ++
         Build.supervision_problems(concept_items ++ own, flows, schema),
       file
     )
 
     flow_runtime =
-      Build.flow_runtime(concept_items ++ own, flows, states, (acl && acl.roles) || %{})
+      Build.flow_runtime(concept_items ++ own, flows, (acl && acl.roles) || %{})
 
     description = %{
       name: name,
@@ -311,14 +293,11 @@ defmodule RelaDSL.Composition do
       flow_runtime: flow_runtime,
       acl: acl,
       environments: environments,
-      digests: RunIdentity.document(current, migrations),
       sources:
         Enum.uniq([
           file | Enum.flat_map(modules, &[&1.file | Enum.map(&1.concepts, fn c -> c.file end)])
         ])
     }
-
-    migrations = Enum.map(migrations, &Map.take(&1, [:subflow, :opts]))
 
     compiled =
       RelaDSL.Flow.Model.body(
@@ -383,8 +362,6 @@ defmodule RelaDSL.Composition do
       @doc "The model, as plain data (see `RelaDSL.Composition`)."
       def __rela__(:description), do: unquote(Macro.escape(description))
       def __rela__(:gates), do: unquote(Macro.escape(gates))
-      def __rela__(:digests), do: unquote(Macro.escape(current))
-      def __rela__(:migrations), do: unquote(Macro.escape(migrations))
 
       def __rela__({:entity, kind}),
         do: RelaDSL.Composition.part(__rela__(:description), "entities", to_string(kind))
@@ -494,7 +471,7 @@ defmodule RelaDSL.Composition do
     for(
       m <- modules,
       i <- m.items,
-      i.kind in [:type, :entity, :relation, :select, :migrate],
+      i.kind in [:type, :entity, :relation, :select],
       do:
         {i.file, i.line,
          Problem.new(
@@ -504,7 +481,7 @@ defmodule RelaDSL.Composition do
          )}
     ) ++
       for i <- own,
-          i.kind in [:type, :entity, :select, :migrate],
+          i.kind in [:type, :entity, :select],
           do:
             {i.file, i.line,
              Problem.new(

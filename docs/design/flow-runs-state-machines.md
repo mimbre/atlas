@@ -30,15 +30,15 @@ The composition lists seven modules; UseCase supplies two subflows, making eight
 
 ## 2. Make the generated target executable
 
-Today format 1 holds the YAML digest, gates, subject, owner, channel, initial state, labels, final markers, presentation, and mechanism kind/spec. Gate data includes `answer_within`. Evidence: `products/software_factory/model/generator/lib/atlas.ex:35-94`; the concrete decision entry is `products/software_factory/model/targets/atlas/flows.json:4-36`.
+Today format 1 holds gates, subject, owner, channel, initial state, labels, final markers, presentation, and mechanism kind/spec. Gate data includes `answer_within`. Evidence: `products/software_factory/model/generator/lib/atlas.ex:35-94`; the concrete decision entry is `products/software_factory/model/targets/atlas/flows.json:4-36`.
 
 It omits start triggers, `run_as`, `per_subject`, state status, waiting roles, awaited fields, ordered branches, entry sets, creates and timers. It also omits composition links and counts. The DSL already builds that data; the JSON writer discards it. Evidence: `products/software_factory/model/generator/lib/schema.ex:789-812,865-880,941-977`; `products/software_factory/model/generator/lib/rela.ex:43-122`; `products/software_factory/model/generator/lib/mix/tasks/model.gen.ex:54-82`. Activities are described, not dispatched, by this writer (`products/software_factory/model/generator/lib/atlas.ex:83-94`).
 
-Extend the Atlas writer, not a runtime YAML reader. Emit format 2. Preserve branch and timer order. Emit the missing fields with explicit empty lists. Keep owner, presentation and mechanism data. Omit source line metadata. Add composition data in its own slice. Regenerate targets and goldens. Keep Rela YAML bytes stable unless the contract changes.
+Extend the Atlas writer, not a runtime YAML reader. Emit format 2. Preserve branch and timer order. Emit the missing fields with explicit empty lists. Keep owner, presentation and mechanism data. Omit source line metadata. Add composition data in its own slice. Regenerate targets. Keep Rela YAML bytes stable unless the contract changes.
 
-Runtime embeds JSON at compile time. It accepts only format 1 and exposes flows, gates, `rela_flows_sha256/0` and a hash check. That check compares supplied YAML bytes; it does not find the deployed file (`products/software_factory/model/generator/lib/runtime.ex:23-84`). Update reader and writer together. Rebuild all target consumers together.
+The core runs the compiled model (`products/software_factory/mix.exs`): no component reads `flows.json` or `flows.yaml` at runtime, and no hash binds them to the running flows. Update reader and writer together. Rebuild all target consumers together.
 
-Before starting generated runs, Flow reads the selected deployment's `products/software_factory/model/targets/rela/flows.yaml` and calls `check_rela_flows/1`. Missing, unreadable or mismatched YAML refuses the generated runner before any write or timer. Report expected and actual digests. Never fall back to legacy execution for a migrated subject. Explicitly unmigrated subjects may continue. A hash match is not validation. Require Rela validation in deployment checks; the current generation task can skip it when its binary is absent (`products/software_factory/model/generator/lib/mix/tasks/model.gen.ex:28-35,93-110`).
+Flow runs the compiled model's subflows. Never fall back to legacy execution for a migrated subject. Explicitly unmigrated subjects may continue. Rela validates the flows when a build generates the model's targets with the pinned rela (`bin/generate`); generated output is neither kept in git nor compared.
 
 ## 3. Run and recovery model
 
@@ -51,12 +51,12 @@ Add the generic `flow_run` kind to the foundation description:
 | Fields | Meaning |
 | --- | --- |
 | `flow`, `subject_kind`, `subject_key`, `generation` | Stable identity. Use its digest as the fact key. |
-| `definition_sha256` | Lowercase SHA-256 of the subflow's canonical JSON data from the published `products/software_factory/model/targets/<env>/atlas/flows.json` pair (production uses `products/software_factory/model/targets/atlas/flows.json`). Recursively sort object keys, omit insignificant whitespace, preserve array order and exact scalar values. Hash only the selected subflow, excluding the pair's header, YAML hash and unrelated flows. No Erlang term serialization or runtime struct metadata. |
-| `state`, `entry`, `entered_at`, `status` | Cursor, increasing entry number, UTC entry time, active/completed/blocked/ended. Self-transition increments entry. A deleted subject ends its run (`ended`) and cancels the task it holds; a fact made later under the same key gets the next generation, never the ended run. |
+| `definition_sha256` | Kept in stored records; Flow neither reads nor writes it. A run is matched to its subflow by `flow` and to its state by name. |
+| `state`, `entry`, `entered_at`, `status` | Cursor, increasing entry number, UTC entry time, active/completed/blocked/ended. Self-transition increments entry. A run whose subject does not exist (with or without its delete hint, or when Facts refuses its writes because the subject is gone) ends (`ended`, `blocked_reason` `subject_removed`), and so does a run of a subflow the model no longer selects (`flow_removed: <flow>`): one versioned write, then the task it holds is cancelled. A round does not read an ended run again and logs nothing for it; a fact made later under the same key gets the next generation, never the ended run. |
 | `deadlines` | JSON text: timer name, resolved UTC due time, source entry. |
 | `pending` | JSON text: remaining entry writes or activity intents, stable ids and frozen payloads. |
 | `input_cursor`, `last_input` | Last consumed Facts position and accepted input or timer identity. |
-| `blocked_reason` | Why safe recovery cannot proceed. |
+| `blocked_reason` | Why a run is blocked (safe recovery cannot proceed), or why it ended. |
 
 Version the structured text fields. Do not add timer and outbox kinds yet. The kind/key tuple refers to the subject; no domain-specific run relation or form is needed. Add `flow_runtime` metadata naming the run kind and field mapping. Platform code reads it. Run records are machine-written and hidden from create menus. Facts enforces a description-driven writer rule. A UI flag alone is not authorization.
 
@@ -76,26 +76,24 @@ Branches are ordered. Compile supported expressions to neutral data with a small
 
 An activity has identity `(run, entry, activity name)` and a frozen fingerprint. Store its request before sending. Match every reply to identity and fingerprint. Retry the same id. Ignore late replies for old entries or fingerprints. A timeout is not proof that the service did nothing. Enable an effect only when its receiver can return the original result for a repeated id, reject changed payload under that id, and recover a lost answer by lookup. Otherwise block for reconciliation. Facts deduplication alone is insufficient for external effects.
 
-Pin definitions. Changed subflow data blocks its old runs until an explicit, tested state migration is supplied. Unchanged subflows continue. The YAML hash checks the deployed pair; the per-run hash checks run compatibility. Back up stores before migration. Rollback must not erase run history.
-
-An encoding-only migration is explicit in `products/software_factory/model/targets/rela/flow-runtime.json`: an exact old/new digest pair, `rekey: true`, and identity state mappings. It changes the stored definition digest and appends a `pending.migrations` audit record. It preserves state, entry, entry time, deadlines, pending writes and frozen activity requests, including their IDs; it never re-enters the state. This also applies to completed imports. A prior definition block is cleared by restoring its saved status. Ordinary state migrations retain their quiescence checks and entry semantics; every unmatched definition change still blocks that run.
+A run continues by name (D-0102). Flow matches a run to its subflow by `flow` and continues it in `state` while that state is a state of the subflow, whatever else about the subflow changed; nothing pins or migrates a definition. A run in a state its subflow does not have is blocked with `blocked_reason` `state_removed: <state>`, its status kept in `pending.definition_block`, once; it is not rewritten on later rounds. A run with `pending.definition_block` whose state is a state of its subflow gets that status back, an empty `blocked_reason`, and continues; so do runs an earlier build blocked with `definition_changed`. Removing or renaming a flow or a state goes through only once no run is in it: a check before the update enforces that.
 
 ### One-time retirement of a terminal-refused tally
 
 Fixing admission does not change an immutable Facts answer. A pending write with a
 durable refused receipt continues to receive that refusal under its original ID.
 Ordinary rounds never replace its ID or automatically retry it as another operation.
-Definition migration, encoding rekey and completed-run restart keep their contracts.
+Completed-run restart keeps its contract.
 
 Privileged release maintenance may explicitly call
 `AtlasFlow.Engine.recover_refused_tally(server, plan)` in the existing sole writer.
 This is a local maintenance call, not a Bus command, user action or scheduled retry.
 The reviewed plan is a string-keyed map containing exactly `id`, `reason`, and `run`;
 `run` is the entire decoded durable cursor, including key, generation, entry,
-definition, pending writes and composition. Read and review that snapshot before
+pending writes and composition. Read and review that snapshot before
 constructing the plan. No production plan is shipped or automatically selected.
 
-The implementation admits only a current-definition active non-final wait with one
+The implementation admits only an active non-final wait in a state of its subflow, with one
 pending own-subject derived tally assignment. Its selection must declare no choices;
 its state must have no mechanism or entry outputs; it must have no deadlines, frozen
 activities or unconsumed prepared/applied inputs. This first maintenance operation
@@ -116,11 +114,12 @@ not attest the complete historical payload. The reviewed frozen run snapshot bin
 the obligation being retired without inventing a stronger historical receipt.
 
 After these checks, Store reenters the same safe wait once, preserving run key,
-generation, definition, input cursor and last input. Entry increments and entry time
-is the migration time; there are no timers to reset. A `pending.migrations` audit
-retains plan ID/digest/reason, old snapshot digest, old entry/time, new entry, exact
-receipt and retired writes/synthetic/composition data. Pass/effect and earlier
-migration history remain. Retirement is not recorded as successful execution.
+generation, input cursor and last input. Entry increments and entry time
+is the recovery time; there are no timers to reset. An audit record in the run's
+`pending.migrations` list retains plan ID/digest/reason, old snapshot digest, old
+entry/time, new entry, exact receipt and retired writes/synthetic/composition data.
+Pass/effect history and earlier audit records remain. Retirement is not recorded as
+successful execution.
 
 Composition is recomputed from current related facts and raw subject storage; absent
 work is not treated as stored zero. The new entry yields a new count identity through
@@ -136,9 +135,9 @@ successor receipts retain their original positions across acknowledgement loss a
 restart. No ledger row or historical request is deleted, edited or relabelled.
 
 The same plan recognizes its audit and never increments entry again; altered content
-under its ID conflicts. It resumes outstanding work only in its committed migration
-entry. Later entries and completed migrations are returned without another drain;
-definition changes require separate review. The Engine then uses normal reconciliation
+under its ID conflicts. It resumes outstanding work only in its committed recovery
+entry. Later entries and completed recoveries are returned without another drain.
+The Engine then uses normal reconciliation
 and projection to update its state before answering the maintenance call. With stepped
 rounds this is a fresh round, queued after any round already in progress; target
 recovery does not waive settlement of

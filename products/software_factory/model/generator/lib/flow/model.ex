@@ -14,8 +14,7 @@ defmodule RelaDSL.Flow.Model do
       subflow, each span's `name`, `label`, `states` and `with`); nil when no concept's
       `flow_runtime` declares `supervision:`;
     * `selection(subflow)`: how the runs of a subflow are selected, imported and
-      projected (`select`), with its approved `migrations`; nil when it is not selected;
-    * `migrations/0`: every approved migration, with its `subflow`;
+      projected (`select`); nil when it is not selected;
     * `actors/0`: the configured actors the model needs, `[{role, kind}]` sorted by role:
       every role an owner names as its default (`default: {kind, config: role}` of a
       subflow or a state), with the kind of fact its actor is; each environment's
@@ -63,11 +62,6 @@ defmodule RelaDSL.Flow.Model do
       runtime && Map.take(runtime, ["kind", "fields", "writer", "inputs"])
 
     supervision = runtime && runtime["supervision"]
-
-    migrations =
-      for {name, s} <- Enum.sort(selection),
-          m <- s["migrations"] || [],
-          do: Map.put(m, "subflow", name)
 
     modules =
       for {module, body} <- Enum.flat_map(by_env, &elem(&1, 1)) do
@@ -126,9 +120,6 @@ defmodule RelaDSL.Flow.Model do
       )
 
       def selection(_subflow), do: nil
-
-      @doc "Every approved run migration, with its subflow."
-      def migrations, do: unquote(Macro.escape(migrations))
 
       @doc "The configured actors the model needs: `[{role, kind}]`."
       def actors, do: unquote(actors)
