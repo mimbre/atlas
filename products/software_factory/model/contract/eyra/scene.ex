@@ -419,7 +419,7 @@ defmodule Model.Scene do
   migrate(:break_down_scene,
     from: "1fa161740e21d0c8055aafd3a24ef417993671d1057e14762aa4064aad1249c0",
     to: "d24a5161505bc0d53dd50b52437996c2b537d2fbed7b081437551120d78d1e15",
-    states: :same,
+    states: [accepting: :accepting, break_down: :break_down, broken_down: :broken_down],
     reason: "Design: its agent asks its producer instead of guessing (UC-Atlas-24)"
   )
 end
