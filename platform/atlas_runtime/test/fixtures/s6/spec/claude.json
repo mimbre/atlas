@@ -330,7 +330,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/code-home/runtime.token\",\"{tmp}/code-home\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/code-home/runtime.token\",\"{tmp}/code-home\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/code-home/runtime.token)\",\"Read(/{tmp}/code-home)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/code-home/runtime.token\",\"{tmp}/code-home\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/code-home/runtime.token\",\"{tmp}/code-home\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\",\"{user}/.cache/atlas\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/code-home/runtime.token)\",\"Read(/{tmp}/code-home)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
           }
         },
         "spec": {
@@ -386,7 +386,8 @@
                     "{user}/.asdf",
                     "{user}/.tool-versions",
                     "{user}/.hex",
-                    "{user}/go/pkg/mod"
+                    "{user}/go/pkg/mod",
+                    "{user}/.cache/atlas"
                   ],
                   "allowWrite": [
                     "{tmp}/dest",
@@ -416,8 +417,8 @@
                     "{user}/.erlang.cookie"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{home}",
                     "{home}/runtime.sock",
@@ -658,7 +659,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false,\"allowMachLookup\":[\"com.apple.trustd.agent\"]}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false,\"allowMachLookup\":[\"com.apple.trustd.agent\"]}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
           }
         },
         "spec": {
@@ -694,8 +695,8 @@
                     "{home}/backend.sock"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{tmp}/proj/.agents",
                     "{tmp}/proj/.codex",
@@ -792,7 +793,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
           }
         },
         "spec": {
@@ -828,8 +829,8 @@
                     "{home}/backend.sock"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{tmp}/proj/.agents",
                     "{tmp}/proj/.codex",
@@ -923,7 +924,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/a&b<c>\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{tmp}/a&b<c>/.agents\",\"{tmp}/a&b<c>/.codex\",\"{tmp}/a&b<c>/.aws\",\"{tmp}/a&b<c>/.claude\",\"{tmp}/a&b<c>/.git/config\",\"{tmp}/a&b<c>/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/a&b<c>\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{tmp}/a&b<c>/.agents\",\"{tmp}/a&b<c>/.codex\",\"{tmp}/a&b<c>/.aws\",\"{tmp}/a&b<c>/.claude\",\"{tmp}/a&b<c>/.git/config\",\"{tmp}/a&b<c>/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
           }
         },
         "spec": {
@@ -959,8 +960,8 @@
                     "{home}/backend.sock"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{tmp}/a&b<c>/.agents",
                     "{tmp}/a&b<c>/.codex",
@@ -1055,7 +1056,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{home}/workers/w1/repositories/r\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}/workers/w1/repositories/r/.agents\",\"{home}/workers/w1/repositories/r/.codex\",\"{home}/workers/w1/repositories/r/.aws\",\"{home}/workers/w1/repositories/r/.claude\",\"{home}/workers/w1/repositories/r/.git/config\",\"{home}/workers/w1/repositories/r/.git/hooks\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"allowRead\":[\"{home}/workers/w1/repositories/r\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false,\"allowMachLookup\":[\"com.apple.trustd.agent\"]}},\"permissions\":{\"deny\":[\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{home}/workers/w1/repositories/r\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{home}/workers/w1/repositories/r/.agents\",\"{home}/workers/w1/repositories/r/.codex\",\"{home}/workers/w1/repositories/r/.aws\",\"{home}/workers/w1/repositories/r/.claude\",\"{home}/workers/w1/repositories/r/.git/config\",\"{home}/workers/w1/repositories/r/.git/hooks\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"allowRead\":[\"{home}/workers/w1/repositories/r\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false,\"allowMachLookup\":[\"com.apple.trustd.agent\"]}},\"permissions\":{\"deny\":[\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
           }
         },
         "spec": {
@@ -1093,8 +1094,8 @@
                     "{home}/backend.sock"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{home}/workers/w1/repositories/r/.agents",
                     "{home}/workers/w1/repositories/r/.codex",
@@ -1195,7 +1196,7 @@
               "--permission-prompt-tool",
               "stdio"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
           }
         },
         "spec": {
@@ -1231,8 +1232,8 @@
                     "{home}/backend.sock"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{tmp}/proj/.agents",
                     "{tmp}/proj/.codex",
@@ -1328,7 +1329,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/proj\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{tmp}/proj/.agents\",\"{tmp}/proj/.codex\",\"{tmp}/proj/.aws\",\"{tmp}/proj/.claude\",\"{tmp}/proj/.git/config\",\"{tmp}/proj/.git/hooks\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"],\"denyRead\":[\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\"]},\"network\":{\"allowedDomains\":[\"github.com\",\"api.github.com\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":false}},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\"]}}"
           }
         },
         "spec": {
@@ -1364,8 +1365,8 @@
                     "{home}/backend.sock"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{tmp}/proj/.agents",
                     "{tmp}/proj/.codex",
@@ -1579,7 +1580,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\",\"{user}/.cache/atlas\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
           }
         },
         "spec": {
@@ -1633,7 +1634,8 @@
                     "{user}/.asdf",
                     "{user}/.tool-versions",
                     "{user}/.hex",
-                    "{user}/go/pkg/mod"
+                    "{user}/go/pkg/mod",
+                    "{user}/.cache/atlas"
                   ],
                   "allowWrite": [
                     "{tmp}/dest",
@@ -1661,8 +1663,8 @@
                     "{user}/.erlang.cookie"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{home}",
                     "{home}/runtime.sock",
@@ -1884,7 +1886,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\",\"{user}/.cache/atlas\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
           }
         },
         "spec": {
@@ -1938,7 +1940,8 @@
                     "{user}/.asdf",
                     "{user}/.tool-versions",
                     "{user}/.hex",
-                    "{user}/go/pkg/mod"
+                    "{user}/go/pkg/mod",
+                    "{user}/.cache/atlas"
                   ],
                   "allowWrite": [
                     "{tmp}/dest",
@@ -1966,8 +1969,8 @@
                     "{user}/.erlang.cookie"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{home}",
                     "{home}/runtime.sock",
@@ -2193,7 +2196,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{home}/rebinds/{sha256:{tmp}/dest}/done\",\"{home}/preparations/{sha256:{tmp}/dest}/result.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{home}/rebinds/{sha256:{tmp}/dest}/done\",\"{home}/preparations/{sha256:{tmp}/dest}/result.json\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{home}/rebinds/{sha256:{tmp}/dest}/done\",\"{home}/preparations/{sha256:{tmp}/dest}/result.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{home}/rebinds/{sha256:{tmp}/dest}/done\",\"{home}/preparations/{sha256:{tmp}/dest}/result.json\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\",\"{user}/.cache/atlas\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
           }
         },
         "spec": {
@@ -2249,7 +2252,8 @@
                     "{user}/.asdf",
                     "{user}/.tool-versions",
                     "{user}/.hex",
-                    "{user}/go/pkg/mod"
+                    "{user}/go/pkg/mod",
+                    "{user}/.cache/atlas"
                   ],
                   "allowWrite": [
                     "{tmp}/dest",
@@ -2277,8 +2281,8 @@
                     "{user}/.erlang.cookie"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{home}",
                     "{home}/runtime.sock",
@@ -2507,7 +2511,7 @@
               "--permission-prompt-tool",
               "stdio"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\",\"{user}/.cache/atlas\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
           }
         },
         "spec": {
@@ -2561,7 +2565,8 @@
                     "{user}/.asdf",
                     "{user}/.tool-versions",
                     "{user}/.hex",
-                    "{user}/go/pkg/mod"
+                    "{user}/go/pkg/mod",
+                    "{user}/.cache/atlas"
                   ],
                   "allowWrite": [
                     "{tmp}/dest",
@@ -2589,8 +2594,8 @@
                     "{user}/.erlang.cookie"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{home}",
                     "{home}/runtime.sock",
@@ -2818,7 +2823,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/claude-config\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/claude-config\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{tmp}/claude-config/shell-snapshots\",\"{tmp}/claude-config/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/claude-config)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/claude-config\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{tmp}/claude-config\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{tmp}/claude-config/shell-snapshots\",\"{tmp}/claude-config/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\",\"{user}/.cache/atlas\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{tmp}/claude-config)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
           }
         },
         "spec": {
@@ -2873,7 +2878,8 @@
                     "{user}/.asdf",
                     "{user}/.tool-versions",
                     "{user}/.hex",
-                    "{user}/go/pkg/mod"
+                    "{user}/go/pkg/mod",
+                    "{user}/.cache/atlas"
                   ],
                   "allowWrite": [
                     "{tmp}/dest",
@@ -2902,8 +2908,8 @@
                     "{user}/.erlang.cookie"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{home}",
                     "{home}/runtime.sock",
@@ -3131,7 +3137,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{tmp}/codex-home\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{tmp}/codex-home\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\",\"Read(/{tmp}/codex-home)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{tmp}/codex-home\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{tmp}/codex-home\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\",\"{user}/.cache/atlas\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\",\"Read(/{tmp}/codex-home)\"]}}"
           }
         },
         "spec": {
@@ -3186,7 +3192,8 @@
                     "{user}/.asdf",
                     "{user}/.tool-versions",
                     "{user}/.hex",
-                    "{user}/go/pkg/mod"
+                    "{user}/go/pkg/mod",
+                    "{user}/.cache/atlas"
                   ],
                   "allowWrite": [
                     "{tmp}/dest",
@@ -3215,8 +3222,8 @@
                     "{tmp}/codex-home"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{home}",
                     "{home}/runtime.sock",
@@ -3445,7 +3452,7 @@
               "--permission-prompts",
               "none"
             ],
-            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{tmp}/systmp\",\"{/tmp}\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\",\"{user}/bin/atlas-runtime\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
+            "settings": "{\"sandbox\":{\"enabled\":true,\"failIfUnavailable\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[],\"filesystem\":{\"allowWrite\":[\"{tmp}/dest\",\"{temporary}\"],\"denyWrite\":[\"{/tmp}\",\"{tmp}/systmp\",\"{/var/tmp}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\",\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\"],\"denyRead\":[\"{user}\",\"{home}\",\"{home}/runtime.sock\",\"{home}/backend.sock\",\"{tmp}/dest/.git\",\"{user}/.claude\",\"{user}/.codex\",\"{user}/.config/gh\",\"{user}/.ssh\",\"{user}/.aws\",\"{user}/.docker\",\"{user}/Library/Keychains\",\"{user}/.git-credentials\",\"{user}/.config/git\",\"{user}/.netrc\",\"{user}/.claude.json\",\"{user}/.local/state/atlas-runtime\",\"{user}/.gitconfig\",\"{user}/.erlang.cookie\"],\"allowRead\":[\"{home}/materializations/m1.json\",\"{home}/snapshots/s1/baseline.json\",\"{user}/.claude/shell-snapshots\",\"{user}/.claude/session-env\",\"{tmp}/dest\",\"{temporary}\",\"{user}/.asdf/shims\",\"{user}/missing/bin\",\"{user}/.asdf\",\"{user}/.tool-versions\",\"{user}/.hex\",\"{user}/go/pkg/mod\",\"{user}/.cache/atlas\",\"{user}/bin/atlas-runtime\"]},\"network\":{\"allowedDomains\":[],\"strictAllowlist\":true,\"allowUnixSockets\":[\"{temporary}\"],\"allowAllUnixSockets\":false,\"allowLocalBinding\":true},\"allowPty\":true},\"permissions\":{\"deny\":[\"Read(/{home})\",\"Read(/{home}/runtime.sock)\",\"Read(/{home}/backend.sock)\",\"Read(/{tmp}/dest/.git)\",\"Read(/{user}/.claude)\",\"Read(/{user}/.codex)\",\"Read(/{user}/.config/gh)\",\"Read(/{user}/.ssh)\",\"Read(/{user}/.aws)\",\"Read(/{user}/.docker)\",\"Read(/{user}/Library/Keychains)\",\"Read(/{user}/.git-credentials)\",\"Read(/{user}/.config/git)\",\"Read(/{user}/.netrc)\",\"Read(/{user}/.claude.json)\",\"Read(/{user}/.local/state/atlas-runtime)\",\"Read(/{user}/.gitconfig)\",\"Read(/{user}/.erlang.cookie)\"]}}"
           }
         },
         "spec": {
@@ -3500,6 +3507,7 @@
                     "{user}/.tool-versions",
                     "{user}/.hex",
                     "{user}/go/pkg/mod",
+                    "{user}/.cache/atlas",
                     "{user}/bin/atlas-runtime"
                   ],
                   "allowWrite": [
@@ -3528,8 +3536,8 @@
                     "{user}/.erlang.cookie"
                   ],
                   "denyWrite": [
-                    "{tmp}/systmp",
                     "{/tmp}",
+                    "{tmp}/systmp",
                     "{/var/tmp}",
                     "{home}",
                     "{home}/runtime.sock",
