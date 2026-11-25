@@ -6,8 +6,12 @@ defmodule AtlasFacts.Cache do
   accepted it. rela stays the store; this is a copy of it that Facts keeps current.
 
   After each write the fact is read back from rela, so the copy is rela's and carries
-  its version. A fact loaded from a list has no version (rela lists none) until Facts
-  writes it. When the read-back fails, an accepted write is put here as Facts sent it.
+  its version. A fact loaded from a list has no version (rela 26.11.9 lists none,
+  IS-Atlas-84): the first single read of it (`get/3`), by a reader or by a write, reads
+  it from rela once and keeps rela's version, so an edit based on that read is refused
+  when someone wrote the fact since. A read outside Facts' process cannot put here: it
+  leaves that read to Facts (`:unversioned`, thrown). When the read-back fails, an
+  accepted write is put here as Facts sent it.
 
   Facts is not the only writer: rela's own sync connectors write too. Facts hears of
   those through rela's change feed (`AtlasFacts.Rela.Events`) and reads that kind again
@@ -30,8 +34,11 @@ defmodule AtlasFacts.Cache do
     table = :ets.new(__MODULE__, [:ordered_set, :protected, read_concurrency: true])
     meta = :ets.new(__MODULE__, [:set, :protected, read_concurrency: true])
     :ets.insert(meta, [{:generation, 0}, {:position, 0}, {:description, nil}])
-    {__MODULE__, %{backend: backend, table: table, meta: meta}}
+    {__MODULE__, %{backend: backend, table: table, meta: meta, owner: self()}}
   end
+
+  @doc "Thrown by `get/3` outside Facts' process for a fact with no version yet."
+  def unversioned, do: {__MODULE__, :unversioned}
 
   def loaded?({__MODULE__, c}), do: :ets.member(c.table, :relations)
 
@@ -247,9 +254,32 @@ defmodule AtlasFacts.Cache do
 
       :error ->
         case :ets.lookup(c.table, {plural, key}) do
+          [{_, %{version: nil} = fact}] -> versioned(c, plural, fact)
           [{_, fact}] -> {:ok, fact}
           [] -> {:error, :not_found}
         end
+    end
+  end
+
+  # A fact listed without a version: read from rela once, in Facts' process. rela's
+  # version is kept when rela still has the fact as held here; a fact that differs (another
+  # writer, its change not heard yet) is left to the change feed (`refresh/2`), which tells
+  # its listeners; until then it stays without a version, and is read again next time.
+  defp versioned(c, plural, held) do
+    if self() != c.owner, do: throw(unversioned())
+
+    case Rela.get(c.backend, plural, held.key) do
+      {:ok, %{version: version} = fact} when version != nil ->
+        if same?(held, fact) do
+          fact = %{held | version: version}
+          put(c, plural, fact)
+          {:ok, fact}
+        else
+          {:ok, held}
+        end
+
+      _ ->
+        {:ok, held}
     end
   end
 

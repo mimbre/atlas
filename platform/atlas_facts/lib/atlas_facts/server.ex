@@ -784,7 +784,8 @@ defmodule AtlasFacts.Server do
   it, from the copy as Facts last published it (`AtlasFacts.Cache.consistently/2`), as
   Facts would answer it. `:pass` sends it to Facts: before Facts has rela's schema, for a
   kind rela does not describe, for what asks rela itself (`_description`,
-  `_flow_recovery`) and for a run's inputs (that read may write).
+  `_flow_recovery`), for a run's inputs (that read may write) and for a read of one
+  fact that has no version yet, which Facts reads from rela once (`AtlasFacts.Cache`).
   """
   @pass {__MODULE__, :pass}
 
@@ -795,6 +796,8 @@ defmodule AtlasFacts.Server do
     end
   catch
     @pass -> :pass
+    # A fact with no version yet (listed at start): Facts reads its version, once.
+    {Cache, :unversioned} -> :pass
   end
 
   defp answer_here(_reader, %{description: nil}, _envelope, _content), do: :pass
