@@ -803,6 +803,9 @@ jobs:
   # release atlas-runtime-<branch>-<commit12>. A supervisor upgrades a Runtime to it from
   # Control (a runtime_upgrade under its machinery, naming the build); the Runtime's
   # `atlas-runtime service update --build BUILD` downloads it and checks its SHA-256.
+  # The release holds the atlas_code OTP release too (code/, without ERTS: it boots on the
+  # Mac's Erlang, so it is built with exactly the Erlang/Elixir of .tool-versions), and
+  # install-macos.sh, the command that installs a Runtime on a Mac from it (IS-Atlas-116).
   deploy-runtime-release:
     name: Publish the Runtime release of this revision
     needs: [tested-tree, generator, contract, model-dsl, model-contract, beam, runtime-backend-generator, runtime-backend-contract]
@@ -821,8 +824,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "28"
-          elixir-version: "1.18"
+          version-file: .tool-versions
+          version-type: strict
       - uses: actions/setup-go@v5
         with:
           go-version-file: platform/atlas_runtime/host/go.mod

@@ -40,10 +40,13 @@ defmodule Atlas.MixProject do
         ],
         # Code alone, for a process supervisor: `bin/atlas_code eval "AtlasCode.Server.run()"`
         # starts it like `mix atlas_code.server` without Mix's startup (platform/atlas_runtime/host/README.md).
-        # No runtime.exs: it belongs to the core, as for the mix task.
+        # No runtime.exs: it belongs to the core, as for the mix task. No ERTS: CI builds it on
+        # Linux into the Runtime release (host/release.sh), and on the Mac it runs on the
+        # Erlang of the tree's .tool-versions (no NIF in its dependencies), IS-Atlas-116.
         atlas_code: [
           applications: [atlas_code: :permanent],
           runtime_config_path: false,
+          include_erts: false,
           include_executables_for: [:unix]
         ]
       ]
