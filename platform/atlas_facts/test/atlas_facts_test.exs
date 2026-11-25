@@ -202,7 +202,7 @@ defmodule AtlasFactsTest do
     :ok = AtlasFacts.Server.reload(server)
     assert [%{"key" => "W-1", "version" => nil}] = read("widget")["facts"]
 
-    # Two people open it; the first read finds no version and reads it from rela, once.
+    # Two readers open it; the first read finds no version and reads it from rela, once.
     %{"fact" => %{"version" => version}} = read("widget", %{"key" => "W-1"})
     assert version != nil
     assert %{"fact" => %{"version" => ^version}} = read("widget", %{"key" => "W-1"})
