@@ -10,7 +10,7 @@ File.mkdir_p!(data)
 
 assert {:ok, _, _} =
          Kernel.ParallelCompiler.compile(
-           Path.wildcard(Path.join(root, "platform/clients/{agent,tui}/lib/**/*.ex"))
+           Path.wildcard(Path.join(root, "platform/clients/{transport,agent,tui}/lib/**/*.ex"))
          )
 
 {out, status} =
@@ -153,7 +153,7 @@ try do
       ] do
     System.put_env("ATLAS_AS", owner)
     assert {:ok, client} = AtlasAgent.Client.connect(environment, settings)
-    instructions = "Check the actual result before closing this work."
+    instructions = "Why: closing needs proof.\n1. Check the actual result.\n$ git status"
 
     assert {:ok, key} =
              AtlasAgent.put(client, "to_do", %{
@@ -206,7 +206,8 @@ try do
     tui = receive_tui.(receive_tui, socket, tui, page_ready)
     path = "/k/to_do/#{key}"
     tui = navigate.(socket, tui, path)
-    assert "todo" in tui.ids
+    assert "steps" in tui.ids
+    assert tui |> AtlasTui.View.render(110, 80, 5) |> AtlasTui.View.plain() =~ "│ git status"
     {tui, effects} = AtlasTui.Model.key(tui, {:char, shortcut})
     send_tui.(socket, effects)
 
@@ -235,7 +236,7 @@ try do
     refute view["reopened"]
     assert view["owner"] == []
     assert is_nil(Model.AtlasEyra.todo("to_do", subject, %{"assignment" => assignment}, viewer))
-    refute "todo" in tui.ids
+    refute "steps" in tui.ids
     assert {:ok, agent} = AtlasAgent.get(client, key)
     refute Map.has_key?(agent, "todo")
     history = runs_summary.(key)

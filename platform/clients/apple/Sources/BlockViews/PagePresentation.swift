@@ -17,6 +17,8 @@ public struct PagePresentation: Sendable, Equatable {
         case item(ItemBlock)
         /// A single choice: its options are chosen by number or click.
         case singleChoice(SingleChoiceBlock)
+        /// Instructions step by step: the current step open, its commands to copy.
+        case steps(StepsBlock)
         /// A form: its inputs, edited and submitted to its call.
         case form(FormBlock)
         /// A confirm: its text, and Confirm (its call) or Cancel.
@@ -74,6 +76,7 @@ public struct PagePresentation: Sendable, Equatable {
             case .list(let list): item = .list(list)
             case .item(let detail): item = .item(detail)
             case .singleChoice(let choice): item = .singleChoice(choice)
+            case .steps(let steps): item = .steps(steps)
             case .form(let form): item = .form(form)
             case .confirm(let confirm): item = .confirm(confirm)
             case .fallback(let fallback): item = .fallback(fallback)

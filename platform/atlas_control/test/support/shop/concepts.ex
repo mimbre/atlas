@@ -615,3 +615,51 @@ defmodule AtlasControl.Shop.SupervisionOnCard do
     owner: [via: :card, relation: :held_by, default: {:member, :ada}],
     projection: [on: :card, field: :todo]
 end
+
+defmodule AtlasControl.Shop.InstructedWidget do
+  @moduledoc "A widget done step by step: its notes are the steps, `at` the one its holder is at."
+  use RelaDSL
+
+  type(:shade, values: [:light, :dark], labels: [light: "Light", dark: "Dark"])
+
+  entity :widget, label: "Widget", plural: "widgets", id_type: :manual, id_prefix: "W-" do
+    field(:title, :string, required: true)
+    field(:shade, :shade)
+    field(:done, :boolean, default: false)
+    field(:notes, :string, description: "Free text", multiline: true)
+    field(:at, :integer, description: "The step its holder is at")
+    primary(:title)
+
+    create(
+      ask: [:title, :notes],
+      id: [prefix: "W-", digits: 2],
+      defaults: [shade: :light, done: false]
+    )
+  end
+
+  subflow :chore, label: "Chore", subject: :widget do
+    owner(via: :card, relation: :held_by, default: {:member, :ada})
+    start(:create)
+    initial(:doing)
+
+    state :doing, label: "Doing" do
+      present(
+        expected: "Do it",
+        why: "it is yours",
+        section: [field: :notes, label: "Notes", steps: :at],
+        answers: [[key: "x", label: "Done", note: true, change: %{values: %{done: true}}]]
+      )
+
+      branch(to: :done, when: "entity.done == true")
+    end
+
+    final(:done, label: "Done")
+  end
+
+  select(:chore,
+    choices: [],
+    projection: [on: :card, field: :todo, state_field: :step, owner_relation: :held_by],
+    admission: [],
+    imports: []
+  )
+end
