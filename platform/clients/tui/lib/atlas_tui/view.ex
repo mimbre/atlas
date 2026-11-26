@@ -1005,24 +1005,6 @@ defmodule AtlasTui.View do
     |> Enum.join(" · ")
   end
 
-  # How long ago `since` (ISO 8601) was: "now", minutes, hours or days.
-  defp age(since, now) do
-    case DateTime.from_iso8601(since || "") do
-      {:ok, at, _} ->
-        seconds = max(DateTime.diff(now, at), 0)
-
-        cond do
-          seconds < 60 -> "now"
-          seconds < 3_600 -> "#{div(seconds, 60)}m"
-          seconds < 86_400 -> "#{div(seconds, 3_600)}h"
-          true -> "#{div(seconds, 86_400)}d"
-        end
-
-      _ ->
-        nil
-    end
-  end
-
   # A panel's items, one line each: the marker (▸ on the selected one), the key, the label.
   defp item_rows([], _at, _width), do: []
 
