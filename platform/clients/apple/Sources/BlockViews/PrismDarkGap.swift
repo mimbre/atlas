@@ -118,25 +118,40 @@ enum PrismDarkGap {
 
     /// A Prism button's style in this appearance: Prism's own, but a `plain` one in dark,
     /// whose grey1 label is unreadable on a dark surface: Prism's plain look with the label
-    /// in `text` (white).
+    /// in `text` (white). `icon`: the label is a `Label`, its icon before its title (Prism's
+    /// with-icon look).
     static func buttonStyle(_ variant: PrismButtonVariant, tone: PrismButtonTone, padded: Bool, loading: Bool,
-                            scheme: ColorScheme) -> AnyButtonStyle {
+                            icon: Bool = false, scheme: ColorScheme) -> AnyButtonStyle {
         scheme == .dark && variant == .plain
-            ? AnyButtonStyle(PlainInDark(padded: padded, loading: loading))
-            : AnyButtonStyle(PrismButtonStyle(variant, tone: tone, padded: padded, loading: loading))
+            ? AnyButtonStyle(PlainInDark(padded: padded, loading: loading, icon: icon))
+            : AnyButtonStyle(PrismButtonStyle(variant, tone: tone, padded: padded, loading: loading,
+                                              icon: icon ? .start : nil))
     }
 
     private struct PlainInDark: ButtonStyle {
         let padded: Bool
         let loading: Bool
+        let icon: Bool
 
         func makeBody(configuration: Configuration) -> some View {
-            var looks = PrismButtonLooks(.plain, padded: padded, pressed: configuration.isPressed, loading: loading)
+            var looks = PrismButtonLooks(.plain, padded: padded, withIcon: icon, pressed: configuration.isPressed,
+                                         loading: loading)
             looks.root.foreground = PrismDarkGap.text(.dark)
-            return configuration.label.prismLook(looks.label)
+            return label(configuration, looks)
                 .overlay { if loading { ProgressView().progressViewStyle(.prism(.inverse, size: .size20)) } }
                 .prismText(looks.root)
                 .prismBox(looks.root)
+        }
+
+        @ViewBuilder private func label(_ configuration: Configuration, _ looks: PrismButtonLooks) -> some View {
+            if icon {
+                HStack(spacing: looks.root.gap ?? Prism.Spacing.px5) {
+                    configuration.label.labelStyle(.iconOnly).prismLook(looks.icon)
+                    configuration.label.labelStyle(.titleOnly).prismLook(looks.label)
+                }
+            } else {
+                configuration.label.prismLook(looks.label)
+            }
         }
     }
 

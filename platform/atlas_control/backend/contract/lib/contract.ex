@@ -72,7 +72,10 @@ defmodule AtlasBFFContract.Contract do
   # deprecated: Control links to it no more.
   # 0.35.0: a list row names the kind of what it opens in plain words (`kind`, "Decision"),
   # so a client can say what each row is.
-  version "0.35.0"
+  # 0.36.0: an answer says its weight (`panel_answer`'s `weight`: main, no or other), which
+  # a client styles it by instead of by its note; an action names what it does (`icon`:
+  # edit, delete, hand_over, create, open), which a client may show as an icon.
+  version "0.36.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

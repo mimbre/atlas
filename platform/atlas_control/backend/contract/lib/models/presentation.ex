@@ -1,20 +1,23 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.35.0"
+  version "0.36.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
   # Something the user can do from a block: open `to`. `key` is the key a keyboard
   # client binds it to; other clients may show it as a button. `page`: the action is the
   # page's (what is done with the page's subject: create one, the fact's next step), not
-  # its block's; a client shows it with the page's title, not under the block.
+  # its block's; a client shows it with the page's title, not under the block. `icon`: what
+  # kind of thing the action does, by name (edit, delete, hand_over, create, open), which a
+  # client may show as an icon; one it does not know it shows without.
   defmodel :action do
     field :label, :string, required: true
     field :key, :string, required: true
     field :to, :string, required: true
     field :submit_to, :call
     field :page, :boolean
+    field :icon, :string
   end
 
   # A line of an `instruction` block, in order: `kind` `text` (its `text`, the lines
@@ -62,13 +65,17 @@ defmodule AtlasBFFContract.Models.Presentation do
   # One answer of a panel (as its page's action of the same key gives it), of an
   # `answers` block (the page's action itself, on its key) or of an `option`: opening
   # `to`, or `submit_to` at once. `note`: given with a note saying why, as `to`'s form
-  # asks it; else a yes.
+  # asks it. `weight`: how much the answer weighs among the page's answers: `main` (the
+  # positive one, exactly one per page: Done, Choose the recommended, Accept), `no` (the
+  # declining one, at most one: Won't do, Decline, Not accepted) or `other`; a client
+  # styles an answer by it, never by `note`.
   defmodel :panel_answer do
     field :label, :string, required: true
     field :key, :string, required: true
     field :to, :string, required: true
     field :submit_to, :call
     field :note, :boolean
+    field :weight, :string
   end
 
   # A web address the user can open outside the client, in a browser: `url`. `key` is

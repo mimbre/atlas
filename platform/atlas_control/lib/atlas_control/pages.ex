@@ -390,9 +390,12 @@ defmodule AtlasControl.Pages do
     {"#{verb} #{String.downcase(k.label)}", key}
   end
 
+  @icons %{create: "create", update: "edit", delete: "delete"}
+
+  # A CRUD operation's action, with the icon of what it does.
   defp action(op, k, to, key \\ nil) do
     {label, default} = operation(op, k)
-    Blocks.action(label: label, key: key || default, to: to)
+    Blocks.action(label: label, key: key || default, to: to, icon: @icons[op])
   end
 
   defp verb(op), do: op |> operation(nil) |> elem(0)
@@ -3079,9 +3082,14 @@ defmodule AtlasControl.Pages do
     for action <- m.module.actions(k.name, fact, viewer(form)),
         not (removed? and action == %{op: :delete}) do
       case action do
-        %{op: :update} -> action(:update, k, path({:edit, k.name, fact["key"]}))
-        %{op: :delete} -> action(:delete, k, path({:delete, k.name, fact["key"]}))
-        %{label: label, key: key, to: to} -> Blocks.action(label: label, key: key, to: to)
+        %{op: :update} ->
+          action(:update, k, path({:edit, k.name, fact["key"]}))
+
+        %{op: :delete} ->
+          action(:delete, k, path({:delete, k.name, fact["key"]}))
+
+        %{label: label, key: key, to: to} ->
+          Blocks.action(label: label, key: key, to: to, icon: "open")
       end
     end
   end
@@ -3124,7 +3132,13 @@ defmodule AtlasControl.Pages do
             end
           ],
         %{label: label, key: key} <- [action],
-        do: Blocks.action(label: label, key: key, to: path({page, kind, fact["key"], r.name}))
+        do:
+          Blocks.action(
+            label: label,
+            key: key,
+            to: path({page, kind, fact["key"], r.name}),
+            icon: "hand_over"
+          )
   end
 
   @doc """
@@ -3300,11 +3314,10 @@ defmodule AtlasControl.Pages do
 
   # A to-do with steps (`AtlasControl.Steps`) as a stack of simple blocks: a header (the
   # work's title and key), its why since when it is theirs, each step in full, then the
-  # answers: the page's next steps (`actions`), each on its key, those that ask a note
-  # saying so.
+  # answers: the page's next steps (`actions`), each on its key and with its weight, those
+  # that ask a note saying so.
   defp todo_blocks(todo, key, title, actions) do
     %{why: why, steps: steps} = AtlasControl.Steps.parse(todo.section.text)
-    notes = for a <- todo.answers, a.note, do: a.key
 
     why =
       if why,
@@ -3319,25 +3332,41 @@ defmodule AtlasControl.Pages do
           {"step-#{s.n}",
            Blocks.instruction(n: s.n, lines: for(line <- s.lines, do: instruction_line(line)))}
       ) ++
-      [{"answers", answers_block(actions, notes)}]
+      [{"answers", answers_block(actions, todo.answers)}]
   end
 
-  # The page's `actions` as what the viewer can answer, each on its key, those whose key is
-  # in `notes` asking a note.
-  defp answers_block(actions, notes) do
+  # The page's `actions` as what the viewer can answer, each on its key, as the to-do's
+  # answer of the same key gives it (`answers`): whether it asks a note, its weight. One
+  # that is no answer of the to-do (Retry, Pick up) weighs other; the first is the main
+  # one when no answer is. Under a decision's options (`main?` false), whose own answers
+  # carry the main and no, every one weighs other.
+  defp answers_block(actions, answers, main? \\ true) do
+    by_key = Map.new(answers, &{&1.key, &1})
+
+    weights =
+      for a <- actions,
+          do: if(main?, do: (by_key[a["key"]] || %{})[:weight] || "other", else: "other")
+
     Blocks.answers(
       answers:
-        for a <- actions do
+        for {a, weight} <- Enum.zip(actions, with_main(weights, main?)) do
           Blocks.panel_answer(
             label: a["label"],
             key: a["key"],
             to: a["to"],
             submit_to: a["submit_to"],
-            note: if(a["key"] in notes, do: true)
+            note: if(by_key[a["key"]][:note], do: true),
+            weight: weight
           )
         end
     )
   end
+
+  # The weights with exactly one main: the first when none is.
+  defp with_main([_ | rest] = weights, true),
+    do: if("main" in weights, do: weights, else: ["main" | rest])
+
+  defp with_main(weights, _main?), do: weights
 
   defp instruction_line(%{kind: :route, parts: parts}),
     do: Blocks.instruction_line(kind: "route", parts: parts)
@@ -3364,7 +3393,7 @@ defmodule AtlasControl.Pages do
     ] ++
       if(next == [],
         do: [],
-        else: [{"answers", answers_block(next, for(a <- todo.answers, a.note, do: a.key))}]
+        else: [{"answers", answers_block(next, todo.answers)}]
       )
   end
 
@@ -3473,16 +3502,20 @@ defmodule AtlasControl.Pages do
 
   # A decision as a stack of simple blocks (D-0104): `intro` (its header, why, what went
   # wrong), one `option` block per option, the recommended one first, each with its own
-  # answer: the page's action of the same key (`others`), "Choose", or "Decline…" for one
-  # given with a note; then the rest of `others` as the page's answers.
+  # answer: the page's action of the same key (`others`), "Choose" (the first main, the
+  # rest other), or "Decline" (no) for one given with a note; then the rest of `others` as
+  # the page's answers, each weighing other.
   defp decision_blocks(intro, options, others, todo) do
     by_key = Map.new(others, &{&1["key"], &1})
     options = Enum.filter(options, &Map.has_key?(by_key, &1.answer.key))
     taken = Enum.map(options, & &1.answer.key)
 
+    sorted = Enum.sort_by(options, &(!&1.recommended))
+    main = Enum.find(sorted, &(!&1.answer.note))
+    no = Enum.find(sorted, & &1.answer.note)
+
     option_blocks =
-      options
-      |> Enum.sort_by(&(!&1.recommended))
+      sorted
       |> Enum.with_index(1)
       |> Enum.map(fn {o, n} ->
         action = by_key[o.answer.key]
@@ -3503,11 +3536,17 @@ defmodule AtlasControl.Pages do
            fields: o.fields,
            answer:
              Blocks.panel_answer(
-               label: if(o.answer.note, do: "Decline…", else: "Choose"),
+               label: if(o.answer.note, do: "Decline", else: "Choose"),
                key: action["key"],
                to: action["to"],
                submit_to: action["submit_to"],
-               note: if(o.answer.note, do: true)
+               note: if(o.answer.note, do: true),
+               weight:
+                 cond do
+                   o == main -> "main"
+                   o == no -> "no"
+                   true -> "other"
+                 end
              )
          )}
       end)
@@ -3519,7 +3558,7 @@ defmodule AtlasControl.Pages do
       option_blocks ++
       if(rest == [],
         do: [],
-        else: [{"answers", answers_block(rest, for(a <- todo.answers, a.note, do: a.key))}]
+        else: [{"answers", answers_block(rest, todo.answers, false)}]
       )
   end
 
@@ -3695,9 +3734,12 @@ defmodule AtlasControl.Pages do
 
   # The answers, as the page's actions of the same keys (`answer_actions/3`) give them.
   defp panel_answers(kind, key, todo) do
-    todo.answers
-    |> Enum.filter(&(&1.change or is_binary(&1.set) or is_binary(&1.remove)))
-    |> Enum.map(fn a ->
+    answers =
+      Enum.filter(todo.answers, &(&1.change or is_binary(&1.set) or is_binary(&1.remove)))
+
+    weights = with_main(Enum.map(answers, &(&1[:weight] || "other")), true)
+
+    for {a, weight} <- Enum.zip(answers, weights) do
       name = Map.get(a, :name) || a.key
 
       to =
@@ -3713,9 +3755,10 @@ defmodule AtlasControl.Pages do
         to: to,
         submit_to:
           if((a.change and a[:name]) && !a.note, do: call_to({:answer, kind, key, name})),
-        note: if(a.note, do: true)
+        note: if(a.note, do: true),
+        weight: weight
       )
-    end)
+    end
   end
 
   defp panel_actions(scope, actions) do

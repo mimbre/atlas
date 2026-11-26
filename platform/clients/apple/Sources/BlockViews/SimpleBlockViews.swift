@@ -222,8 +222,8 @@ struct OptionView: View {
     }
 }
 
-/// An option's own answer as Prism's button: a yes (Choose) `primary` in success, one that
-/// asks a note (Decline…) `secondary` in warning, which opens the note form. Its key is not
+/// An option's own answer as Prism's button, styled by its weight (`AnswerLook`): Choose
+/// the main one `primary`, Decline… `secondary`, which opens the note form. Its key is not
 /// shown (the menu bar lists it, its tooltip names it).
 struct OptionButton: View {
     let answer: PanelAnswerModel
@@ -231,16 +231,13 @@ struct OptionButton: View {
     let take: () -> Void
 
     var body: some View {
-        let decline = answer.note == true
-        PrismActionButton(label: answer.label ?? "", key: answer.key, pending: pending,
-                          variant: decline ? .secondary : .primary, tone: decline ? .warning : .success,
-                          take: take)
+        AnswerButton(answer: answer, pending: pending, take: take)
     }
 }
 
 /// Prism's button, its key only in its tooltip; pending, Prism's loading button (its
-/// spinner in place of the label). A `plain` one keeps its label legible in dark
-/// appearance (`PrismDarkGap.buttonStyle`).
+/// spinner in place of the label). With `icon` (an SF Symbol), Prism's with-icon look. A
+/// `plain` one keeps its label legible in dark appearance (`PrismDarkGap.buttonStyle`).
 struct PrismActionButton: View {
     let label: String
     let key: String?
@@ -248,35 +245,35 @@ struct PrismActionButton: View {
     let variant: PrismButtonVariant
     var tone: PrismButtonTone = .accent
     var padded = true
+    var icon: String? = nil
     let take: () -> Void
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        Button(label, action: take)
-            .buttonStyle(PrismDarkGap.buttonStyle(variant, tone: tone, padded: padded, loading: pending, scheme: scheme))
-            .textSelection(.disabled)
-            .disabled(pending)
-            .help([label, KeyGlyph.glyph(key).map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
+        Button(action: take) {
+            if let icon { Label(label, systemImage: icon) } else { Text(label) }
+        }
+        .buttonStyle(PrismDarkGap.buttonStyle(variant, tone: tone, padded: padded, loading: pending,
+                                              icon: icon != nil, scheme: scheme))
+        .textSelection(.disabled)
+        .disabled(pending)
+        .help([label, KeyGlyph.glyph(key).map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
     }
 }
 
 /// An `answers` block, on the page itself: a button per answer, in Control's order, each
-/// taking its answer as the page's action of that key (`Panel.action`), as Prism's buttons:
-/// the first (the next step) `primary` in success, one that asks a note `secondary` in
-/// warning, the others `plain`. Under a decision's options (`quiet`), which are its
-/// answers, every one but a no is plain.
+/// taking its answer as the page's action of that key (`Panel.action`), as Prism's buttons
+/// by the weight Control gives each (`AnswerLook`).
 struct AnswersView: View {
     let block: AnswersBlock
-    var quiet = false
     let act: (ActionModel) -> Void
     @Environment(\.pendingAction) private var pending
 
     var body: some View {
         FlowLayout(spacing: Prism.Spacing.px10) {
-            ForEach(Array((block.answers ?? []).enumerated()), id: \.offset) { offset, answer in
+            ForEach(Array((block.answers ?? []).enumerated()), id: \.offset) { _, answer in
                 let action = Panel.action(answer)
-                AnswerButton(answer: answer, quiet: answer.note != true && (quiet || offset > 0),
-                             pending: PageActions.isPending(action, pending)) { act(action) }
+                AnswerButton(answer: answer, pending: PageActions.isPending(action, pending)) { act(action) }
             }
         }
         .textSelection(.disabled)
@@ -287,8 +284,9 @@ struct AnswersView: View {
 }
 
 /// An `actions` block: what else can be done with the page's subject, below its answers
-/// and quieter than they are, in one row of Prism's `plain` buttons (unpadded), in
-/// Control's order. One that is dangerous opens Control's confirm first.
+/// and quieter than they are, in one row of Prism's `plain` buttons (unpadded), each with
+/// the icon Control names (`ActionIcon`), in Control's order. One that is dangerous opens
+/// Control's confirm first.
 struct OtherActionsView: View {
     let block: ActionsBlock
     let act: (ActionModel) -> Void
@@ -299,7 +297,7 @@ struct OtherActionsView: View {
             ForEach(Array(PageActions.buttons(block.actions ?? []).enumerated()), id: \.offset) { _, action in
                 PrismActionButton(label: action.label ?? "", key: action.key,
                                   pending: PageActions.isPending(action, pending), variant: .plain,
-                                  padded: false) { act(action) }
+                                  padded: false, icon: ActionIcon.symbol(action.icon)) { act(action) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

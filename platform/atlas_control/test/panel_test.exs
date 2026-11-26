@@ -151,10 +151,17 @@ defmodule AtlasControl.PanelTest do
              %{"label" => "Needs", "value" => "P-1"}
            ]
 
-    # The answers are the page's own: Accept at once, Not accepted with a note (its form).
+    # The answers are the page's own: Accept at once (the main one), Not accepted with a
+    # note (its form; the no).
     assert [
-             %{"key" => "a", "label" => "Accept", "to" => "/k/widget/W-1/answer/a"} = yes,
-             %{"key" => "n", "label" => "Not accepted", "note" => true} = no
+             %{
+               "key" => "a",
+               "label" => "Accept",
+               "to" => "/k/widget/W-1/answer/a",
+               "weight" => "main"
+             } =
+               yes,
+             %{"key" => "n", "label" => "Not accepted", "note" => true, "weight" => "no"} = no
            ] = p["answers"]
 
     refute Map.has_key?(yes, "note")
@@ -314,18 +321,35 @@ defmodule AtlasControl.PanelTest do
              "badge" => "★ Recommended",
              "tone" => "success",
              "fields" => [%{"label" => "Then", "value" => "Inspects it again."}],
-             "answer" => %{"label" => "Choose", "key" => "r", "to" => "/k/widget/W-1/answer/r"}
+             "answer" => %{
+               "label" => "Choose",
+               "key" => "r",
+               "to" => "/k/widget/W-1/answer/r",
+               "weight" => "main"
+             }
            } = retry
 
     assert %{
              "n" => 2,
              "text" => "Close it",
              "fields" => [%{"label" => "Then", "value" => "Ends it."}],
-             "answer" => %{"label" => "Choose", "key" => "c", "to" => "/k/widget/W-1/answer/c"}
+             "answer" => %{
+               "label" => "Choose",
+               "key" => "c",
+               "to" => "/k/widget/W-1/answer/c",
+               "weight" => "other"
+             }
            } = close
 
     refute Map.has_key?(close, "badge")
-    assert %{"label" => "Inspector's log", "key" => "l", "to" => "/k/inspection/I-1"} = log
+    # Under the options, which carry the main answer, the page's other answers weigh other.
+    assert %{
+             "label" => "Inspector's log",
+             "key" => "l",
+             "to" => "/k/inspection/I-1",
+             "weight" => "other"
+           } = log
+
     assert ["r"] in keys(page) and ["c"] in keys(page) and ["l"] in keys(page)
 
     # Nothing recorded of what went wrong: it says so.

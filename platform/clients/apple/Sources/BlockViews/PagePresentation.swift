@@ -89,11 +89,6 @@ public struct PagePresentation: Sendable, Equatable {
         entries.contains { if case .panel = $0.item { true } else { false } }
     }
 
-    /// The page is a decision with its options: they, not its `answers`, answer it.
-    public var hasOptions: Bool {
-        entries.contains { if case .option = $0.item { true } else { false } }
-    }
-
     /// The page has a `header` block: it names the page in place of its title.
     public var hasHeader: Bool {
         entries.contains { if case .header = $0.item { true } else { false } }

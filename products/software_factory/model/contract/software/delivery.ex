@@ -621,7 +621,7 @@ defmodule Model.Delivery do
           "Its pull request was closed on GitHub without merging, so nothing of it reaches develop; any agent task or push of it that was under way was cancelled. Build it again for a fresh author on a fresh base of develop, whose result Code opens a new pull request from, or close it. Reopening its pull request on GitHub takes it back to waiting for its CI.",
         answers: [
           [key: "b", label: "Build it again", change: %{values: %{gate_result: :rebuild}}],
-          [key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]
+          [key: "c", label: "Close it", weight: :no, change: %{values: %{gate_result: :close}}]
         ]
       )
 
@@ -646,7 +646,7 @@ defmodule Model.Delivery do
           "Its result has no changes against develop, so Code opened no pull request. Build it again for a fresh author on a fresh base of develop (when its agent failed to change what it should), or close it when nothing was to change.",
         answers: [
           [key: "b", label: "Build it again", change: %{values: %{gate_result: :rebuild}}],
-          [key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]
+          [key: "c", label: "Close it", weight: :no, change: %{values: %{gate_result: :close}}]
         ]
       )
 
@@ -675,7 +675,7 @@ defmodule Model.Delivery do
         section: [field: :task_failure, label: "What failed"],
         answers: [
           [key: "r", label: "Retry", change: %{values: %{gate_result: :retry}}],
-          [key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]
+          [key: "c", label: "Close it", weight: :no, change: %{values: %{gate_result: :close}}]
         ]
       )
 
@@ -719,7 +719,7 @@ defmodule Model.Delivery do
             label: "Publish without review",
             change: %{values: %{gate_result: :publish}}
           ],
-          [key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]
+          [key: "c", label: "Close it", weight: :no, change: %{values: %{gate_result: :close}}]
         ]
       )
 

@@ -59,10 +59,12 @@ defmodule AtlasTui.InstructionsTest do
             "id" => "answers",
             "type" => "answers",
             "props" => %{
-              "answers" => [
-                answer.("Done", "x"),
-                answer.("Won't do", "n")
-              ]
+              "answers" =>
+                opts[:answers] ||
+                  [
+                    Map.put(answer.("Done", "x"), "weight", "main"),
+                    Map.put(answer.("Won't do", "n"), "weight", "no")
+                  ]
             }
           },
           %{
@@ -195,6 +197,29 @@ defmodule AtlasTui.InstructionsTest do
   test "the page's other actions follow the answers in their key line, muted, each on its key" do
     lines = View.render(model(), 90, 60, 30)
     assert Enum.any?(lines, &({:muted, " Update chore"} in &1 and {:muted, "u"} in &1))
+  end
+
+  test "the answers' key line: the main one, then the no, in the primary colour, then the rest" do
+    answer = fn label, key, weight, note ->
+      %{"label" => label, "key" => key, "to" => @path <> "/answer/" <> key, "weight" => weight}
+      |> Map.merge(if note, do: %{"note" => true}, else: %{})
+    end
+
+    answers = [
+      answer.("Later", "l", "other", false),
+      answer.("Won't do", "n", "no", true),
+      answer.("Done", "x", "main", true)
+    ]
+
+    text = screen(model(answers: answers))
+    assert text =~ "x Done · note · n Won't do · note · l Later · u Update chore"
+
+    lines =
+      for line <- View.render(model(answers: answers), 90, 60, 30), do: Enum.map(line, &on_page/1)
+
+    [keys] = Enum.filter(lines, &({:info, " Done · note"} in &1))
+    assert {:info, " Won't do · note"} in keys
+    assert {:dim, " Later"} in keys
   end
 
   test "a route shows ⌘, its parts in the route colour and muted › between them, in order" do

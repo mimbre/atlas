@@ -346,9 +346,13 @@ defmodule Model.DecisionOptionsTest do
     assert %{"n" => 1, "badge" => "★ Recommended", "tone" => "success"} = files
     refute Map.has_key?(memory, "badge")
     assert %{"n" => 3, "badge" => "Decline · note", "tone" => "warning"} = decline
-    assert %{"label" => "Choose", "key" => "1"} = files["answer"]
-    assert %{"label" => "Choose", "key" => "2"} = memory["answer"]
-    assert %{"label" => "Decline…", "key" => "3", "note" => true} = decline["answer"]
+    # The recommended Choose is the main answer, the Decline the no, another Choose other;
+    # clients add how a note is asked ("Decline…", "Decline · note").
+    assert %{"label" => "Choose", "key" => "1", "weight" => "main"} = files["answer"]
+    assert %{"label" => "Choose", "key" => "2", "weight" => "other"} = memory["answer"]
+
+    assert %{"label" => "Decline", "key" => "3", "note" => true, "weight" => "no"} =
+             decline["answer"]
 
     # Each option's own button (and key) sends exactly that option's answer; `0` the
     # recommended one's; a decline opens its note form first.

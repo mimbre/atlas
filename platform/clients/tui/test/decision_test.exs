@@ -76,7 +76,17 @@ defmodule AtlasTui.DecisionTest do
 
     assert line(model, "1 Choose")
     assert line(model, "2 Choose")
-    assert line(model, "3 Decline…")
+    assert line(model, "3 Decline · note")
+
+    # The main answer and the no in the primary colour, another Choose dim.
+    role =
+      &Enum.map(styles(model, &1), fn
+        {_surface, role} -> role
+        role -> role
+      end)
+
+    assert :info in role.("1 Choose") and :info in role.("3 Decline · note")
+    assert :dim in role.("2 Choose") and :info not in role.("2 Choose")
   end
 
   test "the selection starts on the first option, on the selected surface, and the arrows move it" do
