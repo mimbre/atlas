@@ -2,7 +2,7 @@ defmodule AtlasTui.StepsPanelTest do
   use ExUnit.Case, async: true
   alias AtlasTui.{Clipboard, Model, View}
 
-  defp page do
+  defp page(opts \\ []) do
     path = "/k/widget/W-01"
 
     move = fn label, key, to ->
@@ -22,6 +22,7 @@ defmodule AtlasTui.StepsPanelTest do
       "type" => "steps",
       "props" => %{
         "title" => "Set up the widget",
+        "key" => opts[:key],
         "why" => "The widget needs a home.",
         "since" => DateTime.utc_now() |> DateTime.add(-3 * 3600) |> DateTime.to_iso8601(),
         "current" => 2,
@@ -33,7 +34,7 @@ defmodule AtlasTui.StepsPanelTest do
             "commands" => ["mkdir w", "cd w"]
           },
           %{"n" => 3, "text" => "Tell us", "commands" => []}
-        ],
+        ] ++ List.wrap(opts[:later]),
         "actions" => [
           move.("Step 2 done", "Enter", 3),
           move.("Next step", "Down", 3),
@@ -79,6 +80,15 @@ defmodule AtlasTui.StepsPanelTest do
   test "Enter moves to the next step through Control's action" do
     {moved, _} = Model.key(page(), :enter)
     assert moved.console.in_flight == "/k/widget/W-01/step/3"
+  end
+
+  test "the bar carries the to-do's key; a later step drops its colon and counts its commands" do
+    text = screen(page(key: "TD-09", later: %{"n" => 4, "text" => "Run these:", "commands" => ["a", "b"]}))
+    assert text =~ "◆ TO DO FOR YOU · TD-09  Set up the widget"
+    assert text =~ ~r/  4\. Run these · 2 commands/
+    refute text =~ "Run these:"
+    # A later step with nothing more says nothing more.
+    assert text =~ ~r/  3\. Tell us +│/
   end
 
   @tag :tmp_dir

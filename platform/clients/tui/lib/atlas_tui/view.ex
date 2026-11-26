@@ -640,7 +640,7 @@ defmodule AtlasTui.View do
         if(detail == [], do: [], else: [[]] ++ detail) ++
         if(keys == [], do: [], else: [[]] ++ keys)
 
-    decision_frame("YOUR DECISION", choice.question, nil, body, width)
+    decision_frame(keyed("YOUR DECISION", choice.key), choice.question, nil, body, width)
   end
 
   # Control's panel where its owner decides, in the frame of the single choice: what is
@@ -699,13 +699,14 @@ defmodule AtlasTui.View do
       ] ++ choice ++ [panel_keys(panel, choosing, choices, selected, model, content)]
 
     body = byline ++ Enum.flat_map(sections, &if(&1 == [], do: [], else: [[] | &1]))
-    decision_frame(panel.heading, panel.title, panel.aside, body, width)
+    decision_frame(keyed(panel.heading, panel.key), panel.title, panel.aside, body, width)
   end
 
   # A to-do step by step, as a panel like the single choice's: the work in a bar with how
   # far its owner is, why and since when, the done steps one line each (✓), the current
   # one framed with its commands each on its own line beside a bar, the later ones one
-  # faint line each, and the keys: Control's actions and c/C/y to copy.
+  # faint line each with how many commands they hold, and the keys: Control's actions and
+  # c/C/y to copy.
   defp block(%Steps{} = block, _at, _model, width, _room) do
     inner = max(width - 3, 1)
     content = max(inner - 2, 1)
@@ -725,7 +726,7 @@ defmodule AtlasTui.View do
       Enum.flat_map(block.steps, fn step ->
         number = "#{step.n}. "
         # A closed step shows its first line: the rest is how, for when it is current.
-        head = step.text |> String.split("\n") |> hd() |> single_line()
+        head = closed_line(step)
 
         cond do
           step.n < block.current ->
@@ -735,7 +736,13 @@ defmodule AtlasTui.View do
             current_step(step, content)
 
           true ->
-            [fit([{:dim, "  " <> number <> head}], content)]
+            more =
+              case step_holds(step) do
+                "" -> []
+                holds -> [{:muted, " · " <> holds}]
+              end
+
+            [fit([{:dim, "  " <> number <> head} | more], content)]
         end
       end)
 
@@ -746,7 +753,7 @@ defmodule AtlasTui.View do
       for line <- body,
           do: [{:frame, " │ "} | pad_line(fit(line, content), content)] ++ [{:frame, " │"}]
 
-    title = "◆ TO DO FOR YOU  " <> single_line(block.title)
+    title = "◆ " <> keyed("TO DO FOR YOU", block.key) <> "  " <> single_line(block.title)
     room = inner - 2 - display_width(progress) - 2
     bar = " " <> cell_pad(title, max(room, 1)) <> "  " <> progress <> " "
 
@@ -872,6 +879,24 @@ defmodule AtlasTui.View do
 
     [[{:frame, " ┌" <> String.duplicate("─", inner) <> "┐"}]] ++
       bar ++ framed ++ [[{:frame, " └" <> String.duplicate("─", inner) <> "┘"}]]
+  end
+
+  # What a panel asks, with the key of the fact it is about: "TO ACCEPT · UC-03".
+  defp keyed(heading, key) when key in [nil, ""], do: heading
+  defp keyed(heading, key), do: heading <> " · " <> single_line(key)
+
+  # A closed step's first line, without the colon that leads into what it folds away.
+  defp closed_line(step),
+    do: step.text |> String.split("\n") |> hd() |> single_line() |> String.trim_trailing(":")
+
+  # What a closed step holds besides its first line, counted from what Control sent: "2
+  # commands"; "" when it holds none.
+  defp step_holds(step) do
+    case length(step.commands || []) do
+      0 -> ""
+      1 -> "1 command"
+      n -> "#{n} commands"
+    end
   end
 
   # The current step in a box: ▸, its text, and its commands each on its own line behind

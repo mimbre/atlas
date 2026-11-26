@@ -242,6 +242,26 @@ defmodule AtlasControl.PagesTest do
              list["actions"]
   end
 
+  test "rows that all say the same detail say none; one that differs keeps every detail" do
+    dark = fn key -> fact(key, %{"title" => key, "shade" => "dark"}) end
+
+    %{blocks: [%{"props" => list}]} =
+      render({:list, "widget"}, @d, [%{"facts" => [dark.("W-1"), dark.("W-2")]}])
+
+    assert Enum.map(list["rows"], &Map.has_key?(&1, "detail")) == [false, false]
+
+    # One row alone keeps its detail: nothing else says it.
+    %{blocks: [%{"props" => list}]} = render({:list, "widget"}, @d, [%{"facts" => [dark.("W-1")]}])
+    assert [%{"detail" => "Dark"}] = list["rows"]
+
+    light = fact("W-3", %{"title" => "W-3", "shade" => "light"})
+
+    %{blocks: [%{"props" => list}]} =
+      render({:list, "widget"}, @d, [%{"facts" => [dark.("W-1"), dark.("W-2"), light]}])
+
+    assert Enum.map(list["rows"], & &1["detail"]) == ["Dark", "Dark", "Light"]
+  end
+
   test "a row's detail: its choice by its label, then the flags set; also under a parent" do
     # As a row of a kind a connector fills reads "Open · draft".
     fitted = shop(Fitted)
@@ -2027,6 +2047,7 @@ defmodule AtlasControl.PagesTest do
 
     assert %{
              "title" => "Rotate the key",
+             "key" => "W-1",
              "why" => "the old key leaked.",
              "since" => "2026-11-20T10:00:00Z",
              "current" => 2,
@@ -2056,6 +2077,9 @@ defmodule AtlasControl.PagesTest do
 
     assert done["submit_to"] == step.(3)
     assert previous["submit_to"] == step.(1)
+
+    # A click on a step makes it the current one, through the same submit.
+    assert Enum.map(steps["steps"], & &1["submit_to"]) == [step.(1), step.(2), step.(3)]
 
     # Everything else is the item, folded: no field list or instructions on the page, and
     # not the notes or the step in it.
