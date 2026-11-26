@@ -457,10 +457,14 @@ defmodule AtlasControl.Session do
             end
 
           if is_binary(kind) and Pages.kind?(state.model, kind) do
+            # With `history`, Facts' full read of the fact, which also answers the history
+            # of its links (`"history"`, AtlasFacts.Links).
             content =
-              if request["key"],
-                do: %{"key" => request["key"], "plain" => true},
-                else: %{"plain" => true, "linked" => %{}}
+              cond do
+                request["key"] && request["history"] == true -> %{"key" => request["key"]}
+                request["key"] -> %{"key" => request["key"], "plain" => true}
+                true -> %{"plain" => true, "linked" => %{}}
+              end
 
             case ask(kind, content) do
               %{"error" => why} -> Wire.reply(:facts_read, :error, %{error: why})

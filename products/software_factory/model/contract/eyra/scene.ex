@@ -24,9 +24,8 @@ defmodule Model.Scene do
       producer's note and proposes only what is missing: nothing under the scene is redone.
       A scene too vague to design use cases from is not guessed at (UC-Atlas-24): its agent
       writes its questions instead (`asks:`), Flow puts them in the scene's `questions`,
-      and "Answer its questions" (`clarifying`) goes to its producer (`produced_by`; the
-      configured decider for a scene that records none, one from before producers were
-      recorded), who may rewrite the description and
+      and "Answer its questions" (`clarifying`) goes to its producer (`produced_by`, which
+      every scene records, UC-Atlas-23), who may rewrite the description and
       answers with a note (`answers`); a fresh pass of its agent then reads the questions,
       the answers and the description as they are now. The run keeps its supervisor.
       Its supervisor's "Not accepted", with a note (the scene's `note`), throws the proposal
@@ -35,7 +34,7 @@ defmodule Model.Scene do
     * `accept_scene` **Accept** (Accept the scene): waits until every use case under it is accepted
       (`children`, `open_children`: the composition's count of the use cases in the scene,
       and of those without an accepted `accept_use_case` run), then asks its producer
-      (`produced_by`: who put it in; the configured decider for a scene that records none). While it waits
+      (`produced_by`: who put it in). While it waits
       (`building`) it is its producer's, with no to-do: nothing is built on the scene and
       nobody has anything to do on it. Accept ends the
       pipeline; Not accepted keeps the producer's note (`note`) and starts a new round of
@@ -207,15 +206,15 @@ defmodule Model.Scene do
     end
 
     # Its agent found it too vague to design use cases from and asked (UC-Atlas-24): its
-    # producer (`produced_by`, who put it in; the configured decider for a scene that
-    # records none, from before producers were recorded) answers, after rewriting its description by hand if they like; a
+    # producer (`produced_by`, who put it in) answers, after rewriting its description by
+    # hand if they like; a
     # fresh pass of its agent then reads the questions, the answers and the description.
     # The run keeps its supervisor. Its producer, not its supervisor, though it lies in the span.
     state :clarifying, label: "Answer its questions" do
       owner(
         via: :assignment,
         relation: :assigned_to,
-        default: {:person, config: :decider, producer: :produced_by}
+        default: {:person, producer: :produced_by}
       )
 
       set(verdict: :none)
@@ -308,13 +307,12 @@ defmodule Model.Scene do
       branch(to: :building, when: "entity.phase == 'accept'")
     end
 
-    # Its producer accepts it: who put it in (`produced_by`). A scene that records none,
-    # from before producers were recorded, asks the configured decider for now.
+    # Its producer accepts it: who put it in (`produced_by`), which every scene records.
     state :to_accept, label: "Accept" do
       owner(
         via: :assignment,
         relation: :assigned_to,
-        default: {:person, config: :decider, producer: :produced_by}
+        default: {:person, producer: :produced_by}
       )
 
       set(verdict: :none)

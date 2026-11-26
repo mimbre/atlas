@@ -393,6 +393,40 @@ defmodule RelaDSL.Facts.GuardsTest do
              seal("change", reading(), %{"finding" => "leaks", "level" => 9})
   end
 
+  # UC-Atlas-23: a rule without `when` holds for every fact of the kind, and may name links.
+  test "requires may name links, and without when holds for every fact" do
+    rules = %{
+      "requires" => [%{"links" => ["made_by"], "error" => "a widget records who made it"}]
+    }
+
+    check = fn op, current, values, links ->
+      Writes.check_rules(rules, op, "W-1", current, values, links, %{})
+    end
+
+    made = %{"values" => %{"name" => "a"}, "links" => %{"made_by" => ["ann"]}}
+    unmade = %{"values" => %{"name" => "a"}, "links" => %{}}
+
+    assert check.("create", nil, %{"name" => "a"}, %{"made_by" => ["ann"]}) == :ok
+
+    assert {:refused, ["a widget records who made it"]} =
+             check.("create", nil, %{"name" => "a"}, %{})
+
+    # A change keeps it, sets it, or is refused while the fact has none after it.
+    assert check.("change", made, %{"name" => "b"}, %{}) == :ok
+    assert check.("change", unmade, %{}, %{"made_by" => ["ann"]}) == :ok
+    assert {:refused, [_]} = check.("change", unmade, %{"name" => "b"}, %{})
+    assert {:refused, [_]} = check.("change", made, %{}, %{"made_by" => []})
+    assert {:refused, [_]} = check.("change", made, %{}, %{"made_by" => [""]})
+
+    # Without its own error it names what is missing; a delete is never held to it.
+    bare = %{"requires" => [%{"fields" => ["name"], "links" => ["made_by"]}]}
+
+    assert {:refused, ["name, made_by is required"]} =
+             Writes.check_rules(bare, "create", "W-1", nil, %{}, %{}, %{})
+
+    assert check.("delete", unmade, %{}, %{}) == :ok
+  end
+
   test "a sealed record's other rules still hold, and without its own error it still says why" do
     rules =
       Map.put(@sealed, "requires", [

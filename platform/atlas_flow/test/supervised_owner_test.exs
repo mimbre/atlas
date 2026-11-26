@@ -637,10 +637,11 @@ defmodule AtlasFlow.SupervisedOwnerTest do
     end
 
     # A state that asks the subject's producer (SC-Atlas-09): whom the subject links to
-    # through the owner's relation, as the projection passes it; the configured actor when
-    # it links to nobody; never the run's supervisor, in its span or out of it.
-    test "a state that asks the subject's producer goes to them, else to the configured actor" do
-      producer = Map.put(@decider, "producer", "made_by")
+    # through the owner's relation, as the projection passes it; nobody when it links to
+    # nobody, never the configured actor in its place (UC-Atlas-23); never the run's
+    # supervisor, in its span or out of it.
+    test "a state that asks the subject's producer goes to them, and to nobody else" do
+      producer = %{"kind" => "clerk", "producer" => "made_by"}
       refute AtlasFlow.Model.supervisable?(producer)
       assert AtlasFlow.Model.producer(producer) == "made_by"
       assert AtlasFlow.Model.producer(@decider) == nil
@@ -649,15 +650,13 @@ defmodule AtlasFlow.SupervisedOwnerTest do
       run = %{"state" => "check", "spans" => @spans, "supervised_by" => @sam}
       assert AtlasFlow.Model.owner(producer, @actors, Map.put(run, "producer", ann)) == ann
 
-      dee = %{"kind" => "clerk", "key" => "dee"}
-
       for none <- [Map.put(run, "producer", nil), run, nil] do
-        assert AtlasFlow.Model.owner(producer, @actors, none) == dee
+        assert AtlasFlow.Model.owner(producer, @actors, none) == nil
       end
 
       # A producer of another kind is none of the owner's.
       robot = Map.put(run, "producer", %{"kind" => "robot", "key" => "mini"})
-      assert AtlasFlow.Model.owner(producer, @actors, robot) == dee
+      assert AtlasFlow.Model.owner(producer, @actors, robot) == nil
     end
 
     # A state that asks the subject's producer, in a span: the configured actor, while the

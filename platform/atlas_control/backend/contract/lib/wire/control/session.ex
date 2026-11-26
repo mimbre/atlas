@@ -86,13 +86,15 @@ defmodule AtlasBFFContract.Wire.Control.Session do
   }
 
   # Exact stored data for subject-derived evidence; no page labels or form filtering.
+  # With a key and `history`, also the history Facts keeps of the fact's links (who set
+  # each, when and why), as a migration reads it (UC-Atlas-23).
   defoperation :facts_read, %{
     channel: :control,
     direction: :request,
     request: %{
       select: %{"op" => "facts_read"},
       required: %{"kind" => :string},
-      optional: %{"key" => :string}
+      optional: %{"key" => :string, "history" => :boolean}
     },
     replies: [
       %{

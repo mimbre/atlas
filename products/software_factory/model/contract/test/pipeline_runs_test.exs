@@ -179,13 +179,17 @@ defmodule Model.PipelineRunsTest do
       assert ~w(title description questions answers) -- spec["fields"] == []
       assert spec["instructions"] =~ "write your questions to questions.md and nothing else"
 
-      # Asked: to its producer, the configured decider for a scene that records none (as
-      # here: no run passes a producer).
+      # Asked: to its producer, never the decider in its place (here no run passes a
+      # producer, so nobody; with one, that one).
       asked = %{"key" => "TK-SC-1-1", "outcome" => "completed"}
       {:ok, clarifying} = Run.task_result(run, f, fact("SC-1", values), @now, "asked", asked, [])
       assert at(clarifying) == {"clarifying", "active"}
       assert written(clarifying) == [%{"verdict" => "none"}]
-      assert AtlasFlow.Model.owner(f.owner("clarifying")["default"], actors) == actors["decider"]
+      assert AtlasFlow.Model.owner(f.owner("clarifying")["default"], actors) == nil
+      producer = %{"producer" => person("adrienne")}
+
+      assert AtlasFlow.Model.owner(f.owner("clarifying")["default"], actors, producer) ==
+               person("adrienne")
 
       assert %{"expected" => "Answer its questions", "todo" => todo} =
                f.present("clarifying", %{})
@@ -238,4 +242,7 @@ defmodule Model.PipelineRunsTest do
       assert at(started) == {"break_down", "active"}
     end
   end
+
+  # A person as an owner is written (`%{"kind", "key"}`): a test's, never the model's.
+  defp person(key), do: Map.put(%{"kind" => "person"}, "key", key)
 end

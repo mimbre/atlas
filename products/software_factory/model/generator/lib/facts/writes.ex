@@ -9,8 +9,9 @@ defmodule RelaDSL.Facts.Writes do
 
   Per kind:
 
-  - `requires`: `[%{"when", "fields", "error"}]`: a fact whose values hold `when` has each
-    of `fields`.
+  - `requires`: `[%{"when", "fields", "links", "error"}]`: a fact whose values hold `when`
+    (every fact of the kind, without `when`) has each of `fields`, and links to some fact
+    through each of `links`.
   - `authority`: `%{"when", "by", "kind", "only_kind_when", "delegated_by", "error",
     "writes", "writer_error", "also"}`: a fact that holds `when` links through `by` to one
     fact; of `kind` when any of `only_kind_when` holds, otherwise of `kind` or with a link
@@ -770,11 +771,15 @@ defmodule RelaDSL.Facts.Writes do
   defp requires(rules, fact) do
     for rule <- List.wrap(rules),
         is_map(rule),
-        holds?(rule["when"], fact["values"]),
-        missing = Enum.filter(List.wrap(rule["fields"]), &required_empty?(fact["values"][&1])),
+        rule["when"] in [nil, %{}] or holds?(rule["when"], fact["values"]),
+        missing =
+          Enum.filter(List.wrap(rule["fields"]), &required_empty?(fact["values"][&1])) ++
+            Enum.filter(List.wrap(rule["links"]), &unlinked?(fact["links"][&1])),
         missing != [],
         do: rule["error"] || "#{Enum.join(missing, ", ")} is required"
   end
+
+  defp unlinked?(keys), do: Enum.all?(List.wrap(keys), &(not is_binary(&1) or &1 == ""))
 
   defp required_empty?(value) when is_binary(value), do: String.trim(value) == ""
   defp required_empty?(value), do: value == nil

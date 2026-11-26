@@ -802,12 +802,12 @@ defmodule RelaDSL.Description.Build do
       end)
 
     if relation == nil or relation["max_outgoing"] != 1 or not is_list(supervisor) or
-         relation["to"] != supervisor or set_by != [:flow] do
+         relation["to"] != supervisor or set_by -- [:migration] != [:flow] do
       [
         problem(
           :producer_relation,
           [name],
-          "producer: relation #{name} must lead to one of the supervisor's kind (max_outgoing 1), set by Flow alone (set_by: [:flow])"
+          "producer: relation #{name} must lead to one of the supervisor's kind (max_outgoing 1), set by Flow alone, or Flow and the migration (set_by: [:flow] or [:flow, :migration])"
         )
       ]
     else

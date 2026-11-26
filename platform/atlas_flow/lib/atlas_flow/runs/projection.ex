@@ -22,7 +22,7 @@ defmodule AtlasFlow.Runs.Projection do
       result names the owner it waits for, so its creation projects the fact again;
     * when Facts does not say whether the owner exists, nothing is written;
     * a state whose owner asks the subject's producer goes to whom the subject links to
-      through that relation (`produced_by`), else to the configured actor
+      through that relation (`produced_by`), and to nobody else
       (`AtlasFlow.Model.owner/3`);
     * a state owned by the configured `decider` goes to the run's human supervisor inside
       a supervised span (`AtlasFlow.Model.owner/3`): its own subflow's span, or, for a run

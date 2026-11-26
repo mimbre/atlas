@@ -125,8 +125,15 @@ defmodule Model.FlowWritersTest do
           %{"pr_state" => "open", "ci_green" => "yes", "ci_fixes" => "one"},
           %{"pr_checks" => "pending"}
         ] do
-      change = {"issue", %{"op" => "change", "key" => "IS-1", "values" => entry, "links" => %{}}}
-      assert check(change, as("flow")) == :ok, inspect(entry)
+      # The issue as stored: every issue records its producer (UC-Atlas-23).
+      stored = %{"key" => "IS-1", "values" => %{}, "links" => %{"produced_by" => ["melle"]}}
+      change = %{"op" => "change", "key" => "IS-1", "values" => entry, "links" => %{}}
+
+      assert AtlasEyra.check("issue", change, as("flow"), %{
+               lookup()
+               | "current" => fn -> stored end
+             }) == :ok,
+             inspect(entry)
     end
   end
 end
