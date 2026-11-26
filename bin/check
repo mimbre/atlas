@@ -94,6 +94,10 @@ if caches.size == 2
 elsif caches.size == 1
   FileUtils.cp(caches.first, target)
 end
+# The machine's package cache too, read-only, so a checkout whose dependencies are not fetched yet
+# (not a base Code prepared) fetches them offline from it.
+packages = File.join(ENV['HEX_HOME'] || File.join(Dir.home, '.hex'), 'packages')
+File.symlink(packages, File.join(hex_home, 'packages')) if File.directory?(packages)
 # MIX_ENV is the job's; HEX_HOME and HEX_OFFLINE hold for every step.
 offline = { 'HEX_OFFLINE' => '1', 'HEX_HOME' => hex_home }
 
