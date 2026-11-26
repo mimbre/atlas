@@ -96,6 +96,131 @@ defmodule AtlasAgent.CLITest do
              """
   end
 
+  # A decision's owner gets its choice (single_choice, after the `todo` line) and pages
+  # carry blocks this client does not know; get and set print them, never crash.
+  test "get and set: a decision's choice as its to-do; unknown blocks and fields are left out",
+       %{control: c} do
+    widget = FakeControl.put(c, "widget", %{"title" => "A decision"})
+
+    answer = fn n ->
+      %{"key" => n, "label" => n, "to" => "/k/widget/#{widget}/answer/#{n}"}
+    end
+
+    FakeControl.lead(c, widget, [
+      %{
+        "id" => "todo",
+        "type" => "item",
+        "props" => %{"title" => "What to do: Decide   Answers: 1–2   0 Recommended"}
+      },
+      %{
+        "id" => "choice",
+        "type" => "single_choice",
+        "props" => %{
+          "question" => "How are pages composed?",
+          "options" => [
+            %{
+              "id" => "stack",
+              "text" => "Stacked blocks",
+              "details" => "One job per block.",
+              "effect" => "adopt",
+              "rule" => "",
+              "consequences" => "",
+              "answer" => answer.("1"),
+              "note" => false,
+              "shortcut" => "1",
+              "weight" => %{"unknown" => ["field"]}
+            },
+            %{
+              "id" => "compound",
+              "text" => "Compound blocks",
+              "details" => "Each page its own.",
+              "effect" => "reject",
+              "rule" => "",
+              "consequences" => "",
+              "answer" => answer.("2"),
+              "note" => true,
+              "shortcut" => "2"
+            }
+          ],
+          "recommended" => "stack",
+          "rationale" => "Clients stay small.",
+          "revision" => "6db6808a",
+          "instructions" =>
+            "How are pages composed?\nRecommended: Stacked blocks — Clients stay small.\n0 selects recommended choice 1."
+        }
+      },
+      %{"id" => "panel", "type" => "panel", "props" => %{"part" => nil, "lines" => [[1, 2]]}}
+    ])
+
+    expected = """
+    To do: How are pages composed?
+      Recommended: Stacked blocks — Clients stay small.
+      0 selects recommended choice 1.
+      1 Stacked blocks (recommended)
+          details: One job per block.
+          effect: adopt
+          weight:
+            unknown:
+              - field
+      2 Compound blocks
+          details: Each page its own.
+          effect: reject
+
+    Widget WI-01: A decision
+      Title: A decision
+      Description:\s
+    Parts:
+      (none)
+    """
+
+    assert {0, ^expected, ""} = atlas(["get", widget])
+
+    {0, out, ""} = atlas(["set", widget, "title=A decision"])
+    assert out == expected
+  end
+
+  test "get: steps keep the lines they know; a line of an unknown kind is left out",
+       %{control: c} do
+    widget = FakeControl.put(c, "widget", %{"title" => "A to-do"})
+
+    FakeControl.lead(c, widget, [
+      %{
+        "id" => "steps",
+        "type" => "steps",
+        "props" => %{
+          "title" => "Rotate the key",
+          "current" => 1,
+          "steps" => [
+            %{
+              "n" => 1,
+              "lines" => [
+                %{"kind" => "text", "text" => "Open it."},
+                %{"kind" => "route", "parts" => ["Settings", "A > B"]},
+                %{"kind" => "picture", "url" => "x.png"},
+                %{"kind" => "command", "text" => "make key"}
+              ]
+            },
+            %{"n" => 2}
+          ],
+          "actions" => [%{"key" => "x", "label" => "Done"}]
+        }
+      }
+    ])
+
+    {0, out, ""} = atlas(["get", widget])
+
+    assert out =~ """
+           To do: Rotate the key (step 1 of 2)
+             ▸ 1. Open it.
+                  > Settings > "A > B"
+                  $ make key
+               2.\s
+             x Done
+
+           Widget WI-01: A to-do
+           """
+  end
+
   test "get --json keeps the newlines of a value", %{control: c} do
     widget =
       FakeControl.put(c, "widget", %{"title" => "A widget", "description" => "Two lines\nof text"})
