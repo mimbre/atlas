@@ -15,7 +15,7 @@ extension EnvironmentValues {
 /// An action Control marks `page` is the page's (what is done with its subject) and shows
 /// with the page's title; any other is its block's and shows under the block.
 public enum PageActions {
-    /// Every action of the page's `item` and `list` blocks, of its panels (their answers
+    /// Every action of the page's `item`, `list` and `actions` blocks, of its panels (their answers
     /// as actions, then their own; `Panel.actions`), of its options (`Option.actions`) and
     /// of its `answers` blocks (each answer as the page's action of its key, `Panel.action`),
     /// in block order.
@@ -27,6 +27,7 @@ public enum PageActions {
             case .panel(let panel): Panel.actions(panel)
             case .option(let option): Option.actions(option)
             case .answers(let answers): (answers.answers ?? []).map(Panel.action)
+            case .actions(let actions): actions.actions ?? []
             default: []
             }
         }
@@ -162,19 +163,15 @@ public struct ActionButtons: View {
         }
     }
 
-    /// Its key as a small keycap on its left (`Keycap.glyph`). Pending (clicked, or its key
-    /// pressed, and not answered yet), the button shows a spinner in place of its key and
-    /// takes no second click.
+    /// Its key is not shown (the menu bar lists it; its tooltip names it). Pending (clicked,
+    /// or its key pressed, and not answered yet), the button shows a spinner before its
+    /// label and takes no second click.
     private func button(_ action: ActionModel) -> some View {
         let pending = PageActions.isPending(action, pending)
-        let glyph = Keycap.glyph(action.key)
+        let glyph = KeyGlyph.glyph(action.key)
         return Button { act(action) } label: {
             HStack(spacing: Prism.Spacing.s6) {
-                if pending {
-                    ProgressView().controlSize(.mini)
-                } else if let glyph {
-                    Keycap(key: glyph, inButton: true)
-                }
+                if pending { ProgressView().controlSize(.mini) }
                 Text(action.label ?? "")
             }
         }
@@ -368,6 +365,8 @@ public struct ActionPageView: View {
             InstructionView(block: instruction)
         case .answers(let answers):
             AnswersView(block: answers, quiet: presentation.hasOptions, act: act)
+        case .actions(let actions):
+            OtherActionsView(block: actions, act: act)
         case .notShown(let type): FallbackView(type: type, reason: nil)
         case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
         }

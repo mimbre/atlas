@@ -22,8 +22,11 @@ final class ActionKeys {
     /// The list that last had the window's focus, to give it back on ←.
     private weak var list: NSTableView?
 
+    private let menu = ActionsMenu()
+
     func start(_ session: Session) {
         guard monitor == nil else { return }
+        menu.start(session)
         let panels = panels
         panels.moved = { [weak self] column in self?.move(column) }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -54,6 +57,7 @@ final class ActionKeys {
     }
 
     func stop() {
+        menu.stop()
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         panels.moved = nil
@@ -110,6 +114,88 @@ final class ActionKeys {
               let window = event.window, !(window.firstResponder is NSText),
               window.sheetParent == nil, window.attachedSheet == nil else { return nil }
         return PageActions.link(key: key, on: [shell.opened, shell.index])
+    }
+}
+
+/// The menu bar's Actions menu: where the keys of the shown page's actions are found, as
+/// the page shows none (D-0104: Control decides the actions; this app shows their keys
+/// only here and in tooltips). Each item is an action with its key, the same `ActionKeys`
+/// takes (the sheet's, else the opened page's, then the index page's; one item per key);
+/// choosing one takes it. The menu never takes a key itself: `ActionKeys` does, so a key
+/// typed in text stays text. SwiftUI owns the main menu and may rebuild it, so the menu is
+/// put back whenever it is gone.
+@MainActor
+final class ActionsMenu: NSObject, NSMenuDelegate {
+    private let item = NSMenuItem(title: "Actions", action: nil, keyEquivalent: "")
+    private var session: Session?
+    private var observer: NSObjectProtocol?
+
+    func start(_ session: Session) {
+        self.session = session
+        let menu = NSMenu(title: "Actions")
+        menu.delegate = self
+        item.submenu = menu
+        install()
+        observer = NotificationCenter.default.addObserver(
+            forName: NSApplication.didUpdateNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.install() } }
+    }
+
+    func stop() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
+        item.menu?.removeItem(item)
+        session = nil
+    }
+
+    /// Before the Window menu, else last.
+    private func install() {
+        guard let main = NSApp.mainMenu, item.menu !== main else { return }
+        let window = main.items.firstIndex { $0.submenu === NSApp.windowsMenu }
+        main.insertItem(item, at: window ?? main.items.count)
+    }
+
+    func menuHasKeyEquivalent(_ menu: NSMenu, for event: NSEvent, target: AutoreleasingUnsafeMutablePointer<AnyObject?>,
+                              action: UnsafeMutablePointer<Selector?>) -> Bool {
+        false
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        for action in actions() {
+            let entry = NSMenuItem(title: action.label ?? "", action: #selector(take(_:)),
+                                   keyEquivalent: action.key.map { $0.count == 1 ? $0 : "" } ?? "")
+            entry.keyEquivalentModifierMask = []
+            entry.target = self
+            entry.representedObject = Box(action)
+            menu.addItem(entry)
+        }
+        if menu.items.isEmpty {
+            menu.addItem(NSMenuItem(title: "No actions here", action: nil, keyEquivalent: ""))
+        }
+    }
+
+    @objc private func take(_ sender: NSMenuItem) {
+        guard let action = (sender.representedObject as? Box)?.action else { return }
+        session?.act(action)
+    }
+
+    /// The shown pages' doable actions with a key, the first per key.
+    private func actions() -> [ActionModel] {
+        guard let session else { return [] }
+        let shell = ShellViewModel(session.state)
+        let pages: [PageMessage?] = shell.sheet.map { [$0] } ?? [shell.opened, shell.index]
+        var keys = Set<String>()
+        return pages.compactMap { $0 }.flatMap(PageActions.all).filter { action in
+            guard let key = action.key, PageActions.doable(action), !keys.contains(key) else { return false }
+            keys.insert(key)
+            return true
+        }
+    }
+
+    private final class Box: NSObject {
+        let action: ActionModel
+        init(_ action: ActionModel) { self.action = action }
     }
 }
 #endif

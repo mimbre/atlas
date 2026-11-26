@@ -48,3 +48,23 @@ public enum RowAge {
         return try? Date(text, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true))
     }
 }
+
+/// The words of a list row's card (the Mac list): a small top line, what the row is (its
+/// item's kind and key, `DECISION · D-0104`) and where it stands (Control's `detail`, the
+/// row's state; none when Control sends none, as when the whole list shares it), then its
+/// title on at most `titleLines` lines.
+public enum RowCardText {
+    public static let titleLines = 2
+
+    /// The kind (in capitals, as small caps) and the key; whichever Control sends.
+    public static func kindAndKey(kind: String?, id: String?) -> String? {
+        let parts = [kind.map { $0.uppercased() }, id].compactMap { $0?.isEmpty == false ? $0 : nil }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The row's state, or nil when it has none.
+    public static func state(_ detail: String?) -> String? {
+        guard let detail, !detail.isEmpty else { return nil }
+        return detail
+    }
+}

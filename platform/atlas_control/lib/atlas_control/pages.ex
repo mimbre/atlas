@@ -81,10 +81,6 @@ defmodule AtlasControl.Pages do
     remove_item: {"Remove", "m"}
   }
 
-  # A fact's page offers the flow's next step, and everything else under this one action,
-  # which opens the fact's secondary menu (`{:more, kind, key}`). Remove is `m` there too.
-  @more {"More…", "m"}
-
   # The client one supervises from (M3b plan §1, S-6): only its session sends a pickup
   # or a hand-over, until there is sign-in.
   @supervising_client "tui"
@@ -927,6 +923,7 @@ defmodule AtlasControl.Pages do
     Blocks.row(
       id: fact["key"],
       label: label(kind(m, from), fact),
+      kind: singular(m, from),
       detail: detail,
       to: path({:item, from, fact["key"]}),
       tone: tone,
@@ -1637,7 +1634,7 @@ defmodule AtlasControl.Pages do
   end
 
   # Pick up, Hand over…, Retry and Remove on a fact's page, `{next, more}`: Pick up and
-  # Retry are the flow's next step, Hand over… and Remove are under More…. Pick up for one
+  # Retry are the flow's next step, Hand over… and Remove are among its other actions. Pick up for one
   # who may supervise, at the TUI, while the presenting run is active in a span with no
   # supervisor; Hand over… for its supervisor at the TUI while someone else could take
   # it; Retry and Remove as `may_retry?/4` and `may_remove?/4` say.
@@ -1880,6 +1877,7 @@ defmodule AtlasControl.Pages do
     Blocks.row(
       id: fact["key"],
       label: label(kind(m, kind), fact),
+      kind: singular(m, kind),
       detail: detail,
       to: path({:item, kind, fact["key"]}),
       tone: tone,
@@ -2104,13 +2102,13 @@ defmodule AtlasControl.Pages do
             waiting_pair(work) ++
             copy(answer["copy"])
 
-        # The flow's next step, and one More… for everything else (`offered/6`): the
-        # page's actions, which a client shows with the page's title.
+        # The flow's next step, the page's actions, which a client shows with the page's
+        # title; everything else (`offered/6`) in an `actions` block of its own.
         item =
           Blocks.item(
             title: "#{k.label} #{key}: #{label(k, fact)}",
             fields: fields,
-            actions: page_actions(next ++ more_action(kind, key, more)),
+            actions: page_actions(next),
             links: links(k, fact)
           )
 
@@ -2203,7 +2201,8 @@ defmodule AtlasControl.Pages do
               |> put_in(["props", "actions"], [])
 
             content =
-              todo_blocks(todo, key, label(k, fact), next ++ more_action(kind, key, more)) ++
+              todo_blocks(todo, key, label(k, fact), next) ++
+                others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
                 [{"item", item}] ++ lists
 
@@ -2215,11 +2214,11 @@ defmodule AtlasControl.Pages do
 
           deciding ->
             # A page where its owner decides is one stretch, top down: the to-do and its
-            # answers in one line, the panel the model declares for its state, or a choice
-            # as a stack of simple blocks (`decision_blocks/3`) with the page's other next
-            # steps as its answers; what is judged (the section of the fact the state
-            # names, the facts under it, but those the panel lists); then the details.
-            others = next ++ more_action(kind, key, more)
+            # answers, the panel the model declares for its state, or a choice as a stack
+            # of simple blocks (`decision_blocks/3`) with the page's other next steps as
+            # its answers; the page's other actions; what is judged (the section of the
+            # fact the state names, the facts under it, but those the panel lists); then the
+            # details.
             choice = Map.get(todo, :choice)
 
             {head, judged, item} =
@@ -2227,7 +2226,7 @@ defmodule AtlasControl.Pages do
                 %{"choose" => true} = spec ->
                   related = Enum.zip(relations, child_answers)
 
-                  {stuck_blocks(m, kind, key, fact, todo, spec, related, others), judged,
+                  {stuck_blocks(m, kind, key, fact, todo, spec, related, next), judged,
                    put_in(item, ["props", "actions"], [])}
 
                 %{} = spec ->
@@ -2241,15 +2240,16 @@ defmodule AtlasControl.Pages do
                    end)}
 
                 nil when is_map(choice) ->
-                  {choice_blocks(todo, choice, key, others), judged,
+                  {choice_blocks(todo, choice, key, next), judged,
                    put_in(item, ["props", "actions"], [])}
 
                 nil ->
-                  {decide_blocks(todo, next), judged, item}
+                  {decide_blocks(todo, next), judged, put_in(item, ["props", "actions"], [])}
               end
 
             content =
               head ++
+                others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
                 [{"item", details.(item)}] ++
                 lists
@@ -2262,7 +2262,13 @@ defmodule AtlasControl.Pages do
 
           true ->
             ids = for {id, _} <- references, do: id
-            main = Blocks.part("item", "item", title: "Content", role: "main")
+            others = others_block(more)
+
+            main =
+              Blocks.part("item", if(others == [], do: "item", else: "actions"),
+                title: "Content",
+                role: "main"
+              )
 
             markup =
               case ids do
@@ -2274,7 +2280,7 @@ defmodule AtlasControl.Pages do
                     sections
               end
 
-            content = [{"item", item} | lists]
+            content = [{"item", item} | others] ++ lists
 
             # Its owner's part first: what to do (IS-Atlas-54).
             {content, markup} =
@@ -2295,7 +2301,8 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # A fact's secondary menu: what its page offers besides the flow's next step.
+  # Deprecated (contract 0.34.0, no page links here): a fact's secondary menu, what its
+  # page offers besides the flow's next step, which the page now shows itself.
   defp page({:more, kind, key}, kind, k, m, [answer | rest], form) do
     title = "More… #{key}"
 
@@ -2810,6 +2817,7 @@ defmodule AtlasControl.Pages do
               id: fact["key"],
               label: label(k, fact),
               detail: join_detail(detail(k, fact), counted.(fact["key"])),
+              kind: k && k.label,
               to: path({:item, kind, fact["key"]}),
               links: links(k, fact),
               tone: tone,
@@ -2876,7 +2884,7 @@ defmodule AtlasControl.Pages do
   defp untitled(block, _title), do: unshared(block)
 
   # A list's rows (two or more) that all have the same detail do not each say it: the list
-  # says it (every to-do "To do"). Where they differ, each row keeps its own.
+  # says it (every to-do "Open"). Where they differ, each row keeps its own.
   defp unshared(%{"type" => "list", "props" => %{"rows" => [_, _ | _] = rows} = props} = block) do
     case Enum.uniq_by(rows, & &1["detail"]) do
       [%{"detail" => detail}] when detail not in [nil, ""] ->
@@ -3018,7 +3026,7 @@ defmodule AtlasControl.Pages do
 
   # What a fact's page offers, `{next, more}`, as the page's reads answered it (the fact's
   # answer is not among `rest`): the flow's next step (the owner's answers, the restart,
-  # Pick up and Retry), and everything else, which its More… action opens. Nothing raw
+  # Pick up and Retry), and everything else (`others_block/1`). Nothing raw
   # where the flow covers it: no Delete where Remove ends the run instead, no change of
   # who has a supervised flow's work while nobody picked it up (D-0099), and no Create of
   # what a flow makes under it. An action on the same key as a next step gives way to it,
@@ -3060,13 +3068,10 @@ defmodule AtlasControl.Pages do
     {next, Enum.reject(more, &(&1["key"] in keys))}
   end
 
-  # The action that opens a fact's secondary menu, when there is anything in it.
-  defp more_action(_kind, _key, []), do: []
-
-  defp more_action(kind, key, _more) do
-    {label, k} = @more
-    [Blocks.action(label: label, key: k, to: path({:more, kind, key}))]
-  end
+  # Everything a fact's page offers besides the flow's next step, below its answers and
+  # quieter than they are; nothing when there is nothing.
+  defp others_block([]), do: []
+  defp others_block(more), do: [{"actions", Blocks.actions(actions: more)}]
 
   # The operations and actions the model offers on a fact's page, for this client; no
   # Delete when the fact is `removed?` instead (Remove).
@@ -3173,6 +3178,7 @@ defmodule AtlasControl.Pages do
               id: fact["key"],
               label: if(judged, do: about(from_k, fact), else: label(from_k, fact)),
               detail: detail(from_k, fact),
+              kind: from_k && from_k.label,
               to: path({:item, from, fact["key"]}),
               links: links(from_k, fact),
               tone: tone,
@@ -3224,6 +3230,7 @@ defmodule AtlasControl.Pages do
             id: fact["key"],
             label: label(from_k, fact),
             detail: detail(from_k, fact),
+            kind: from_k && from_k.label,
             to: path({:item, from, fact["key"]}),
             tone: tone,
             since: since
@@ -3293,8 +3300,8 @@ defmodule AtlasControl.Pages do
 
   # A to-do with steps (`AtlasControl.Steps`) as a stack of simple blocks: a header (the
   # work's title and key), its why since when it is theirs, each step in full, then the
-  # answers: the page's next steps and More… (`actions`), each on its key, those that ask a
-  # note saying so.
+  # answers: the page's next steps (`actions`), each on its key, those that ask a note
+  # saying so.
   defp todo_blocks(todo, key, title, actions) do
     %{why: why, steps: steps} = AtlasControl.Steps.parse(todo.section.text)
     notes = for a <- todo.answers, a.note, do: a.key
@@ -3348,25 +3355,17 @@ defmodule AtlasControl.Pages do
         fields: todo_pairs(todo) ++ section_pairs(todo)
       )
 
-  # Where its owner decides: one line, the to-do and the keys of its answers and of the
-  # page's other next steps (`next`: Retry, Pick up, the restart), with what is judged of
-  # the fact itself under it: the section the state names.
+  # Where its owner decides: the to-do, with what is judged of the fact itself under it
+  # (the section the state names), then its answers and the page's other next steps
+  # (`next`: Retry, Pick up, the restart), each on its key.
   defp decide_blocks(todo, next) do
-    answered = Enum.map(todo.answers, & &1.key)
-
-    steps =
-      for action <- next,
-          action["key"] not in answered,
-          do: "   #{action["key"]} #{action["label"]}"
-
     [
-      {"todo",
-       Blocks.item(
-         title:
-           "#{todo.title}: #{todo.expected}   #{todo.words.answers}: #{answer_keys(todo)}#{steps}",
-         fields: section_pairs(todo)
-       )}
-    ]
+      {"todo", Blocks.item(title: "#{todo.title}: #{todo.expected}", fields: section_pairs(todo))}
+    ] ++
+      if(next == [],
+        do: [],
+        else: [{"answers", answers_block(next, for(a <- todo.answers, a.note, do: a.key))}]
+      )
   end
 
   # A decision's choice (`todo.choice`): the question, why, then each option with its rule
@@ -3814,8 +3813,6 @@ defmodule AtlasControl.Pages do
         scope.fact["values"][field]
     end
   end
-
-  defp answer_keys(todo), do: Enum.map_join(todo.answers, "   ", &"#{&1.key} #{&1.label}")
 
   # Why it came to its owner, and how to do it.
   defp todo_pairs(todo) do

@@ -7,7 +7,7 @@ import PackageDescription
 
 // The contract version this app speaks: `version` in
 // platform/atlas_control/backend/contract/lib/contract.ex (CI fails when they differ).
-let contractVersion: Version = "0.33.0"
+let contractVersion: Version = "0.35.0"
 
 // ATLAS_SWIFT_PACKAGE, a folder, builds against that package instead of the published one:
 // the one `bin/generate atlas` writes (platform/atlas_control/backend/targets/swift), for a

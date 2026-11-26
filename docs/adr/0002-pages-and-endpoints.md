@@ -19,8 +19,8 @@ mica-bff's spec format (`~/projects/nova/mica-bff/docs/adr/0001-spec-format.md`)
    | `list` | `/k/:kind` |
    | `new` | `/k/:kind/new` |
    | `new_under` | `/k/:kind/new/:relation/:parent` |
-   | `item` | `/k/:kind/:key`: the fact; its actions are the flow's next step and, when there is more, one More… action |
-   | `more` | `/k/:kind/:key/more`: the fact's secondary menu, everything its page offers besides the flow's next step (contract 0.22.0) |
+   | `item` | `/k/:kind/:key`: the fact; its actions are the flow's next step; everything else it offers is in an `actions` block on the page (contract 0.34.0; before, one More… action) |
+   | `more` | `/k/:kind/:key/more`: the fact's secondary menu, everything its page offers besides the flow's next step (contract 0.22.0; deprecated in 0.34.0, its page shows that itself) |
    | `edit`, `delete` | `/k/:kind/:key/edit`, `/k/:kind/:key/delete` |
    | `links`, `set`, `remove` | `/k/:kind/:key/links/:relation`, `…/set/:relation`, `…/remove/:relation` |
    | `answer` | `/k/:kind/:key/answer/:answer`: an owner's declared answer (a change it makes as itself), a confirm or, when the answer needs one, a note |
