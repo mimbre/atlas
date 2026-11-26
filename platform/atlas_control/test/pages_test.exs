@@ -251,7 +251,9 @@ defmodule AtlasControl.PagesTest do
     assert Enum.map(list["rows"], &Map.has_key?(&1, "detail")) == [false, false]
 
     # One row alone keeps its detail: nothing else says it.
-    %{blocks: [%{"props" => list}]} = render({:list, "widget"}, @d, [%{"facts" => [dark.("W-1")]}])
+    %{blocks: [%{"props" => list}]} =
+      render({:list, "widget"}, @d, [%{"facts" => [dark.("W-1")]}])
+
     assert [%{"detail" => "Dark"}] = list["rows"]
 
     light = fact("W-3", %{"title" => "W-3", "shade" => "light"})
