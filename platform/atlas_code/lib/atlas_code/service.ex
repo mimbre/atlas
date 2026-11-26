@@ -263,7 +263,9 @@ defmodule AtlasCode.Service do
   @doc """
   The cache repository that holds base `base_id` (`code-<hex>`, of snapshot `sha256:<hex>`,
   one repository), with the ref `refs/atlas/bases/<base_id>` on the base's prepared commit: a
-  child of the base's commit that adds its dependencies (`AtlasCode.Dependencies`).
+  child of the base's commit that adds its dependencies (`AtlasCode.Dependencies`). A base
+  that is Code's update merge (`update/4`) has its conflicting lockfiles prepared from the
+  base's side (its second parent, develop), never from the conflicted ones (IS-Atlas-132).
   `{:ok, git_dir}`. Code's Git endpoint (`AtlasCode.Git`) serves it.
   """
   @spec base_repository(settings(), String.t()) :: {:ok, Path.t()}
@@ -273,7 +275,7 @@ defmodule AtlasCode.Service do
 
     {:ok, commit} = revision(settings.home, repository, handle)
     {:ok, dir} = acquire(settings, repository, commit, handle)
-    prepared = AtlasCode.Dependencies.prepared(dir, commit)
+    prepared = AtlasCode.Dependencies.prepared(dir, commit, conflicted(dir, commit))
 
     {_, 0} =
       System.cmd("git", ["--git-dir", dir, "update-ref", "refs/atlas/bases/" <> base_id, prepared])
@@ -555,6 +557,22 @@ defmodule AtlasCode.Service do
     commit = String.trim(commit)
     {_, 0} = git.(["update-ref", "refs/atlas/updates/#{number}/#{base}", commit], [])
     {:ok, commit}
+  end
+
+  # The files Code's update merge `commit` (`merged/5`: its message names them) conflicts in,
+  # each to be read from its second parent, the base merged in: `%{path => base}`. Empty for
+  # any other commit.
+  defp conflicted(dir, commit) do
+    {out, 0} = System.cmd("git", ["--git-dir", dir, "log", "-1", "--format=%P%n%B", commit])
+    [parents, message] = String.split(out, "\n", parts: 2)
+
+    with [_head, onto] <- String.split(parents),
+         [_, listed] <-
+           Regex.run(~r/\AAtlas: merge .+ into pull #[0-9]+\n\nConflicts:\n(.*)\z/s, message) do
+      for "\t" <> path <- String.split(listed, "\n", trim: true), into: %{}, do: {path, onto}
+    else
+      _ -> %{}
+    end
   end
 
   # The commit behind a handle of `repository`; handles of other repositories are refused.
