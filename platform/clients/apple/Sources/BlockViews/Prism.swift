@@ -15,8 +15,9 @@ extension Prism {
 }
 
 extension View {
-    /// A Prism typography: its font, weight and line height.
-    func prism(_ typography: PrismTypography) -> some View {
+    /// A Prism typography: its font, weight and line height. Every text of Atlas's own views
+    /// is in one (docs/design/clients.md, Typography; `TypographyTests` keeps it so).
+    public func prism(_ typography: PrismTypography) -> some View {
         prismText(PrismLook(typography: typography))
     }
 

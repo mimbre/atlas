@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppUpdate
+import BlockViews
 import ControlSession
 import Prism
 import SwiftUI
@@ -67,7 +68,7 @@ struct StatusBar: View {
                     .truncationMode(.middle)
             }
         }
-        .font(.caption)
+        .prism(Prism.Typography.captionsmall)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)

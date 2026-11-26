@@ -3,6 +3,7 @@ import AppUpdate
 import AtlasControlKit
 import BlockViews
 import ControlSession
+import Prism
 import SwiftUI
 
 /// The three columns: the tabs boot sent (sidebar), the active tab's index page (middle)
@@ -198,7 +199,7 @@ struct Sidebar: View {
             if case .tab(let id) = row.id {
                 Button { fold(id, open: row.open == false) } label: {
                     Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
+                        .prism(Prism.Typography.captionsmall.emphasis(.strong))
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(row.open == true ? 90 : 0))
                         .frame(width: 12)
@@ -211,6 +212,7 @@ struct Sidebar: View {
                 Text(row.label).padding(.leading, 44)
             }
         }
+        .prism(Prism.Typography.tablerow)
     }
 
     private func fold(_ id: String, open: Bool) {
@@ -260,7 +262,7 @@ struct EnvironmentBadge: View {
 
     var body: some View {
         Text(env)
-            .font(.callout.weight(production ? .bold : .regular))
+            .prism(production ? Prism.Typography.labelsmall : Prism.Typography.caption)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
             .foregroundStyle(production ? Color(nsColor: .windowBackgroundColor) : .secondary)
@@ -275,16 +277,18 @@ struct NotLaunchedView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Start the app with the environment it is for:").font(.headline)
-            Text("bin/atlas mac --env test").monospaced().textSelection(.enabled)
+            Text("Start the app with the environment it is for:").prism(Prism.Typography.title7)
+            Text("bin/atlas mac --env test").monospaced().prism(Prism.Typography.mono).textSelection(.enabled)
             Text("or, against a Control already listening:").foregroundStyle(.secondary)
-            Text("swift run AtlasMac --env test --host 127.0.0.1 --port <control port>").monospaced().textSelection(.enabled)
+            Text("swift run AtlasMac --env test --host 127.0.0.1 --port <control port>").monospaced()
+                .prism(Prism.Typography.mono).textSelection(.enabled)
             switch problem {
             case .notLaunched: EmptyView()
             case .missing(let name): Text("Missing: \(name)").foregroundStyle(.red)
             case .invalid(let name): Text("Not valid: \(name)").foregroundStyle(.red)
             }
         }
+        .prism(Prism.Typography.bodysmall)
         .padding(32)
     }
 }

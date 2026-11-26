@@ -438,9 +438,10 @@ struct ItemBlockView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let links = item.links, !links.isEmpty {
-                Text("Links are not supported in this client yet.").foregroundStyle(.secondary)
+                Text("Links are not supported in this client yet.").prism(Prism.Typography.caption)
+                    .foregroundStyle(.secondary)
                 ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                    Text([link.label, link.url].compactMap { $0 }.joined(separator: ": "))
+                    Text([link.label, link.url].compactMap { $0 }.joined(separator: ": ")).prism(Prism.Typography.tablerow)
                 }
             }
         }
@@ -467,10 +468,10 @@ struct FallbackView: View {
         if let plain, plain.title != nil || !plain.lines.isEmpty {
             VStack(alignment: .leading, spacing: Prism.Spacing.px5) {
                 if let title = plain.title {
-                    Text(title).bold().accessibilityAddTraits(.isHeader)
+                    Text(title).prism(Prism.Typography.title7).accessibilityAddTraits(.isHeader)
                 }
                 ForEach(Array(plain.lines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
+                    Text(line).prism(Prism.Typography.bodysmall)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -484,7 +485,7 @@ struct FallbackView: View {
                     Text(reason.description)
                 }
             }
-            .font(.callout)
+            .prism(Prism.Typography.caption)
             .foregroundStyle(.secondary)
             .padding(8)
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
