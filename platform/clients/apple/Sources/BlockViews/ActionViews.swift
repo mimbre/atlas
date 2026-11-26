@@ -9,6 +9,8 @@ extension EnvironmentValues {
     /// Where a focused block that types (a `single_choice`) says which keys it takes, so
     /// the action keys leave those to it.
     @Entry public var typingFocus: TypingFocus? = nil
+    /// The panel on screen takes ↑, ↓ and Return through it (`PanelKeys`).
+    @Entry public var panelKeys: PanelKeys? = nil
 }
 
 /// The actions a page's blocks declare, as Control sends them: what a key or a button
@@ -162,22 +164,24 @@ public struct ActionButtons: View {
         }
     }
 
-    /// Pending (clicked, or its key pressed, and not answered yet), the button shows a
-    /// spinner in place of its key and takes no second click.
+    /// Its key as a small keycap on its left (`Keycap.glyph`). Pending (clicked, or its key
+    /// pressed, and not answered yet), the button shows a spinner in place of its key and
+    /// takes no second click.
     private func button(_ action: ActionModel) -> some View {
         let pending = PageActions.isPending(action, pending)
+        let glyph = Keycap.glyph(action.key)
         return Button { act(action) } label: {
             HStack(spacing: Prism.Spacing.s6) {
-                Text(action.label)
                 if pending {
                     ProgressView().controlSize(.mini)
-                } else if action.key.count == 1 {
-                    Text(action.key).font(.caption.monospaced()).opacity(0.7)
+                } else if let glyph {
+                    Keycap(key: glyph, inButton: true)
                 }
+                Text(action.label)
             }
         }
         .disabled(pending)
-        .help(pending ? (self.pending?.text ?? action.label) : "\(action.label) (key \(action.key))")
+        .help(pending ? (self.pending?.text ?? action.label) : glyph.map { "\(action.label) (\($0))" } ?? action.label)
         .accessibilityValue(pending ? Text(self.pending?.text ?? "") : Text(""))
     }
 }

@@ -76,6 +76,17 @@ public struct PagePresentation: Sendable, Equatable {
         public var groups: [Group]
     }
 
+    /// The page shows a panel where its owner acts (`steps`, `panel`, `single_choice`):
+    /// it leads the page in place of its title.
+    public var hasPanel: Bool {
+        entries.contains {
+            switch $0.item {
+            case .steps, .panel, .singleChoice: true
+            default: false
+            }
+        }
+    }
+
     public init(_ page: PageMessage) {
         title = page.title
         path = page.path

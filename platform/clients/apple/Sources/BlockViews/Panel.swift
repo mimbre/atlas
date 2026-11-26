@@ -1,6 +1,54 @@
 import AtlasControlKit
 import Foundation
 
+/// A key a panel takes: the arrows and Return.
+public enum PanelKey: Sendable, Equatable {
+    case up
+    case down
+    case enter
+
+    /// The key of a key code (`NSEvent.keyCode`): ↑ 126, ↓ 125, Return 36 or the keypad's
+    /// Enter 76; nil for any other key.
+    public init?(keyCode: UInt16) {
+        switch keyCode {
+        case 126: self = .up
+        case 125: self = .down
+        case 36, 76: self = .enter
+        default: return nil
+        }
+    }
+}
+
+/// The panel of the page on screen that takes ↑, ↓ and Return, wherever the focus is in
+/// the window (a list's rows would take the arrows for themselves): the one that claimed
+/// them last and is still shown. A panel claims them when it appears, so they work as
+/// soon as its page opens, without a click.
+@MainActor
+public final class PanelKeys {
+    /// What a key does on the panel: true when it took it. `isRepeat`: the key is held down.
+    public typealias Handler = @MainActor (PanelKey, _ isRepeat: Bool) -> Bool
+
+    private var claims: [(owner: AnyHashable, handler: Handler)] = []
+
+    public init() {}
+
+    /// `owner`'s panel takes the keys from now on, with `handler`.
+    public func claim(_ owner: AnyHashable, _ handler: @escaping Handler) {
+        release(owner)
+        claims.append((owner, handler))
+    }
+
+    /// `owner`'s panel is gone; the one shown before it, if still claimed, has them again.
+    public func release(_ owner: AnyHashable) {
+        claims.removeAll { $0.owner == owner }
+    }
+
+    /// The key, to the panel that has the keys: whether it took it.
+    public func press(_ key: PanelKey, isRepeat: Bool) -> Bool {
+        claims.last?.handler(key, isRepeat) ?? false
+    }
+}
+
 /// A `panel` block as it is read and answered: where its owner decides (to accept, to
 /// merge, stuck work). Without `choose`, the arrows move the selection of its items and
 /// Return opens the selected one's page; its answers are buttons. With `choose`, its
@@ -9,13 +57,6 @@ import Foundation
 /// when it has one (`submit_to`), else its page (`to`; a note's form for a no). The app
 /// decides nothing about an answer: the order, the recommendation and the keys are Control's.
 public struct Panel: Sendable, Equatable {
-    /// A key, as the panel takes it while it has the focus.
-    public enum Key: Sendable, Equatable {
-        case up
-        case down
-        case enter
-    }
-
     /// What a key or a click does.
     public enum Outcome: Sendable, Equatable {
         /// Only the selection moved.
@@ -60,10 +101,11 @@ public struct Panel: Sendable, Equatable {
         selected = was.flatMap { keys.firstIndex(of: $0) } ?? Self.start(block)
     }
 
-    /// A key the panel has the focus for: what it does, or nil when it leaves it to the
-    /// view below (nothing to select). The arrows move the selection, not past the first
-    /// or last; Return opens the selected item, or answers the selected answer.
-    public mutating func press(_ key: Key) -> Outcome? {
+    /// A key the panel takes: what it does, or nil when it leaves it to the view below
+    /// (nothing to select). The arrows move the selection, not past the first or last, and
+    /// never answer; Return opens the selected item, or answers the selected answer, once:
+    /// held down (`isRepeat`) it does nothing more.
+    public mutating func press(_ key: PanelKey, isRepeat: Bool = false) -> Outcome? {
         let count = choosing ? answers.count : items.count
         guard count > 0 else { return nil }
         switch key {
@@ -74,6 +116,7 @@ public struct Panel: Sendable, Equatable {
             selected = min(selected + 1, count - 1)
             return .nothing
         case .enter:
+            if isRepeat { return .nothing }
             if let answer = selectedAnswer { return self.answer(answer) }
             return selectedItem.map { .open($0.to) }
         }

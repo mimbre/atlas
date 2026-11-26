@@ -2,17 +2,21 @@ import AtlasControlKit
 import ControlSession
 import SwiftUI
 
-/// A `single_choice` block as a panel that asks for a decision: a bar with the question,
-/// why the recommendation, the choices in Control's order (the recommended one first),
-/// one aligned row each, the selected one marked ▸, what the selected one means (its rule
-/// and what then follows; a decline's details) in a box under them, and the keys. The
-/// arrows move the selection and Return answers it; a click or the choice's number
-/// answers that choice; a choice given with a note opens a form for the note first.
-/// `submit` is called with the call Control projected for the choice, and its values.
-/// With the focus it tells `typingFocus` which digits are its own, so the page's action
-/// keys leave them to it; once a choice is sent, it says so until Control answers.
+/// A `single_choice` block as a panel that asks for a decision, in the panel's card
+/// (`PanelCard`): the eyebrow over the question with its key, why the recommendation, the
+/// choices in Control's order (the recommended one first), one aligned row each, the
+/// selected one on a light background, what it means (its rule and what then follows; a
+/// decline's details) under them, and the page's other actions (`others`, More…). ↑ ↓
+/// move the selection and Return answers it (`PanelKeys`, wherever the focus is; held
+/// down, the arrows only move it); a click or the choice's number answers that choice; a
+/// choice given with a note opens a form for the note first. `submit` is called with the
+/// call Control projected for the choice, and its values. With the focus it tells
+/// `typingFocus` which digits are its own, so the page's action keys leave them to it;
+/// once a choice is sent, it says so until Control answers.
 struct SingleChoiceView: View {
     let block: SingleChoiceBlock
+    let others: [ActionModel]
+    let act: (ActionModel) -> Void
     let submit: (CallModel, [String: String]) -> Void
 
     @State private var choice: SingleChoice
@@ -20,65 +24,77 @@ struct SingleChoiceView: View {
     @FocusState private var focused: Bool
     @FocusState private var noteFocused: Bool
     @Environment(\.typingFocus) private var typingFocus
+    @Environment(\.panelKeys) private var panelKeys
     @Environment(\.pendingAction) private var pending
     @Environment(\.colorScheme) private var scheme
 
-    init(block: SingleChoiceBlock, submit: @escaping (CallModel, [String: String]) -> Void) {
+    init(block: SingleChoiceBlock, others: [ActionModel] = [], act: @escaping (ActionModel) -> Void = { _ in },
+         submit: @escaping (CallModel, [String: String]) -> Void) {
         self.block = block
+        self.others = others
+        self.act = act
         self.submit = submit
         _choice = State(initialValue: SingleChoice(block))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            bar
-            VStack(alignment: .leading, spacing: Prism.Spacing.s13) {
-                if !block.rationale.isEmpty {
-                    Text("Why: " + block.rationale).prism(Prism.Typography.caption).foregroundStyle(muted)
-                }
-                VStack(alignment: .leading, spacing: Prism.Spacing.s2) {
-                    ForEach(Array(choice.choices.enumerated()), id: \.element.id) { offset, item in
-                        ChoiceRow(choice: item, selected: offset == choice.selected, numberWidth: numberWidth) {
-                            apply(choice.choose(item))
-                        }
-                    }
-                }
-                if let selected = choice.selectedChoice {
-                    ChoiceMeaning(choice: selected)
-                }
-                if let noting = choice.noting {
-                    noteForm(noting)
-                }
-                if !choice.typed.isEmpty {
-                    Text("Choice \(choice.typed) — press Return to choose it, Esc to cancel.")
-                        .prism(Prism.Typography.caption).foregroundStyle(muted)
-                }
-                if let pending, pending.kind == .sending {
-                    HStack(spacing: Prism.Spacing.s6) {
-                        ProgressView().controlSize(.small)
-                        Text(pending.text).foregroundStyle(muted)
-                    }
-                }
-                Text(keys).prism(Prism.Typography.captionSmall).foregroundStyle(muted)
+        VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
+            PanelHeading(eyebrow: "YOUR DECISION", title: block.question, key: block.key, trailing: nil)
+            if !block.rationale.isEmpty {
+                Text("Why: " + block.rationale).prism(Prism.Typography.caption).foregroundStyle(muted)
             }
-            .padding(Prism.Spacing.s15)
+            VStack(alignment: .leading, spacing: Prism.Spacing.s2) {
+                ForEach(Array(choice.choices.enumerated()), id: \.element.id) { offset, item in
+                    ChoiceRow(choice: item, selected: offset == choice.selected, numberWidth: numberWidth) {
+                        apply(choice.choose(item))
+                    }
+                }
+            }
+            if let selected = choice.selectedChoice {
+                ChoiceMeaning(choice: selected)
+            }
+            if let noting = choice.noting {
+                noteForm(noting)
+            }
+            if !choice.typed.isEmpty {
+                Text("Choice \(choice.typed) — press Return to choose it, Esc to cancel.")
+                    .prism(Prism.Typography.caption).foregroundStyle(muted)
+            }
+            if let pending, pending.kind == .sending {
+                HStack(spacing: Prism.Spacing.s6) {
+                    ProgressView().controlSize(.small)
+                    Text(pending.text).foregroundStyle(muted)
+                }
+            }
+            if !others.isEmpty {
+                FlowLayout(spacing: Prism.Spacing.s10) {
+                    ForEach(Array(others.enumerated()), id: \.offset) { _, action in
+                        KeyButton(label: action.label, key: action.key) { act(action) }
+                    }
+                }
+                .textSelection(.disabled)
+            }
         }
         .lineLimit(nil)
         .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(scheme == .dark ? PrismCard.systemBackground : Prism.Colors.white)
-        .clipShape(RoundedRectangle(cornerRadius: Prism.radius))
-        .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(Prism.Colors.primary, lineWidth: 2))
+        .modifier(PanelCard())
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
         .onKeyPress { press in
-            guard let key = Self.key(press), let outcome = choice.press(key) else { return .ignored }
+            guard let key = Self.key(press), let outcome = choice.press(key, isRepeat: press.phase == .repeat)
+            else { return .ignored }
             apply(outcome)
             return .handled
         }
-        .onAppear { focused = true }
-        .onDisappear { typingFocus?.blur(token) }
+        .onAppear {
+            focused = true
+            claim()
+        }
+        .onDisappear {
+            typingFocus?.blur(token)
+            panelKeys?.release(token)
+        }
         .onChange(of: focused) { _, now in tellFocus(now) }
         .onChange(of: choice) { _, _ in tellFocus(focused) }
         .onChange(of: block) { _, new in choice.update(new) }
@@ -87,20 +103,20 @@ struct SingleChoiceView: View {
         }
     }
 
-    /// The bar: white on primary's shade (white on primary itself is under 4.5:1).
-    private var bar: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s15) {
-            Text("◆ YOUR DECISION").prism(Prism.Typography.labelSmall).fixedSize()
-            Text(block.question).prism(Prism.Typography.label)
-                .frame(maxWidth: .infinity, alignment: .leading)
+    /// ↑ ↓ and Return, wherever the focus is in the window: the arrows only ever move the
+    /// selection; Return answers the selected choice, once. While the note form is open
+    /// they are the note field's.
+    private func claim() {
+        panelKeys?.claim(token) { [$choice, submit] key, isRepeat in
+            let key: SingleChoice.Key = switch key {
+            case .up: .up
+            case .down: .down
+            case .enter: .enter
+            }
+            guard let outcome = $choice.wrappedValue.press(key, isRepeat: isRepeat) else { return false }
+            if case .submit(let call, let values) = outcome { submit(call, values) }
+            return true
         }
-        .foregroundStyle(Prism.Colors.white)
-        .padding(.horizontal, Prism.Spacing.s15)
-        .padding(.vertical, Prism.Spacing.s10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Prism.Colors.primaryShade)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
     }
 
     private var muted: Color { Prism.Colors.muted(scheme) }
@@ -108,17 +124,6 @@ struct SingleChoiceView: View {
     /// Room for the widest number, so the choices' texts line up.
     private var numberWidth: CGFloat {
         CGFloat(choice.choices.map(\.number.count).max() ?? 1) * 9
-    }
-
-    /// The keys there are, in one line.
-    private var keys: String {
-        var keys = ["↑↓ choose", "Return answer"]
-        if let first = choice.choices.first?.number, let last = choice.choices.last?.number {
-            keys.append(choice.multiDigit ? "type a number, Return answer" : first == last ? "\(first) answer" : "\(first)–\(last) answer")
-        }
-        if choice.choices.first?.recommended == true { keys.append("0 recommended") }
-        // Each key with its meaning stays on one line.
-        return keys.map { $0.replacingOccurrences(of: " ", with: "\u{00A0}") }.joined(separator: "  ·  ")
     }
 
     /// The view's identity on a page: its path and the block's revision.
@@ -165,9 +170,9 @@ struct SingleChoiceView: View {
     }
 }
 
-/// One choice, one row: the marker (▸ on the selected one), its number, its text, and at
-/// the right what sets it apart: the recommended one, one given with a note (a decline).
-/// The selected row has Prism's selection tint. A click answers it.
+/// One choice, one row: its number, its text, and at the right what sets it apart: the
+/// recommended one, one given with a note (a decline). The selected row is on Prism's
+/// selection tint; hovering one shows it takes a click. A click answers it.
 struct ChoiceRow: View {
     let choice: SingleChoice.Choice
     let selected: Bool
@@ -179,8 +184,8 @@ struct ChoiceRow: View {
     var body: some View {
         Button(action: choose) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
-                Text(selected ? "▸" : " ").bold().frame(width: Prism.Spacing.s10)
-                Text(choice.number).monospaced().bold()
+                Text(choice.number).monospaced()
+                    .foregroundStyle(Prism.Colors.muted(scheme))
                     .frame(width: numberWidth, alignment: .trailing)
                 Text(choice.option.text).bold(selected)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -190,7 +195,7 @@ struct ChoiceRow: View {
             }
             .prism(Prism.Typography.tableRow)
             .multilineTextAlignment(.leading)
-            .padding(.horizontal, Prism.Spacing.s6)
+            .padding(.horizontal, Prism.Spacing.s10)
             .padding(.vertical, Prism.Spacing.s7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -199,6 +204,7 @@ struct ChoiceRow: View {
         .background(Prism.Colors.row(scheme, selected: selected, hovering: hovering),
                     in: RoundedRectangle(cornerRadius: Prism.radius))
         .onHover { hovering = $0 }
+        .help("Answer this (\(choice.number); ↑ ↓ choose, Return answers the selected one)")
         .accessibilityLabel("Choice \(choice.number)\(label.map { ", " + $0.text } ?? ""): \(choice.option.text)")
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
@@ -256,7 +262,8 @@ struct ChoiceMeaning: View {
     }
 }
 
-/// A framed text without a title, in caption type; the border grey, or `border`.
+/// A text without a title, in caption type, on a faint surface; framed only with `border`
+/// (an error), the one frame that says something.
 struct Framed: ViewModifier {
     var border: Color?
     @Environment(\.colorScheme) private var scheme
@@ -267,7 +274,8 @@ struct Framed: ViewModifier {
             .textSelection(.enabled)
             .padding(Prism.Spacing.s10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(RoundedRectangle(cornerRadius: Prism.radius)
-                .strokeBorder(border ?? (scheme == .dark ? Prism.Colors.grey2 : Prism.Colors.grey3)))
+            .background(scheme == .dark ? Color.white.opacity(0.05) : Prism.Colors.grey6,
+                        in: RoundedRectangle(cornerRadius: Prism.radius))
+            .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(border ?? .clear))
     }
 }

@@ -16,9 +16,10 @@ defmodule AtlasTui.Palette do
   `:pending_selected` is `:pending` inside the selection: yellow text cannot reach 4.5:1 on
   the selection background, so there the yellow is the background, under dark text.
   `:active` (the group shown) looks like `:selected` but is not the selected row.
-  `:frame` is a frame in primary (a line, not text). `:key` names a key (tertiary) and
-  `:warning` warns (Prism's warning); in the light theme, where those colours are too
-  faint as text on white, both are dark text on warninglight.
+  `:frame` is a frame in primary (a line, not text). `:key` names a key as a neutral
+  keycap, grey1 on grey3 in both themes (9.9:1): a key carries no meaning of its own, so
+  no colour. `:warning` warns (Prism's warning); in the light theme, where that colour is
+  too faint as text on white, it is dark text on warninglight.
   The `:tone_*` roles draw a list row's dot (where its work stands): red when it needs the
   viewer, orange when under way, blue when planned or waiting, green when done. In dark the
   dot is the colour on the surface (≥3:1, a dot is no text); in light, where those colours
@@ -69,7 +70,7 @@ defmodule AtlasTui.Palette do
         :frame -> if dark, do: {:primary, :grey1}, else: {:primary, :white}
         :error_frame -> if dark, do: {:error, :grey1}, else: {:error, :white}
         :rest_frame -> if dark, do: {:grey2, :grey1}, else: {:grey1, :white}
-        :key -> if dark, do: {:tertiary, :grey1}, else: {:grey1, :warninglight}
+        :key -> {:grey1, :grey3}
         :warning -> if dark, do: {:warning, :grey1}, else: {:grey1, :warninglight}
         :ok -> if dark, do: {:success, :grey1}, else: {:grey1, :successlight}
         :pending -> if dark, do: {:tertiary, :grey1}, else: {:grey1, :warninglight}

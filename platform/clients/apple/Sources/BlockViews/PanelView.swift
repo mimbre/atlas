@@ -2,122 +2,98 @@ import AtlasControlKit
 import ControlSession
 import SwiftUI
 
-/// A `panel` block, where its owner decides (to accept, to merge, stuck work), in the
-/// single choice's styling: a bar with the heading and the title (and the aside at its
-/// right), the byline, the items it is judged on (▸ on the selected one, its details in a
-/// box under them), its checks (✓ ✗ … — by state), its box, its answers and a line of
-/// keys. Without `choose` the answers are buttons, a yes green and a no (with a note)
-/// orange; the arrows select an item and Return opens it. With `choose` the answers are a
-/// choice, the recommended one selected at first, the selected one's detail under it; the
-/// arrows move the selection and Return answers it. An answer is the page's action of its
-/// key (`Panel.action`): `act` submits its call, or opens its page (a no's note form).
+/// A `panel` block, where its owner decides (to accept, to merge, stuck work), in the calm
+/// card the details below it have too (`PrismCard`): the eyebrow (the heading) over the
+/// title with its key (and the aside at its right), the byline, the items it is judged on
+/// (the selected one on a light background, its details under them), its checks (✓ ✗ … —,
+/// by state), its box, then at the bottom its answers and the page's other actions and
+/// links, each with its key. Without `choose` the answers are buttons, a yes green and a no
+/// (with a note) orange; ↑ ↓ select an item and Return opens it. With `choose` the answers
+/// are a choice, the recommended one selected at first, the selected one's detail under
+/// it; ↑ ↓ move the selection and Return answers it (`PanelKeys`). An answer is the page's
+/// action of its key (`Panel.action`): `act` submits its call, or opens its page (a no's
+/// note form). `others`: the page's actions besides (More…).
 struct PanelView: View {
     let block: PanelBlock
+    let others: [ActionModel]
     let open: (String) -> Void
     let act: (ActionModel) -> Void
 
     @State private var panel: Panel
-    @FocusState private var focused: Bool
+    @State private var token = UUID()
     @Environment(\.pendingAction) private var pending
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openURL) private var openURL
+    @Environment(\.panelKeys) private var panelKeys
 
-    init(block: PanelBlock, open: @escaping (String) -> Void, act: @escaping (ActionModel) -> Void) {
+    init(block: PanelBlock, others: [ActionModel] = [], open: @escaping (String) -> Void,
+         act: @escaping (ActionModel) -> Void) {
         self.block = block
+        self.others = others
         self.open = open
         self.act = act
         _panel = State(initialValue: Panel(block))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            bar
-            VStack(alignment: .leading, spacing: Prism.Spacing.s13) {
-                if let byline = block.byline, !byline.isEmpty {
-                    // The ages keep current.
-                    TimelineView(.periodic(from: .now, by: 60)) { context in
-                        Text(Panel.byline(byline, now: context.date))
-                            .prism(Prism.Typography.caption).foregroundStyle(muted)
-                    }
+        VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
+            PanelHeading(eyebrow: block.heading, title: block.title, key: block.key, trailing: block.aside)
+            if let byline = block.byline, !byline.isEmpty {
+                // The ages keep current.
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(Panel.byline(byline, now: context.date))
+                        .prism(Prism.Typography.caption).foregroundStyle(muted)
                 }
-                if !panel.items.isEmpty {
-                    items
-                }
-                if let item = panel.selectedItem, let details = item.details, !details.isEmpty {
-                    PanelDetails(pairs: details)
-                }
-                if let checks = block.checks, !checks.isEmpty {
-                    PanelChecks(checks: checks)
-                }
-                if let box = block.box {
-                    PanelBox(box: box)
-                }
-                if panel.choosing {
-                    choice
-                } else if !panel.answers.isEmpty {
-                    FlowLayout(spacing: Prism.Spacing.s10) {
-                        ForEach(panel.answers, id: \.key) { answer in
-                            AnswerButton(answer: answer, pending: PageActions.isPending(Panel.action(answer), pending)) {
-                                apply(panel.answer(answer))
-                            }
-                        }
-                    }
-                }
-                if let pending, pending.kind == .sending {
-                    HStack(spacing: Prism.Spacing.s6) {
-                        ProgressView().controlSize(.small)
-                        Text(pending.text).foregroundStyle(muted)
-                    }
-                }
-                keys
             }
-            .padding(Prism.Spacing.s15)
+            if !panel.items.isEmpty {
+                items
+            }
+            if let item = panel.selectedItem, let details = item.details, !details.isEmpty {
+                PanelDetails(pairs: details)
+            }
+            if let checks = block.checks, !checks.isEmpty {
+                PanelChecks(checks: checks)
+            }
+            if let box = block.box {
+                PanelBox(box: box)
+            }
+            if panel.choosing {
+                choice
+            }
+            if let pending, pending.kind == .sending {
+                HStack(spacing: Prism.Spacing.s6) {
+                    ProgressView().controlSize(.small)
+                    Text(pending.text).foregroundStyle(muted)
+                }
+            }
+            buttons
         }
         .lineLimit(nil)
         .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(scheme == .dark ? PrismCard.systemBackground : Prism.Colors.white)
-        .clipShape(RoundedRectangle(cornerRadius: Prism.radius))
-        .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(Prism.Colors.primary, lineWidth: 2))
-        .focusable()
-        .focusEffectDisabled()
-        .focused($focused)
-        .onKeyPress { press in
-            guard let key = Self.key(press), let outcome = panel.press(key) else { return .ignored }
-            apply(outcome)
-            return .handled
-        }
-        .onAppear { focused = true }
+        .modifier(PanelCard())
+        .onAppear(perform: claim)
+        .onDisappear { panelKeys?.release(token) }
         .onChange(of: block) { _, new in panel.update(new) }
     }
 
-    /// The bar: white on primary's shade (white on primary itself is under 4.5:1).
-    private var bar: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s15) {
-            Text("◆ " + block.heading).prism(Prism.Typography.labelSmall).fixedSize()
-            Text(block.title).prism(Prism.Typography.label)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if let aside = block.aside, !aside.isEmpty {
-                Text(aside).prism(Prism.Typography.caption).fixedSize()
-            }
+    /// ↑ ↓ and Return, wherever the focus is in the window. The arrows only ever move the
+    /// selection; Return opens or answers the selected one, once.
+    private func claim() {
+        panelKeys?.claim(token) { [$panel, open, act] key, isRepeat in
+            guard let outcome = $panel.wrappedValue.press(key, isRepeat: isRepeat) else { return false }
+            Self.apply(outcome, open: open, act: act)
+            return true
         }
-        .foregroundStyle(Prism.Colors.white)
-        .padding(.horizontal, Prism.Spacing.s15)
-        .padding(.vertical, Prism.Spacing.s10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Prism.Colors.primaryShade)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
     }
 
     private var muted: Color { Prism.Colors.muted(scheme) }
 
-    /// The items, one row each: ▸ on the selected one, its key, its label.
+    /// The items, one row each: its key, its label; the selected one set apart.
     private var items: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s2) {
             ForEach(Array(panel.items.enumerated()), id: \.element.key) { offset, item in
                 PanelRow(marker: offset == panel.selected, key: item.key, label: item.label, tags: [],
-                         accessibility: "\(item.key): \(item.label)") {
+                         accessibility: "\(item.key): \(item.label)", hint: "Select; again to open (↑ ↓, Return)") {
                     apply(panel.click(item: item))
                 }
             }
@@ -131,16 +107,38 @@ struct PanelView: View {
             VStack(alignment: .leading, spacing: Prism.Spacing.s2) {
                 ForEach(Array(panel.answers.enumerated()), id: \.element.key) { offset, answer in
                     PanelRow(marker: offset == panel.selected, key: answer.key, label: answer.label,
-                             tags: Self.tags(answer), accessibility: "Answer \(answer.key): \(answer.label)") {
+                             tags: Self.tags(answer), accessibility: "Answer \(answer.key): \(answer.label)",
+                             hint: "Answer (\(answer.key); ↑ ↓ choose, Return answers the selected one)") {
                         apply(panel.answer(answer))
                     }
                 }
             }
             if let detail = panel.selectedAnswer?.detail, !detail.isEmpty {
-                Text(detail).prism(Prism.Typography.caption).foregroundStyle(muted).lineLimit(1)
-                    .padding(.leading, Prism.Spacing.s6)
+                Text(detail).prism(Prism.Typography.caption).foregroundStyle(muted)
+                    .padding(.leading, Prism.Spacing.s10)
             }
         }
+    }
+
+    /// At the bottom: the answers as buttons (not in a choice), then the panel's actions
+    /// and links, and the page's other actions, each with its key.
+    private var buttons: some View {
+        FlowLayout(spacing: Prism.Spacing.s10) {
+            if !panel.choosing {
+                ForEach(panel.answers, id: \.key) { answer in
+                    AnswerButton(answer: answer, pending: PageActions.isPending(Panel.action(answer), pending)) {
+                        apply(panel.answer(answer))
+                    }
+                }
+            }
+            ForEach(Array(((block.actions ?? []) + others).enumerated()), id: \.offset) { _, action in
+                KeyButton(label: action.label, key: action.key) { act(action) }
+            }
+            ForEach(Array(Panel.links(block).enumerated()), id: \.offset) { _, link in
+                KeyButton(label: link.link.label, key: link.link.key) { openURL(link.url) }
+            }
+        }
+        .textSelection(.disabled)
     }
 
     private static func tags(_ answer: PanelAnswerModel) -> [RoleTagModel] {
@@ -154,42 +152,48 @@ struct PanelView: View {
         return tags
     }
 
-    /// The keys there are, in one line: the arrows and Return, then the panel's actions
-    /// and links, each a click away too.
-    private var keys: some View {
-        FlowLayout(spacing: Prism.Spacing.s13) {
-            if panel.choosing, !panel.answers.isEmpty {
-                KeyHint(key: "↑↓", label: "choose")
-                KeyHint(key: "Return", label: "answer")
-            } else if !panel.items.isEmpty {
-                KeyHint(key: "↑↓", label: "select")
-                KeyHint(key: "Return", label: "open")
-            }
-            ForEach(Array((block.actions ?? []).enumerated()), id: \.offset) { _, action in
-                KeyHint(key: action.key, label: action.label) { act(action) }
-            }
-            ForEach(Array(Panel.links(block).enumerated()), id: \.offset) { _, link in
-                KeyHint(key: link.link.key, label: link.link.label) { openURL(link.url) }
-            }
-        }
-        .textSelection(.disabled)
+    private func apply(_ outcome: Panel.Outcome) {
+        Self.apply(outcome, open: open, act: act)
     }
 
-    private func apply(_ outcome: Panel.Outcome) {
+    private static func apply(_ outcome: Panel.Outcome, open: (String) -> Void, act: (ActionModel) -> Void) {
         switch outcome {
         case .nothing: break
         case .open(let to): open(to)
         case .act(let action): act(action)
         }
     }
+}
 
-    private static func key(_ press: KeyPress) -> Panel.Key? {
-        switch press.key {
-        case .return: .enter
-        case .upArrow: .up
-        case .downArrow: .down
-        default: nil
+/// The top of a panel: the eyebrow (what is asked of its owner, "TO ACCEPT") in small
+/// caps, the one place in primary; under it the title as a heading with the key of the
+/// fact it is about, muted, beside it; `trailing` (how far it is, how many) muted at the
+/// right.
+struct PanelHeading: View {
+    let eyebrow: String
+    let title: String
+    let key: String?
+    let trailing: String?
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Prism.Spacing.s6) {
+            Text(eyebrow.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.8)
+                .foregroundStyle(Prism.Colors.accentText(scheme))
+            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
+                (Text(title) + Text(key.map { "   " + $0 } ?? "").font(Prism.Typography.label.font.weight(.regular))
+                    .foregroundColor(Prism.Colors.muted(scheme)))
+                    .prism(Prism.Typography.title7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let trailing, !trailing.isEmpty {
+                    Text(trailing).prism(Prism.Typography.caption).foregroundStyle(Prism.Colors.muted(scheme))
+                        .fixedSize()
+                }
+            }
         }
+        .textSelection(.enabled)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -199,14 +203,15 @@ struct RoleTagModel: Hashable {
     let tint: Color
 }
 
-/// One item or answer, one row: ▸ on the selected one, its key, its label, and at the
-/// right what sets it apart. The selected row has Prism's selection tint. A click takes it.
+/// One item or answer, one row: its key, its label, and at the right what sets it apart.
+/// The selected row is on Prism's selection tint; hovering one shows it takes a click.
 struct PanelRow: View {
     let marker: Bool
     let key: String
     let label: String
     let tags: [RoleTagModel]
     let accessibility: String
+    var hint: String = ""
     let take: () -> Void
     @State private var hovering = false
     @Environment(\.colorScheme) private var scheme
@@ -214,8 +219,7 @@ struct PanelRow: View {
     var body: some View {
         Button(action: take) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
-                Text(marker ? "▸" : " ").bold().frame(width: Prism.Spacing.s10)
-                Text(key).monospaced().bold().fixedSize()
+                Text(key).monospaced().foregroundStyle(Prism.Colors.muted(scheme)).fixedSize()
                 Text(label).bold(marker)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 ForEach(tags, id: \.self) { tag in
@@ -224,7 +228,7 @@ struct PanelRow: View {
             }
             .prism(Prism.Typography.tableRow)
             .multilineTextAlignment(.leading)
-            .padding(.horizontal, Prism.Spacing.s6)
+            .padding(.horizontal, Prism.Spacing.s10)
             .padding(.vertical, Prism.Spacing.s7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -233,12 +237,13 @@ struct PanelRow: View {
         .background(Prism.Colors.row(scheme, selected: marker, hovering: hovering),
                     in: RoundedRectangle(cornerRadius: Prism.radius))
         .onHover { hovering = $0 }
+        .help(hint)
         .accessibilityLabel(accessibility + tags.map { ", " + $0.text }.joined())
         .accessibilityAddTraits(marker ? [.isSelected] : [])
     }
 }
 
-/// The selected item's details, a label and its value per row, framed.
+/// The selected item's details, a label and its value per row, on a faint surface.
 struct PanelDetails: View {
     let pairs: [PairModel]
     @Environment(\.colorScheme) private var scheme
@@ -260,7 +265,6 @@ struct PanelDetails: View {
 /// tint, then the check and what it says.
 struct PanelChecks: View {
     let checks: [CheckModel]
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Prism.Spacing.s10, verticalSpacing: Prism.Spacing.s6) {
@@ -291,7 +295,8 @@ struct PanelChecks: View {
     }
 }
 
-/// A framed text with its title (muted); with tone `error`, an error-coloured border.
+/// A text with its title (muted), on a faint surface; with tone `error`, framed in the
+/// error colour, the one frame that says something.
 struct PanelBox: View {
     let box: BoxModel
     @Environment(\.colorScheme) private var scheme
@@ -305,9 +310,9 @@ struct PanelBox: View {
     }
 }
 
-/// An answer as a button: its key and label, with "· note" for one given with a note.
-/// A yes on the success tint, a no on the warning tint; grey1 text either way. Pending,
-/// a spinner in place of its key.
+/// An answer as a button: its key as a keycap on its left, its label, with "· note" for
+/// one given with a note. A yes on the success tint, a no on the warning tint; grey1 text
+/// either way. Pending, a spinner in place of its key.
 struct AnswerButton: View {
     let answer: PanelAnswerModel
     let pending: Bool
@@ -320,7 +325,7 @@ struct AnswerButton: View {
                 if pending {
                     ProgressView().controlSize(.mini)
                 } else {
-                    Keycap(key: answer.key)
+                    Keycap(key: answer.key, inButton: true)
                 }
                 Text(no ? answer.label + " · note" : answer.label).prism(Prism.Typography.labelSmall)
             }
@@ -330,47 +335,70 @@ struct AnswerButton: View {
             .background(no ? Prism.Colors.warningLight : Prism.Colors.successLight,
                         in: RoundedRectangle(cornerRadius: Prism.radius))
             .overlay(RoundedRectangle(cornerRadius: Prism.radius)
-                .strokeBorder(no ? Prism.Colors.warning : Prism.Colors.success, lineWidth: 1.5))
+                .strokeBorder(no ? Prism.Colors.warning : Prism.Colors.success, lineWidth: 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(pending)
-        .help("\(answer.label) (key \(answer.key))")
+        .help("\(answer.label) (\(answer.key))")
     }
 }
 
-/// A key as the key line shows it: grey1 on tertiary.
-struct Keycap: View {
+/// An action or link of a panel as a quiet button: its key as a keycap, its label.
+struct KeyButton: View {
+    let label: String
     let key: String
+    let take: () -> Void
 
     var body: some View {
-        Text(key).font(.caption.monospaced().bold())
-            .foregroundStyle(Prism.Colors.grey1)
-            .padding(.horizontal, Prism.Spacing.s5).padding(.vertical, Prism.Spacing.s1)
-            .background(Prism.Colors.tertiary, in: RoundedRectangle(cornerRadius: Prism.radius))
-            .fixedSize()
+        Button(action: take) {
+            HStack(spacing: Prism.Spacing.s6) {
+                if let glyph = Keycap.glyph(key) { Keycap(key: glyph, inButton: true) }
+                Text(label)
+            }
+        }
+        .buttonStyle(.bordered)
+        .help(Keycap.glyph(key).map { "\(label) (\($0))" } ?? label)
     }
 }
 
-/// A key and what it does, muted; with `take`, a click does it too.
-struct KeyHint: View {
+/// A key, as macOS shows a menu's shortcut: a small neutral keycap (grey5 with a thin grey3
+/// border in light, a grey a little lighter than the surface in dark), in the text's own
+/// colour. Inside a button (`inButton`) it is quieter: no fill, the label's colour.
+struct Keycap: View {
     let key: String
-    let label: String
-    var take: (() -> Void)?
+    var inButton = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let content = HStack(spacing: Prism.Spacing.s5) {
-            Keycap(key: key)
-            Text(label).prism(Prism.Typography.captionSmall).foregroundStyle(Prism.Colors.muted(scheme))
-        }
-        .fixedSize()
-        if let take {
-            Button(action: take) { content.contentShape(Rectangle()) }
-                .buttonStyle(.plain)
-                .help("\(label) (key \(key))")
-        } else {
-            content
+        Text(key).font(.caption.monospaced())
+            .padding(.horizontal, Prism.Spacing.s5).padding(.vertical, Prism.Spacing.s1)
+            .background(fill, in: RoundedRectangle(cornerRadius: Prism.radius))
+            .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(border, lineWidth: 0.5))
+            .opacity(inButton ? 0.85 : 1)
+            .fixedSize()
+            .accessibilityHidden(true)
+    }
+
+    private var fill: Color {
+        if inButton { return .clear }
+        return scheme == .dark ? Color.white.opacity(0.12) : Prism.Colors.grey5
+    }
+
+    private var border: Color {
+        if inButton { return Color.primary.opacity(0.3) }
+        return scheme == .dark ? Color.white.opacity(0.2) : Prism.Colors.grey3
+    }
+
+    /// A key as a keycap shows it: one character as it is, Control's named keys as their
+    /// signs (Enter ↩, Up ↑, Down ↓); nil for a key it does not show.
+    static func glyph(_ key: String) -> String? {
+        switch key {
+        case "Enter": "↩"
+        case "Up": "↑"
+        case "Down": "↓"
+        case _ where key.count == 1: key
+        default: nil
         }
     }
 }
