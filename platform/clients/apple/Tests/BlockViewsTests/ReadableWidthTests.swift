@@ -4,9 +4,8 @@ import AtlasControlKit
 import SwiftUI
 import XCTest
 
-/// An opened page, in the room its column gives it: what is decided at most about 100
-/// characters of the body font wide, centred; its details beside it from about 144
-/// characters on, else under it.
+/// An opened page, in the room its column gives it: at most about 100 characters of the
+/// body font wide, centred; its details under what is decided, at any width.
 @MainActor
 final class ReadableWidthTests: XCTestCase {
     func testTheMeasureIsAboutAHundredCharactersOfTheBodyFont() {
@@ -36,7 +35,7 @@ final class ReadableWidthTests: XCTestCase {
         }
     }
 
-    func testDetailsStandBesideThePageWhenItsColumnIsWideEnoughElseUnderIt() {
+    func testDetailsStayUnderThePageAtEveryWidth() {
         let page = PageMessage(blocks: [Block(raw: Self.list), Block(raw: Self.item)],
                                markup: [MarkupEntry(raw: Self.details)], path: "/k/widget/W-01", title: "W-01")
         let presentation = PagePresentation(page)
@@ -44,21 +43,12 @@ final class ReadableWidthTests: XCTestCase {
         XCTAssertEqual(presentation.details?.title, "Details")
         XCTAssertEqual(presentation.details?.groups.map(\.id), ["block:item"])
 
-        // Wide: two columns, centred together; the main column first up to its measure, the
-        // details the rest up to the same. A usual wide window's page column (900 pt) has both.
-        let gap = Prism.detailsGap, least = Prism.detailsLeast, measure = Prism.readableWidth
-        for (column, main, side) in [(2000.0, measure, measure),
-                                     (900.0, 900 - gap - least, least),
-                                     (Prism.besideWidth, Prism.besideWidth - gap - least, least)] {
+        for column in [2400.0, 1200.0, 500.0] {
             let lists = Self.lists(page, column)
-            XCTAssertEqual(lists.count, 2, "column \(column)")
-            XCTAssertEqual(lists[0].width, main, accuracy: 1)
-            XCTAssertEqual(lists[1].width, side, accuracy: 1)
-            XCTAssertEqual(lists[1].minX - lists[0].maxX, gap, accuracy: 1)
-            XCTAssertEqual((lists[0].minX + lists[1].maxX) / 2, column / 2, accuracy: 1)
+            XCTAssertEqual(lists.count, 1, "column \(column)")
+            XCTAssertEqual(lists[0].width, min(column, Prism.readableWidth), accuracy: 1)
+            XCTAssertEqual(lists[0].midX, column / 2, accuracy: 1)
         }
-        // Narrower: one column, the details in it.
-        XCTAssertEqual(Self.lists(page, Prism.besideWidth - 1).count, 1)
     }
 
     /// The frames of the page's lists, left to right, in a column `width` wide.
