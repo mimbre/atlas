@@ -298,6 +298,7 @@ defmodule AtlasControl.PanelTest do
              {"option-1", "option", retry},
              {"option-2", "option", close},
              {"answers", "answers", %{"answers" => [log | _]}},
+             {"actions", "actions", %{"actions" => [_ | _]}},
              {"list:of_widget", "list", _},
              {"item", "item", %{"actions" => []}} | _
            ] =

@@ -118,18 +118,21 @@ defmodule AtlasControl.SupervisionTest do
 
   defp block(page, id), do: Enum.find(page.blocks, &(&1["id"] == id))
 
-  # The `to`s of the item's Pick up, Hand over…, Retry and Remove actions.
-  defp supervision_tos(page) do
-    for %{"to" => to} <- block(page, "item")["props"]["actions"] || [],
+  # The `to`s of the Pick up, Hand over…, Retry and Remove actions in the page's blocks
+  # of `ids`.
+  defp supervision_tos(page, ids \\ ["item"]) do
+    for id <- ids,
+        %{"props" => props} <- [block(page, id)],
+        %{"to" => to} <- props["actions"] || props["answers"] || [],
         elem(Pages.route(to), 0) in [:pick_up, :hand_over, :retry, :remove_item],
         do: to
   end
 
-  # The supervision actions a fact's page offers as its next step, and those under its
-  # More… (its secondary menu, which reads as the page does).
+  # The supervision actions a fact's page offers as its next step (on the item, or the
+  # answers of a page that decides), and those in its actions block.
   defp offered(m, answers, viewer) do
-    next = supervision_tos(Pages.render({:item, "widget", "W-1"}, m, answers, viewer))
-    {next, supervision_tos(Pages.render({:more, "widget", "W-1"}, m, answers, viewer))}
+    page = Pages.render({:item, "widget", "W-1"}, m, answers, viewer)
+    {supervision_tos(page, ["item", "answers"]), supervision_tos(page, ["actions"])}
   end
 
   test "the two models differ only in the kind the span's work is written on" do
@@ -372,7 +375,7 @@ defmodule AtlasControl.SupervisionTest do
       presentation = Map.put(presented(supervisor: ["ada"], owner: ["ada"]), "todo", todo)
       answers = item_answers(m, work(m, "W-1", presentation), [member("ada")])
       page = Pages.render({:item, "widget", "W-1"}, m, answers, @tui_ada)
-      tos = for %{"to" => to} <- block(page, "item")["props"]["actions"], do: to
+      tos = for %{"to" => to} <- block(page, "answers")["props"]["answers"], do: to
 
       assert answer in tos
       refute retry in tos
@@ -388,8 +391,9 @@ defmodule AtlasControl.SupervisionTest do
   test "nothing raw where the flow covers it: no Delete beside Remove, no Create of what it makes" do
     for m <- @models do
       tos = fn m, answers ->
-        page = Pages.render({:more, "widget", "W-1"}, m, answers, @tui_ada)
-        for %{"to" => to} <- block(page, "item")["props"]["actions"], do: elem(Pages.route(to), 0)
+        page = Pages.render({:item, "widget", "W-1"}, m, answers, @tui_ada)
+        actions = (block(page, "actions") || %{"props" => %{"actions" => []}})["props"]["actions"]
+        for %{"to" => to} <- actions, do: elem(Pages.route(to), 0)
       end
 
       mine = item_answers(m, work(m, "W-1", presented(supervisor: ["ada"])), [member("ada")])

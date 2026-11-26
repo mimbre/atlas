@@ -261,7 +261,7 @@ defmodule AtlasControl.SessionTest do
   test "a client sees the top list at once", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
-    assert %{"env" => "test", "spec" => "0.33.0"} = next(c, "welcome")
+    assert %{"env" => "test", "spec" => "0.34.0"} = next(c, "welcome")
     assert %{"path" => "/", "title" => "Widgets", "reason" => "open"} = page = next(c, "page")
     assert rows(page) == ["One"]
   end
@@ -482,8 +482,13 @@ defmodule AtlasControl.SessionTest do
     next(b, "page")
     put(b, %{"op" => "open", "to" => "/k/widget/W-1"})
 
-    assert %{"blocks" => [%{"type" => "item"}, %{"type" => "list", "props" => %{"rows" => []}}]} =
-             next(b, "page")
+    assert %{
+             "blocks" => [
+               %{"type" => "item"},
+               %{"type" => "actions"},
+               %{"type" => "list", "props" => %{"rows" => []}}
+             ]
+           } = next(b, "page")
 
     put(a, %{"op" => "open", "to" => "/k/part/new/of_widget/W-1"})
     assert %{"title" => "Create part in W-1"} = next(a, "page")
@@ -499,12 +504,14 @@ defmodule AtlasControl.SessionTest do
 
     assert %{
              "reason" => "hint",
-             "blocks" => [_, %{"props" => %{"rows" => [%{"label" => "Wheel"}]}}]
+             "blocks" => [_, _, %{"props" => %{"rows" => [%{"label" => "Wheel"}]}}]
            } = next(b, "page")
 
     put(a, %{"op" => "submit", "to" => "/k/part/P-01/delete", "values" => %{}})
     assert %{"path" => "/k/widget/W-1", "reason" => "stored"} = next(a, "page")
-    assert %{"reason" => "hint", "blocks" => [_, %{"props" => %{"rows" => []}}]} = next(b, "page")
+
+    assert %{"reason" => "hint", "blocks" => [_, _, %{"props" => %{"rows" => []}}]} =
+             next(b, "page")
   end
 
   test "a change moves a fact to another parent; clients on both parents see it by hint",
@@ -517,9 +524,9 @@ defmodule AtlasControl.SessionTest do
     new = client(port)
     for c <- [a, old, new], do: next(c, "page")
     put(old, %{"op" => "open", "to" => "/k/widget/W-1"})
-    assert %{"blocks" => [_, %{"props" => %{"rows" => [_]}}]} = next(old, "page")
+    assert %{"blocks" => [_, _, %{"props" => %{"rows" => [_]}}]} = next(old, "page")
     put(new, %{"op" => "open", "to" => "/k/widget/W-2"})
-    assert %{"blocks" => [_, %{"props" => %{"rows" => []}}]} = next(new, "page")
+    assert %{"blocks" => [_, _, %{"props" => %{"rows" => []}}]} = next(new, "page")
 
     put(a, %{"op" => "open", "to" => "/k/part/P-1/edit"})
     assert %{"blocks" => [%{"props" => form}]} = next(a, "page")
@@ -549,10 +556,10 @@ defmodule AtlasControl.SessionTest do
     assert %{"cause" => "Moved from W-1 to W-2 (of_widget), by a change in Control"} =
              FakeStore.last_fact()
 
-    assert %{"reason" => "hint", "blocks" => [_, %{"props" => %{"rows" => []}}]} =
+    assert %{"reason" => "hint", "blocks" => [_, _, %{"props" => %{"rows" => []}}]} =
              next(old, "page")
 
-    assert %{"reason" => "hint", "blocks" => [_, %{"props" => %{"rows" => [%{"to" => to}]}}]} =
+    assert %{"reason" => "hint", "blocks" => [_, _, %{"props" => %{"rows" => [%{"to" => to}]}}]} =
              next(new, "page")
 
     assert to == "/k/part/P-1"

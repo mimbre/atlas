@@ -25,6 +25,8 @@ public struct PagePresentation: Sendable, Equatable {
         case instruction(InstructionBlock)
         /// The page's answers, each on its key: the page's actions (`PageActions.all`).
         case answers(AnswersBlock)
+        /// What else can be done with the page's subject, quieter than its answers.
+        case actions(ActionsBlock)
         /// One option of a decision: what it means and its own answer.
         case option(OptionBlock)
         /// A form: its inputs, edited and submitted to its call.
@@ -112,6 +114,7 @@ public struct PagePresentation: Sendable, Equatable {
             case .text(let text): item = .text(text)
             case .instruction(let instruction): item = .instruction(instruction)
             case .answers(let answers): item = .answers(answers)
+            case .actions(let actions): item = .actions(actions)
             case .option(let option): item = .option(option)
             case .form(let form): item = .form(form)
             case .confirm(let confirm): item = .confirm(confirm)

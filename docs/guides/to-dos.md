@@ -63,7 +63,7 @@ A step has three kinds of line, shown in the order they are written:
 Control sends the page as a stack of simple blocks, each client stacking them as it
 likes: a `header` (TO DO FOR YOU, the key and the title), a `text` (the why and its
 age), one `instruction` per step (its number and its lines), the `answers` (Done and
-Won't do, each with a note, and More…), then the details. The same blocks serve other
+Won't do, each with a note), the page's other actions (`actions`, quieter), then the details. The same blocks serve other
 pages.
 
 In the TUI every step is open, one under the other, their numbers in one column. ↑ and

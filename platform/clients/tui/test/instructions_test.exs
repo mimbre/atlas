@@ -61,9 +61,15 @@ defmodule AtlasTui.InstructionsTest do
             "props" => %{
               "answers" => [
                 answer.("Done", "x"),
-                answer.("Won't do", "n"),
-                %{"label" => "More…", "key" => "m", "to" => path <> "/more"}
+                answer.("Won't do", "n")
               ]
+            }
+          },
+          %{
+            "id" => "actions",
+            "type" => "actions",
+            "props" => %{
+              "actions" => [%{"label" => "Update chore", "key" => "u", "to" => path <> "/edit"}]
             }
           },
           %{
@@ -115,7 +121,7 @@ defmodule AtlasTui.InstructionsTest do
     assert text =~ ~r/│ mkdir w\n\n +⌘ Finder › Home › w\n\n +│ cd w\n\n +3\. Tell us/
 
     assert text =~
-             "x Done · note · n Won't do · note · m More… · ↑↓ command · c copy · y copy all"
+             "x Done · note · n Won't do · note · u Update chore · ↑↓ command · c copy · y copy all"
 
     refute text =~ ~r/step \d+ of/i
     refute text =~ ~r/Enter|Next step|Previous step|✓ 1\./
@@ -173,8 +179,13 @@ defmodule AtlasTui.InstructionsTest do
   test "each answer's key is the page's action: it opens the answer" do
     {model, _} = press(model(), [{:char, "x"}])
     assert model.console.in_flight == @path <> "/answer/x"
-    {model, _} = press(model(), [{:char, "m"}])
-    assert model.console.in_flight == @path <> "/more"
+    {model, _} = press(model(), [{:char, "u"}])
+    assert model.console.in_flight == @path <> "/edit"
+  end
+
+  test "the page's other actions follow the answers in their key line, muted, each on its key" do
+    lines = View.render(model(), 90, 60, 30)
+    assert Enum.any?(lines, &({:muted, " Update chore"} in &1 and {:muted, "u"} in &1))
   end
 
   test "a route shows ⌘, its parts in the route colour and muted › between them, in order" do

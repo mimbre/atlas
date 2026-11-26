@@ -58,10 +58,17 @@ defmodule AtlasBFFContract.Blocks do
         field :lines, {:list, :instruction_line}, required: true
       end
 
-      # What the viewer can answer, in Control's order, each on its key (and the page's
-      # More…); `note`: the answer asks a note.
+      # What the viewer can answer, in Control's order, each on its key; `note`: the
+      # answer asks a note.
       defblock :answers do
         field :answers, {:list, :panel_answer}, required: true
+      end
+
+      # What else can be done with the page's subject (change it, hand it over, delete it,
+      # create something under it), each on its key, in Control's order: below its
+      # answers, quieter than they are. One that is dangerous opens its confirm first.
+      defblock :actions do
+        field :actions, {:list, :action}, required: true
       end
 
       # One option of a decision, one block per option in Control's order (the

@@ -272,7 +272,7 @@ defmodule Model.UseCase do
         expected: "Accept its issues",
         why: "its agent's break-down is done",
         instructions:
-          "Read the issues under it, which its agent proposed; change any, or remove one (Remove, under More… on its page), then accept them. They can then be picked up and built. Or say why not: the issues its agent proposed are removed, and it proposes again with your note; issues you added stay.",
+          "Read the issues under it, which its agent proposed; change any, or remove one (Remove, on its page), then accept them. They can then be picked up and built. Or say why not: the issues its agent proposed are removed, and it proposes again with your note; issues you added stay.",
         answers: [
           [key: "a", label: "Accept", change: %{values: %{verdict: :accept}}],
           [

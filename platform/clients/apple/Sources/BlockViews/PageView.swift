@@ -189,6 +189,7 @@ public struct PageView: View {
         case .text(let text): TextBlockView(block: text)
         case .instruction(let instruction): InstructionView(block: instruction)
         case .answers(let answers): AnswersView(block: answers, quiet: presentation.hasOptions, act: act)
+        case .actions(let actions): OtherActionsView(block: actions, act: act)
         // A page that asks is shown over the window (ActionPageView), not in a column.
         case .form: FallbackView(type: "form", reason: nil)
         case .confirm: FallbackView(type: "confirm", reason: nil)
@@ -277,7 +278,7 @@ struct ListRowView: View {
         }
         .buttonStyle(.plain)
         .disabled(row.to == nil)
-        .background(Prism.Colors.row(scheme, selected: selected, hovering: hovering),
+        .background(PrismDarkGap.row(scheme, selected: selected, hovering: hovering),
                     in: RoundedRectangle(cornerRadius: Prism.radius))
         .overlay(alignment: .leading) {
             if selected {
@@ -305,7 +306,7 @@ struct RowLabel: View {
         let tone = RowTone(row.tone)
         // Muted text that keeps 4.5:1; inside the list's emphasized selection the system's
         // own secondary colour, which stays legible on it.
-        let quiet = prominence == .increased ? AnyShapeStyle(.secondary) : AnyShapeStyle(Prism.Colors.muted(scheme))
+        let quiet = prominence == .increased ? AnyShapeStyle(.secondary) : AnyShapeStyle(PrismDarkGap.muted(scheme))
         HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
             if row.tone != nil || row.since != nil {
                 Circle().fill(tone.map(Self.colour) ?? .clear)
@@ -377,10 +378,10 @@ struct ItemBlockView: View {
                 VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
                     if let label = field.label, !label.isEmpty {
                         Text(label).prism(inDetails ? Prism.Typography.captionSmall : Prism.Typography.labelSmall)
-                            .foregroundStyle(inDetails ? AnyShapeStyle(Prism.Colors.muted(scheme)) : AnyShapeStyle(.secondary))
+                            .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
                     Text(field.value ?? "—").prism(inDetails ? Prism.Typography.caption : Prism.Typography.tableRow)
-                        .foregroundStyle(inDetails ? AnyShapeStyle(Prism.Colors.muted(scheme)) : AnyShapeStyle(.primary))
+                        .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.primary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

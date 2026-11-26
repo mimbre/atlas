@@ -149,7 +149,7 @@ defmodule AtlasAgent.CLITest do
       %{
         "id" => "answers",
         "type" => "answers",
-        "props" => %{"answers" => [answer.("m", "More…")]}
+        "props" => %{"answers" => [answer.("v", "Hand over…")]}
       },
       %{"id" => "panel", "type" => "panel", "props" => %{"part" => nil, "lines" => [[1, 2]]}}
     ])
@@ -162,7 +162,7 @@ defmodule AtlasAgent.CLITest do
           Then: Clients stack them.
       2 Compound blocks (Decline · note)
           Details: Each page its own.
-      m More…
+      v Hand over…
 
     Widget WI-01: A decision
       Title: A decision
