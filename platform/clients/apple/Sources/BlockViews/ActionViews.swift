@@ -365,7 +365,7 @@ public struct ActionPageView: View {
         case .instruction(let instruction):
             InstructionView(block: instruction)
         case .answers(let answers):
-            AnswersView(block: answers, quiet: presentation.hasOptions, act: act)
+            AnswersView(block: answers, act: act)
         case .actions(let actions):
             OtherActionsView(block: actions, act: act)
         case .notShown(let type): FallbackView(type: type, reason: nil)

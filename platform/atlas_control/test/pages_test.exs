@@ -366,7 +366,12 @@ defmodule AtlasControl.PagesTest do
     assert [_ | _] = actions = more({:item, "widget", "W-1"}, @d, [answer, parts])
     refute Enum.any?(actions, & &1["page"])
 
-    assert %{"label" => "Create part", "key" => "c", "to" => "/k/part/new/of_widget/W-1"} in more(
+    assert %{
+             "label" => "Create part",
+             "key" => "c",
+             "to" => "/k/part/new/of_widget/W-1",
+             "icon" => "create"
+           } in more(
              {:item, "widget", "W-1"},
              @d,
              [answer, parts]
@@ -1084,7 +1089,12 @@ defmodule AtlasControl.PagesTest do
   @handed AtlasControl.Model.catalog(Shop.Handed)
 
   test "a change action: on the page with or without a link; its form asks its fields too" do
-    hand = %{"key" => "h", "label" => "Hand to…", "to" => "/k/widget/W-1/links/checked_by"}
+    hand = %{
+      "key" => "h",
+      "label" => "Hand to…",
+      "to" => "/k/widget/W-1/links/checked_by",
+      "icon" => "hand_over"
+    }
 
     answers = fn widget ->
       [
@@ -2112,9 +2122,15 @@ defmodule AtlasControl.PagesTest do
              %{"kind" => "command", "text" => "rm old.key"}
            ]
 
-    # Its answers on their keys, Done asking a note; nothing moves a step.
+    # Its answers on their keys, Done and Won't do asking a note; nothing moves a step.
     assert [%{"key" => "x", "label" => "Done", "to" => "/k/widget/W-1/answer/x", "note" => true}] =
              Enum.filter(blocks["answers"]["answers"], &(&1["key"] == "x"))
+
+    # Each says its weight: Done the main one, Won't do the no, the rest other.
+    weights = Map.new(blocks["answers"]["answers"], &{&1["label"], &1["weight"]})
+    assert %{"Done" => "main", "Won't do" => "no", "Later" => "other"} = weights
+    assert Enum.count(weights, &(elem(&1, 1) == "main")) == 1
+    assert Enum.count(weights, &(elem(&1, 1) == "no")) == 1
 
     refute Enum.any?(blocks["answers"]["answers"], &(&1["key"] in ~w(Enter Up Down)))
     refute Enum.any?(page.blocks, &(&1["type"] == "steps"))
@@ -2193,7 +2209,12 @@ defmodule AtlasControl.PagesTest do
     refute inspect(page.blocks) =~ "Send back"
 
     # The association's own action, as before; no answers.
-    assert %{"key" => "v", "label" => "Check", "to" => "/k/widget/W-1/set/checked_by"} in more(
+    assert %{
+             "key" => "v",
+             "label" => "Check",
+             "to" => "/k/widget/W-1/set/checked_by",
+             "icon" => "hand_over"
+           } in more(
              route,
              @answering,
              running(reads, route, @answering, "check"),

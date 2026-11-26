@@ -864,8 +864,8 @@ defmodule AtlasTui.View do
   # One option of a decision, in a card of its own (the selected one, which Enter answers,
   # on the selected surface and marked ▸): its number as an instruction's, its text and its
   # badge in its tone; each of its fields under it ("Rule: …"); then its answer as a key, as
-  # far as Control projects it: Choose in green, Decline… (which asks a note) in orange, and
-  # on the selected one the keys that select and answer.
+  # far as Control projects it: Choose, Decline · note (which asks a note), the main and the
+  # no in the primary colour, and on the selected one the keys that select and answer.
   defp block(%Option{} = option, _at, model, width, _room) do
     options = Model.options(model)
     selected = Enum.at(options, Model.chosen(options, model.choice)) == option
@@ -1011,14 +1011,17 @@ defmodule AtlasTui.View do
     card(lines, width, :card, model)
   end
 
-  # What the viewer can answer, each on its key as far as Control projects it (one given
-  # with a note says so), then, muted, the page's other actions (its `actions` block), then
-  # the keys of the page's commands: ↑↓, c and y.
+  # What the viewer can answer, each on its key as far as Control projects it, the main
+  # one first, then the no, then the rest (`by_weight/1`; one given with a note says so),
+  # then, muted, the page's other actions (its `actions` block), then the keys of the
+  # page's commands: ↑↓, c and y.
   defp block(%Answers{} = block, _at, model, width, _room) do
     keys = projected_keys(model)
 
     answers =
-      for answer <- block.answers || [], MapSet.member?(keys, answer.key), do: answer_key(answer)
+      for answer <- by_weight(block.answers || []),
+          MapSet.member?(keys, answer.key),
+          do: answer_key(answer)
 
     others = for %Actions{} = actions <- model.blocks, item <- other_keys(actions, keys), do: item
 
@@ -1327,15 +1330,13 @@ defmodule AtlasTui.View do
     end
   end
 
-  # An option's answer on its key, as far as Control projects it: Choose in green, one
-  # that asks a note (Decline…) in orange; on the selected option, Enter that answers it as
-  # its key does and, among more options, the arrows that select; wrapped at `width`.
+  # An option's answer on its key, as far as Control projects it (`answer_key/1`: Choose,
+  # Decline · note); on the selected option, Enter that answers it as its key does and,
+  # among more options, the arrows that select; wrapped at `width`.
   defp option_answer(answer, selected, options, model, width) do
     if MapSet.member?(projected_keys(model), answer.key) do
-      style = if answer.note == true, do: :warning, else: :ok
-
       [
-        [{:key, answer.key}, {style, " " <> single_line(answer.label)}],
+        answer_key(answer),
         selected && [{:key, "Enter"}, {:dim, " answer"}],
         selected && length(options) > 1 && [{:key, "↑↓"}, {:dim, " select"}]
       ]
@@ -1459,13 +1460,14 @@ defmodule AtlasTui.View do
     card(title ++ text_lines(box.text || "", card_width(width)), width, kind, model)
   end
 
-  # A panel's keys, as far as Control projects them: its answers (yes, or no with a note);
-  # what its actions and links open; with items, the arrows and Enter that opens one.
+  # A panel's keys, as far as Control projects them: its answers (main, no, the rest); what
+  # its actions and links open; with items, the arrows and Enter that opens one.
   defp panel_keys(panel, choices, model, width) do
     keys = projected_keys(model)
     on = &MapSet.member?(keys, &1)
 
-    answers = for answer <- panel.answers || [], on.(answer.key), do: answer_key(answer)
+    answers =
+      for answer <- by_weight(panel.answers || []), on.(answer.key), do: answer_key(answer)
 
     opens =
       for open <- (panel.actions || []) ++ (panel.links || []),
@@ -1490,12 +1492,18 @@ defmodule AtlasTui.View do
         do: [{:muted, action.key}, {:muted, " " <> single_line(action.label)}]
   end
 
-  # An answer on its key: a yes, or one given with a note, which says so.
+  # An answer on its key: the main one and the no in the primary colour, the rest dim; one
+  # given with a note says so.
   defp answer_key(answer) do
-    if answer.note == true,
-      do: [{:key, answer.key}, {:warning, " " <> single_line(answer.label) <> " · note"}],
-      else: [{:key, answer.key}, {:ok, " " <> single_line(answer.label)}]
+    style = if answer.weight in ["main", "no"], do: :info, else: :dim
+    note = if answer.note == true, do: " · note", else: ""
+    [{:key, answer.key}, {style, " " <> single_line(answer.label) <> note}]
   end
+
+  # Answers in the order a key line shows them: the main one, the no, then the rest in
+  # Control's order.
+  defp by_weight(answers),
+    do: Enum.sort_by(answers, &Map.get(%{"main" => 0, "no" => 1}, &1.weight, 2))
 
   # `label` before the first line of `text`, the rest under it; under the label when
   # too little room is left beside it.

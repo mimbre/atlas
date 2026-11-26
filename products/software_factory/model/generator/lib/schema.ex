@@ -498,7 +498,10 @@ defmodule RelaDSL.Schema do
   came to them), `instructions:`, `section:` (`[field:, heading:]`, the part of a field
   under that heading; or `[field:, label:]`, the whole field under that label; either
   with `steps: true` when the field is shown as its numbered steps) and
-  `answers:` (each `[key:, label:, set: relation]` or `remove: relation`).
+  `answers:` (each `[key:, label:, set: relation]` or `remove: relation`, or `change:`).
+  An answer may say its weight: `weight: :main` (the positive one) or `weight: :no` (the
+  declining one); else the first answer is the main one and the first other that asks a
+  note the no.
   """
   defmacro present(opts), do: item(:present, [opts])
 
@@ -1500,21 +1503,24 @@ defmodule RelaDSL.Schema do
           not answer?(a, text?),
           do:
             "present's answer #{inspect(Map.to_list(a))} must be [key:, label:, " <>
-              "and set: or remove: a relation, or change: %{values:, self:}]"
+              "and set: or remove: a relation, or change: %{values:, self:}], " <>
+              "with weight: :main or :no or none"
   end
 
   defp answer?(%{change: change} = a, text?) do
     text?.(a[:key]) and text?.(a[:label]) and is_map(change) and
       is_map(change[:values]) and change[:values] != %{} and is_atom(change[:self]) and
       Map.keys(change) -- [:values, :self] == [] and
-      a[:note] in [nil, true] and Map.keys(a) -- [:key, :label, :change, :note] == []
+      a[:note] in [nil, true] and a[:weight] in [nil, :main, :no] and
+      Map.keys(a) -- [:key, :label, :change, :note, :weight] == []
   end
 
   defp answer?(a, text?) do
     ops = Map.take(a, [:set, :remove])
 
     text?.(a[:key]) and text?.(a[:label]) and map_size(ops) == 1 and
-      Enum.all?(ops, fn {_, r} -> is_atom(r) and r != nil end) and map_size(a) == 3
+      Enum.all?(ops, fn {_, r} -> is_atom(r) and r != nil end) and
+      a[:weight] in [nil, :main, :no] and map_size(Map.delete(a, :weight)) == 3
   end
 
   defp put_set(s, props) do

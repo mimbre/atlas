@@ -29,13 +29,15 @@ final class DecisionPageTests: XCTestCase {
         ["id": "why", "type": "text", "props": ["label": "Why", "text": "Nothing to run."]],
         option(1, "Use SQLite", badge: "★ Recommended", tone: "success",
                fields: [("Rule", "Store examples in SQLite."), ("Then", "One file per environment.")],
-               answer: ["label": "Choose", "key": "1", "to": "/k/decision/D-7/answer/1", "submit_to": call("adopt-sqlite")]),
+               answer: ["label": "Choose", "key": "1", "to": "/k/decision/D-7/answer/1", "submit_to": call("adopt-sqlite"),
+                        "weight": "main"]),
         option(2, "Use Postgres",
                fields: [("Rule", "Store examples in Postgres."), ("Then", "A server to run.")],
-               answer: ["label": "Choose", "key": "2", "to": "/k/decision/D-7/answer/2", "submit_to": call("adopt-postgres")]),
+               answer: ["label": "Choose", "key": "2", "to": "/k/decision/D-7/answer/2", "submit_to": call("adopt-postgres"),
+                        "weight": "other"]),
         option(3, "Decline", badge: "Decline · note", tone: "warning",
                fields: [("Details", "Keep things as they are.")],
-               answer: ["label": "Decline…", "key": "3", "to": "/k/decision/D-7/answer/3", "note": true]),
+               answer: ["label": "Decline", "key": "3", "to": "/k/decision/D-7/answer/3", "note": true, "weight": "no"]),
         ["id": "actions", "type": "actions", "props": ["actions": [["label": "Update decision", "key": "u", "to": "/k/decision/D-7/edit"]]]],
         ["id": "item", "type": "item", "props": ["title": "Decision D-7", "fields": [["label": "Id", "value": "D-7"]], "actions": []]],
     ]
@@ -87,7 +89,6 @@ final class DecisionPageTests: XCTestCase {
                        ["block:header", "block:why", "block:option-1", "block:option-2", "block:option-3", "block:actions"])
         XCTAssertEqual(decision.details?.title, "Details")
         XCTAssertTrue(decision.hasHeader, "the header block names the page")
-        XCTAssertTrue(decision.hasOptions, "its options answer it, its answers are the rest")
         XCTAssertFalse(decision.hasPanel)
 
         let stuck = PagePresentation(try Self.page("/k/widget/W-1", Self.stuck))

@@ -84,7 +84,9 @@ defmodule RelaDSL.Control.Rules do
   text}`): the part under its `heading`, or the whole field under its `label`; nil when
   that is empty. A section shown as steps (`steps: true`) has `steps: %{from}` too: the
   field the section shows. Each answer is `%{key, label, note, change, set,
-  remove}`. `panel` is the panel the kind's `panel` annotation declares for the state the
+  remove, weight}`, `weight` `"main"` (exactly one), `"no"` (at most one) or `"other"`:
+  as the model declares it, else the first answer main and the first other that asks a
+  note no. `panel` is the panel the kind's `panel` annotation declares for the state the
   work is in, as written (Control fills it); nil when it declares none.
   """
   def todo(flow, fact, parts, viewer) do
@@ -264,6 +266,7 @@ defmodule RelaDSL.Control.Rules do
 
   defp presented_answers(%{"decision_options" => true} = todo) do
     answers(todo)
+    |> weighed()
     |> Enum.with_index(1)
     |> Enum.map(fn {a, index} ->
       answer_view(a)
@@ -273,13 +276,40 @@ defmodule RelaDSL.Control.Rules do
     end)
   end
 
-  defp presented_answers(todo), do: Enum.map(answers(todo), &answer_view/1)
+  defp presented_answers(todo), do: todo |> answers() |> weighed() |> Enum.map(&answer_view/1)
+
+  # Each answer's weight: as the model declares it; else the first answer main and the
+  # first other that asks a note no; the rest other.
+  defp weighed([]), do: []
+
+  defp weighed(answers) do
+    main =
+      Enum.find(answers, &(&1["weight"] == "main")) ||
+        Enum.find(answers, &(&1["weight"] != "no"))
+
+    no =
+      Enum.find(answers, &(&1["weight"] == "no")) ||
+        Enum.find(answers, &(&1 != main and &1["note"] == true and &1["weight"] == nil))
+
+    for a <- answers do
+      Map.put(
+        a,
+        "weight",
+        cond do
+          a == main -> "main"
+          a == no -> "no"
+          true -> "other"
+        end
+      )
+    end
+  end
 
   defp answer_view(a),
     do: %{
       key: a["key"],
       label: a["label"],
       note: a["note"] == true,
+      weight: a["weight"],
       change: is_map(a["change"]),
       set: if(is_binary(a["set"]), do: a["set"]),
       remove: if(is_binary(a["remove"]), do: a["remove"])

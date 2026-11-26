@@ -223,7 +223,7 @@ public struct PageView: View {
         case .header(let block): HeaderBlockView(block: block, actions: headerActions, act: act)
         case .text(let text): TextBlockView(block: text)
         case .instruction(let instruction): InstructionView(block: instruction)
-        case .answers(let answers): AnswersView(block: answers, quiet: presentation.hasOptions, act: act)
+        case .answers(let answers): AnswersView(block: answers, act: act)
         case .actions(let actions): OtherActionsView(block: actions, act: act)
         // A page that asks is shown over the window (ActionPageView), not in a column.
         case .form: FallbackView(type: "form", reason: nil)

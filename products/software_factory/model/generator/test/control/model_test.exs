@@ -164,6 +164,39 @@ defmodule RelaDSL.Control.ModelTest do
     assert {:refuse, _} = Rules.answer(flow, "s", item, agent)
   end
 
+  test "each answer weighs main, no or other: as the model says, else the first and the first other note" do
+    flow = %{on: nil, on_kind: nil, owner_relation: "held_by", words: %{title: "Letter"}}
+    change = %{"values" => %{"verdict" => "x"}}
+
+    weights = fn answers ->
+      letter = %{
+        "key" => "LE-01",
+        "values" => %{},
+        "presentation" => %{
+          "owner" => ["ada"],
+          "actionable" => true,
+          "todo" => %{"answers" => answers}
+        }
+      }
+
+      for a <- Rules.todo(flow, letter, %{}, %{key: "ada"}).answers, do: {a.label, a.weight}
+    end
+
+    # Not declared: Done (the first, though it asks a note) main, Won't do no, Later other.
+    assert weights.([
+             %{"key" => "x", "label" => "Done", "note" => true, "change" => change},
+             %{"key" => "n", "label" => "Won't do", "note" => true, "change" => change},
+             %{"key" => "l", "label" => "Later", "change" => change}
+           ]) == [{"Done", "main"}, {"Won't do", "no"}, {"Later", "other"}]
+
+    # Declared: a no without a note, and the main one after it.
+    assert weights.([
+             %{"key" => "c", "label" => "Close it", "weight" => "no", "change" => change},
+             %{"key" => "p", "label" => "Publish", "change" => change},
+             %{"key" => "r", "label" => "Retry", "weight" => "main", "change" => change}
+           ]) == [{"Close it", "no"}, {"Publish", "other"}, {"Retry", "main"}]
+  end
+
   test "a section shows the part of a field under its heading, or all of it under a label" do
     flow = %{on: nil, on_kind: nil, owner_relation: "held_by", words: %{title: "Letter"}}
 

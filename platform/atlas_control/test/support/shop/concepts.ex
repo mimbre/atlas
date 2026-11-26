@@ -646,7 +646,11 @@ defmodule AtlasControl.Shop.InstructedWidget do
         expected: "Do it",
         why: "it is yours",
         section: [field: :notes, label: "Notes", steps: true],
-        answers: [[key: "x", label: "Done", note: true, change: %{values: %{done: true}}]]
+        answers: [
+          [key: "x", label: "Done", note: true, change: %{values: %{done: true}}],
+          [key: "n", label: "Won't do", note: true, change: %{values: %{done: false}}],
+          [key: "l", label: "Later", change: %{values: %{done: false}}]
+        ]
       )
 
       branch(to: :done, when: "entity.done == true")
