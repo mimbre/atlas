@@ -18,8 +18,10 @@ defmodule Model.UseCase do
       A use case too vague to break down is not guessed at (UC-Atlas-24): its agent writes
       its questions instead (`asks:`), Flow puts them in the use case's `questions`, and
       "Answer its questions" (`clarifying`) goes to its producer: the person who
-      supervised the Design run that made it (`produced_by`), or the configured decider
-      for one that records none (made by hand, or before producers were recorded). They
+      supervised the Design run that made it (`produced_by`), or who made it by hand (the
+      person at the TUI, or whom the agent that creates it assists; `create(producer:)`,
+      UC-Atlas-23), or the configured decider for one from before producers were
+      recorded. They
       may rewrite the use case and answer with a note (`answers`); a fresh pass of its
       agent then reads the questions, the answers and the use case as they are now. The
       run keeps its supervisor.
@@ -126,7 +128,14 @@ defmodule Model.UseCase do
         "Flow: the last design gate verdict, or a maintainer's choice (none, review, rework, ready, person, close)"
     )
 
-    create(ask: [:title, :description], defaults: [status: :refine, phase: :break_down])
+    # One made by hand records who made it, as a scene does (UC-Atlas-23); Design's are
+    # Flow's, for the run's supervisor.
+    create(
+      ask: [:title, :description],
+      defaults: [status: :refine, phase: :break_down],
+      producer: :produced_by
+    )
+
     progress(over: :in_use_case, field: :stage, own: :status)
     completion(field: :phase, value: :accepted)
   end

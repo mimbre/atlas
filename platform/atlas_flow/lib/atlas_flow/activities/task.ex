@@ -107,8 +107,9 @@ defmodule AtlasFlow.Activities.Task do
   its cause; the agent never writes into Atlas. Each is also linked to that supervisor
   through the model's producer relation (`ctx.producer`, `supervision.producer`, SC-Atlas-09)
   when its kind is one the relation leads from: whoever supervised the run that
-  made it is its producer. A run with no supervisor links none. With no such file, the
-  task ends `stuck`.
+  made it is its producer. Such a fact is never made without one (UC-Atlas-23): while the
+  run has no supervisor, the task's end waits, as it does while Facts does not answer.
+  With no such file, the task ends `stuck`.
   A spec's `writes` (`%{"field", "file"}`, slice 9) asks for one text instead: Flow puts the
   file's text in that field of the subject; with no such file, or an empty one, `stuck`.
 
@@ -129,7 +130,9 @@ defmodule AtlasFlow.Activities.Task do
   and decide its verdict) and follow-ups (outside it), which it adds to its JSON block as
   `follow_ups`, `[{title, description}]` (`AtlasFlow.Answers.follow_ups/1`). When the review ends,
   whatever its verdict, Flow makes one fact of that kind per follow-up under the subject's
-  nearest parent, as it makes a proposal's, with the review in its cause.
+  nearest parent, as it makes a proposal's, with the review in its cause, and linked to the
+  run's supervisor as their producer as a proposal's are: their questions go to whoever
+  supervised the work that found them.
 
   An assignment moved away from the machinery a task was made for, while its flow has no
   supervisor, ends the task `abandoned`: a late report is recorded on the task and
@@ -1024,14 +1027,17 @@ defmodule AtlasFlow.Activities.Task do
   # One fact of `kind` per entry, with the kind's create defaults under it (as a create by
   # hand has them), linked through `relation` to `under`, numbered after the facts of that
   # kind there are, by Flow for the run's supervisor (its cause names the task that
-  # proposed them, in the `what` of the subject). A proposal's (`creates`) are linked to
-  # that supervisor as their producer too (`produced/4`).
+  # proposed them, in the `what` of the subject), and linked to that supervisor as their
+  # producer (`produced/3`). A kind that records its producer is not made while the run
+  # has none: `:unavailable`, so the task's end waits for one (UC-Atlas-23).
   defp make(kind, entries, relation, under, intent, tag, what, run, ctx) do
-    with %{"prefix" => prefix, "digits" => digits} = ids <- (ctx[:ids] || %{})[kind],
+    supervisor = run["supervised_by"]
+
+    with {:ok, producer} <- produced(kind, supervisor, ctx),
+         %{"prefix" => prefix, "digits" => digits} = ids <- (ctx[:ids] || %{})[kind],
          %{"facts" => facts} when is_list(facts) <-
            Talk.read(kind, %{"plain" => true}) do
       first = HandOver.next_number(%{"prefix" => prefix}, Enum.map(facts, & &1["key"]))
-      supervisor = run["supervised_by"]
       by = if is_binary(supervisor), do: "For #{supervisor}: ", else: ""
       cause = "#{by}proposed by #{intent["key"]} in the #{what} of #{run["subject_key"]}"
 
@@ -1049,7 +1055,7 @@ defmodule AtlasFlow.Activities.Task do
           made(run, mark, kind, %{
             "op" => "create",
             "values" => Map.merge(ids["defaults"] || %{}, entry),
-            "links" => Map.merge(%{relation => [under]}, produced(tag, kind, supervisor, ctx)),
+            "links" => Map.merge(%{relation => [under]}, producer),
             "by" => "flow",
             "cause" => cause
           })
@@ -1122,15 +1128,20 @@ defmodule AtlasFlow.Activities.Task do
 
   def renumber(run, _refused, _first), do: run
 
-  # The link from a fact a proposal (`creates`) makes to its producer, the run's human
-  # supervisor, through the model's producer relation when it leads from the fact's kind;
-  # none without a supervisor, a producer relation, or for what is not a proposal.
-  defp produced("creates", kind, supervisor, %{producer: {relation, from}})
-       when is_binary(supervisor) and supervisor != "" do
-    if kind in from, do: %{relation => [supervisor]}, else: %{}
+  # The link from a fact a proposal (`creates`) or a review's follow-ups make to its
+  # producer, the run's human supervisor, through the model's producer relation when it
+  # leads from the fact's kind: `{:ok, links}`, none for a kind it does not lead from or
+  # without a producer relation; `:no_supervisor` for a kind it leads from while the run
+  # has no supervisor, so nothing is made with an empty producer.
+  defp produced(kind, supervisor, %{producer: {relation, from}}) do
+    cond do
+      kind not in from -> {:ok, %{}}
+      is_binary(supervisor) and supervisor != "" -> {:ok, %{relation => [supervisor]}}
+      true -> :no_supervisor
+    end
   end
 
-  defp produced(_tag, _kind, _supervisor, _ctx), do: %{}
+  defp produced(_kind, _supervisor, _ctx), do: {:ok, %{}}
 
   # The entries of the file at the top of the repository in the task's result commit
   # (`refs/atlas/results/<key>`), which Bases resolves through Code like a branch (asked

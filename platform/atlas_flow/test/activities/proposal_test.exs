@@ -4,8 +4,10 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
   machinery kind) whose agent proposes the crate's items in a file of its result; Flow
   makes them under the crate (`in_crate`, the item's parent relation). Labelled, its agent
   writes the crate's note instead (slice 9). Asked, its agent may write its questions about
-  the crate instead of proposing its items (`asks`). A clerk supervises the run, and is
-  the producer of the items it makes (`made_by`, the model's `producer`).
+  the crate instead of proposing its items (`asks`). Checked, an item is reviewed, and its
+  review's follow-ups become new items beside it, in its crate (`follow_ups`). A clerk
+  supervises the run, and is the producer of the items it makes (`made_by`, the model's
+  `producer`).
   """
   use RelaDSL.Composition,
     name: "proposal",
@@ -40,9 +42,16 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
       field(:description, :string)
       field(:size, :string)
       field(:origin, :string)
+      field(:phase, :string)
+      field(:task_result, :string)
     end
 
-    relation(:owned_by, label: "owned by", from: [:crate], to: [:robot, :clerk], max_outgoing: 1)
+    relation(:owned_by,
+      label: "owned by",
+      from: [:crate, :item],
+      to: [:robot, :clerk],
+      max_outgoing: 1
+    )
 
     relation(:in_crate,
       label: "in crate",
@@ -181,6 +190,33 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
     end
 
     select(:ask, admission: [phase: [:third]], imports: [])
+
+    subflow :check, label: "Check", subject: :item do
+      run_as("system:proposal")
+      owner(relation: :owned_by, default: {:clerk, :desk})
+      start(:predicate, when: "entity.phase == 'check'")
+      initial(:checking)
+      supervise(:inspect, label: "Inspect", states: [:checking])
+
+      state :checking do
+        task(:review,
+          role: :architect,
+          profile: :deep_coding,
+          input: [repository: "example.org/acme/proposal", base: "develop"],
+          instructions: "Review the item.",
+          fields: [:title],
+          follow_ups: :item,
+          records: [kind: "task", relation: "task_of"],
+          machinery: "robot",
+          on: [completed: :checked, check_failed: :checked, stuck: :stuck, abandoned: :stuck]
+        )
+      end
+
+      final(:checked)
+      final(:stuck)
+    end
+
+    select(:check, admission: [phase: [:check]], imports: [])
   end
 
   defmodule Crates do
@@ -193,7 +229,7 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
   environments([:prod, :test])
 
   acl(comment: "The proposal's roles.")
-  role("proposal", read: ["*"], create: [:cursor, :item], update: [:crate, :cursor])
+  role("proposal", read: ["*"], create: [:cursor, :item], update: [:crate, :cursor, :item])
   assign("system:proposal", "proposal")
 
   defcomposition :proposal do
@@ -211,6 +247,8 @@ defmodule AtlasFlow.Activities.ProposalTest do
   UC-Atlas-24: one that may ask (`asks`) and whose result has its questions has Flow put
   them in the subject's field, makes nothing and ends `asked`. SC-Atlas-09: what a proposal
   makes is linked to its producer, the run's supervisor (the model's `producer` relation).
+  UC-Atlas-23: so are the items a review's follow-ups make (`follow_ups`), and nothing is
+  made with an empty producer: while the run has no supervisor, they wait for one.
   The real Dispatch, Delivery and Bases (on `FakeCode`), with `FakeFacts` and a manual clock.
   """
   use ExUnit.Case, async: false
@@ -453,5 +491,111 @@ defmodule AtlasFlow.Activities.ProposalTest do
     stuck = finish(c, "C-6", [{"notes.txt", "nothing\n"}], "third")
     assert stuck["state"] == "stuck"
     assert [%{"reason" => "no proposal"}] = stuck["pending"]["tasks"]
+  end
+
+  # -- A review's follow-ups (UC-Atlas-23) ------------------------------------------------
+
+  defp reconcile_item(c, key) do
+    {:ok, %{runs: known}} = Store.plan(c.runner.config, c.runner.flows)
+    now = AtlasFlow.Runs.Clock.now(c.clock)
+
+    {:ok, runs} =
+      Store.reconcile_subjects(c.runner.config, c.runner.flows, now, known, [{"item", key}])
+
+    assert [run] = Enum.filter(runs, &(&1["subject_key"] == key))
+    run
+  end
+
+  defp watched_by(c, key, clerks) do
+    run_key = AtlasFlow.Runs.Run.key("check", "item", key, 1)
+    fact = FakeFacts.get(c.runner.config["kind"], run_key)
+    links = Map.put(fact["links"] || %{}, "watched_by", clerks)
+    FakeFacts.put(c.runner.config["kind"], Map.merge(fact, %{"links" => links}))
+  end
+
+  # An item in crate C-9 to check, on the mini, supervised by ada, whose run holds its
+  # review's intent.
+  defp checking(c, key) do
+    FakeFacts.put("crate", %{"key" => "C-9", "values" => %{"title" => "Crate C-9"}})
+
+    FakeFacts.put("item", %{
+      "key" => key,
+      "values" => %{"phase" => "check", "title" => "Item #{key}"},
+      "links" => %{"in_crate" => ["C-9"], "owned_by" => ["mini"]},
+      "origins" => %{"owned_by" => %{"by" => "someone", "position" => 1}}
+    })
+
+    if reconcile_item(c, key)["pending"]["task"] == nil,
+      do: assert_receive({:reconcile, "item", ^key}, 2_000)
+
+    watched_by(c, key, ["ada"])
+    run = reconcile_item(c, key)
+    assert %{"version" => 2} = run["pending"]["task"]
+    assert run["pending"]["task"]["work"]["instructions"] =~ ~s("follow_ups")
+    run
+  end
+
+  # The review leased and ended with `answer` (`before` just before it ended); the run
+  # reconciled. A review reads its base, and writes no result to wait for.
+  defp reviewed(c, key, answer, before \\ fn -> :ok end) do
+    {id, _} = @mini
+
+    assert {:polled, %{leases: [%{lease_id: lease}]}} =
+             WorkSource.poll(@mini, L.poll_input(id, [], %{"deep_coding" => 1}))
+
+    FakeCode.put(c.code, @repository, "refs/atlas/results/TK-#{key}-1", "rev_#{key}", %{
+      "README.md" => "# Proposal\n"
+    })
+
+    report = &WorkSource.report(@mini, %{lease_id: lease, revision: &1, report: &2})
+    assert {:recorded, _} = report.(1, %{state: :accepted})
+    assert {:recorded, _} = report.(2, %{state: :started})
+    before.()
+    assert {:recorded, _} = report.(3, L.ended(nil, answer: answer))
+    assert_receive {:"$gen_cast", {:reconcile, "item", ^key}}
+    reconcile_item(c, key)
+  end
+
+  defp review(follow_ups),
+    do:
+      "Looked at it.\n\n```json\n" <>
+        JSON.encode!(%{"verdict" => "approved", "findings" => [], "follow_ups" => follow_ups}) <>
+        "\n```\n"
+
+  test "a review's follow-ups are new items in the crate, produced by the run's supervisor", c do
+    checking(c, "IT-01")
+    answer = review([%{"title" => "Wrap it", "description" => "It scratches."}])
+    checked = reviewed(c, "IT-01", answer)
+    assert {checked["state"], checked["status"]} == {"checked", "completed"}
+
+    made = FakeFacts.get("item", "IT-02")
+    assert made["values"] == %{"title" => "Wrap it", "description" => "It scratches."}
+    assert made["links"] == %{"in_crate" => ["C-9"], "made_by" => ["ada"]}
+
+    # In the same create, by Flow for ada, the review in its cause.
+    assert [
+             %{
+               "by" => "flow",
+               "cause" => "For ada: proposed by TK-IT-01-1 in the review of IT-01"
+             }
+           ] =
+             for(w <- FakeFacts.stored_from_flow(), w["key"] == "IT-02", do: w)
+  end
+
+  test "a review whose run has no supervisor makes no follow-up until it has one", c do
+    checking(c, "IT-05")
+    answer = review([%{"title" => "Wrap it"}])
+
+    # Its supervisor lets go while the review runs: its follow-up is not made producerless.
+    waiting = reviewed(c, "IT-05", answer, fn -> watched_by(c, "IT-05", []) end)
+    assert waiting["state"] == "checking"
+    assert FakeFacts.get("item", "IT-06") == nil
+    refute Enum.any?(FakeFacts.stored_from_flow(), &(&1["key"] == "IT-06"))
+
+    # Once ada supervises it again, the follow-up is made, produced by ada.
+    watched_by(c, "IT-05", ["ada"])
+    checked = reconcile_item(c, "IT-05")
+    assert checked["state"] == "checked"
+    assert FakeFacts.get("item", "IT-06")["links"]["made_by"] == ["ada"]
   end
 end

@@ -59,9 +59,10 @@ defmodule Model.SceneProducerTest do
     assert get_in(extension(), ["entities", "scene", "create", "producer"]) == "produced_by"
     assert get_in(extension(), ["relations", "produced_by", "set_by"]) == ["flow"]
 
-    # Only a scene is put in from outside Atlas: what Design and Plan make gets it from Flow.
+    # A use case or issue made by hand records it the same way (UC-Atlas-23,
+    # item_producer_test.exs); what Design and Plan make gets it from Flow.
     for kind <- ~w(use_case issue),
-        do: refute(get_in(extension(), ["entities", kind, "create", "producer"]))
+        do: assert(get_in(extension(), ["entities", kind, "create", "producer"]) == "produced_by")
 
     # Never in a form.
     assert %{producer: "produced_by", ask: ask} = AtlasEyra.form("scene", :create)
@@ -114,9 +115,11 @@ defmodule Model.SceneProducerTest do
       assert why =~ "produced_by"
     end
 
-    # Of another kind, whose create names no producer: Flow's alone, as before.
-    assert {:refuse, [_]} =
-             check("use_case", create("use_case", "UC-Atlas-30", "adrienne"), person("adrienne"))
+    # A create that links nobody: refused, whoever writes it (UC-Atlas-23).
+    for actor <- [person("adrienne"), agent(@assistant, "melle"), agent("agent", nil)] do
+      assert {:refuse, [why]} = check("scene", create("scene", "SC-Atlas-37", nil), actor)
+      assert why =~ "records its producer (produced_by)"
+    end
 
     # After the create, nobody but Flow changes it, not even its producer.
     stored = %{
@@ -157,13 +160,12 @@ defmodule Model.SceneProducerTest do
              {:ok, %{"produced_by" => ["melle"]}, {@assistant, "melle"}}
   end
 
-  test "Control links nobody for a client that is no person and assists nobody, nor on other kinds" do
-    m = catalog()
+  test "Control refuses a create by a client that is no person and assists nobody" do
     agent = %{by: "agent", by_kind: nil, assists: nil}
-    person = %{by: "adrienne", by_kind: "person", assists: nil}
 
-    assert AtlasControl.Pages.put_in_by(m, "scene", %{}, agent) == {:ok, %{}, nil}
-    assert AtlasControl.Pages.put_in_by(m, "use_case", %{}, person) == {:ok, %{}, nil}
+    assert {:refuse, [why]} = AtlasControl.Pages.put_in_by(catalog(), "scene", %{}, agent)
+    assert why =~ "agent is no person and assists nobody"
+    assert why =~ "no producer (produced_by)"
   end
 
   test "a form or atlas write that sets produced_by itself is refused before anything is sent" do

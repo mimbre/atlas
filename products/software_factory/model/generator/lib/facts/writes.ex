@@ -58,7 +58,9 @@ defmodule RelaDSL.Facts.Writes do
     of a fact of that kind too, in that write only, and only to who puts the fact in
     (IS-Atlas-70): whom the writer assists (the actor's `assists`, IS-Atlas-47), or else
     the writer itself, when it is a fact of the kind the relation leads to. Any other
-    keys on that create, and any change after, are refused as for any `set_by`.
+    keys on that create, and any change after, are refused as for any `set_by`. Nothing
+    writes such a fact with that relation empty (UC-Atlas-23): a create that links nobody
+    through it is refused, whoever writes it (Flow too), and says so.
   - `limit`: `%{"max", "field", "values", "error"}`: a new link to a parent through it is
     refused while `max` facts of the kind whose `field` is one of `values` point at that
     parent already ({parent}, {child}, {value}).
@@ -249,12 +251,17 @@ defmodule RelaDSL.Facts.Writes do
           do: reason
 
     reasons =
-      if set_by != [] do
-        set_by
-      else
-        closed(d, kind, links, new, lookup) ++
-          limits(d, kind, key, links, new, lookup) ++
-          completed_children(d, kind, key, links, new, lookup)
+      cond do
+        set_by != [] ->
+          set_by
+
+        producer && List.wrap(links[producer]) == [] ->
+          [no_producer(d, kind, producer, actor)]
+
+        true ->
+          closed(d, kind, links, new, lookup) ++
+            limits(d, kind, key, links, new, lookup) ++
+            completed_children(d, kind, key, links, new, lookup)
       end
 
     if reasons == [], do: :ok, else: {:refused, reasons}
@@ -279,6 +286,15 @@ defmodule RelaDSL.Facts.Writes do
 
   defp set_by_reason(relation, names, _producer, _keys, _rels, _actor, _lookup),
     do: "only a #{Enum.join(names, " or ")} sets #{relation}"
+
+  # Why a create of a kind whose `create.producer` names `relation` and that links nobody
+  # through it is refused: every such fact records its producer (UC-Atlas-23).
+  defp no_producer(d, kind, relation, actor) do
+    by = actor["by"]
+    by = if is_binary(by) and by != "", do: by, else: "its writer"
+
+    "a new #{String.downcase(label(d, kind))} records its producer (#{relation}): the person who puts it in, whom the agent that creates it assists, or the supervisor of the run that makes it; this create by #{by} links nobody"
+  end
 
   # Who puts a fact in, as the producer relation `spec` names them: whom the writer
   # assists, or the writer itself when it is a fact of the kind the relation leads to.
