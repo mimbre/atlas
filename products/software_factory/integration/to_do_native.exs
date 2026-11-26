@@ -13,7 +13,8 @@ data = Path.join(dir, "rela")
 File.mkdir_p!(data)
 
 # Compile the real clients against the same generated BFF contract, in memory only.
-client_sources = Path.wildcard(Path.join(root, "platform/clients/{agent,tui}/lib/**/*.ex"))
+client_sources =
+  Path.wildcard(Path.join(root, "platform/clients/{transport,agent,tui}/lib/**/*.ex"))
 assert {:ok, _, _} = Kernel.ParallelCompiler.compile(client_sources)
 
 {out, status} =
@@ -79,7 +80,7 @@ try do
   %{config: config, flows: flows, refusal: nil} =
     runner = AtlasFlow.Model.load(Model.AtlasEyra, :test)
 
-  assert map_size(config["selection"]) == 10
+  assert map_size(config["selection"]) == 12
   refute Map.has_key?(config["selection"]["to_do"], "legacy")
 
   reconcile = fn ->
@@ -153,7 +154,10 @@ try do
              Talk.put("to_do", %{"op" => "create", "key" => "TD-99", "values" => values})
   end
 
-  instructions = "Open the account.\nKeep the receipt in the shared folder."
+  instructions =
+    "Why: the account pays the hosting.\n1. Open the account.\n$ open https://example.com\n2. Keep the receipt in the shared folder."
+
+  step_lines = ["Open the account.", "open https://example.com", "Keep the receipt in the shared folder."]
   due = "2026-11-14T12:00:00Z"
   catalog = Catalog.catalog(Model.AtlasEyra)
   form = Model.AtlasEyra.form("to_do", :create)
@@ -207,8 +211,12 @@ try do
     route = {:item, "to_do", key}
     answers = Enum.map(Pages.reads(route, catalog), fn {k, content} -> Talk.read(k, content) end)
     page = Pages.render(route, catalog, answers, %{by: owner, by_kind: owner_kind})
-    todo_block = Enum.find(page.blocks, &(&1["id"] == "todo"))
-    assert Enum.any?(todo_block["props"]["fields"], &(&1["value"] == instructions))
+    steps_block = Enum.find(page.blocks, &(&1["id"] == "steps"))
+    assert steps_block["props"]["why"] == "the account pays the hosting."
+    assert steps_block["props"]["current"] == 1
+
+    assert [%{"commands" => ["open https://example.com"]}, %{"commands" => []}] =
+             steps_block["props"]["steps"]
 
     fields =
       for block <- page.blocks, field <- get_in(block, ["props", "fields"]) || [], do: field
@@ -219,7 +227,7 @@ try do
 
     # The agent's real guidance API carries the complete instruction section.
     assert {:ok, guidance} = AtlasAgent.get(client, key)
-    assert Enum.any?(guidance["todo"]["fields"], fn [_label, value] -> value == instructions end)
+    assert length(guidance["todo"]["steps"]) == 2
 
     assert Enum.any?(guidance["fields"], fn [_label, value] ->
              String.starts_with?(value || "", shown_due)
@@ -240,7 +248,7 @@ try do
 
     {_, agent_text} = StringIO.contents(output)
     StringIO.close(output)
-    for line <- String.split(instructions, "\n"), do: assert(String.contains?(agent_text, line))
+    for line <- step_lines, do: assert(String.contains?(agent_text, line))
     assert String.contains?(agent_text, shown_due)
     File.write!(Path.join(dir, "#{key}.agent.txt"), agent_text)
 
@@ -262,8 +270,8 @@ try do
     tui = receive_tui.(receive_tui, tui_socket, tui)
     assert tui.path == "/k/to_do/#{key}"
     screen = tui |> AtlasTui.View.render(110, 80, 5) |> AtlasTui.View.plain()
-    for line <- String.split(instructions, "\n"), do: assert(String.contains?(screen, line))
-    assert String.contains?(screen, shown_due)
+    for line <- step_lines, do: assert(String.contains?(screen, line))
+    assert {_, [{:copy, "open https://example.com"}]} = AtlasTui.Model.key(tui, {:char, "c"})
     File.write!(Path.join(dir, "#{key}.console.txt"), screen)
     :gen_tcp.close(tui_socket)
 
