@@ -44,6 +44,7 @@ machines() { as "$1" status -a "$2" --json | jq '.Machines | length'; }
 "$root/bin/generate" model
 
 held=""
+empty=""
 if [ "$(machines rela "$rela_app")" -gt 0 ]; then
   if as rela ssh console -q -a "$rela_app" -C "test -e /data/hold" 2>/dev/null; then
     held=1
@@ -71,6 +72,8 @@ if [ "$(machines rela "$rela_app")" -gt 0 ]; then
       echo "$orphans" | tr -d '\r' | sed 's/^/  /' >&2
       fail "nothing deployed; $env keeps its build. Migrate that data first (docs/guides/test-on-fly.md, \"A migration\")"
     fi
+    empty="$(echo "$orphans" | tr -d '\r' | sed -n 's/^\([^ ]*\) (empty, removed after deploy)$/\1/p' | tr '\n' ' ')"
+    [ -z "$empty" ] || echo "deploy: removed fields that hold nothing, removed after deploy: $empty"
     echo "deploy: this build's description describes all of rela $env's data"
 
     # Every open run the running model has a place for must keep its flow and state in the
@@ -115,6 +118,12 @@ if [ -z "$held" ]; then
     [ "$packaged" = "$expected" ] || fail "$paired_app has another description composition"
   done
   as rela ssh console -q -a "$rela_app" -C "env ATLAS_RELA_DATA=/data/rela /app/platform/atlas_facts/rela/scripts/description.sh same" || fail 'rela runs another schema closure'
+  if [ -n "$empty" ]; then
+    removed="$(as rela ssh console -q -a "$rela_app" -C "env ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=/app/bin /app/platform/atlas_facts/rela/scripts/description.sh gc $empty")" ||
+      fail "rela's gc did not remove the empty fields $empty: $removed"
+    echo "deploy: rela's gc removed the empty fields:"
+    echo "$removed" | tr -d '\r' | sed 's/^/  /'
+  fi
 fi
 
 # 4. The smoke check, as the core's token.

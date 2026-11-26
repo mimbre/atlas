@@ -19,5 +19,21 @@ case "${1:-}" in
     cp "$project/data-entry.yaml" "$tmp/proposed/"
     ATLAS_RELA_BIN="$bin" bash "$here/scripts/fits.sh" "$tmp/proposed" "$data"
     ;;
-  *) echo 'usage: description.sh same|fits' >&2; exit 2 ;;
+  gc)
+    # After a deploy or move: rela's own gc removes the removed fields `fits` reported
+    # empty (the arguments, kind.field), and only those; any other orphan stops it.
+    shift
+    rela="$bin/rela"
+    [ ! -e "$data/.rela/rela.db" ] || rela="$bin/rela-sqlite"
+    cd "$data" && unset RELA_PROJECT
+    pending="$("$rela" --project "$data" --quiet migrate gc --scan | sed -n 's/^pending \([^ ]*\) .*$/\1/p' | sort -u)"
+    expected="$(printf '%s\n' "$@" | sed '/^$/d' | sort -u)"
+    if [ "$pending" != "$expected" ]; then
+      echo "description: rela holds other orphans than the empty fields ${*:-(none)}; nothing removed:" >&2
+      echo "$pending" >&2
+      exit 1
+    fi
+    [ -z "$pending" ] || "$rela" --project "$data" --quiet migrate gc --apply --grace=1ns
+    ;;
+  *) echo 'usage: description.sh same|fits|gc [kind.field...]' >&2; exit 2 ;;
 esac

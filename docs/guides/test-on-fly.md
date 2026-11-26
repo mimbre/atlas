@@ -73,6 +73,8 @@ Compatibility preflight uses the same `platform/atlas_facts/rela/scripts/fits.sh
 
 SQLite fits/counts use read-only native online backup, then native export from a private project containing the original description. They do not directly export the active server or copy its DB/WAL/SHM independently. Validation applies the proposed schema to the exported view and refuses removed populated fields, kinds or relations. Transfer counts therefore count real SQLite entities/links rather than empty markdown directories. Moving SQLite data also requires a headless SQLite destination image with its native tools. Archive transfer itself still uses the existing stopped-service holds/ownership protocol and complete file manifests; the private view is only for checking/counting, never a replacement archive.
 
+A removed field that holds nothing (`null`, `~`, `""` or `''` in every entity that has it, as Facts leaves a cleared field) does not refuse: fits reports it as `kind.field (empty, removed after deploy)`. Once the new pair runs (and once `move-to-fly` has moved data), the script runs `description.sh gc` on the rela machine: rela's own `rela migrate gc --scan`, then `--apply`, only when the orphans rela lists are exactly those empty fields, and it logs what rela deleted.
+
 Smoke checks the image label and reads Control's advertised kinds. Ordinary kinds
 must return successful lists. Kinds mapped by the packaged description's guidance
 roles must instead return CLI exit 2 with the exact typed Facts code
