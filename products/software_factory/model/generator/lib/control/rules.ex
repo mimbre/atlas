@@ -82,7 +82,10 @@ defmodule RelaDSL.Control.Rules do
   `%{title, expected, why, instructions, section, answers, words}`: `why` is `%{text,
   since, by}`; `section` what the state shows of a fact's field (`%{heading, text}`):
   the part under its `heading`, or the whole field under its `label`; nil when that is
-  empty. Each answer is `%{key, label, note, change, set, remove}`.
+  empty. A section shown step by step has `steps: %{field, from, at}` too: the integer
+  field that holds the step its owner is at, the field the section shows, and the step's
+  value (nil when it has none). Each
+  answer is `%{key, label, note, change, set, remove}`.
   """
   def todo(flow, fact, parts, viewer) do
     case owner_view(flow, fact, parts, viewer) do
@@ -124,8 +127,18 @@ defmodule RelaDSL.Control.Rules do
         _ -> nil
       end
 
-    if is_binary(text) and text != "",
-      do: %{heading: spec["heading"] || spec["label"], text: text}
+    if is_binary(text) and text != "" do
+      shown = %{heading: spec["heading"] || spec["label"], text: text}
+
+      case spec["steps"] do
+        steps when is_binary(steps) ->
+          at = get_in(fact, ["values", steps])
+          Map.put(shown, :steps, %{field: steps, from: field, at: if(is_integer(at), do: at)})
+
+        _ ->
+          shown
+      end
+    end
   end
 
   defp shown_section(_spec, _fact), do: nil

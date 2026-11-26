@@ -49,7 +49,9 @@ defmodule AtlasBFFContract.Contract do
   # with the page's title (the window's toolbar, an item page's header), not under the block.
   # 0.25.0: a list row may say where its work stands (`tone`) and since when (`since`); a
   # client shows a coloured mark and an age beside the row's own words.
-  version "0.25.0"
+  # 0.27.0: a to-do's instructions step by step (`steps`, with `instruction_step`), and
+  # the submit that sets the step its owner is at (`step`).
+  version "0.27.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

@@ -423,6 +423,32 @@ defmodule AtlasAgent.CLI do
   # What to do, for its owner, before the rest (IS-Atlas-54).
   defp todo_text(nil), do: []
 
+  # Instructions step by step: why, then each step (✓ done, ▸ the one it is at) with its
+  # commands, as they are run.
+  defp todo_text(%{"steps" => steps, "current" => current} = todo) do
+    why = if todo["why"], do: ["  Why: #{todo["why"]}"], else: []
+
+    lines =
+      Enum.flat_map(steps, fn step ->
+        mark =
+          cond do
+            step["n"] < current -> "✓"
+            step["n"] == current -> "▸"
+            true -> " "
+          end
+
+        [first | rest] = String.split(step["text"], "\n")
+
+        ["  #{mark} #{step["n"]}. #{first}"] ++
+          Enum.map(rest, &"       #{&1}") ++ Enum.map(step["commands"], &"       $ #{&1}")
+      end)
+
+    keys = Enum.map_join(todo["actions"] || [], "   ", &"#{&1["key"]} #{&1["label"]}")
+
+    ["To do: #{todo["title"]} (step #{min(current, length(steps))} of #{length(steps)})" | why] ++
+      lines ++ ["  #{keys}", ""]
+  end
+
   defp todo_text(todo) do
     fields =
       Enum.map(todo["fields"], fn [label, value] ->
