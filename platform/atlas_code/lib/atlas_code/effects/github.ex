@@ -22,7 +22,7 @@ defmodule AtlasCode.Effects.GitHub do
   @type config :: map()
   @type error :: {:error, :unavailable | {:refused, String.t()}}
 
-  @doc "The pull: `state` (`open`, `closed`), `merged`, `head` (its commit), `head_ref` (its branch), `base` (a branch), `mergeable` (nil while GitHub works it out) and `merge_commit`."
+  @doc "The pull: `state` (`open`, `closed`), `merged`, `head` (its commit), `head_ref` (its branch), `base` (a branch), `mergeable` (nil while GitHub works it out), `merge_commit` and `body` (its description, nil for none)."
   @callback pull(config, slug :: String.t(), number :: pos_integer()) :: {:ok, map()} | error
 
   @doc """
@@ -71,6 +71,12 @@ defmodule AtlasCode.Effects.GitHub do
   @doc "Open a pull (`%{\"head\", \"base\", \"title\", \"body\"}`, `head` a branch); its web address."
   @callback create_pull(config, String.t(), pull :: map()) :: {:ok, String.t()} | error
 
+  @doc """
+  Replace the pull's description with `body` (IS-Atlas-123). `{:refused, "edit_refused"}`:
+  GitHub would not take it (a body too long, a validation it failed).
+  """
+  @callback edit_pull(config, String.t(), pos_integer(), body :: String.t()) :: :ok | error
+
   @behaviour __MODULE__
 
   @failed ~w(failure cancelled timed_out action_required stale startup_failure)
@@ -87,7 +93,8 @@ defmodule AtlasCode.Effects.GitHub do
          "head_ref" => get_in(p, ["head", "ref"]),
          "base" => get_in(p, ["base", "ref"]),
          "mergeable" => p["mergeable"],
-         "merge_commit" => p["merge_commit_sha"]
+         "merge_commit" => p["merge_commit_sha"],
+         "body" => p["body"]
        }}
     end
   end
@@ -335,6 +342,16 @@ defmodule AtlasCode.Effects.GitHub do
 
       other ->
         other
+    end
+  end
+
+  @impl true
+  def edit_pull(config, slug, number, body) do
+    case call(config, :patch, "/repos/#{slug}/pulls/#{number}", %{"body" => body}) do
+      {:ok, _} -> :ok
+      {:error, {:status, 422, _}} -> {:error, {:refused, "edit_refused"}}
+      {:error, {:status, _, _}} -> {:error, :unavailable}
+      other -> other
     end
   end
 

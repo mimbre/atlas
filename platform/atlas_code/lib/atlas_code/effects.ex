@@ -93,9 +93,20 @@ defmodule AtlasCode.Effects do
   repository; otherwise refused `invalid_pull`) puts the result on that pull instead: Code
   reads the pull and pushes the commit to its branch (`head_ref`), never forced, so a result
   made on top of the pull's head fast-forwards it. Done with that pull's address; nothing
-  is opened and its body is not changed. A pull whose head is the result already is done
-  without a push; a closed or merged pull is refused `closed`; a branch the result does not
-  fast-forward is refused `branch_taken`.
+  is opened. A pull whose head is the result already is done without a push; a closed or
+  merged pull is refused `closed`; a branch the result does not fast-forward is refused
+  `branch_taken`.
+
+  **What the round changed** (IS-Atlas-123). When the result is a fix's (the input's `fix`,
+  `%{"task", "answer"}`: a fix of the pull's failing CI, or its update with its base), the
+  pull's body then says so: Code appends a section with that task's answer, "**CI fix
+  <n>.**" or, for a result made on an update's merge (folded, below), "**Update <n>.**",
+  numbered after those the body already has, before the body's closing "Atlas <subject>,
+  task …" line (at the end when it has none). Its review and fix sections, and whatever
+  else the body says, stay as they are. The section goes through the same closing-keyword
+  guard as the body (IS-Atlas-136). A body that names the task already (a repeat) is left
+  alone, so it is appended once. GitHub unreachable asks again; GitHub refusing the edit
+  leaves the body as it was, and the push is still done.
 
   A result made on an update of the pull (Code's merge of the base into the pull's head,
   conflicts marked, `AtlasCode.Service`) is folded into one merge commit first: the
@@ -223,18 +234,27 @@ defmodule AtlasCode.Effects do
 
       true ->
         case s.results.(input["repository"], input["result"]) do
-          {:ok, %{"dir" => dir, "commit" => commit}} ->
+          {:ok, %{"dir" => dir, "commit" => result}} ->
             commit =
               if Map.has_key?(input, "pull"),
-                do: fold(dir, commit, input["result"]),
-                else: commit
+                do: fold(dir, result, input["result"]),
+                else: result
+
+            # Onto a pull, what kind of round made it: an update (its result folded with
+            # the update's merge) or a fix of its CI.
+            round =
+              cond do
+                not Map.has_key?(input, "pull") -> %{}
+                commit != result -> %{"round" => "update"}
+                true -> %{"round" => "ci_fix"}
+              end
 
             case {changes(dir, commit, input["base"]), Map.has_key?(input, "pull")} do
               {:none, _} ->
                 {:refused, "no_changes", %{"base" => input["base"]}}
 
               {:some, _} ->
-                {:ok, %{"dir" => dir, "commit" => commit}}
+                {:ok, Map.merge(%{"dir" => dir, "commit" => commit}, round)}
 
               # Nothing pushed onto an open pull that may then show nothing.
               {{:unknown, why}, true} ->
@@ -421,8 +441,8 @@ defmodule AtlasCode.Effects do
     do: Map.get(record, "merge_attempted", record["phase"] == "merging") == true
 
   # A publication onto an existing pull: the result pushed to that pull's branch, never
-  # forced. It is done once the pull's head is the result: a repeat after the push pushes
-  # nothing.
+  # forced, then its body says what the round changed. It is done once the pull's head is
+  # the result and its body says so: a repeat after the push pushes nothing.
   defp step(
          s,
          _file,
@@ -434,7 +454,7 @@ defmodule AtlasCode.Effects do
     with {:ok, pull} <- module.pull(config, slug, pull_number(url)) do
       cond do
         pull["head"] == record["commit"] ->
-          {:outcome, published(url, record["commit"])}
+          describe(s, record, slug, url, pull)
 
         pull["merged"] == true or pull["state"] != "open" ->
           {:outcome, refused("closed", %{"pull" => url})}
@@ -442,7 +462,7 @@ defmodule AtlasCode.Effects do
         true ->
           case module.push(config, slug, record["dir"], record["commit"], pull["head_ref"]) do
             :ok ->
-              {:outcome, published(url, record["commit"])}
+              describe(s, record, slug, url, pull)
 
             {:error, :branch_taken} ->
               {:outcome, refused("branch_taken", %{"branch" => pull["head_ref"]})}
@@ -518,6 +538,68 @@ defmodule AtlasCode.Effects do
       end
     end
     |> unavailable(record["phase"])
+  end
+
+  # The result is on the pull: its body says what the round changed, then it is done (see
+  # "What the round changed" in the module's documentation).
+  defp describe(s, record, slug, url, pull) do
+    {module, config} = s.github
+    done = {:outcome, published(url, record["commit"])}
+
+    case round_body(record, pull["body"]) do
+      nil ->
+        done
+
+      body ->
+        case module.edit_pull(config, slug, pull_number(url), body) do
+          :ok -> done
+          # The commit is on the pull; a body GitHub will not take is no reason to undo it.
+          {:error, {:refused, _}} -> done
+          other -> other
+        end
+    end
+  end
+
+  # The pull's body with the round's section, or nil when there is none to add.
+  defp round_body(%{"request" => r} = record, body) do
+    body = if is_binary(body), do: body, else: ""
+
+    with %{"task" => task} = fix when is_binary(task) <- r["input"]["fix"],
+         false <- String.contains?(body, "(task #{task})") do
+      {label, did} =
+        case record["round"] do
+          "update" ->
+            {"Update",
+             "An agent updated it with #{r["input"]["base"]} (task #{task}); Code pushed its result onto this pull."}
+
+          _ ->
+            {"CI fix",
+             "An agent fixed its failing CI (task #{task}); Code pushed its result onto this pull."}
+        end
+
+      n = length(Regex.scan(~r/^\*\*#{label} \d+\.\*\*/m, body)) + 1
+
+      section =
+        AtlasCode.ClosingKeywords.defuse(
+          "**#{label} #{n}.** #{did} Its answer:\n\n" <> quoted(fix["answer"])
+        )
+
+      footer =
+        ~r/\n\nAtlas #{Regex.escape(to_string(r["subject"]))}, task [^\n]*: merging this finishes it\./
+
+      case Regex.run(footer, body, return: :index) do
+        [{at, _} | _] ->
+          binary_part(body, 0, at) <>
+            "\n\n" <> section <> binary_part(body, at, byte_size(body) - at)
+
+        nil ->
+          if String.trim(body) == "",
+            do: section,
+            else: String.trim_trailing(body) <> "\n\n" <> section
+      end
+    else
+      _ -> nil
+    end
   end
 
   # Whether the pushed result changes anything against its base, as GitHub's compare of
@@ -713,20 +795,16 @@ defmodule AtlasCode.Effects do
   defp review(_none), do: "**Review.** No review was made of this result."
 
   defp fix(%{"task" => task} = fix) do
-    answer =
-      case fix["answer"] do
-        text when is_binary(text) ->
-          text |> String.split("\n") |> Enum.map_join("\n", &("> " <> &1))
-
-        _ ->
-          "> (no answer)"
-      end
-
     "**Fix.** An agent fixed what the review found (task #{task}); this is its result. Its answer:\n\n" <>
-      answer
+      quoted(fix["answer"])
   end
 
   defp fix(_none), do: nil
+
+  defp quoted(text) when is_binary(text),
+    do: text |> String.split("\n") |> Enum.map_join("\n", &("> " <> &1))
+
+  defp quoted(_none), do: "> (no answer)"
 
   defp slug(%{"operation" => "publish", "input" => %{"repository" => repository}})
        when is_binary(repository) do

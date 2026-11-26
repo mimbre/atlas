@@ -5,7 +5,7 @@
 -- For every issue with a pull request (pr_url) that is not merged yet, it reads the pull,
 -- and while it is open the combined check status of its head and whether it merges into
 -- its base: pr_state, pr_checks (pending, success, failure), when CI failed
--- pr_checks_failure (the failing checks and the failing lines of their logs), and
+-- pr_checks_failure (the failing checks and the failing lines of their logs, IS-Atlas-124), and
 -- pr_mergeable (clean, behind, conflicting, or unknown while GitHub works it out), all
 -- with the head commit they were read for, pr_checks_head, in one write. For every pull
 -- request fact that is not merged yet: its title, state and draft. Only what differs is
@@ -50,7 +50,7 @@ end
 local FAILED = {failure = true, cancelled = true, timed_out = true, action_required = true,
                 stale = true, startup_failure = true}
 local PASSED = {success = true, neutral = true, skipped = true}
-local EXCERPT_LINES = 60
+local EXCERPT_LINES = 100
 local EXCERPT_CHARS = 12000
 
 local function get(path)
@@ -162,22 +162,81 @@ local function checks(repo, sha)
   return "pending", {}
 end
 
--- How many lines after a line of each kind tell what failed; nil: not a line that does.
-local function after(line)
-  local l = line:lower()
-  if line:match("^%s*%d+%) ") then return 15 end                  -- an ExUnit failure
-  if line:find("%*%* %(") then return 5 end                       -- an Elixir exception
-  if l:match("^%s*error[:%[]") or l:match("^%s*warning:") then return 5 end  -- the compiler
-  if l:find("not ok ", 1, true) or line:find("FAIL", 1, true) or line:find("✖", 1, true) then
-    return 3                                                       -- node, others
-  end
-  return nil
+-- The failing lines of a GitHub Actions job's log (IS-Atlas-124): only what failed, never
+-- the output of tests that passed, whose captured stack traces (`** (RuntimeError) …`,
+-- `FAIL` in a message) look like failures but are none. Kept are:
+--
+--   * each of ExUnit's numbered failures (`  1) test …`) with the lines under it, which
+--     ExUnit indents deeper than its number, up to the next test: the first line that is
+--     not indented deeper (the next failure, a passing test, the summary);
+--   * compiler errors: `error: …` with its diagnostic (`│`, `└─` lines, or lines indented
+--     deeper), and `== Compilation error … ==` with the line after it; warnings only when
+--     they failed the step (`--warnings-as-errors`);
+--   * the end of the step that failed, the lines before `##[error]`: at most 12, and from
+--     ExUnit's summary (`Finished in …`) when it is among them, so what a passing test
+--     printed just before it is not.
+--
+-- Of those, the last EXCERPT_LINES. Logger output (`12:00:00.000 [warning] …`) and blank
+-- lines are left out. GitHub answers the log with a redirect to storage that takes no token.
+local FAILURE_LINES = 40
+local TAIL_LINES = 12
+
+local function indent(line) return #line:match("^%s*") end
+
+local function numbered(line) return line:match("^%s*%d+%) ") ~= nil end
+
+local function diagnostic(line)
+  return line:match("^[%s%d]*│") ~= nil or line:match("^[%s%d]*└") ~= nil
 end
 
--- The failing lines of a GitHub Actions job's log: failures with the lines that explain
--- them, and the end of the step that failed (before `##[error]`); the last EXCERPT_LINES
--- of them. Logger output (`12:00:00.000 [warning] …`) is left out. GitHub answers the log
--- with a redirect to storage that takes no token.
+-- The indices of the failing lines among `lines`, in order.
+local function failing(lines)
+  local strict = false
+  for _, line in ipairs(lines) do
+    if line:find("warnings-as-errors", 1, true) or line:find("due to warnings", 1, true) then
+      strict = true
+      break
+    end
+  end
+  local keep = {}
+  local i = 1
+  while i <= #lines do
+    local line = lines[i]
+    local l = line:lower()
+    local j = i + 1
+    if numbered(line) then
+      -- An ExUnit failure, up to the next test.
+      local base = indent(line)
+      while j <= #lines and j - i <= FAILURE_LINES and not numbered(lines[j]) and
+            indent(lines[j]) > base do
+        j = j + 1
+      end
+      for k = i, j - 1 do keep[k] = true end
+    elseif l:match("^%s*error[:%[]") or (strict and l:match("^%s*warning:")) then
+      -- A compiler error (or a warning that failed the step) and its diagnostic.
+      local base = indent(line)
+      while j <= #lines and j - i <= 12 and
+            (diagnostic(lines[j]) or (indent(lines[j]) > base and not numbered(lines[j]))) do
+        j = j + 1
+      end
+      for k = i, j - 1 do keep[k] = true end
+    elseif line:match("^%s*== Compilation error") then
+      for k = i, math.min(i + 1, #lines) do keep[k] = true end
+      j = math.min(i + 2, #lines + 1)
+    elseif line:find("##[error]", 1, true) then
+      local from = math.max(1, i - TAIL_LINES)
+      for k = i - 1, from, -1 do
+        if lines[k]:match("^%s*Finished in ") then from = k; break end
+      end
+      for k = from, i do keep[k] = true end
+    end
+    i = j
+  end
+  local picked = {}
+  for k = 1, #lines do if keep[k] then table.insert(picked, k) end end
+  return picked
+end
+
 local function excerpt(repo, run)
   if not run.id or not token then return nil end
   local resp = get("/repos/" .. repo .. "/actions/jobs/" .. run.id .. "/logs")
@@ -193,16 +252,8 @@ local function excerpt(repo, run)
       table.insert(lines, line)
     end
   end
-  local keep, picked = {}, {}
-  for i, line in ipairs(lines) do
-    local n = after(line)
-    if n then
-      for j = i, math.min(i + n, #lines) do keep[j] = true end
-    elseif line:find("##[error]", 1, true) then
-      for j = math.max(1, i - 12), i do keep[j] = true end
-    end
-  end
-  for i = 1, #lines do if keep[i] then table.insert(picked, lines[i]) end end
+  local picked = {}
+  for _, k in ipairs(failing(lines)) do table.insert(picked, lines[k]) end
   local from = math.max(1, #picked - EXCERPT_LINES + 1)
   return table.concat(picked, "\n", from)
 end

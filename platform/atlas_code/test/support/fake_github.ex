@@ -80,7 +80,7 @@ defmodule AtlasCode.FakeGitHub do
 
   def ci(pid, commit, result), do: Agent.update(pid, &put_in(&1, [:checks, sha(commit)], result))
 
-  @doc "Every write asked of it, oldest first: `{:update_branch | :merge, number, head}`, `{:push, branch, commit}`, `{:create_pull, number}`."
+  @doc "Every write asked of it, oldest first: `{:update_branch | :merge, number, head}`, `{:push, branch, commit}`, `{:create_pull, number}`, `{:edit_pull, number}`."
   def writes(pid), do: Agent.get(pid, &Enum.reverse(&1.writes))
 
   def merge_attempts(pid), do: Agent.get(pid, &Enum.reverse(&1.merge_attempts))
@@ -285,6 +285,19 @@ defmodule AtlasCode.FakeGitHub do
 
         {{:ok, "https://github.com/#{slug}/pull/#{n}"},
          %{s | pulls: Map.put(s.pulls, n, p), writes: [{:create_pull, n} | s.writes]}}
+      end)
+  end
+
+  @impl true
+  def edit_pull(%{"fake" => pid}, _slug, number, body) do
+    fault(pid, :edit_pull) ||
+      Agent.get_and_update(pid, fn s ->
+        {:ok,
+         %{
+           s
+           | pulls: Map.update!(s.pulls, number, &Map.put(&1, "body", body)),
+             writes: [{:edit_pull, number} | s.writes]
+         }}
       end)
   end
 
