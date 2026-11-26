@@ -6,9 +6,6 @@ extension EnvironmentValues {
     /// What the user did that Control (or the agent) has not answered yet: its button and
     /// the sheet show it at once (`SessionState.Pending`).
     @Entry public var pendingAction: SessionState.Pending? = nil
-    /// Where a focused block that types (a `single_choice`) says which keys it takes, so
-    /// the action keys leave those to it.
-    @Entry public var typingFocus: TypingFocus? = nil
     /// The panel on screen takes ↑, ↓ and Return through it (`PanelKeys`).
     @Entry public var panelKeys: PanelKeys? = nil
 }
@@ -19,26 +16,29 @@ extension EnvironmentValues {
 /// with the page's title; any other is its block's and shows under the block.
 public enum PageActions {
     /// Every action of the page's `item` and `list` blocks, of its panels (their answers
-    /// as actions, then their own; `Panel.actions`) and of its `answers` blocks (each answer
-    /// as the page's action of its key, `Panel.action`), in block order.
+    /// as actions, then their own; `Panel.actions`), of its options (`Option.actions`) and
+    /// of its `answers` blocks (each answer as the page's action of its key, `Panel.action`),
+    /// in block order.
     public static func all(_ page: PageMessage) -> [ActionModel] {
         page.blocks.flatMap { block -> [ActionModel] in
             switch block.content {
             case .item(let item): item.actions ?? []
             case .list(let list): list.actions ?? []
             case .panel(let panel): Panel.actions(panel)
+            case .option(let option): Option.actions(option)
             case .answers(let answers): answers.answers.map(Panel.action)
             default: []
             }
         }
     }
 
-    /// The page's own actions (`page`), in block order; not those a panel or an `answers`
-    /// block of the page shows (by key, or doing what one does).
+    /// The page's own actions (`page`), in block order; not those a panel, an option or an
+    /// `answers` block of the page shows (by key, or doing what one does).
     public static func ofPage(_ page: PageMessage) -> [ActionModel] {
         let shown = page.blocks.flatMap { block -> [ActionModel] in
             switch block.content {
             case .panel(let panel): Panel.actions(panel)
+            case .option(let option): Option.actions(option)
             case .answers(let answers): answers.answers.map(Panel.action)
             default: []
             }
@@ -73,13 +73,8 @@ public enum PageActions {
         return all(page).first { $0.key == key }
     }
 
-    /// The action a key takes on the pages shown (the first page's first, then the
-    /// next's), or nil when a focused block that types takes the key itself: a
-    /// `single_choice`'s digits come first, so one of more than nine options can be typed;
-    /// where nothing is typing, the page's action has the key.
-    @MainActor
-    public static func action(key: String, on pages: [PageMessage?], typing: TypingFocus?) -> ActionModel? {
-        if typing?.takes(key) == true { return nil }
+    /// The action a key takes on the pages shown: the first page's first, then the next's.
+    public static func action(key: String, on pages: [PageMessage?]) -> ActionModel? {
         for page in pages {
             if let action = action(key: key, on: page) { return action }
         }
@@ -110,7 +105,7 @@ public enum PageActions {
     }
 
     /// What a submit of `call` on these pages is, in their words: the confirm's or form's
-    /// button, the choice's option, or the action's label; nil when none declares it.
+    /// button, or the action's label; nil when none declares it.
     public static func label(of call: CallModel, on pages: [PageMessage?]) -> String? {
         for page in pages.compactMap({ $0 }) {
             for block in page.blocks {
@@ -119,8 +114,6 @@ public enum PageActions {
                     return confirm.confirmLabel ?? "Confirm"
                 case .form(let form) where form.submitTo == call:
                     return form.submitLabel
-                case .singleChoice(let choice):
-                    if let option = choice.options.first(where: { $0.answer == call }) { return option.text }
                 default:
                     continue
                 }
@@ -363,8 +356,8 @@ public struct ActionPageView: View {
             ItemBlockView(item: item, act: act)
         case .list(let list):
             ListBlockView(list: list, selectedPath: nil, open: { _ in }, act: act)
-        case .singleChoice(let choice):
-            SingleChoiceView(block: choice, submit: submit)
+        case .option(let option):
+            OptionView(block: option, act: act)
         case .panel(let panel):
             PanelView(block: panel, open: { _ in }, act: act)
         case .header(let header):
@@ -374,7 +367,7 @@ public struct ActionPageView: View {
         case .instruction(let instruction):
             InstructionView(block: instruction)
         case .answers(let answers):
-            AnswersView(block: answers, act: act)
+            AnswersView(block: answers, quiet: presentation.hasOptions, act: act)
         case .notShown(let type): FallbackView(type: type, reason: nil)
         case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
         }

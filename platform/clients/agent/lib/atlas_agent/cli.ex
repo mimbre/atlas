@@ -460,30 +460,29 @@ defmodule AtlasAgent.CLI do
     ["To do: #{todo["title"]}" | why] ++ lines ++ ["  #{keys}", ""]
   end
 
-  # A choice (a decision's single_choice): the question, the instructions as Control words
-  # them (the recommendation and its keys), then each option by its key, the recommended
-  # one marked, with what it says of itself (not how it is answered).
-  defp todo_text(%{"options" => options} = choice) when is_list(options) do
-    question = choice["question"] || ""
-
-    instructions =
-      (choice["instructions"] || "")
-      |> String.split("\n")
-      |> Enum.reject(&(&1 in ["", question]))
-      |> Enum.map(&String.trim_trailing("  " <> &1))
+  # A decision: the question, why and what went wrong, then each option by its key, its
+  # badge (recommended, decline · note) and what it means (Rule, Then; a decline's
+  # Details); then the other answers.
+  defp todo_text(%{"options" => options} = decision) when is_list(options) do
+    said =
+      for {label, text} <- [{"Why", decision["why"]}, {"What went wrong", decision["failure"]}],
+          is_binary(text),
+          do: "  #{label}: #{text}"
 
     options =
       Enum.flat_map(options, fn option ->
-        mark = if option["id"] == choice["recommended"], do: " (recommended)", else: ""
-        about = Map.drop(option, ~w(id text shortcut answer note))
+        badge = if option["badge"], do: " (#{option["badge"]})", else: ""
 
         [
-          String.trim_trailing("  #{option["shortcut"]} #{option["text"]}#{mark}")
-          | lines(AtlasAgent.fields(:choice_option), about, "      ")
+          String.trim_trailing("  #{option["answer"]["key"]} #{option["text"]}#{badge}")
+          | for(f <- option["fields"] || [], do: "      #{f["label"]}: #{f["value"]}")
         ]
       end)
 
-    ["To do: " <> question | instructions] ++ options ++ [""]
+    keys = Enum.map_join(decision["answers"] || [], "   ", &"#{&1["key"]} #{&1["label"]}")
+    others = if keys == "", do: [], else: ["  #{keys}"]
+
+    ["To do: #{decision["title"]}" | said] ++ options ++ others ++ [""]
   end
 
   # What to do, as an item: its title and fields; whatever else Control adds is left out.

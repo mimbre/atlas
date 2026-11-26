@@ -1,14 +1,131 @@
 defmodule AtlasTui.PanelFixture do
   @moduledoc false
-  # Pages with a panel where its owner decides, as Control projects them: the panel, and
-  # an action per answer of the same key (one given with a note opens its note form; one
-  # with `submit_to` sends it), its actions opening pages and its links web addresses.
+  # Pages where its owner decides, as Control projects them: a panel, or a decision as a
+  # stack of simple blocks (a choice, stuck work); and an action per answer of the same key
+  # (one given with a note opens its note form; one with `submit_to` sends it), its actions
+  # opening pages and its links web addresses.
   alias AtlasTui.ConsoleProjectionFixture
 
   def model(kind, props \\ %{}), do: kind |> page(props) |> projected()
 
-  def page(kind, props \\ %{}) do
-    path = "/k/widget/K-1"
+  @decision "/k/decision/D-7"
+  @stuck "/k/widget/K-1"
+
+  def call(kind, key, answer),
+    do: %{
+      "endpoint" => "answer",
+      "params" => %{"kind" => kind, "key" => key, "answer" => answer}
+    }
+
+  # A decision's choice (`:choice`): its question, why, an option per answer (the
+  # recommended one first, a decline given with a note), the page's other answers and its
+  # details. Stuck work (`:stuck`): its title as the question, its byline, what went wrong,
+  # its answers as options (Retry recommended), the agent's log among the other answers.
+  def page(kind, props \\ %{})
+
+  def page(:choice, _props) do
+    adopt = fn n, id, text, extra ->
+      option(
+        n,
+        text,
+        [{"Rule", "Store examples in #{id}."}, {"Then", "#{text} holds them."}],
+        Map.merge(
+          %{
+            "label" => "Choose",
+            "key" => "#{n}",
+            "to" => @decision <> "/answer/option-#{id}",
+            "submit_to" => call("decision", "D-7", "option-#{id}")
+          },
+          extra
+        )
+      )
+    end
+
+    blocks =
+      [
+        header("YOUR DECISION", "D-7", "How do we store examples?"),
+        text("why", %{"label" => "Why", "text" => "Files need nothing to run."}),
+        adopt.(1, "files", "Use files", %{"badge" => "★ Recommended", "tone" => "success"}),
+        adopt.(2, "memory", "Use memory", %{}),
+        option(3, "Decline", [{"Details", "None of these fits; say why."}], %{
+          "label" => "Decline…",
+          "key" => "3",
+          "to" => @decision <> "/answer/decline",
+          "note" => true,
+          "badge" => "Decline · note",
+          "tone" => "warning"
+        }),
+        answers([
+          %{"label" => "Inspector's log", "key" => "l", "to" => "/k/run/W-7"},
+          %{"label" => "More…", "key" => "m", "to" => @decision <> "/more"}
+        ]),
+        %{
+          "id" => "item",
+          "type" => "item",
+          "props" => %{
+            "title" => "D-7",
+            "fields" => [%{"label" => "Status", "value" => "Open"}],
+            "actions" => []
+          }
+        }
+      ]
+
+    %{
+      "op" => "page",
+      "path" => @decision,
+      "title" => "D-7",
+      "reason" => "open",
+      "blocks" => blocks,
+      "markup" => [
+        %{
+          "kind" => "part",
+          "start" => "item",
+          "end" => "item",
+          "props" => %{"title" => "Details", "role" => "details"}
+        }
+      ]
+    }
+  end
+
+  def page(:stuck, _props) do
+    blocks = [
+      header("YOUR DECISION", "IS-Atlas-134", "IS-Atlas-134 is stuck: what now?"),
+      text("why", %{"text" => "inspect · attempt 2 failed · stuck", "since" => ago(26)}),
+      text("failure", %{
+        "label" => "What went wrong",
+        "text" => "The worker stopped: the tests could not reach the database.",
+        "role" => "error"
+      }),
+      option(1, "Retry", [{"Then", "Runs the work again from where it stopped."}], %{
+        "label" => "Choose",
+        "key" => "t",
+        "to" => @stuck <> "/answer/retry",
+        "submit_to" => call("widget", "K-1", "retry"),
+        "badge" => "★ Recommended",
+        "tone" => "success"
+      }),
+      option(2, "Close it", [{"Details", "Closes the widget; you say why."}], %{
+        "label" => "Decline…",
+        "key" => "c",
+        "to" => @stuck <> "/answer/close",
+        "note" => true,
+        "badge" => "Decline · note",
+        "tone" => "warning"
+      }),
+      answers([%{"label" => "Agent's log", "key" => "l", "to" => "/k/run/W-134"}])
+    ]
+
+    %{
+      "op" => "page",
+      "path" => @stuck,
+      "title" => "Widget K-1",
+      "reason" => "open",
+      "blocks" => blocks
+    }
+  end
+
+  def page(kind, props) do
+    path = @stuck
 
     panel = %{
       "id" => "panel",
@@ -25,11 +142,36 @@ defmodule AtlasTui.PanelFixture do
     }
   end
 
-  def call(answer),
+  defp header(eyebrow, key, title),
     do: %{
-      "endpoint" => "answer",
-      "params" => %{"kind" => "widget", "key" => "K-1", "answer" => answer}
+      "id" => "header",
+      "type" => "header",
+      "props" => %{"eyebrow" => eyebrow, "key" => key, "title" => title}
     }
+
+  defp text(id, props), do: %{"id" => id, "type" => "text", "props" => props}
+
+  defp answers(answers),
+    do: %{"id" => "answers", "type" => "answers", "props" => %{"answers" => answers}}
+
+  # An option; `answer` carries its badge and tone too.
+  defp option(n, text, fields, answer) do
+    {look, answer} = Map.split(answer, ["badge", "tone"])
+
+    %{
+      "id" => "option-#{n}",
+      "type" => "option",
+      "props" =>
+        Map.merge(look, %{
+          "n" => n,
+          "text" => text,
+          "fields" => for({label, value} <- fields, do: %{"label" => label, "value" => value}),
+          "answer" => answer
+        })
+    }
+  end
+
+  defp call(answer), do: call("widget", "K-1", answer)
 
   defp props(:accept, path) do
     item = fn n, what, done, needs ->
@@ -100,45 +242,12 @@ defmodule AtlasTui.PanelFixture do
     }
   end
 
-  defp props(:decision, path) do
-    %{
-      "heading" => "YOUR DECISION",
-      "title" => "IS-Atlas-134 is stuck: what now?",
-      "byline" => [%{"text" => "", "since" => ago(26)}],
-      "box" => %{
-        "title" => "What went wrong",
-        "text" => "The worker stopped: the tests could not reach the database.",
-        "tone" => "error"
-      },
-      "choose" => true,
-      "answers" => [
-        %{
-          "label" => "Retry",
-          "key" => "t",
-          "to" => path <> "/answer/retry",
-          "submit_to" => call("retry"),
-          "recommended" => true,
-          "detail" => "Runs the work again from where it stopped."
-        },
-        %{
-          "label" => "Close it",
-          "key" => "c",
-          "to" => path <> "/answer/close",
-          "note" => true,
-          "detail" => "Closes the widget; you say why."
-        }
-      ],
-      "actions" => [%{"label" => "Agent's log", "key" => "l", "to" => "/k/run/W-134"}]
-    }
-  end
-
   defp ago(hours),
     do: DateTime.utc_now() |> DateTime.add(-hours * 3_600 - 60) |> DateTime.to_iso8601()
 
-  # Control's actions for the answers (of a panel or an answers block): the recommended
-  # one again on 0, in a choice.
+  # Control's actions for what the viewer can answer: a panel's or an answers block's
+  # answers, an option's own answer (the recommended one, tone success, on 0 too).
   def projected(page) do
-    props = Enum.find_value(page["blocks"], %{}, &(&1["props"]["answers"] && &1["props"]))
     projected = ConsoleProjectionFixture.project(page)
 
     scope = %{
@@ -147,14 +256,17 @@ defmodule AtlasTui.PanelFixture do
       "context" => "browse"
     }
 
-    answers = props["answers"] || []
-
     answers =
-      answers ++
-        if(props["choose"] == true and answers != [],
-          do: [Map.put(hd(answers), "key", "0")],
-          else: []
-        )
+      Enum.flat_map(page["blocks"], fn
+        %{"type" => "option", "props" => %{"answer" => a, "tone" => "success"}} ->
+          [a, Map.put(a, "key", "0")]
+
+        %{"type" => "option", "props" => %{"answer" => a}} ->
+          [a]
+
+        %{"props" => props} ->
+          props["answers"] || []
+      end)
 
     actions =
       for answer <- answers do

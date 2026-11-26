@@ -30,17 +30,6 @@ defmodule AtlasBFFContract.Blocks do
         field :links, {:list, :link}
       end
 
-      # `key`: the fact the choice is about, which a client shows beside the question.
-      defblock :single_choice do
-        field :question, :string, required: true
-        field :options, {:list, :choice_option}, required: true
-        field :recommended, :string, required: true
-        field :rationale, :string, required: true
-        field :revision, :string, required: true
-        field :instructions, :string
-        field :key, :string
-      end
-
       # A page's own heading, the first of a stack of simple blocks: what is asked of
       # the viewer (`eyebrow`: "TO DO FOR YOU"), the fact's `key` and the `title`.
       defblock :header do
@@ -51,11 +40,13 @@ defmodule AtlasBFFContract.Blocks do
 
       # A paragraph: its `text`, after its `label` ("Why"), and with `since` (ISO 8601,
       # UTC) how long ago that was, which a client shows after the text ("· 3h ago") and
-      # keeps current.
+      # keeps current. `role` error: something went wrong (what a client shows in Prism's
+      # error, a tinted card or a red frame).
       defblock :text do
         field :text, :string, required: true
         field :label, :string
         field :since, :string
+        field :role, :string
       end
 
       # One numbered step of instructions (a to-do's): its number `n` (from 1) and its
@@ -73,13 +64,26 @@ defmodule AtlasBFFContract.Blocks do
         field :answers, {:list, :panel_answer}, required: true
       end
 
+      # One option of a decision, one block per option in Control's order (the
+      # recommended one first): its number `n` (from 1), its `text`, a `badge` in its
+      # `tone` (success: "★ Recommended", warning: "Decline · note"), what it means
+      # (`fields`: its Rule and what follows Then, or a decline's Details) and its own
+      # `answer`, the page's action of the same key (`note`: it asks a note first).
+      defblock :option do
+        field :n, :integer, required: true
+        field :text, :string, required: true
+        field :badge, :string
+        field :tone, :string
+        field :fields, {:list, :pair}, required: true
+        field :answer, :panel_answer, required: true
+      end
+
       # Where its owner decides, as a panel: `heading` (what is asked of them: "TO
       # ACCEPT"), `title`, `key` (the fact's, shown beside the title), `aside` (beside the
       # title: "3 items"), the `byline`; what it is
       # judged on: `items` (a client selects one and shows its details), `checks`, a `box`;
       # then its `answers` in Control's order, each the page's action of the same key.
-      # `choose`: the answers are a choice, one selected (the recommended one first) and
-      # answered at once, its detail shown. `actions` and `links` open what it refers to.
+      # `actions` and `links` open what it refers to.
       defblock :panel do
         field :heading, :string, required: true
         field :title, :string, required: true
@@ -90,7 +94,6 @@ defmodule AtlasBFFContract.Blocks do
         field :checks, {:list, :check}
         field :box, :box
         field :answers, {:list, :panel_answer}
-        field :choose, :boolean
         field :actions, {:list, :action}
         field :links, {:list, :link}
       end

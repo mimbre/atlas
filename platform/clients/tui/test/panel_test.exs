@@ -31,7 +31,11 @@ defmodule AtlasTui.PanelTest do
   end
 
   test "an age alone, without text, is shown as an age" do
-    screen = screen(PanelFixture.model(:decision))
+    since = DateTime.utc_now() |> DateTime.add(-26 * 3_600 - 60) |> DateTime.to_iso8601()
+
+    screen =
+      screen(PanelFixture.model(:accept, %{"byline" => [%{"text" => "", "since" => since}]}))
+
     assert line(screen, "│ 1d ")
   end
 
@@ -101,39 +105,8 @@ defmodule AtlasTui.PanelTest do
     assert screen =~ "o Open on GitHub" and screen =~ "v Full review"
   end
 
-  test "a stuck one shows what went wrong and its answers, the recommended one selected" do
-    model = PanelFixture.model(:decision)
-    screen = screen(model)
-
-    assert screen =~ "What went wrong"
-    assert screen =~ "the tests could not reach the database."
-    assert line(screen, "Retry") =~ "▸" and line(screen, "Retry") =~ "★ recommended"
-    assert line(screen, "Close it") =~ "· note"
-    assert screen =~ "Runs the work again from where it stopped."
-    assert screen =~ "Enter answer" and screen =~ "l Agent's log"
-
-    {down, []} = Model.key(model, :down)
-    assert down.choice == "c"
-    assert screen(down) =~ "Closes the widget; you say why."
-    refute screen(down) =~ "Runs the work again"
-  end
-
-  test "Enter answers the selected answer with the call its own key sends" do
-    model = PanelFixture.model(:decision)
-    {_, by_key} = Model.key(model, {:char, "t"})
-
-    assert [{:send, %{"op" => "submit", "params" => %{"answer" => "retry"}}}] = by_key
-    assert Model.key(model, :enter) |> elem(1) == by_key
-  end
-
-  test "Enter on an answer given with a note opens its note form, never submits" do
-    {model, effects} = effects(PanelFixture.model(:decision), [:down, :enter])
-    assert [{:send, %{"op" => "open", "to" => "/k/widget/K-1/answer/close"}}] = effects
-    assert model.console.expected == "/k/widget/K-1/answer/close"
-  end
-
   test "a panel fits any width" do
-    for kind <- [:accept, :merge, :decision],
+    for kind <- [:accept, :merge],
         width <- [1, 5, 12, 20, 40],
         do: assert(is_binary(screen(PanelFixture.model(kind), width)))
   end

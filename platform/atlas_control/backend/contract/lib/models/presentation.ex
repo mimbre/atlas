@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.31.0"
+  version "0.32.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -15,20 +15,6 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :to, :string, required: true
     field :submit_to, :call
     field :page, :boolean
-  end
-
-  # Semantic single-choice data is independent of keyboard shortcuts and renderers.
-  defmodel :choice_option do
-    field :id, :string, required: true
-    field :text, :string, required: true
-    field :details, :string, required: true
-    field :effect, :string, required: true
-    field :rule, :string, required: true
-    field :consequences, :string, required: true
-    field :answer, :call, required: true
-    # The answer is given with a note saying why (a decline), as a form asks it.
-    field :note, :boolean
-    field :shortcut, :string
   end
 
   # A line of an `instruction` block, in order: `kind` `text` (its `text`, the lines
@@ -73,18 +59,16 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :tone, :string
   end
 
-  # One answer of a panel (as its page's action of the same key gives it) or of an
-  # `answers` block (the page's action itself, on its key): opening `to`, or `submit_to`
-  # at once. `note`: given with a note saying why, as `to`'s form asks it; else a yes.
-  # `recommended` and `detail` (what it does) for a choice.
+  # One answer of a panel (as its page's action of the same key gives it), of an
+  # `answers` block (the page's action itself, on its key) or of an `option`: opening
+  # `to`, or `submit_to` at once. `note`: given with a note saying why, as `to`'s form
+  # asks it; else a yes.
   defmodel :panel_answer do
     field :label, :string, required: true
     field :key, :string, required: true
     field :to, :string, required: true
     field :submit_to, :call
     field :note, :boolean
-    field :recommended, :boolean
-    field :detail, :string
   end
 
   # A web address the user can open outside the client, in a browser: `url`. `key` is

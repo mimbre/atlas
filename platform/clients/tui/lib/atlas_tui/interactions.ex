@@ -2,11 +2,10 @@ defmodule AtlasTui.Interactions do
   @moduledoc """
   Console operations from the current BFF projection. Contract owns validation,
   binding selection and action identity. The renderer adds local focus and shell
-  revision checks to reject captured events after its own state changes. On a page with a
-  single choice, ↑/↓ select an option and Enter answers it with the option's own key; on a
-  page with a panel, ↑/↓ select its item (Enter opens it) or, in a choice, its answer
-  (Enter answers it with the answer's own key); on a page with instructions, ↑/↓ select a
-  command, `c` copies it and `y` all of them.
+  revision checks to reject captured events after its own state changes. On a page of
+  decision options, ↑/↓ select an option and Enter answers it with the option's own key; on
+  a page with a panel, ↑/↓ select its item (Enter opens it); on a page with instructions,
+  ↑/↓ select a command, `c` copies it and `y` all of them.
   """
   alias AtlasTui.{Blocks, Console, Legend, Model}
   alias AtlasBFFContract.Console, as: Contract
@@ -206,21 +205,22 @@ defmodule AtlasTui.Interactions do
     end
   end
 
-  # A page with a single choice: the arrows move its selection (the recommended option
-  # first) and Enter answers the selected option exactly as its key does, through the
-  # action Control projects for that key; a key Control does not project does nothing.
+  # A page of decision options (`option` blocks): the arrows move the selection among them
+  # (from the first) and never answer; Enter answers the selected option exactly as its
+  # key does, through the action Control projects for that key (a decline's opens its note
+  # form); a key Control does not project does nothing.
   defp choice_key(model, key) when key in [:up, :down, :enter] do
     with "browse" <- context(model),
-         %Blocks.SingleChoice{options: [_ | _] = options} = choice <- Model.single_choice(model) do
-      at = Model.chosen(choice, model.choice)
+         [_ | _] = options <- Model.options(model) do
+      at = Model.chosen(options, model.choice)
 
       case key do
         :enter ->
-          dispatch(model, capture(model, {:char, Model.option_key(Enum.at(options, at), at)}))
+          dispatch(model, capture(model, {:char, Enum.at(options, at).answer.key}))
 
         move ->
           to = (at + if(move == :up, do: -1, else: 1)) |> max(0) |> min(length(options) - 1)
-          {%{model | choice: Enum.at(options, to).id}, []}
+          {%{model | choice: Enum.at(options, to).answer.key}, []}
       end
     else
       _ -> nil
@@ -229,9 +229,8 @@ defmodule AtlasTui.Interactions do
 
   defp choice_key(_model, _key), do: nil
 
-  # A page with a panel whose arrows select (`Model.panel_choices/1`): they move the
-  # selection; Enter opens the selected item's page, or answers the selected answer exactly
-  # as its key does (an answer given with a note opens its note form first).
+  # A page with a panel with items: the arrows move the selection; Enter opens the
+  # selected item's page.
   defp panel_key(model, key) when key in [:up, :down, :enter] do
     with "browse" <- context(model),
          %Blocks.Panel{} = panel <- Model.panel(model),
@@ -241,9 +240,6 @@ defmodule AtlasTui.Interactions do
       case {key, Enum.at(choices, at)} do
         {:enter, %Blocks.PanelItem{to: to}} ->
           Console.open(model, to)
-
-        {:enter, %Blocks.PanelAnswer{key: answer}} ->
-          dispatch(model, capture(model, {:char, answer}))
 
         {move, _} ->
           to = (at + if(move == :up, do: -1, else: 1)) |> max(0) |> min(length(choices) - 1)

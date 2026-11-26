@@ -60,7 +60,10 @@ defmodule AtlasBFFContract.Contract do
   # that shows the panel in place of the page's title still shows it.
   # 0.31.0: a to-do's page as a stack of simple blocks (`header`, `text`, `instruction`,
   # `answers`) in place of `steps` and `instruction_step`; no `step` page or submit.
-  version "0.31.0"
+  # 0.32.0: a decision as a stack of simple blocks: one `option` block per option and a
+  # `text`'s `role` (error: what went wrong), in place of `single_choice` (and its
+  # `choice_option`) and a panel's `choose` (and a `panel_answer`'s `recommended`, `detail`).
+  version "0.32.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

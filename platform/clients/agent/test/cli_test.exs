@@ -96,75 +96,73 @@ defmodule AtlasAgent.CLITest do
              """
   end
 
-  # A decision's owner gets its choice (single_choice, after the `todo` line) and pages
-  # carry blocks this client does not know; get and set print them, never crash.
-  test "get and set: a decision's choice as its to-do; unknown blocks and fields are left out",
+  # A decision's owner gets its options (one `option` block each, after its header and
+  # why) and pages carry blocks this client does not know; get and set print them, never
+  # crash.
+  test "get and set: a decision's options as its to-do; unknown blocks and fields are left out",
        %{control: c} do
     widget = FakeControl.put(c, "widget", %{"title" => "A decision"})
 
-    answer = fn n ->
-      %{"key" => n, "label" => n, "to" => "/k/widget/#{widget}/answer/#{n}"}
+    answer = fn n, label ->
+      %{"key" => n, "label" => label, "to" => "/k/widget/#{widget}/answer/#{n}"}
     end
 
     FakeControl.lead(c, widget, [
       %{
-        "id" => "todo",
-        "type" => "item",
-        "props" => %{"title" => "What to do: Decide   Answers: 1–2   0 Recommended"}
+        "id" => "header",
+        "type" => "header",
+        "props" => %{"eyebrow" => "YOUR DECISION", "title" => "How are pages composed?"}
       },
       %{
-        "id" => "choice",
-        "type" => "single_choice",
+        "id" => "why",
+        "type" => "text",
+        "props" => %{"label" => "Why", "text" => "Clients stay small."}
+      },
+      %{
+        "id" => "option-1",
+        "type" => "option",
         "props" => %{
-          "question" => "How are pages composed?",
-          "options" => [
-            %{
-              "id" => "stack",
-              "text" => "Stacked blocks",
-              "details" => "One job per block.",
-              "effect" => "adopt",
-              "rule" => "",
-              "consequences" => "",
-              "answer" => answer.("1"),
-              "note" => false,
-              "shortcut" => "1",
-              "weight" => %{"unknown" => ["field"]}
-            },
-            %{
-              "id" => "compound",
-              "text" => "Compound blocks",
-              "details" => "Each page its own.",
-              "effect" => "reject",
-              "rule" => "",
-              "consequences" => "",
-              "answer" => answer.("2"),
-              "note" => true,
-              "shortcut" => "2"
-            }
+          "n" => 1,
+          "text" => "Stacked blocks",
+          "badge" => "★ Recommended",
+          "tone" => "success",
+          "fields" => [
+            %{"label" => "Rule", "value" => "One job per block."},
+            %{"label" => "Then", "value" => "Clients stack them."}
           ],
-          "recommended" => "stack",
-          "rationale" => "Clients stay small.",
-          "revision" => "6db6808a",
-          "instructions" =>
-            "How are pages composed?\nRecommended: Stacked blocks — Clients stay small.\n0 selects recommended choice 1."
+          "answer" => answer.("1", "Choose"),
+          "weight" => %{"unknown" => ["field"]}
         }
+      },
+      %{
+        "id" => "option-2",
+        "type" => "option",
+        "props" => %{
+          "n" => 2,
+          "text" => "Compound blocks",
+          "badge" => "Decline · note",
+          "tone" => "warning",
+          "fields" => [%{"label" => "Details", "value" => "Each page its own."}],
+          "answer" => Map.put(answer.("2", "Decline…"), "note", true)
+        }
+      },
+      %{
+        "id" => "answers",
+        "type" => "answers",
+        "props" => %{"answers" => [answer.("m", "More…")]}
       },
       %{"id" => "panel", "type" => "panel", "props" => %{"part" => nil, "lines" => [[1, 2]]}}
     ])
 
     expected = """
     To do: How are pages composed?
-      Recommended: Stacked blocks — Clients stay small.
-      0 selects recommended choice 1.
-      1 Stacked blocks (recommended)
-          details: One job per block.
-          effect: adopt
-          weight:
-            unknown:
-              - field
-      2 Compound blocks
-          details: Each page its own.
-          effect: reject
+      Why: Clients stay small.
+      1 Stacked blocks (★ Recommended)
+          Rule: One job per block.
+          Then: Clients stack them.
+      2 Compound blocks (Decline · note)
+          Details: Each page its own.
+      m More…
 
     Widget WI-01: A decision
       Title: A decision

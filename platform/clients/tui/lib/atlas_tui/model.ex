@@ -20,11 +20,11 @@ defmodule AtlasTui.Model do
     Input,
     Instruction,
     Item,
+    Option,
     Panel,
     Part,
     Plan,
-    Section,
-    SingleChoice
+    Section
   }
 
   alias AtlasTui.Blocks.List, as: ListBlock
@@ -45,9 +45,8 @@ defmodule AtlasTui.Model do
             ids: [],
             markup: [],
             selected: 0,
-            # The option of the page's single choice that Enter answers, by id, or what the
-            # arrows select in its panel (an item or an answer), by key; nil (or one the page
-            # no longer has) is the recommended one, else the first.
+            # The option block Enter answers, by its answer's key, or the item the arrows
+            # select in its panel, by key; nil (or one the page no longer has) is the first.
             choice: nil,
             # The command ↑/↓ select on a page with instructions, by its place among the
             # page's commands (`commands/1`); what `c` copies.
@@ -207,31 +206,21 @@ defmodule AtlasTui.Model do
 
   def form(model), do: Enum.find(model.blocks, &match?(%Form{}, &1))
 
-  def single_choice(model), do: Enum.find(model.blocks, &match?(%SingleChoice{}, &1))
+  @doc "The page's decision options (`option` blocks), in page order: one selection."
+  def options(model), do: for(%Option{} = option <- model.blocks, do: option)
 
-  @doc "Where in its options the selected option of `choice` is (`choice` in the model)."
-  def chosen(%SingleChoice{options: options, recommended: recommended}, id) do
-    Enum.find_index(options, &(&1.id == id)) ||
-      Enum.find_index(options, &(&1.id == recommended)) || 0
-  end
-
-  @doc "The key that answers an option: Control's shortcut, else its place from 1."
-  def option_key(option, index), do: option.shortcut || Integer.to_string(index + 1)
+  @doc "Where in `options` the selected one is (`choice` in the model): by key, else the first."
+  def chosen(options, key), do: Enum.find_index(options, &(&1.answer.key == key)) || 0
 
   def panel(model), do: Enum.find(model.blocks, &match?(%Panel{}, &1))
 
-  @doc "What a panel's arrows select: its items, else its answers when they are a choice."
+  @doc "What a panel's arrows select: its items."
   def panel_choices(%Panel{items: [_ | _] = items}), do: items
-  def panel_choices(%Panel{choose: true, answers: [_ | _] = answers}), do: answers
   def panel_choices(%Panel{}), do: []
 
   @doc "Where in `panel_choices/1` the selected one of `panel` is (`choice` in the model)."
-  def panel_chosen(%Panel{} = panel, key) do
-    choices = panel_choices(panel)
-
-    Enum.find_index(choices, &(&1.key == key)) ||
-      Enum.find_index(choices, &(Map.get(&1, :recommended) == true)) || 0
-  end
+  def panel_chosen(%Panel{} = panel, key),
+    do: Enum.find_index(panel_choices(panel), &(&1.key == key)) || 0
 
   @doc "The commands of the page's instructions, in page order: one selection."
   def commands(model) do

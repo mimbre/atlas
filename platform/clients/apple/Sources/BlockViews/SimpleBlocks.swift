@@ -8,9 +8,14 @@ import AppKit
 /// after it ("· 3h ago"), when Control sends them.
 public enum TextLine {
     public static func line(_ block: TextBlock, now: Date) -> String {
-        let text = block.label.map { "\($0): \(block.text)" } ?? block.text
-        guard let age = block.since.flatMap({ age(since: $0, now: now) }) else { return text }
-        return "\(text) · \(age)"
+        let shown = text(block, now: now)
+        return block.label.map { "\($0): \(shown)" } ?? shown
+    }
+
+    /// Its text and how long ago, without its label (where a heading shows that).
+    public static func text(_ block: TextBlock, now: Date) -> String {
+        guard let age = block.since.flatMap({ age(since: $0, now: now) }) else { return block.text }
+        return "\(block.text) · \(age)"
     }
 
     /// How long ago `since` (ISO 8601) was: "just now", "5m ago", "3h ago", "2d ago".
@@ -24,6 +29,26 @@ public enum TextLine {
 public enum Instruction {
     public static func shown(_ line: InstructionLineModel) -> String {
         line.kind == "route" ? (line.parts ?? []).joined(separator: " › ") : line.text ?? ""
+    }
+}
+
+/// An `option` block as it is answered: its button takes its answer as the page's action of
+/// the answer's key (`Panel.action`): its call at once (`submit_to`), else its page (`to`;
+/// for one that asks a note, a decline, the form that asks it). Its key, as Control binds
+/// it, takes the same; the recommended one (tone success) is on `0` too.
+public enum Option {
+    /// What its button and its key take.
+    public static func action(_ block: OptionBlock) -> ActionModel {
+        Panel.action(block.answer)
+    }
+
+    /// Its answer as the page's actions: on its key, and on `0` for the recommended one.
+    public static func actions(_ block: OptionBlock) -> [ActionModel] {
+        let own = action(block)
+        guard block.tone == "success" else { return [own] }
+        var zero = own
+        zero.key = "0"
+        return [own, zero]
     }
 }
 

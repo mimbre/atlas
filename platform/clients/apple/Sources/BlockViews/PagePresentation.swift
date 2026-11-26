@@ -15,8 +15,6 @@ public struct PagePresentation: Sendable, Equatable {
         case list(ListBlock)
         /// Read-only detail, including full multiline field values.
         case item(ItemBlock)
-        /// A single choice: its options are chosen by number or click.
-        case singleChoice(SingleChoiceBlock)
         /// A panel where its owner decides: its items, checks, box and answers.
         case panel(PanelBlock)
         /// A page's header: its eyebrow and key over its title.
@@ -27,6 +25,8 @@ public struct PagePresentation: Sendable, Equatable {
         case instruction(InstructionBlock)
         /// The page's answers, each on its key: the page's actions (`PageActions.all`).
         case answers(AnswersBlock)
+        /// One option of a decision: what it means and its own answer.
+        case option(OptionBlock)
         /// A form: its inputs, edited and submitted to its call.
         case form(FormBlock)
         /// A confirm: its text, and Confirm (its call) or Cancel.
@@ -82,15 +82,14 @@ public struct PagePresentation: Sendable, Equatable {
         public var groups: [Group]
     }
 
-    /// The page shows a panel where its owner acts (`panel`, `single_choice`): it leads
-    /// the page in place of its title.
+    /// The page shows a panel where its owner acts: it leads the page in place of its title.
     public var hasPanel: Bool {
-        entries.contains {
-            switch $0.item {
-            case .panel, .singleChoice: true
-            default: false
-            }
-        }
+        entries.contains { if case .panel = $0.item { true } else { false } }
+    }
+
+    /// The page is a decision with its options: they, not its `answers`, answer it.
+    public var hasOptions: Bool {
+        entries.contains { if case .option = $0.item { true } else { false } }
     }
 
     /// The page has a `header` block: it names the page in place of its title.
@@ -107,12 +106,12 @@ public struct PagePresentation: Sendable, Equatable {
             switch block.content {
             case .list(let list): item = .list(list)
             case .item(let detail): item = .item(detail)
-            case .singleChoice(let choice): item = .singleChoice(choice)
             case .panel(let panel): item = .panel(panel)
             case .header(let header): item = .header(header)
             case .text(let text): item = .text(text)
             case .instruction(let instruction): item = .instruction(instruction)
             case .answers(let answers): item = .answers(answers)
+            case .option(let option): item = .option(option)
             case .form(let form): item = .form(form)
             case .confirm(let confirm): item = .confirm(confirm)
             case .fallback(let fallback): item = .fallback(fallback)
