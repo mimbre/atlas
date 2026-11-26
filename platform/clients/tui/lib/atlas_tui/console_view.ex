@@ -38,13 +38,52 @@ defmodule AtlasTui.ConsoleView do
     bar = Enum.reject(bar, fn {_, text} -> text == "" end)
 
     used = Enum.reduce(bar, 0, fn {_, text}, n -> n + String.length(text) end)
+    bar = bar ++ [{:header, String.duplicate(" ", max(width - used, 0))}]
+    inner = max(width - 2, 0)
 
-    [
-      bar ++ [{:header, String.duplicate(" ", max(width - used, 0))}],
-      [{:dim, "┌" <> String.duplicate("─", max(width - 2, 0)) <> "┐"}],
-      [{:dim, "│"}] ++ tabs(shell, console.active, max(width - 2, 0)) ++ [{:dim, "│"}],
-      [{:dim, "└" <> String.duplicate("─", max(width - 2, 0)) <> "┘"}]
-    ]
+    # The sidebar holds the tabs when there is one (`AtlasTui.Columns`); else the tab bar,
+    # from three columns with a row of the active tab's groups under its tabs.
+    if AtlasTui.Columns.sidebar?(model) do
+      [bar]
+    else
+      groups = if AtlasTui.Columns.layout(width) == :three, do: groups(model, inner), else: []
+
+      [
+        bar,
+        [{:dim, "┌" <> String.duplicate("─", inner) <> "┐"}],
+        [{:dim, "│"}] ++ tabs(shell, console.active, inner) ++ [{:dim, "│"}]
+      ] ++
+        Enum.map(groups, &([{:dim, "│"}] ++ &1 ++ [{:dim, "│"}])) ++
+        [[{:dim, "└" <> String.duplicate("─", inner) <> "┘"}]]
+    end
+  end
+
+  # The active tab's groups (boot's `groups`), each with its count, the one shown (the
+  # list's) highlighted: one row, cut to `width`. None for a tab without groups.
+  defp groups(model, width) do
+    tabs = (model.console.shell || %{})["tabs"] || []
+    tab = Enum.find(tabs, &(&1["id"] == model.console.active))
+    shown = model.columns.list || model.path
+
+    case tab && tab["groups"] do
+      [_ | _] = groups ->
+        segments =
+          groups
+          |> Enum.map(fn group ->
+            count = if group["count"], do: " #{group["count"]}", else: ""
+            style = if group["to"] == shown, do: :active, else: :dim
+            [{style, " #{group["label"]}#{count} "}]
+          end)
+          |> Enum.intersperse([{:dim, "·"}])
+          |> Enum.concat()
+
+        shown = slice([{:dim, "  "} | segments], 0, width)
+        used = Enum.reduce(shown, 0, fn {_, text}, n -> n + String.length(text) end)
+        [shown ++ [{:dim, String.duplicate(" ", max(width - used, 0))}]]
+
+      _ ->
+        []
+    end
   end
 
   # No tabs before boot: the status line says what the TUI waits for.

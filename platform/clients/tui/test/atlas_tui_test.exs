@@ -947,7 +947,7 @@ defmodule AtlasTuiTest do
     }
 
     test "Console content preserves part and section markup around row content" do
-      text = model(@marked) |> View.render(40, 30, 5) |> View.plain()
+      text = model(@marked) |> View.render(80, 30, 5) |> View.plain()
       assert text =~ "┌─ Content"
       assert text =~ "Thing T-1: First"
       assert text =~ "Parts ─"
@@ -1014,34 +1014,36 @@ defmodule AtlasTuiTest do
         ]
     }
 
-    test "details stand beside the page from 144 wide, centred with it; narrower, under it" do
+    test "details stand in their own column right after the page from 140 wide; narrower, under it" do
       m = model(@detailed)
 
-      for {width, body, side} <- [{250, 204, 100}, {160, 160, 56}, {144, 144, 40}] do
+      for {width, body, side} <- [{250, 200, 100}, {160, 160, 60}, {140, 140, 40}] do
         assert View.body_width(m, width) == body
         lines = m |> View.render(width, 30, 5) |> View.plain() |> String.split("\n")
-        left = div(width - body, 2)
         details = Enum.find(lines, &(&1 =~ "Details ─"))
         wheel = Enum.find(lines, &(&1 =~ "› Wheel"))
 
-        # On the same rows: the main column at the left margin, the details 104 further.
+        # On the same rows: the page from the left edge, its details' column right after
+        # its 100 cells (their text 4 into it); nothing further right than the details.
         [before | _] = String.split(details, " Details")
-        assert String.length(before) == left + 104
+        assert String.length(before) == 100 + 4
         # A heading's rule ends one cell short of its column's edge.
-        assert String.length(details) == left + 104 + side - 1
-        assert String.starts_with?(wheel, String.duplicate(" ", left) <> " › Wheel")
+        assert String.length(details) == 100 + side - 1
+        assert String.starts_with?(wheel, " › Wheel")
         assert details == wheel
+
+        # The room left over is at the far right: no line of the body reaches past it.
+        page = lines |> Enum.drop(4) |> Enum.take_while(&(&1 != String.duplicate("─", width)))
+        assert Enum.all?(page, &(String.length(&1) <= body))
       end
 
-      # One column below 144: max 100 and centred, the details under the page.
-      for {width, left} <- [{143, 21}, {100, 0}, {60, 0}] do
+      # One column below 140: the page from the left edge, the details under it.
+      for width <- [139, 100, 60] do
         lines = m |> View.render(width, 30, 5) |> View.plain() |> String.split("\n")
         wheel = Enum.find_index(lines, &(&1 =~ "› Wheel"))
         details = Enum.find_index(lines, &(&1 =~ "Details ─"))
         assert wheel < details
-
-        assert Enum.at(lines, details)
-               |> String.starts_with?(String.duplicate(" ", left) <> " Details")
+        assert Enum.at(lines, details) |> String.starts_with?(" Details")
       end
     end
   end

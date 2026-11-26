@@ -33,15 +33,34 @@ public struct PageView: View {
         self.act = act
     }
 
-    /// The page in the room its column gives it: at most `Prism.readableWidth` wide,
-    /// centred; its details, when it has them, under what is decided as one recessed card
-    /// (`RecessedCard`), at any width.
+    /// The page from the left of its column (`WindowLayout.columns`): its main blocks at most
+    /// `WindowLayout.page` wide, and its details, when it has them, as a column of their own right
+    /// beside them when they fit, else under what is decided as one recessed card
+    /// (`RecessedCard`). What is left over is at the right, after the last column.
     public var body: some View {
-        list(lines(presentation.groups, header: header)
-             + (presentation.details.map { [Line(id: "\u{0}details", content: .details($0))] } ?? []))
-            .frame(maxWidth: Prism.readableWidth)
-            .frame(maxWidth: .infinity)
-            .navigationTitle(presentation.title)
+        GeometryReader { room in
+            columns(WindowLayout.columns(width: room.size.width))
+        }
+        .navigationTitle(presentation.title)
+    }
+
+    @ViewBuilder
+    private func columns(_ columns: WindowLayout.Columns) -> some View {
+        let main = lines(presentation.groups, header: header)
+        if let details = presentation.details, let width = columns.details {
+            HStack(alignment: .top, spacing: 0) {
+                list(main).frame(width: columns.page)
+                ScrollView {
+                    detailsView(details).padding(.vertical, Prism.Spacing.s10)
+                }
+                .frame(width: width)
+                Spacer(minLength: 0)
+            }
+        } else {
+            list(main + (presentation.details.map { [Line(id: "\u{0}details", content: .details($0))] } ?? []))
+                .frame(width: columns.page)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private func list(_ lines: [Line]) -> some View {
@@ -118,7 +137,7 @@ public struct PageView: View {
         }
     }
 
-    /// The details, in one recessed card under the page: their title, small, then their
+    /// The details, in one recessed card beside or under the page: their title, small, then their
     /// blocks, without cards of their own (no card inside a card).
     private func detailsView(_ details: PagePresentation.Details) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
