@@ -128,27 +128,67 @@ defmodule AtlasTui.ColumnsTest do
   defp screen(model, width \\ 220), do: model |> View.render(width, 40, 5) |> View.plain()
   defp selected_to(model), do: Enum.at(Model.rows(model), model.selected).to
 
-  test "columns by width: three from 210, list and page from 144, one at a time below" do
+  # The lit heading: the one of the column with the focus.
+  defp lit(model, width \\ 220) do
+    for line <- View.render(model, width, 40, 5), {:lit, text} <- line, do: text
+  end
+
+  test "columns by width: four from 290, three from 210, list and page from 144, one below" do
     assert Columns.layout(143) == :one
     assert Columns.layout(144) == :two
     assert Columns.layout(209) == :two
     assert Columns.layout(210) == :three
+    assert Columns.layout(289) == :three
+    assert Columns.layout(290) == :four
 
+    # One thin line between two columns, and nothing else: no frames.
     three = screen(wide(220))
-    assert three =~ ~r/┌─ ▸ Assigned to you ─+┐┌─ Widget W-1 ─+┐┌─ Details ─+┐/u
-    assert three =~ ~r/│  › W-1  Widget 1 .*││  Decide on widget W-1 .*││  Widget W-1/u
-    assert three =~ ~r/│  › P-1  Part P-1 +│\n/u
+    assert three =~ ~r/^  Assigned to you +│ Widget W-1 +│ Details\n/mu
+    assert three =~ ~r/^   › W-1  Widget 1 .*│  Decide on widget W-1 .*│  Widget W-1/mu
+    assert three =~ ~r/│  › P-1  Part P-1\n/u
+    refute three =~ ~r/[┌┐└┘]─* ?Assigned/u
 
     two = screen(wide(160), 160)
-    assert two =~ ~r/┌─ ▸ Assigned to you ─+┐┌─ Widget W-1 ─+┐\n/u
-    refute two =~ "┌─ Details"
+    assert two =~ ~r/^  Assigned to you +│ Widget W-1\n/mu
+    refute two =~ "│ Details"
 
     assert two =~
-             ~r/││  Decide on widget W-1 +│\n(.*\n)+.*││  Details ─+  │\n(.*\n)+.*││  › P-1  Part P-1 /u
+             ~r/│  Decide on widget W-1\n(.*\n)+.*│  Details ─+\n(.*\n)+.*│  › P-1  Part P-1/u
 
     {one, []} = start(143)
     assert one.path == "/"
-    refute screen(one, 143) =~ "┌─ ▸"
+    refute screen(one, 143) =~ "│ Widget"
+  end
+
+  test "the layout rule: columns from the left, one right after the other, the rest at the far right" do
+    for width <- [144, 160, 199, 210, 220, 260, 289, 290, 300, 400] do
+      columns = Columns.geometry(width)
+      [{_, 0, _} | _] = columns
+
+      # Adjacent: each starts where the one before it ends.
+      for {{_, x, w}, {_, next, _}} <- Enum.zip(columns, tl(columns)), do: assert(next == x + w)
+
+      {:page, _, page} = List.keyfind(columns, :page, 0)
+      assert page <= 100
+      # The last column takes the room up to its most (100); what is left is past it.
+      {_, x, w} = List.last(columns)
+      assert x + w == min(width, x + 100)
+
+      # The details beside the page when there is room, 40 to 100 wide; else under it.
+      case List.keyfind(columns, :details, 0) do
+        {:details, _, details} -> assert width >= 210 and page == 100 and details in 40..100
+        nil -> assert width < 210
+      end
+
+      assert Enum.map(columns, &elem(&1, 0)) ==
+               if(width >= 290, do: [:sidebar], else: []) ++
+                 [:list, :page] ++ if(width >= 210, do: [:details], else: [])
+    end
+
+    # One column: the page from the left edge; its details beside it from 140.
+    assert Columns.place(120, [:details]) == [{:page, 0, 100}]
+    assert Columns.place(150, [:details]) == [{:page, 0, 100}, {:details, 100, 50}]
+    assert Columns.place(260, [:details]) == [{:page, 0, 100}, {:details, 100, 100}]
   end
 
   test "the list follows live: moving in it opens the row's page at once, no Enter" do
@@ -161,7 +201,9 @@ defmodule AtlasTui.ColumnsTest do
     assert [{:send, %{"op" => "open", "to" => "/k/widget/W-2"}}] = effects
     # The page kept for it shows at once, while Control brings it fresh.
     assert model.path == "/k/widget/W-2"
-    assert screen(model) =~ ~r/│    W-1  Widget 1 .*Decide on widget W-2.*\n│  › W-2  Widget 2 /u
+
+    assert screen(model) =~
+             ~r/^     W-1  Widget 1 .*Decide on widget W-2.*\n   › W-2  Widget 2 /mu
 
     # Back in one column returns to the list, the row it was on still selected.
     assert [%{path: "/", selection: {"/k/widget/W-2", 1}}] = model.console.history
@@ -169,8 +211,8 @@ defmodule AtlasTui.ColumnsTest do
     # One open at a time on the wire: the newest row is the one asked for next.
     {model, []} = press(model, [:down])
     assert model.console.expected == "/k/widget/W-3"
-    assert screen(model) =~ ~r/│    W-2  Widget 2 .*Loading…/u
-    assert screen(model) =~ "│  › W-3  Widget 3"
+    assert screen(model) =~ ~r/^     W-2  Widget 2 .*Loading…/mu
+    assert screen(model) =~ "   › W-3  Widget 3"
   end
 
   test "→ and ← move the focus, Enter in the list is →, Esc always goes back to the list" do
@@ -179,18 +221,18 @@ defmodule AtlasTui.ColumnsTest do
 
     {model, []} = press(model, [:right])
     assert Columns.focus(model) == :page
-    assert screen(model) =~ "┌─ ▸ Widget W-1"
+    assert lit(model) == ["Widget W-1"]
 
     {model, []} = press(model, [:right])
     assert Columns.focus(model) == :details
-    assert screen(model) =~ "┌─ ▸ Details"
+    assert lit(model) == ["Details"]
     {model, []} = press(model, [:left])
     assert Columns.focus(model) == :page
     {model, []} = press(model, [:left])
     assert Columns.focus(model) == :list
     {model, []} = press(model, [:left])
     assert Columns.focus(model) == :list
-    assert screen(model) =~ "┌─ ▸ Assigned to you"
+    assert lit(model) == ["Assigned to you"]
 
     {model, []} = press(model, [:enter])
     assert Columns.focus(model) == :page
@@ -239,7 +281,7 @@ defmodule AtlasTui.ColumnsTest do
     {model, []} = ConsoleProjectionFixture.receive(model, supervised())
 
     assert model.columns.list == "/_supervised"
-    assert screen(model) =~ ~r/┌─ ▸ Supervised by you ─+┐┌─ Page ─+┐/u
+    assert screen(model) =~ ~r/^  Supervised by you +│ Page/mu
     assert screen(model) =~ "Nothing open"
   end
 

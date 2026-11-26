@@ -29,8 +29,10 @@ defmodule AtlasTui.Palette do
   `:route` is a part of a route in an instruction (where to click in an app): bold, in
   `:info`'s colours, primarylight on dark and grey1 on primarylight in light, where
   primary text on white is under 4.5:1.
-  `:rest_frame` frames a column without the focus (`:frame` frames the one with it): grey2
-  in dark; in light grey1, as grey2 on white stays under 3:1 (2.85:1).
+  `:rest_frame` is the thin line between two columns: grey2 in dark; in light grey1, as
+  grey2 on white stays under 3:1 (2.85:1). `:lit` is the heading of the column with the
+  focus: bold, primarylight on dark, primaryshade on white (4.51:1; primary is under 4.5:1
+  on either surface).
   """
   @tokens %{
     primary: {66, 114, 239},
@@ -73,6 +75,7 @@ defmodule AtlasTui.Palette do
         :frame -> if dark, do: {:primary, :grey1}, else: {:primary, :white}
         :error_frame -> if dark, do: {:error, :grey1}, else: {:error, :white}
         :rest_frame -> if dark, do: {:grey2, :grey1}, else: {:grey1, :white}
+        :lit -> if dark, do: {:primarylight, :grey1}, else: {:primaryshade, :white}
         :key -> {:grey1, :grey3}
         :warning -> if dark, do: {:warning, :grey1}, else: {:grey1, :warninglight}
         :ok -> if dark, do: {:success, :grey1}, else: {:grey1, :successlight}
@@ -97,7 +100,7 @@ defmodule AtlasTui.Palette do
     weight =
       cond do
         muted?(style) -> "2;"
-        style in [:bold, :selected, :active, :header, :prod, :route] -> "1;"
+        style in [:bold, :selected, :active, :header, :prod, :route, :lit] -> "1;"
         true -> ""
       end
 

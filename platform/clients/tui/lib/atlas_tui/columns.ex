@@ -1,64 +1,92 @@
 defmodule AtlasTui.Columns do
   @moduledoc """
-  The TUI's columns on a wide terminal (docs/design/apple-clients.md, Columns in the TUI): the list of
-  the tab, the page of the row selected in it, and that page's details.
+  The TUI's layout (docs/design/apple-clients.md, Layout): the tabs, the list of the tab,
+  the page of the row selected in it, and that page's details, as columns anchored from the
+  left, each right after the one before it; what room is left over stays at the far right.
 
-    * From 144 cells: the list (60 wide) beside the page, its details under it.
-    * From 210 cells: the list, the page (at most 100) and its details (the rest, at
-      most 100) side by side.
-    * Narrower: one column at a time, as before.
+    * The sidebar: 24 wide, the tabs one under the other with their counts and groups. The
+      list: 60 wide. The page: its main blocks, at most 100. The details: the page's
+      details group as a column of its own, 40 to 100 wide, growing with the room.
+    * From 290 cells: the sidebar (in place of the tab bar), the list, the page, its details.
+    * From 210 cells: the list, the page and its details side by side, under the tab bar
+      and a row of the active tab's groups.
+    * From 144 cells: the list and the page; the details under the page's main blocks.
+    * Narrower: one column at a time (the page, its details beside it from 140 cells).
+
+  What gives way first as the terminal narrows: the sidebar (to the tab bar), then the
+  details (under the page), then the list.
 
   The list follows live: moving in it opens the selected row's page at once (its cached
   copy, while Control reads it fresh), as Enter does in one column; back from that page
   in one column returns to the list. The list column is the newest page Control sent for
-  the list's path (`AtlasTui.PageCache`), so its hints keep it current.
+  the list's path (`AtlasTui.PageCache`), so its hints keep it current. The sidebar follows
+  live too: moving in it opens the tab or group at once, as Tab does.
 
-  One column has the focus. → moves it right (list → page → details), ← left; Enter in
-  the list is →; Esc returns it to the list; a mouse click in a column takes it there.
-  Details takes it only when it has related items, which ↑/↓ then choose and →/Enter
-  open in the page. ↑/↓ act in the column with the focus only; every other key (the
-  open item's actions, Tab for the tabs) works as in one column, on the page that is open.
-  Pure.
+  One column has the focus. → moves it right (sidebar → list → page → details), ← left;
+  Enter in the sidebar or the list is →; Esc returns it to the list; a mouse click in a
+  column takes it there. Details takes it only when it has related items, which ↑/↓ then
+  choose and →/Enter open in the page. ↑/↓ act in the column with the focus only; every
+  other key (the open item's actions, Tab for the tabs) works as in one column, on the
+  page that is open. Pure.
   """
 
   alias AtlasTui.{Blocks, Console, ConsoleView, Interactions, Model, PageCache, Selection}
   alias AtlasTui.Blocks.Part
 
+  @sidebar 24
   @list 60
-  @two 144
-  @three 210
   @page 100
+  @details_least 40
+  @details_most 100
+  # The page beside the list keeps at least this much; narrower, the list goes.
+  @page_least 84
+  @two @list + @page_least
+  # From here the details stand beside the page: at least 50 wide beside the list.
+  @three 210
+  # From here the tabs leave the bar for the sidebar.
+  @four 290
   # Parts that hold what a page refers to, drawn in the details column.
   @details_roles ["details", "related"]
 
-  @doc "How a terminal `width` lays out: `:three` columns, `:two`, or `:one` at a time."
+  @doc """
+  How a terminal `width` lays out: `:four` columns (with the sidebar), `:three`, `:two`, or
+  `:one` at a time.
+  """
+  def layout(width) when width >= @four, do: :four
   def layout(width) when width >= @three, do: :three
   def layout(width) when width >= @two, do: :two
   def layout(_width), do: :one
 
   @doc """
-  The columns across a terminal `width`, as `{column, x, width}`, centred together: the
-  list and the page; from #{@three} cells, the details too. Empty in one column.
+  The layout rule: the columns across `width` cells as `{column, x, width}`, from the left
+  edge, each right after the one before it. Of `wanted` (`:sidebar`, `:list`, `:details`):
+  the sidebar (#{@sidebar} wide), the list (#{@list}), then always the page (the rest, at most
+  #{@page}), and its details when the room right of a full page holds at least
+  #{@details_least} (at most #{@details_most}); else they go under the page's main blocks.
+  Room left over is at the far right.
+  """
+  def place(width, wanted) do
+    fixed = for {column, w} <- [sidebar: @sidebar, list: @list], column in wanted, do: {column, w}
+    room = width - Enum.sum(Keyword.values(fixed))
+    page = min(room, @page)
+    side = min(room - @page, @details_most)
+    details? = :details in wanted and side >= @details_least
+    columns = fixed ++ [page: page] ++ if(details?, do: [details: side], else: [])
+
+    {placed, _x} = Enum.map_reduce(columns, 0, fn {column, w}, x -> {{column, x, w}, x + w} end)
+    placed
+  end
+
+  @doc """
+  The columns across a terminal `width` (`place/2`): the list and the page; from #{@three}
+  cells, the details too; from #{@four}, the sidebar before them. Empty in one column.
   """
   def geometry(width) do
     case layout(width) do
-      :one ->
-        []
-
-      :two ->
-        page = min(width - @list, @page)
-        left = div(width - @list - page, 2)
-        [{:list, left, @list}, {:page, left + @list, page}]
-
-      :three ->
-        details = min(width - @list - @page, @page)
-        left = div(width - @list - @page - details, 2)
-
-        [
-          {:list, left, @list},
-          {:page, left + @list, @page},
-          {:details, left + @list + @page, details}
-        ]
+      :one -> []
+      :two -> place(width, [:list])
+      :three -> place(width, [:list, :details])
+      :four -> place(width, [:sidebar, :list, :details])
     end
   end
 
@@ -68,6 +96,45 @@ defmodule AtlasTui.Columns do
 
     layout(width) != :one and model.connected and model.plan == nil and
       model.console.legend == nil and list_model(model) != nil
+  end
+
+  @doc "Whether the tabs stand in the sidebar (and not in the tab bar): columns, from #{@four}."
+  def sidebar?(model) do
+    {width, _height} = model.console.viewport
+    layout(width) == :four and model.console.shell != nil and shown?(model)
+  end
+
+  @doc """
+  The sidebar's rows, top down: per section (`"work"`, then `"browse"`) its tabs, each
+  followed by its groups, as `%{section, to, label, count, group?}`.
+  """
+  def sidebar_rows(model) do
+    tabs = (model.console.shell || %{})["tabs"] || []
+    {work, browse} = Enum.split_with(tabs, &Console.work?/1)
+
+    for {section, tabs} <- [{"work", work}, {"browse", browse}],
+        tab <- tabs,
+        row <- [{tab, false} | Enum.map(tab["groups"] || [], &{&1, true})] do
+      {entry, group?} = row
+
+      %{
+        section: section,
+        to: entry["to"],
+        label: entry["label"],
+        count: entry["count"],
+        group?: group?
+      }
+    end
+  end
+
+  @doc "Which sidebar row is the one shown: the list's group or tab, else the active tab's."
+  def sidebar_at(model) do
+    rows = sidebar_rows(model)
+    tabs = (model.console.shell || %{})["tabs"] || []
+    active = Enum.find(tabs, &(&1["id"] == model.console.active))
+
+    Enum.find_index(rows, &(&1.to == model.columns.list)) ||
+      (active && Enum.find_index(rows, &(&1.to == active["to"] and not &1.group?)))
   end
 
   @doc """
@@ -97,9 +164,13 @@ defmodule AtlasTui.Columns do
   @doc "Whether no row's page is open beside the list (the list itself is on screen)."
   def nothing_open?(model), do: model.path == model.columns.list
 
-  @doc "The column with the focus: details only while it has related items."
+  @doc """
+  The column with the focus: the sidebar only while it is shown, details only while they
+  have related items.
+  """
   def focus(model) do
     case model.columns.focus do
+      :sidebar -> if sidebar?(model), do: :sidebar, else: :list
       _ when model.path == model.columns.list -> :list
       :details -> if related(model) == [], do: :page, else: :details
       focus -> focus
@@ -199,7 +270,11 @@ defmodule AtlasTui.Columns do
   defp take(model, :list, :page_up), do: follow(model, list_selected(model) - page(model))
   defp take(model, :list, :page_down), do: follow(model, list_selected(model) + page(model))
   defp take(model, :list, key) when key in [:right, :enter], do: {focus_on(model, :page), []}
-  defp take(model, :list, :left), do: {model, []}
+  defp take(model, :list, :left), do: {focus_on(model, :sidebar), []}
+  defp take(model, :sidebar, :up), do: sidebar_move(model, -1)
+  defp take(model, :sidebar, :down), do: sidebar_move(model, 1)
+  defp take(model, :sidebar, key) when key in [:right, :enter], do: {focus_on(model, :list), []}
+  defp take(model, :sidebar, :left), do: {model, []}
   defp take(model, :page, :left), do: {focus_on(model, :list), []}
   defp take(model, :page, :right), do: {focus_on(model, :details), []}
   defp take(model, :page, key) when key in [:up, :down], do: page_move(model, key)
@@ -293,7 +368,23 @@ defmodule AtlasTui.Columns do
     end
   end
 
+  defp focus_on(model, :sidebar),
+    do: if(sidebar?(model), do: put_in(model.columns.focus, :sidebar), else: model)
+
   defp focus_on(model, column), do: put_in(model.columns.focus, column)
+
+  # The sidebar row `by` away from the one shown opens at once (its tab or group), the
+  # focus kept in the sidebar.
+  defp sidebar_move(model, by) do
+    rows = sidebar_rows(model)
+    at = sidebar_at(model)
+    to = if at, do: (at + by) |> max(0) |> min(length(rows) - 1), else: 0
+
+    case Enum.at(rows, to) do
+      %{to: path} when path != model.columns.list -> Console.to_tab(model, path)
+      _ -> {model, []}
+    end
+  end
 
   defp list_selected(model), do: list_model(model).selected
 
@@ -324,12 +415,21 @@ defmodule AtlasTui.Columns do
        else: {model, []}
   end
 
+  # A tab's page, or one of its groups, on screen becomes the list; the focus goes to it,
+  # unless it is in the sidebar, which chose it.
   defp track(%{console: %{shell: %{"tabs" => tabs}, expected: expected}} = model)
        when expected in [nil, model.path] do
-    if model.path != model.columns.list and Enum.any?(tabs, &(&1["to"] == model.path)) and
-         list_page?(model),
-       do: %{model | columns: %{model.columns | list: model.path, focus: :list, scroll: %{}}},
-       else: model
+    tab? =
+      Enum.any?(tabs, fn tab ->
+        tab["to"] == model.path or Enum.any?(tab["groups"] || [], &(&1["to"] == model.path))
+      end)
+
+    if model.path != model.columns.list and tab? and list_page?(model) do
+      focus = if model.columns.focus == :sidebar, do: :sidebar, else: :list
+      %{model | columns: %{model.columns | list: model.path, focus: focus, scroll: %{}}}
+    else
+      model
+    end
   end
 
   defp track(model), do: model
@@ -377,8 +477,13 @@ defmodule AtlasTui.Columns do
     related? = related(model) != []
 
     case focus(model) do
+      :sidebar ->
+        [{"↑↓", "Choose"}, {"→", "List"}]
+
       :list ->
-        [{"↑↓", "Choose"}] ++ if(nothing_open?(model), do: [], else: [{"→", "Page"}])
+        [{"↑↓", "Choose"}] ++
+          if(sidebar?(model), do: [{"←", "Tabs"}], else: []) ++
+          if(nothing_open?(model), do: [], else: [{"→", "Page"}])
 
       :page ->
         choose? =
