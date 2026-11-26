@@ -356,7 +356,9 @@ defmodule AtlasAgent.CLI do
   defp value(name, {:list, type}, values, indent) when is_list(values),
     do: [indent <> name <> ":" | Enum.flat_map(values, &entry(type, &1, indent <> "  "))]
 
-  defp value(name, nil, values, indent) when is_list(values),
+  # A list where the contract names no list (a field it does not know, or one that grew):
+  # each entry under the name, never a crash.
+  defp value(name, _type, values, indent) when is_list(values),
     do: value(name, {:list, nil}, values, indent)
 
   defp value(name, type, value, indent) when is_map(value),
@@ -379,6 +381,9 @@ defmodule AtlasAgent.CLI do
       [] -> []
     end
   end
+
+  defp entry(_type, values, indent) when is_list(values),
+    do: Enum.flat_map(values, &entry(nil, &1, indent))
 
   defp entry(_type, value, indent), do: [indent <> "- " <> to_string(value)]
 
@@ -438,15 +443,19 @@ defmodule AtlasAgent.CLI do
           end
 
         written =
-          Enum.flat_map(step["lines"], fn
+          Enum.flat_map(step["lines"] || [], fn
             %{"kind" => "command", "text" => command} ->
               ["$ " <> command]
 
-            %{"kind" => "route", "parts" => parts} ->
+            %{"kind" => "route", "parts" => parts} when is_list(parts) ->
               ["> " <> Enum.map_join(parts, " > ", &part/1)]
 
-            %{"text" => text} ->
+            %{"text" => text} when is_binary(text) ->
               String.split(text, "\n")
+
+            # A line of a kind this client does not know yet: left out.
+            _ ->
+              []
           end)
 
         [first | rest] = if written == [], do: [""], else: written
@@ -459,9 +468,36 @@ defmodule AtlasAgent.CLI do
       lines ++ ["  #{keys}", ""]
   end
 
+  # A choice (a decision's single_choice): the question, the instructions as Control words
+  # them (the recommendation and its keys), then each option by its key, the recommended
+  # one marked, with what it says of itself (not how it is answered).
+  defp todo_text(%{"options" => options} = choice) when is_list(options) do
+    question = choice["question"] || ""
+
+    instructions =
+      (choice["instructions"] || "")
+      |> String.split("\n")
+      |> Enum.reject(&(&1 in ["", question]))
+      |> Enum.map(&String.trim_trailing("  " <> &1))
+
+    options =
+      Enum.flat_map(options, fn option ->
+        mark = if option["id"] == choice["recommended"], do: " (recommended)", else: ""
+        about = Map.drop(option, ~w(id text shortcut answer note))
+
+        [
+          String.trim_trailing("  #{option["shortcut"]} #{option["text"]}#{mark}")
+          | lines(AtlasAgent.fields(:choice_option), about, "      ")
+        ]
+      end)
+
+    ["To do: " <> question | instructions] ++ options ++ [""]
+  end
+
+  # What to do, as an item: its title and fields; whatever else Control adds is left out.
   defp todo_text(todo) do
     fields =
-      Enum.map(todo["fields"], fn [label, value] ->
+      Enum.map(todo["fields"] || [], fn [label, value] ->
         case String.split(value || "", "\n") do
           [line] ->
             "  #{label}: #{line}"

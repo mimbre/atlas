@@ -22,7 +22,8 @@ defmodule AtlasAgent.FakeControl do
           order: [],
           writes: [],
           refuse: opts[:refuse] || fn _ -> nil end,
-          hold: nil
+          hold: nil,
+          lead: %{}
         }
       end)
 
@@ -103,6 +104,13 @@ defmodule AtlasAgent.FakeControl do
   end
 
   def release(pid), do: send(pid, :release)
+
+  @doc """
+  Blocks the page of `key` opens with, before its item, as Control sends its owner's
+  to-do (a `todo` item, a `single_choice`, `steps`) or anything else a page may hold.
+  """
+  def lead(control, key, blocks),
+    do: Agent.update(control.store, &put_in(&1, [:lead, key], blocks))
 
   # Connections
 
@@ -311,13 +319,15 @@ defmodule AtlasAgent.FakeControl do
         page = %{
           "path" => "/k/#{f.kind}/#{key}",
           "title" => "#{k.title} #{key}",
-          "blocks" => [
-            item("item", %{
-              "title" => "#{k.title} #{key}: #{f.values["title"]}",
-              "fields" => fields
-            })
-            | lists
-          ]
+          "blocks" =>
+            Map.get(s.lead, key, []) ++
+              [
+                item("item", %{
+                  "title" => "#{k.title} #{key}: #{f.values["title"]}",
+                  "fields" => fields
+                })
+                | lists
+              ]
         }
 
         if f.parent,
