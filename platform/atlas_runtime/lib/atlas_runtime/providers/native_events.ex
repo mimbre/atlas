@@ -144,7 +144,7 @@ defmodule AtlasRuntime.Providers.NativeEvents do
       state
       | completed: success,
         failed: state.failed or not success,
-        result: if(is_binary(text), do: String.slice(text, 0, 2_000), else: nil)
+        result: if(is_binary(text), do: text)
     }
   end
 
@@ -163,7 +163,7 @@ defmodule AtlasRuntime.Providers.NativeEvents do
     state = track_tool(type, item, state)
 
     if type == "item.completed" and item["type"] == "agent_message" and is_binary(text),
-      do: %{state | result: String.slice(text, 0, 2_000)},
+      do: %{state | result: text},
       else: state
   end
 
