@@ -153,7 +153,7 @@ defmodule AtlasAgent do
 
   @doc """
   One fact: `%{"key", "path", "title", "fields" => [[label, value]], "todo" => %{"title",
-  "fields"}` (only for its owner), "origins" =>
+  "fields"}` (only for its owner; a choice or steps as Control sends them), "origins" =>
   %{label => %{"since", "by", "cause"}}, "lists" => [%{"title", "rows"}], "values" =>
   %{name => text}}`. `origins` holds the fact that set a field's value, for a link. `values`
   are what its change form holds, so exactly what was stored; empty when it has no change
@@ -162,14 +162,15 @@ defmodule AtlasAgent do
   def get(client, key) do
     with {:ok, page} <- Client.open(client, "/k/_/#{enc(key)}") do
       # The fact's own item; its owner's What to do part, when the client is the owner, is
-      # a second one (IS-Atlas-54), or a choice, which a line saying what to do may head.
+      # a second one (IS-Atlas-54), or a choice, which a line saying what to do may head,
+      # or its instructions step by step.
       items =
         for %{"type" => "item", "props" => props} = b <- page["blocks"] || [],
             do: {b["id"], props}
 
       todo =
         Enum.find_value(page["blocks"] || [], fn b ->
-          if b["type"] == "single_choice", do: b["props"]
+          if b["type"] in ["single_choice", "steps"], do: b["props"]
         end) || Enum.find_value(items, fn {id, props} -> id == "todo" && props end)
 
       case for({id, props} <- items, id != "todo", do: props) do
@@ -204,6 +205,7 @@ defmodule AtlasAgent do
 
   # What to do, as the page words it: its title and its fields.
   defp todo_of(%{"options" => _, "revision" => _} = choice), do: choice
+  defp todo_of(%{"steps" => _, "current" => _} = steps), do: steps
 
   defp todo_of(todo),
     do: %{
