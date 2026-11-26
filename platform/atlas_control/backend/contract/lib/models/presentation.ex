@@ -46,6 +46,12 @@ defmodule AtlasBFFContract.Models.Presentation do
   # identity a client keeps the selection on when a page replaces the list, and compares
   # with nothing else. `pending` (set only by Control) says a write to that fact is stored
   # but not yet settled; a client shows it next to the label and never sets or clears it.
+  # `tone` is where the row's work stands for the viewer, one meaning on every list (Control
+  # decides it): "attention" (the next step is the viewer's), "active" (under way: someone
+  # else, or an agent, is at it), "waiting" (planned, or waiting on someone or something
+  # else), "done". Left out where Control cannot tell. A client shows it as a mark beside
+  # the row, never instead of the row's own words. `since` (ISO 8601, UTC) is when the row
+  # entered the state it is in, so a client can say how long it has been there.
   defmodel :row do
     field :id, :string
     field :label, :string, required: true
@@ -54,6 +60,8 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :links, {:list, :link}
     field :key, :string
     field :pending, :boolean
+    field :tone, :string
+    field :since, :string
   end
 
   # One group of a `groups` block: its name, how many items it has, the page that shows

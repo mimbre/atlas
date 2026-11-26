@@ -26,6 +26,17 @@ defmodule AtlasTui.View do
   # How such a row looks: muted (faint), muted inside the highlight when selected; the
   # mark itself keeps the pending colour, so the eye still catches it.
   @pending_style :muted
+  # Where a row's work stands (Control's `tone`): a dot before the id, in the colour of its
+  # meaning (`AtlasTui.Palette`'s `:tone_*`), beside the row's own words, which say it too.
+  @dot "●"
+  @tone_styles %{
+    "attention" => :tone_attention,
+    "active" => :tone_active,
+    "waiting" => :tone_waiting,
+    "done" => :tone_done
+  }
+  # A title keeps at least this many cells (or all of its own) before the age column goes.
+  @title_floor 40
   # A multi-line input that does not have the focus shows at most this many rows.
   @resting_rows 8
   # A focused one never shows fewer than this, however small the screen.
@@ -449,12 +460,16 @@ defmodule AtlasTui.View do
         []
       end
 
+    now = model.now || DateTime.utc_now()
+
     prepared =
       Enum.map(rows, fn row ->
         {single_line(row.id), single_line(row.label), row_summary(row.detail)}
       end)
 
     pending = Enum.map(rows, &(&1.pending == true))
+    tones = Enum.map(rows, & &1.tone)
+    ages = Enum.map(rows, &age(&1.since, now))
 
     {ids, titles, summaries} =
       Enum.reduce(prepared, {0, 0, 0}, fn {id, title, summary}, {ids, titles, summaries} ->
@@ -464,6 +479,11 @@ defmodule AtlasTui.View do
 
     marker_room = if width >= 3, do: 3, else: 1
     available = max(width - marker_room, 0)
+
+    dot_room =
+      if Enum.any?(tones, &Map.has_key?(@tone_styles, &1)) and available >= 8, do: 2, else: 0
+
+    available = available - dot_room
     id_room = min(ids, min(div(available, 3), max(available - 3, 0)))
     id_gap = if id_room > 0, do: 2, else: 0
     available = max(available - id_room - id_gap, 0)
@@ -475,24 +495,57 @@ defmodule AtlasTui.View do
         else: 0
 
     available = available - pending_room
-    summary_room = if available >= 16, do: min(summaries, min(24, div(available, 3))), else: 0
-    summary_gap = if summary_room > 0, do: 2, else: 0
-    title_room = min(titles, max(available - summary_room - summary_gap, 0))
+    # How long each row has been where it stands, right-aligned before the title; a narrow
+    # list drops it before it cuts a title (below `@title_floor`).
+    age_width = ages |> Enum.map(&String.length/1) |> Enum.max(fn -> 0 end)
+
+    age_room =
+      with true <- age_width > 0,
+           {_, _, title_room} = columns(available - age_width - 2, titles, summaries),
+           true <- title_room >= min(titles, @title_floor) do
+        age_width + 2
+      else
+        _ -> 0
+      end
+
+    {summary_room, _summary_gap, title_room} = columns(available - age_room, titles, summaries)
 
     content =
-      prepared
-      |> Enum.zip(pending)
+      [prepared, pending, tones, ages]
+      |> Enum.zip()
       |> Enum.with_index()
-      |> Enum.map(fn {{{id, title, summary}, pending?}, i} ->
+      |> Enum.map(fn {{{id, title, summary}, pending?, tone, age}, i} ->
         style = if at + i == model.selected, do: :selected, else: :bold
         marker = if style == :selected, do: "›", else: " "
         marker = if marker_room == 3, do: " " <> marker <> " ", else: marker
         identity = if id_room > 0, do: cell_pad(id, id_room) <> "  ", else: ""
-        label = marker <> identity <> cell_pad(title, title_room)
         metadata = cell_cut(summary, summary_room)
 
-        {style, mark_style, detail} =
-          if pending?, do: pending_styles(style), else: {style, style, :dim}
+        # A pending row is muted, its mark in the pending colour; a done one is muted too.
+        {label_style, mark_style, detail} =
+          cond do
+            pending? -> pending_styles(style)
+            tone == "done" -> {muted(style), style, :muted}
+            true -> {style, style, :dim}
+          end
+
+        # Inside the selection the dot takes the selection's colours: no tone colour keeps
+        # 4.5:1 on it, and the row's words still say where it stands.
+        dot =
+          cond do
+            dot_room == 0 -> []
+            not Map.has_key?(@tone_styles, tone) -> [{label_style, "  "}]
+            style == :selected -> [{label_style, @dot <> " "}]
+            true -> [{@tone_styles[tone], @dot}, {label_style, " "}]
+          end
+
+        aged =
+          if age_room > 0,
+            do: [
+              {if(style == :selected, do: label_style, else: detail),
+               String.pad_leading(age, age_width) <> "  "}
+            ],
+            else: []
 
         mark =
           cond do
@@ -502,8 +555,14 @@ defmodule AtlasTui.View do
             true -> [{style, String.duplicate(" ", pending_room)}]
           end
 
-        [{style, label}] ++
-          mark ++ if(metadata == "", do: [], else: [{detail, "  " <> metadata}])
+        coalesce(
+          [{label_style, marker}] ++
+            dot ++
+            [{label_style, identity}] ++
+            aged ++
+            [{label_style, cell_pad(title, title_room)}] ++
+            mark ++ if(metadata == "", do: [], else: [{detail, "  " <> metadata}])
+        )
       end)
 
     indent = String.duplicate(" ", min(3, max(width - 1, 0)))
@@ -1143,6 +1202,49 @@ defmodule AtlasTui.View do
     do: {{:selected, @pending_style}, :pending_selected, @pending_style}
 
   defp pending_styles(_), do: {@pending_style, :pending, @pending_style}
+
+  # Adjacent segments of one style as one segment.
+  defp coalesce(segments) do
+    segments
+    |> Enum.reduce([], fn
+      {style, text}, [{style, before} | done] -> [{style, before <> text} | done]
+      segment, done -> [segment | done]
+    end)
+    |> Enum.reverse()
+  end
+
+  # A done row is muted as a pending one is: faint, inside the highlight when selected.
+  defp muted(:selected), do: {:selected, :muted}
+  defp muted(_style), do: :muted
+
+  # A list's room for the title and the detail after it, out of `available` cells:
+  # `{summary_room, summary_gap, title_room}`. Titles come first; the detail gets at most a
+  # third, and none in fewer than 16 cells.
+  defp columns(available, titles, summaries) do
+    available = max(available, 0)
+    summary_room = if available >= 16, do: min(summaries, min(24, div(available, 3))), else: 0
+    summary_gap = if summary_room > 0, do: 2, else: 0
+    {summary_room, summary_gap, min(titles, max(available - summary_room - summary_gap, 0))}
+  end
+
+  # How long a row has been where it stands (Control's `since`), compact: `15d`, `6h`,
+  # `46m`, `today` (under a minute); empty without a time.
+  defp age(since, now) do
+    case DateTime.from_iso8601(since || "") do
+      {:ok, at, _} ->
+        seconds = max(DateTime.diff(now, at), 0)
+
+        cond do
+          seconds >= 86_400 -> "#{div(seconds, 86_400)}d"
+          seconds >= 3_600 -> "#{div(seconds, 3_600)}h"
+          seconds >= 60 -> "#{div(seconds, 60)}m"
+          true -> "today"
+        end
+
+      _ ->
+        ""
+    end
+  end
 
   defp cursor_line?(line), do: Enum.any?(line, &match?({:cursor, _}, &1))
 
