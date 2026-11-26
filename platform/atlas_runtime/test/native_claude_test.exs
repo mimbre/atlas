@@ -97,6 +97,20 @@ defmodule AtlasRuntime.NativeClaudeTest do
     assert File.read!(answer) == "Native failure text."
   end
 
+  # A review's answer ends with its verdict block, often well past 2,000 characters: the
+  # turn ends with the whole answer, so its work's answer (at most 8 KB) keeps the block.
+  test "a long final answer ends the turn whole, its closing verdict block included", %{
+    tmp_dir: dir
+  } do
+    answer =
+      String.duplicate("The change does what the issue asks. ", 100) <>
+        ~s(\n\n```json\n{"verdict": "approved", "findings": []}\n```)
+
+    {:ok, {pid, ref}} = launch(dir, [@init, %{@result | "result" => answer}])
+    assert_receive {:agent, ^pid, {:ended, ^answer}}, 5_000
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+  end
+
   test "an unsaved answer cannot complete the turn", %{tmp_dir: dir} do
     File.mkdir_p!(Path.join(dir, "turns/claude-turn/answer.txt"))
     {:ok, {pid, ref}} = launch(dir, [@init, @result])
