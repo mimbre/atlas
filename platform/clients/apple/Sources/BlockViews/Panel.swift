@@ -1,5 +1,6 @@
 import AtlasControlKit
 import Foundation
+import Observation
 
 /// A key a panel takes: the arrows and Return.
 public enum PanelKey: Sendable, Equatable {
@@ -19,33 +20,79 @@ public enum PanelKey: Sendable, Equatable {
     }
 }
 
-/// The panel of the page on screen that takes ↑, ↓ and Return, wherever the focus is in
-/// the window (a list's rows would take the arrows for themselves): the one that claimed
-/// them last and is still shown. A panel claims them when it appears, so they work as
-/// soon as its page opens, without a click.
+/// A column of the window that the arrows can go to: the middle list or the page's panel.
+public enum KeyColumn: Sendable, Equatable {
+    case list
+    case panel
+
+    /// The column a key code's arrow gives the focus to: ← 123 the list, → 124 the panel.
+    public init?(keyCode: UInt16) {
+        switch keyCode {
+        case 123: self = .list
+        case 124: self = .panel
+        default: return nil
+        }
+    }
+}
+
+/// Where ↑, ↓ and Return go, as in the TUI: to the focused column. The list has the focus
+/// at first and keeps it when a page with a panel opens (a move in the list opens the next
+/// row's page); → gives it to the panel on screen, ← back to the list, and a click in the
+/// panel gives it to the panel. The panel that has the keys is the one that claimed them
+/// last and is still shown. `moved` tells the app, so it moves the window's own focus
+/// (the list's rows look focused only while the list has it).
 @MainActor
+@Observable
 public final class PanelKeys {
     /// What a key does on the panel: true when it took it. `isRepeat`: the key is held down.
     public typealias Handler = @MainActor (PanelKey, _ isRepeat: Bool) -> Bool
 
-    private var claims: [(owner: AnyHashable, handler: Handler)] = []
+    public private(set) var focus: KeyColumn = .list
+    @ObservationIgnored public var moved: (@MainActor (KeyColumn) -> Void)?
+    @ObservationIgnored private var claims: [(owner: AnyHashable, handler: Handler)] = []
 
     public init() {}
 
-    /// `owner`'s panel takes the keys from now on, with `handler`.
+    /// `owner`'s panel takes the keys from now on, with `handler`. Another panel than the
+    /// one shown (a newly opened page's) leaves the focus to the list.
     public func claim(_ owner: AnyHashable, _ handler: @escaping Handler) {
-        release(owner)
+        let shown = claims.last?.owner == owner
+        claims.removeAll { $0.owner == owner }
         claims.append((owner, handler))
+        if !shown { move(.list) }
     }
 
     /// `owner`'s panel is gone; the one shown before it, if still claimed, has them again.
+    /// Without a panel the list has the focus.
     public func release(_ owner: AnyHashable) {
         claims.removeAll { $0.owner == owner }
+        if claims.isEmpty { move(.list) }
     }
 
-    /// The key, to the panel that has the keys: whether it took it.
+    /// The panel takes the focus (→, a click in it), when there is one.
+    public func focusPanel() {
+        if !claims.isEmpty { move(.panel) }
+    }
+
+    /// ← or →: whether it moved the focus (a held one moves it once, and only between a
+    /// list and a panel there is).
+    public func press(column: KeyColumn, isRepeat: Bool) -> Bool {
+        guard column != focus, column == .list || !claims.isEmpty else { return false }
+        if !isRepeat { move(column) }
+        return true
+    }
+
+    /// ↑, ↓ or Return, to the panel when it has the focus: whether it took it. With the
+    /// list focused it is the list's.
     public func press(_ key: PanelKey, isRepeat: Bool) -> Bool {
-        claims.last?.handler(key, isRepeat) ?? false
+        guard focus == .panel else { return false }
+        return claims.last?.handler(key, isRepeat) ?? false
+    }
+
+    private func move(_ column: KeyColumn) {
+        guard focus != column else { return }
+        focus = column
+        moved?(column)
     }
 }
 

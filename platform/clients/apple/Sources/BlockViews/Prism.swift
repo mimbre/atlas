@@ -139,21 +139,31 @@ struct PrismCard: ViewModifier {
     #endif
 }
 
-/// The card of the panel a page leads with, which has the focus: white in light, a raised
-/// surface in dark, rounded, with a soft shadow a little stronger than `PrismCard`'s, cast
-/// by the card alone (not by what is on it).
+/// The card of the panel a page leads with: white in light, a raised surface in dark,
+/// rounded, with a soft shadow a little stronger than `PrismCard`'s, cast by the card alone
+/// (not by what is on it). While the panel has the keys' focus (`PanelKeys`), a thin ring
+/// in the accent's text colour marks it (≥ 3:1 on the card); a click in it gives it the focus.
 struct PanelCard: ViewModifier {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.panelKeys) private var panelKeys
 
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Prism.radius * 2)
         content
             .padding(Prism.Spacing.s18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: Prism.radius * 2)
+                shape
                     .fill(scheme == .dark ? Color(white: 0.17) : Prism.Colors.white)
                     .prismShadow(Prism.Shadow(color: .black.opacity(scheme == .dark ? 0.4 : 0.14), radius: 12, y: 5))
             }
+            .overlay {
+                if panelKeys?.focus == .panel {
+                    shape.strokeBorder(Prism.Colors.accentText(scheme), lineWidth: 1.5)
+                }
+            }
+            .contentShape(shape)
+            .simultaneousGesture(TapGesture().onEnded { panelKeys?.focusPanel() })
     }
 }
 

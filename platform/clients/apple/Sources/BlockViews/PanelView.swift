@@ -76,7 +76,7 @@ struct PanelView: View {
         .onChange(of: block) { _, new in panel.update(new) }
     }
 
-    /// ↑ ↓ and Return, wherever the focus is in the window. The arrows only ever move the
+    /// ↑ ↓ and Return while the panel has the keys' focus. The arrows only ever move the
     /// selection; Return opens or answers the selected one, once.
     private func claim() {
         panelKeys?.claim(token) { [$panel, open, act] key, isRepeat in

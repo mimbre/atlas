@@ -7,7 +7,7 @@ import SwiftUI
 /// choices in Control's order (the recommended one first), one aligned row each, the
 /// selected one on a light background, what it means (its rule and what then follows; a
 /// decline's details) under them, and the page's other actions (`others`, More…). ↑ ↓
-/// move the selection and Return answers it (`PanelKeys`, wherever the focus is; held
+/// move the selection and Return answers it (`PanelKeys`, once the panel has the focus; held
 /// down, the arrows only move it); a click or the choice's number answers that choice; a
 /// choice given with a note opens a form for the note first. `submit` is called with the
 /// call Control projected for the choice, and its values. With the focus it tells
@@ -87,9 +87,10 @@ struct SingleChoiceView: View {
             apply(outcome)
             return .handled
         }
-        .onAppear {
-            focused = true
-            claim()
+        .onAppear(perform: claim)
+        // The choice takes the window's focus (its digits) once the panel has the keys' focus.
+        .onChange(of: panelKeys?.focus) { _, column in
+            if column == .panel { focused = true }
         }
         .onDisappear {
             typingFocus?.blur(token)
@@ -103,7 +104,7 @@ struct SingleChoiceView: View {
         }
     }
 
-    /// ↑ ↓ and Return, wherever the focus is in the window: the arrows only ever move the
+    /// ↑ ↓ and Return while the panel has the keys' focus: the arrows only ever move the
     /// selection; Return answers the selected choice, once. While the note form is open
     /// they are the note field's.
     private func claim() {

@@ -58,7 +58,7 @@ struct StepsView: View {
         .onDisappear { panelKeys?.release(token) }
     }
 
-    /// ↑ ↓ and Return, wherever the focus is in the window: the action Control declares.
+    /// ↑ ↓ and Return while the panel has the keys' focus: the action Control declares.
     /// The panel keeps them also where there is none (↑ at the first step), so they never
     /// fall through to a list that would open another page.
     private func claim() {
