@@ -1306,6 +1306,82 @@ defmodule AtlasControl.SessionTest do
     assert %{"reason" => "refused", "refused" => ["W-1 has R-1 open"]} = next(tui, "page")
   end
 
+  test "a step action sets the step its owner is at, one change of that field; nobody else's" do
+    # A widget's notes as steps (`Shop.Stepped`); its card's holder is at `at`.
+    port = gateway(Shop.Stepped)
+    shown = Enum.find(Shop.Stepped.presentation(), &(&1["kind"] == "card"))["states"]["doing"]
+
+    holder = fn by ->
+      FakeStore.put("C-W-1", %{"of" => "W-1", "step" => "doing"}, "card", %{"held_by" => [by]})
+
+      FakeStore.present("card", "C-W-1", %{
+        "flow" => "chore",
+        "status" => "active",
+        "state" => "doing",
+        "actionable" => true,
+        "reopened" => false,
+        "expected" => shown["expected"],
+        "why" => shown["why"],
+        "todo" => shown["todo"],
+        "owner" => [by],
+        "manual" => false,
+        "handover" => nil,
+        "deadline" => nil
+      })
+    end
+
+    notes = "1. Make a key.\n2. Close them.\n   $ gh issue close 12"
+
+    FakeStore.put("W-1", %{"title" => "Rotate", "notes" => notes}, "widget", %{
+      "card" => ["C-W-1"]
+    })
+
+    holder.("ada")
+    FakeStore.put("ada", %{"name" => "Ada"}, "member")
+    Application.put_env(:atlas_control, :tui_user, "ada")
+    on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+    {:ok, tui} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+    on_exit(fn -> :gen_tcp.close(tui) end)
+
+    put(tui, %{
+      "op" => "hello",
+      "env" => "test",
+      "client" => "tui",
+      "spec" => AtlasControl.Blocks.version()
+    })
+
+    next(tui, "page")
+    put(tui, %{"op" => "open", "to" => "/k/widget/W-1"})
+    page = next(tui, "page")
+    steps = Enum.find(page["blocks"], &(&1["id"] == "steps"))["props"]
+    assert steps["current"] == 1
+    done = Enum.find(steps["actions"], &(&1["key"] == "Enter"))
+
+    # Enter's own call, as a client sends it: the step after this one.
+    put(tui, %{
+      "op" => "submit",
+      "endpoint" => done["submit_to"]["endpoint"],
+      "params" => done["submit_to"]["params"],
+      "values" => %{}
+    })
+
+    assert %{"reason" => "stored"} = next(tui, "page")
+
+    assert %{"op" => "change", "key" => "W-1", "values" => values, "cause" => "Step 2 by ada"} =
+             List.last(FakeStore.sent())
+
+    assert values == %{"at" => 2}
+    sent = FakeStore.sent()
+
+    # No step past one after the last; nobody but its holder.
+    put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/step/4", "values" => %{}})
+    assert %{"reason" => "refused"} = next(tui, "page")
+    holder.("bob")
+    put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/step/1", "values" => %{}})
+    assert %{"reason" => "refused"} = next(tui, "page")
+    assert FakeStore.sent() == sent
+  end
+
   test "setting a relation an answer of the presented state sets writes that answer's values" do
     # In the review's check state, Accept links checked_by and sets the state final; Check
     # on the page sets the same relation (`Shop.Reviewed`). Done by someone who is not the

@@ -31,6 +31,15 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :shortcut, :string
   end
 
+  # One step of a `steps` block: its number (from 1), its text (the lines that are no
+  # command, kept with their breaks) and its commands, each a line to run as it is (the
+  # instructions' `$ ` taken off).
+  defmodel :instruction_step do
+    field :n, :integer, required: true
+    field :text, :string, required: true
+    field :commands, {:list, :string}, required: true
+  end
+
   # A web address the user can open outside the client, in a browser: `url`. `key` is
   # the key a keyboard client binds it to. A client opens only http and https addresses.
   defmodel :link do
