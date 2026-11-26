@@ -59,7 +59,13 @@ option ID. The BFF `single_choice` block separately supplies question, ordered
 options, recommended ID, rationale, revision and each option's answer call. A radio,
 dropdown or cards renderer can use the same calls without a model, schema or Flow
 change. Keyboard shortcuts are projection data. The TUI invokes a generic declared
-call and does not recognize decision kinds or interpret option effects.
+call and does not recognize decision kinds or interpret option effects. It shows the
+block as a decision panel: the question, why, the options one per line in Control's
+order (the recommended one labelled, one given with a note labelled `decline · note`),
+and the selected option's rule and consequences (a note option: its details). ↑/↓
+select an option, starting on the recommended one; Enter answers it with the option's
+own projected key, so a note option still opens its note form. The key line names
+only keys Control projects there.
 
 The single-choice mechanism in `products/software_factory/model/generator` (`RelaDSL.DecisionOptions`) is generic:
 it knows no decision fields, statuses or wording. A kind passes them in with its

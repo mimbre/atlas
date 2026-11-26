@@ -475,7 +475,7 @@ try do
       ChoiceProof.await(fn ->
         screen = ChoiceProof.screen(tmux_socket, "choices")
 
-        String.contains?(screen, "0 selects recommended choice 1") and
+        String.contains?(screen, "YOUR DECISION") and
           String.contains?(screen, key)
       end)
   end
@@ -612,7 +612,7 @@ try do
       ChoiceProof.await(fn ->
         not String.contains?(
           ChoiceProof.screen(tmux_socket, "choices"),
-          "0 selects recommended choice 1"
+          "YOUR DECISION"
         )
       end)
     end
