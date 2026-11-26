@@ -127,9 +127,16 @@ struct PrismCard: ViewModifier {
         content
             .padding(Prism.Spacing.s15)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(scheme == .dark ? Self.systemBackground : Prism.Colors.white,
-                        in: RoundedRectangle(cornerRadius: Prism.radius))
-            .prismShadow(Prism.cardShadow)
+            // The shadow is the card's alone (not its text's or sections'), with room around
+            // it so no column, list row or scroll edge cuts it off.
+            .background {
+                RoundedRectangle(cornerRadius: Prism.radius)
+                    .fill(scheme == .dark ? Self.systemBackground : Prism.Colors.white)
+                    .prismShadow(Prism.cardShadow)
+            }
+            .padding(.horizontal, Prism.Spacing.s13)
+            .padding(.top, Prism.Spacing.s9)
+            .padding(.bottom, Prism.Spacing.s19)
     }
 
     #if canImport(AppKit)
@@ -164,11 +171,16 @@ struct PanelCard: ViewModifier {
             }
             .contentShape(shape)
             .simultaneousGesture(TapGesture().onEnded { panelKeys?.focusPanel() })
+            // Room for the shadow on every side, so no column, list row or scroll edge cuts it off.
+            .padding(.horizontal, Prism.Spacing.s15)
+            .padding(.top, Prism.Spacing.s10)
+            .padding(.bottom, Prism.Spacing.s22)
     }
 }
 
-/// The card of the details under a panel, recessed: no shadow and no stroke, on a light
-/// grey surface (grey5 in light, a step below the page in dark).
+/// The card of the page's details under the panel, recessed: no shadow and no stroke, on
+/// a light grey surface (grey5 in light, a step below the page in dark), as wide as the
+/// panel's card above it.
 struct RecessedCard: ViewModifier {
     @Environment(\.colorScheme) private var scheme
 
@@ -178,5 +190,6 @@ struct RecessedCard: ViewModifier {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(scheme == .dark ? Color(white: 0.08) : Prism.Colors.grey5,
                         in: RoundedRectangle(cornerRadius: Prism.radius * 2))
+            .padding(.horizontal, Prism.Spacing.s15)
     }
 }

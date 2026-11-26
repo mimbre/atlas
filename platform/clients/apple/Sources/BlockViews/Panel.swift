@@ -69,10 +69,16 @@ public final class PanelKeys {
         if claims.isEmpty { move(.list) }
     }
 
-    /// The panel takes the focus (→, a click in it), when there is one.
+    /// The panel takes the focus (→, a click in it), when there is one. A click tells the
+    /// app also when the panel had it already: the click may have put the window's focus on
+    /// the page's list around the panel.
     public func focusPanel() {
-        if !claims.isEmpty { move(.panel) }
+        guard !claims.isEmpty else { return }
+        if focus == .panel { moved?(.panel) } else { move(.panel) }
     }
+
+    /// The list takes the focus (a click in it).
+    public func focusList() { move(.list) }
 
     /// ← or →: whether it moved the focus (a held one moves it once, and only between a
     /// list and a panel there is).

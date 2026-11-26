@@ -29,7 +29,12 @@ final class ActionKeys {
         panels.moved = { [weak self] column in self?.move(column) }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let taken = MainActor.assumeIsolated { () -> Bool in
-                if let table = event.window?.firstResponder as? NSTableView { self?.list = table }
+                // A list with the window's focus is the one the arrows move: with the panel
+                // focused, the window's focus is on no list, so one has it only by a click.
+                if let table = event.window?.firstResponder as? NSTableView {
+                    self?.list = table
+                    panels.focusList()
+                }
                 if let column = Self.columnKey(for: event) {
                     return panels.press(column: column, isRepeat: event.isARepeat)
                 }
@@ -61,8 +66,7 @@ final class ActionKeys {
         guard let window = NSApp.keyWindow else { return }
         switch column {
         case .panel:
-            if let table = window.firstResponder as? NSTableView { list = table }
-            window.makeFirstResponder(nil)
+            if window.firstResponder is NSTableView { window.makeFirstResponder(nil) }
         case .list:
             if let list, list.window === window { window.makeFirstResponder(list) }
         }
