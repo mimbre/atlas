@@ -134,6 +134,7 @@ public struct PageView: View {
             // decision stays for another.
             SingleChoiceView(block: choice, submit: submit)
                 .id(SingleChoiceView.identity(path: presentation.path, block: choice))
+        case .steps(let steps): StepsView(block: steps, act: act)
         // A page that asks is shown over the window (ActionPageView), not in a column.
         case .form: FallbackView(type: "form", reason: nil)
         case .confirm: FallbackView(type: "confirm", reason: nil)
