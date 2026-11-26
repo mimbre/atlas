@@ -3541,8 +3541,10 @@ defmodule AtlasControl.Pages do
   form: `{:ok, links, on_behalf}`, where `on_behalf` is nil, or `{agent, whom}` when an
   agent puts it in for whom it assists (its cause says so). The client itself when it is
   a fact of the kind the relation leads to (the user at the TUI); whom it assists when it
-  is an agent; else nobody (`%{}`). A form that names an association nobody sets by hand
-  (`set_by`), as the producer, is refused: `{:refuse, reasons}`.
+  is an agent. A client that is neither puts no such fact in (UC-Atlas-23: every one
+  records its producer), and neither does a form that names an association nobody sets
+  by hand (`set_by`), as the producer: both are refused, `{:refuse, reasons}`. A kind
+  whose create names no producer links nobody (`%{}`).
   """
   def put_in_by(m, kind, raw, viewer) do
     k = kind(m, kind)
@@ -3574,7 +3576,12 @@ defmodule AtlasControl.Pages do
         {:ok, %{producer => [viewer.by]}, nil}
 
       true ->
-        {:ok, %{}, nil}
+        to = Enum.join(rel.to, " or ")
+
+        {:refuse,
+         [
+           "#{viewer[:by] || "You"} is no #{to} and assists nobody, so a new #{String.downcase((k && k.label) || kind)} would record no producer (#{producer}): create it as a #{to}, or as an agent that assists one"
+         ]}
     end
   end
 

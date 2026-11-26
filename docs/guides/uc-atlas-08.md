@@ -21,7 +21,7 @@ ATLAS_AS=breaker atlas put issue --in UC-Atlas-01 --title 'Build the part' --env
 ATLAS_AS=breaker atlas turn end 'Created both use cases and their issues' --env test
 ```
 
-Use generated keys returned by the commands. `atlas turn --json` includes the turn's
+Each `put` records the agent's person as the item's producer, on their behalf, so the agent must assist one (`assists` in the environment's `core.json`). An agent that assists nobody is refused: its use case or issue would record no producer (UC-Atlas-23, [uc-atlas-23.md](uc-atlas-23.md)). Use generated keys returned by the commands. `atlas turn --json` includes the turn's
 key, its original item rather than its Assignment, and that item's page and instructions.
 `turn end` records an outcome fact as the agent. Runtime alone sets lifecycle fields.
 Control requires a single running turn still owned by that agent, a matching turn key,

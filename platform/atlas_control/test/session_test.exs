@@ -2134,11 +2134,18 @@ defmodule AtlasControl.SessionTest do
       assert %{"reason" => "stored"} = next(agent, "page")
       assert FakeStore.last_fact()["cause"] == "From the call (helper on behalf of ada)"
 
-      # An agent that assists nobody puts nothing in for anyone.
+      # An agent that assists nobody puts nothing in (UC-Atlas-23): the widget would record
+      # who put it in as nobody, so it is refused, saying so, and nothing is sent.
       other = hello_as(port, "agent", "stranger")
-      assert %{"reason" => "stored"} = created(other, %{"title" => "Bolt"})
-      assert %{"by" => "stranger"} = fact = FakeStore.last_fact()
-      refute Map.has_key?(fact["links"] || %{}, "put_in_by")
+      before = length(FakeStore.sent())
+
+      assert %{"reason" => "refused", "blocks" => [%{"type" => "form", "props" => form}]} =
+               created(other, %{"title" => "Bolt"})
+
+      assert [why] = form["errors"]
+      assert why =~ "stranger is no member and assists nobody"
+      assert why =~ "no producer (put_in_by)"
+      assert length(FakeStore.sent()) == before
     end
 
     test "a form or write that names who put it in is refused; nothing is sent" do
