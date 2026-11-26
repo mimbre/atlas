@@ -4,7 +4,8 @@ defmodule Model.GithubSyncTest do
   # lists open again (reopened) is read again, with its mergeability and checks. Its checks
   # and mergeability go with the head they were read for (pr_checks_head, IS-Atlas-120); the
   # pull's head becomes the issue's (pr_head) only when none is recorded or someone else
-  # pushed onto it, never when GitHub has not caught up with Code's push yet.
+  # pushed onto it, never when GitHub has not caught up with Code's push yet. What failed
+  # (pr_checks_failure) holds only the failing lines of a failed job's log (IS-Atlas-124).
   use ExUnit.Case, async: false
   @moduletag :rela
   @moduletag :tmp_dir
@@ -20,6 +21,12 @@ defmodule Model.GithubSyncTest do
       send(test, {:github, conn.method, conn.request_path <> query})
 
       case Map.fetch(routes, conn.request_path) do
+        # A job's log: plain text, as GitHub's storage answers it.
+        {:ok, {:text, body}} ->
+          conn
+          |> put_resp_content_type("text/plain")
+          |> send_resp(200, body)
+
         {:ok, body} ->
           conn
           |> put_resp_content_type("application/json")
@@ -116,20 +123,23 @@ defmodule Model.GithubSyncTest do
     JSON.decode!(out)["entity"]["properties"]
   end
 
-  test "a pull recorded closed is read again once GitHub lists it open; merged is final",
-       %{tmp_dir: tmp} do
+  # The fake GitHub answering `routes`; its port.
+  defp github(routes) do
     {:ok, _} = Application.ensure_all_started(:bandit)
 
     server =
       start_supervised!(
-        {Bandit, plug: {FakeGitHub, %{test: self(), routes: routes()}}, ip: :loopback, port: 0}
+        {Bandit, plug: {FakeGitHub, %{test: self(), routes: routes}}, ip: :loopback, port: 0}
       )
 
     {:ok, {_, port}} = ThousandIsland.listener_info(server)
+    port
+  end
 
-    # The running closure: the description the model generates (`mix model.gen --out`) with
-    # the hand-written schedules and scripts, without the ACL and flows a running rela
-    # leaves out (scripts/config.py).
+  # The running closure: the description the model generates (`mix model.gen --out`) with
+  # the hand-written schedules and scripts, without the ACL and flows a running rela leaves
+  # out (scripts/config.py). `secrets`: more of .rela/secrets.yaml than GitHub's API.
+  defp project(tmp, port, secrets \\ "") do
     dir = Path.join(tmp, "rela")
     Mix.Tasks.Model.Gen.run(["--out", dir])
     File.cp!(Path.expand("../targets/rela/schedules.yaml"), Path.join(dir, "schedules.yaml"))
@@ -140,8 +150,27 @@ defmodule Model.GithubSyncTest do
 
     File.write!(
       Path.join(dir, ".rela/secrets.yaml"),
-      ~s(github_api: "http://127.0.0.1:#{port}"\n)
+      ~s(github_api: "http://127.0.0.1:#{port}"\n) <> secrets
     )
+
+    dir
+  end
+
+  defp sync(dir) do
+    assert {_, 0} =
+             rela(dir, [
+               "--run-as",
+               "integration:github",
+               "script",
+               Path.join(dir, "scripts/github.lua")
+             ])
+  end
+
+  test "a pull recorded closed is read again once GitHub lists it open; merged is final",
+       %{tmp_dir: tmp} do
+    port = github(routes())
+
+    dir = project(tmp, port)
 
     url = &"https://github.com/o/r/pull/#{&1}"
 
@@ -190,13 +219,7 @@ defmodule Model.GithubSyncTest do
       pr_head: @sha
     )
 
-    assert {_, 0} =
-             rela(dir, [
-               "--run-as",
-               "integration:github",
-               "script",
-               Path.join(dir, "scripts/github.lua")
-             ])
+    sync(dir)
 
     assert %{"pr_state" => "open", "pr_mergeable" => "conflicting", "pr_checks" => "success"} =
              one = properties(dir, "IS-Atlas-01")
@@ -238,5 +261,103 @@ defmodule Model.GithubSyncTest do
     assert_received {:github, "GET", "/repos/o/r/pulls/8/commits?per_page=100&page=1"}
     refute_received {:github, "GET", "/repos/o/r/pulls/1/commits" <> _}
     refute_received {:github, "GET", "/repos/o/r/pulls/6/commits" <> _}
+  end
+
+  # A recorded job log of `bin/check` (GitHub's timestamps on every line): one failing ExUnit
+  # test among passing ones whose captured output holds stack traces, one of them right
+  # before ExUnit's summary.
+  @job_log [
+             "##[group]Run bin/check",
+             "Running ExUnit with seed: 4711, max_cases: 16",
+             "....",
+             "12:00:01.123 [error] GenServer #PID<0.512.0> terminating",
+             "** (RuntimeError) boom in a passing test",
+             "    (atlas_flow 0.1.0) lib/atlas_flow/runs.ex:12: AtlasFlow.Runs.go/1",
+             "    (stdlib 6.0) gen_server.erl:2345: :gen_server.try_handle_call/4",
+             "Last message: :go",
+             "FAIL is only a word in a passing test's output",
+             "...",
+             "  1) test a pull's body says what its CI fix changed (AtlasCode.EffectsTest)",
+             "     test/effects_test.exs:257",
+             "     Assertion with =~ failed",
+             "     code:  assert body =~ \"CI fix 1\"",
+             "     left:  \"One typo.\"",
+             "     right: \"CI fix 1\"",
+             "     stacktrace:",
+             "       test/effects_test.exs:300: (test)",
+             "",
+             "......",
+             "** (EXIT from #PID<0.640.0>) shutdown: a second passing test's trace",
+             "    (elixir 1.18.4) lib/task/supervised.ex:101: Task.Supervised.invoke_mfa/2",
+             "Finished in 3.2 seconds (1.1s async, 2.1s sync)",
+             "40 tests, 1 failure",
+             "Randomized with seed 4711",
+             "##[error]Process completed with exit code 2."
+           ]
+           |> Enum.map_join("\n", &("2026-11-25T10:00:00.1234567Z " <> &1))
+
+  test "what failed holds the failing ExUnit test and the end of its step, none of the passing tests' traces (IS-Atlas-124)",
+       %{tmp_dir: tmp} do
+    port =
+      github(%{
+        "/repos/o/r/pulls/3" => open_pull(3, @sha),
+        "/repos/o/r/commits/#{@sha}/check-runs" => %{
+          "total_count" => 1,
+          "check_runs" => [
+            %{
+              "id" => 30,
+              "name" => "check",
+              "status" => "completed",
+              "conclusion" => "failure",
+              "html_url" => "https://github.com/o/r/actions/runs/1/job/30"
+            }
+          ]
+        },
+        "/repos/o/r/commits/#{@sha}/status" => @no_statuses,
+        "/repos/o/r/actions/jobs/30/logs" => {:text, @job_log}
+      })
+
+    # A token reads job logs; without github_write nothing is written to GitHub.
+    dir = project(tmp, port, ~s(github_token: "test-token"\n))
+
+    create(dir, "issue", "IS-Atlas-03",
+      title: "Red",
+      pr_url: "https://github.com/o/r/pull/3",
+      pr_state: "open",
+      pr_head: @sha
+    )
+
+    sync(dir)
+
+    assert %{"pr_checks" => "failure", "pr_checks_failure" => failure} =
+             properties(dir, "IS-Atlas-03")
+
+    assert_received {:github, "GET", "/repos/o/r/actions/jobs/30/logs"}
+    assert failure =~ "Failing checks on 4700aac: check"
+
+    # The failure, with every line under it, and the end of the failing step.
+    for line <- [
+          "  1) test a pull's body says what its CI fix changed (AtlasCode.EffectsTest)",
+          "     test/effects_test.exs:257",
+          "     right: \"CI fix 1\"",
+          "       test/effects_test.exs:300: (test)",
+          "Finished in 3.2 seconds",
+          "40 tests, 1 failure",
+          "##[error]Process completed with exit code 2."
+        ],
+        do: assert(failure =~ line, failure)
+
+    # None of what the passing tests printed.
+    for line <- [
+          "boom in a passing test",
+          "lib/atlas_flow/runs.ex:12",
+          "gen_server.erl",
+          "Last message",
+          "FAIL is only a word",
+          "a second passing test's trace",
+          "Task.Supervised",
+          "GenServer #PID"
+        ],
+        do: refute(failure =~ line, failure)
   end
 end
