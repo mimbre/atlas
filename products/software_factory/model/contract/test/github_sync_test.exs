@@ -275,6 +275,67 @@ defmodule Model.GithubSyncTest do
     refute_received {:github, "GET", "/repos/o/r/pulls/6/commits" <> _}
   end
 
+  # What Facts' own GitHub connector wrote, written by this sync alone (IS-Atlas-118): an
+  # issue's pull that merged or closed unmerged gives its pr_state (merged is what moves the
+  # issue to Done), and a pull request fact gets its state, title and draft. Merged is final:
+  # the next run reads neither merged pull again.
+  test "a pull that merged or closed unmerged, and its title and draft, reach the issue and the pull request",
+       %{tmp_dir: tmp} do
+    closed = fn number, merged, title ->
+      %{
+        "number" => number,
+        "state" => "closed",
+        "merged" => merged,
+        "title" => title,
+        "draft" => false
+      }
+    end
+
+    port =
+      github(%{
+        "/repos/o/r/pulls/20" => closed.(20, true, "Merged IS-Atlas-20"),
+        "/repos/o/r/pulls/21" => closed.(21, false, "Closed unmerged"),
+        "/repos/o/r/pulls/22" =>
+          open_pull(22, @sha) |> Map.merge(%{"title" => "Renamed", "draft" => true})
+      })
+
+    dir = project(tmp, port)
+    url = &"https://github.com/o/r/pull/#{&1}"
+
+    create(dir, "issue", "IS-Atlas-20", title: "Merges", pr_url: url.(20), pr_state: "open")
+    create(dir, "issue", "IS-Atlas-21", title: "Closes", pr_url: url.(21), pr_state: "open")
+
+    create(dir, "pull_request", "PR-o-r-20", url: url.(20), state: "open", title: "Before")
+    create(dir, "pull_request", "PR-o-r-21", url: url.(21), state: "open", title: "Closes")
+
+    create(dir, "pull_request", "PR-o-r-22",
+      url: url.(22),
+      state: "open",
+      title: "Before",
+      draft: "false"
+    )
+
+    sync(dir)
+
+    assert properties(dir, "IS-Atlas-20")["pr_state"] == "merged"
+    assert properties(dir, "IS-Atlas-21")["pr_state"] == "closed"
+
+    assert %{"state" => "merged", "title" => "Merged IS-Atlas-20"} =
+             merged = properties(dir, "PR-o-r-20")
+
+    assert to_string(merged["draft"]) == "false"
+    assert properties(dir, "PR-o-r-21")["state"] == "closed"
+
+    assert %{"state" => "open", "title" => "Renamed"} = draft = properties(dir, "PR-o-r-22")
+    assert to_string(draft["draft"]) == "true"
+
+    # Merged is final: neither merged pull is read again.
+    flush()
+    sync(dir)
+    refute_received {:github, "GET", "/repos/o/r/pulls/20"}
+    assert_received {:github, "GET", "/repos/o/r/pulls/22"}
+  end
+
   # A recorded job log of `bin/check` (GitHub's timestamps on every line): one failing ExUnit
   # test among passing ones whose captured output holds stack traces, one of them right
   # before ExUnit's summary.
