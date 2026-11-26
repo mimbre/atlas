@@ -10,7 +10,7 @@ extension Prism {
     static let radius: CGFloat = 4
 
     /// One character of the body font (`Typography.bodysmall`), on average: the unit of
-    /// an opened page's layout, the TUI's in characters (docs/design/apple-clients.md, Layout).
+    /// an opened page's layout, the TUI's in characters (docs/design/clients.md, Layout A).
     static let characterWidth: CGFloat = 7.2
 }
 

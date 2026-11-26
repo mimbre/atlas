@@ -1,7 +1,7 @@
 defmodule AtlasTui.ColumnsSidebarTest do
   @moduledoc """
   From 290 cells the tabs leave the bar for a sidebar column left of the list; from 210 the
-  tab bar has a row of the active tab's groups (docs/design/apple-clients.md, Layout).
+  tab bar has a row of the active tab's groups (docs/design/clients.md, Layout A).
   """
   use ExUnit.Case, async: true
 
