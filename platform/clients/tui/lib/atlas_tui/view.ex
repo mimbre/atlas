@@ -599,16 +599,18 @@ defmodule AtlasTui.View do
     rows =
       Enum.flat_map(block.steps, fn step ->
         number = "#{step.n}. "
+        # A closed step shows its first line: the rest is how, for when it is current.
+        head = step.text |> String.split("\n") |> hd() |> single_line()
 
         cond do
           step.n < block.current ->
-            [fit([{:ok, "✓"}, {:dim, " " <> number <> single_line(step.text)}], content)]
+            [fit([{:ok, "✓"}, {:dim, " " <> number <> head}], content)]
 
           step.n == block.current ->
             current_step(step, content)
 
           true ->
-            [fit([{:dim, "  " <> number <> single_line(step.text)}], content)]
+            [fit([{:dim, "  " <> number <> head}], content)]
         end
       end)
 
@@ -735,7 +737,7 @@ defmodule AtlasTui.View do
     inner = max(width - 4, 1)
     number = "#{step.n}. "
     indent = String.duplicate(" ", 2 + display_width(number))
-    [first | rest] = detail_wrap(single_line(step.text), max(inner - display_width(indent), 1))
+    [first | rest] = detail_wrap(String.trim(step.text), max(inner - display_width(indent), 1))
 
     lines =
       [[{:bold, "▸ " <> number <> first}] | Enum.map(rest, &[{:bold, indent <> &1}])] ++
