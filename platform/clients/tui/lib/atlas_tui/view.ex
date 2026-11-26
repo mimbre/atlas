@@ -159,7 +159,7 @@ defmodule AtlasTui.View do
   How wide the page's body is drawn, from the terminal's left edge: the page and, from
   140 wide, its details as a column beside it (`AtlasTui.Columns.place/3`, the layout rule);
   parts side by side take the full width. The chrome (tabs, title, footer, status) always
-  spans the terminal (docs/design/apple-clients.md, Layout).
+  spans the terminal (docs/design/clients.md, Layout A).
   """
   def body_width(model, width) do
     if width >= @side_by_side and in_parts?(model),
@@ -599,7 +599,12 @@ defmodule AtlasTui.View do
   # needs is missing) is drawn plainly, and markup that cannot be drawn leaves its blocks
   # as they are; never a crash.
   defp nodes(tree, model, width, room) do
+    {terminal, _height} = model.console.viewport
+    # The header's group row stands in for a list's own groups line (`group_row?/2`).
+    row? = AtlasTui.ConsoleView.group_row?(model, terminal)
+
     tree
+    |> Enum.reject(&(row? and match?({:block, %AtlasTui.Blocks.Groups{}, _}, &1)))
     |> Enum.map(fn
       {:block, block, at} ->
         try do
@@ -615,7 +620,13 @@ defmodule AtlasTui.View do
           _ -> nodes(children, model, width, room)
         end
     end)
-    |> Enum.intersperse([[]])
+    |> Enum.reduce([], fn
+      lines, [] -> [lines]
+      # A heading that opens on its own empty row needs no blank between it and before.
+      [[] | _] = lines, acc -> [lines | acc]
+      lines, acc -> [lines, [[]] | acc]
+    end)
+    |> Enum.reverse()
     |> Enum.concat()
   end
 
@@ -693,26 +704,21 @@ defmodule AtlasTui.View do
   defp block(%ListBlock{} = list, at, model, width, _room) do
     rows = list.rows || []
 
+    # A plain heading: an empty row, then the bold title with its count dim beside it (too
+    # narrow for that, the count wraps with the title).
     heading =
       if list.title do
-        title = list.title <> " · #{length(rows)}"
+        count = " · #{length(rows)}"
 
-        if width >= 5 do
-          inner = width - 4
+        lines =
+          if width > String.length(count) + 4 do
+            {first, [last]} = Enum.split(list_wrap(list.title, width - String.length(count)), -1)
+            Enum.map(first, &[{:bold, &1}]) ++ [[{:bold, last}, {:dim, count}]]
+          else
+            for line <- list_wrap(list.title <> count, width), do: [{:bold, line}]
+          end
 
-          lines =
-            for line <- list_wrap(title, inner),
-                do: [
-                  {:border, "│ "},
-                  {:bold, line},
-                  {:border, String.duplicate(" ", inner - String.length(line)) <> " │"}
-                ]
-
-          [[{:border, "┌" <> String.duplicate("─", width - 2) <> "┐"}]] ++
-            lines ++ [[{:border, "└" <> String.duplicate("─", width - 2) <> "┘"}]]
-        else
-          for line <- list_wrap(title, width), do: [{:bold, line}]
-        end
+        [[] | lines]
       else
         []
       end

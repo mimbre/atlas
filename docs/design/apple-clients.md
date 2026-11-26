@@ -198,82 +198,18 @@ readonly), errors, submit and cancel; links opened with `openURL` (http and http
 Layout adapts by size, not by platform: two or more parts side by side when wide, stacked
 when narrow (the TUI's 120-column rule becomes a width threshold and size classes).
 
-#### Layout (TUI and Mac, layout A, 2026-11-26)
+#### Layout, block roles, colours and actions
 
-One rule for both clients, kept in one place in each. The columns are anchored from the
-**left** and stand against each other: no centring and no empty gutter between them. Room
-left over is only at the far right, after the last column.
+Shared with the TUI: [clients.md](clients.md) (shell and content, block pages, layout A,
+how each block role renders, Prism colours and their gaps, actions). Mac specifics:
+column widths in points live in `WindowLayout` (BlockViews), applied by `PageView` (page
+and details) and `ShellView` (column widths, the sidebar's fold); `WindowLayoutTests`.
 
-| Column | Mac | TUI |
-|---|---|---|
-| Sidebar: the tabs, with their counts and groups (Work, Browse) | fixed, about 240 pt | 24 cells, from 290 columns (in place of the tab bar) |
-| List: the tab's list | fixed, about 360 pt | 60 cells: dot, key, age, title |
-| Page: the item page's main blocks | at most 720 pt (100 characters of `Typography.bodySmall`), right after the list | at most 100 cells, right after the list |
-| Details: the page's details group (a `part` of role `details`) as its own column | right after the page, 280–480 pt, growing with the room | right after the page, 40–100 cells, growing with the room |
+#### Columns in the TUI
 
-What gives way as the room narrows, in this order:
-
-1. TUI only: the sidebar goes; the tabs are in the tab bar, from 210 columns with a row of
-   the active tab's groups and their counts under it ("Decisions 2 · To-Dos 3").
-2. The details go under the page's main blocks: on the Mac as the recessed card, in the
-   TUI as the page's last blocks. Mac: beside when the page's column holds 720 + 280 pt
-   (a window of about 1600 pt). TUI: beside from **210** columns (list beside the page
-   from **144**); in one column, beside from **140**.
-3. The list collapses. Mac: below a window of 1080 pt (sidebar + list + 480 pt of page)
-   the split view folds its sidebar, as Mail does, into the sidebar toggle; macOS's
-   three-column split view does not hide its middle column (`.detailOnly` has no effect),
-   so the list stays. TUI: below **144** columns, one column at a time (Enter opens the
-   page, Esc returns), tabs scrolling in their bar.
-
-Below **80** columns a TUI list row keeps its dot, key and title, and drops its age and
-state. The chrome (title bar, toolbar, status and footer lines) is not a column and keeps
-the full width; parts side by side (`main`/`related`/`todo`, from 120 columns) too. Text
-wraps at its column's width.
-
-The details are the item's facts where its owner decides: its key, state, for whom and
-from whom since when, what it is about or based on, and note, evidence or deadline once
-filled.
-
-The TUI keeps the rule in `AtlasTui.Columns` (`place/2`, `layout/1`, `geometry/1`), applied
-by `AtlasTui.View` (`body_width/2`, the columns) and `AtlasTui.ConsoleView` (tab bar or
-sidebar); the Mac in `WindowLayout` (BlockViews), applied by `PageView` (page and details)
-and the window (`ShellView`: column widths, the sidebar's fold). Behaviour tests: columns
-adjacent from the left at several widths, the page never wider than its most, the details
-right of the page when there is room and under it otherwise, room left over only at the
-far right — `AtlasTui.ColumnsTest`, `AtlasTui.ColumnsSidebarTest`, `AtlasTuiTest` (markup)
-and `PresentationTest` in the TUI; `WindowLayoutTests` on the Mac.
-
-#### Columns in the TUI (2026-11-26)
-
-On a wide terminal the TUI shows the columns of the Layout rule above: the tabs (from 290),
-the tab's list, the page of the row selected in it (as the Mac does), and that page's
-details when there is room.
-
-- Columns are separated by one thin grey line (grey2 in dark, grey1 in light, where grey2
-  stays under 3:1) and nothing else: no frames. Each has its heading on its first line.
-- The list follows live: moving in it opens the selected row's page and details at once
-  (no Enter), through Control as opening a page does; its cached copy shows while Control
-  reads it fresh. The list column is the newest page Control sent for the tab's path (or
-  a group's), kept current by its hints. Back in one column returns to the list.
-- One column has the focus: its heading lit (bold, primarylight in dark, primaryshade in
-  light), and its selection. → moves it right (sidebar → list → page → details), ← left;
-  Enter in the sidebar or the list is →; Esc always returns it to the list; a mouse click
-  in a column moves it there (the terminal reports clicks only while there are columns).
-  Tab and Shift-Tab still switch the work tabs, and the `g` keys still go to a tab.
-- In the sidebar ↑/↓ choose a tab or group and open it at once, as Tab does; the focus
-  stays there until → (or Enter, Esc) takes it to the list.
-- The details take the focus only when they hold related items (rows that open a page:
-  the lists in a part of role `details` or `related`); ↑/↓ choose one, → or Enter opens it
-  in the page.
-- ↑/↓ act in the column with the focus only: the tabs; the list's rows; in the page what
-  they do in one column (a panel's items or answers, a choice, the selected command across
-  a to-do's steps, its own rows); the related items. Every other key — the open item's
-  actions (x, n, c, digits, m, o, r, …) — acts on the open item, whichever column has the
-  focus.
-- The key line under the columns names the keys of the column with the focus.
-
-The TUI keeps these in `AtlasTui.Columns` (layout, focus, keys, following the list and
-the sidebar) and `AtlasTui.View` (drawing).
+The TUI's cell widths, focus and keys between its columns are in `AtlasTui.Columns`'s
+moduledoc; columns are separated by one thin grey line (`:rest_frame`), and the column
+with the focus has its heading lit (`:lit`, `AtlasTui.Palette`).
 
 ### The shell (approved, 2026-11-13)
 

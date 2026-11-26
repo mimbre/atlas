@@ -46,7 +46,7 @@ defmodule AtlasTui.ConsoleView do
     if AtlasTui.Columns.sidebar?(model) do
       [bar]
     else
-      groups = if AtlasTui.Columns.layout(width) == :three, do: groups(model, inner), else: []
+      groups = if group_row?(model, width), do: groups(model, inner), else: []
 
       [
         bar,
@@ -56,6 +56,15 @@ defmodule AtlasTui.ConsoleView do
         Enum.map(groups, &([{:dim, "│"}] ++ &1 ++ [{:dim, "│"}])) ++
         [[{:dim, "└" <> String.duplicate("─", inner) <> "┘"}]]
     end
+  end
+
+  @doc """
+  Whether the header draws a row of the active tab's groups under the tab bar (three
+  columns, no sidebar, a tab with groups); the list column then leaves out its own.
+  """
+  def group_row?(model, width) do
+    not AtlasTui.Columns.sidebar?(model) and AtlasTui.Columns.layout(width) == :three and
+      groups(model, 1) != []
   end
 
   # The active tab's groups (boot's `groups`), each with its count, the one shown (the
