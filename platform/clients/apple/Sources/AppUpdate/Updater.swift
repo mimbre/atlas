@@ -23,14 +23,15 @@ public struct InstallProblem: Error, Sendable, Equatable {
 }
 
 /// The app's update (IS-Atlas-66): it asks the feed when the app starts, every
-/// `UpdateStatus.checkMinutes` while it runs, and at once and then every minute after
-/// Control closed it as too old. A later release is taken when no form or confirm is open
-/// (`canTakeNow`), and the app starts again on the page it showed (`page`).
+/// `UpdateStatus.checkMinutes` while it runs, and at once and then every minute once
+/// Control's welcome says a newer contract than the app's (D-0105; the app stays
+/// connected). A later release is taken when no form or confirm is open (`canTakeNow`),
+/// and the app starts again on the page it showed (`page`).
 @MainActor
 @Observable
 public final class Updater {
     public private(set) var status: UpdateStatus
-    /// Control's contract, once Control closed the app as too old.
+    /// Control's contract, once its welcome said one newer than the app's.
     public private(set) var controlSpec: String?
     public let installed: InstalledApp?
 
@@ -65,9 +66,9 @@ public final class Updater {
         Task { await self.check() }
     }
 
-    /// Control closed the app as too old, speaking `spec`: ask now, and every minute until
-    /// the app is updated.
-    public func closedTooOld(controlSpec spec: String) {
+    /// Control's welcome says `spec`, a newer contract than the app's: ask now, and every
+    /// minute until the app is updated.
+    public func controlIsNewer(spec: String) {
         let first = controlSpec == nil
         controlSpec = spec
         guard installed != nil, first else { return }
@@ -105,7 +106,7 @@ public final class Updater {
         }
         scheduled += 1
         let serial = scheduled
-        let minutes = controlSpec == nil ? UpdateStatus.checkMinutes : UpdateStatus.closedCheckMinutes
+        let minutes = controlSpec == nil ? UpdateStatus.checkMinutes : UpdateStatus.newerControlCheckMinutes
         schedule(Double(minutes * 60)) { [weak self] in
             guard let self, self.scheduled == serial else { return }
             Task { await self.check() }
@@ -113,8 +114,7 @@ public final class Updater {
     }
 
     private func take(_ release: AppRelease) async {
-        // An app Control closed has nothing open to lose.
-        guard controlSpec != nil || canTakeNow() else {
+        guard canTakeNow() else {
             status = .deferred(release)
             return
         }

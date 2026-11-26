@@ -35,6 +35,9 @@ defmodule AtlasTui.Model do
             conversation: nil,
             env: nil,
             connected: false,
+            # The contract Control speaks, as its welcome said (nil before one, or none);
+            # the status line warns when it is not this build's (D-0105).
+            control_spec: nil,
             path: nil,
             title: "",
             # What waits for the user, as Control words it (`count` on every page), or nil.
@@ -75,9 +78,9 @@ defmodule AtlasTui.Model do
             last_hint: nil,
             waiting: false,
             closed: false,
-            # How this build takes a newer one when Control closes it as too old
+            # How this build takes a newer one when Control's contract is newer
             # (IS-Atlas-76): `:restart` (bin/atlas updates it and starts it again on the
-            # page), `{:not_updated, why, once}` (bin/atlas could not update it), or nil (not
+            # page), `{:not_updated, why}` (bin/atlas could not update it), or nil (not
             # started by bin/atlas).
             release: nil,
             # The request line (`:`): its text while it is open, nil when closed.
@@ -148,8 +151,11 @@ defmodule AtlasTui.Model do
       model
     else
       case form(model) do
-        %Form{inputs: inputs} -> %{model | values: Map.new(inputs, &{&1.name, &1.value || ""})}
-        nil -> %{model | values: %{}}
+        %Form{inputs: inputs} ->
+          %{model | values: Map.new(inputs || [], &{&1.name, &1.value || ""})}
+
+        nil ->
+          %{model | values: %{}}
       end
     end
   end
@@ -206,11 +212,13 @@ defmodule AtlasTui.Model do
 
   def form(model), do: Enum.find(model.blocks, &match?(%Form{}, &1))
 
-  @doc "The page's decision options (`option` blocks), in page order: one selection."
-  def options(model), do: for(%Option{} = option <- model.blocks, do: option)
+  @doc "The page's decision options (`option` blocks) with an answer, in page order: one selection."
+  def options(model),
+    do: for(%Option{answer: %{key: key}} = option <- model.blocks, is_binary(key), do: option)
 
   @doc "Where in `options` the selected one is (`choice` in the model): by key, else the first."
-  def chosen(options, key), do: Enum.find_index(options, &(&1.answer.key == key)) || 0
+  def chosen(options, key),
+    do: Enum.find_index(options, &match?(%{answer: %{key: ^key}}, &1)) || 0
 
   def panel(model), do: Enum.find(model.blocks, &match?(%Panel{}, &1))
 
@@ -387,7 +395,7 @@ defmodule AtlasTui.Model do
 
   @doc "What can take focus in a form: its inputs (not the read-only ones), then the buttons."
   def focusable(%Form{inputs: inputs}),
-    do: Enum.reject(inputs, &(&1.kind == "readonly")) ++ [:submit, :cancel]
+    do: Enum.reject(inputs || [], &(&1.kind == "readonly")) ++ [:submit, :cancel]
 
   # Keys
 
@@ -686,7 +694,7 @@ defmodule AtlasTui.Model do
 
   # Editing a step retains its draft until the declared save or cancel action.
   defp edit_step(model, step) do
-    values = Map.new(step.inputs, &{&1.name, &1.value || ""})
+    values = Map.new(step.inputs || [], &{&1.name, &1.value || ""})
     values = Map.merge(values, model.steps.values[step.n] || %{})
     model = %{model | values: values, focus: 0, cursor: nil}
     {advance_mode(put_in(model.steps.editing, step.n)), []}

@@ -261,7 +261,7 @@ defmodule AtlasControl.SessionTest do
   test "a client sees the top list at once", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
-    assert %{"env" => "test", "spec" => "0.32.0"} = next(c, "welcome")
+    assert %{"env" => "test", "spec" => "0.33.0"} = next(c, "welcome")
     assert %{"path" => "/", "title" => "Widgets", "reason" => "open"} = page = next(c, "page")
     assert rows(page) == ["One"]
   end
@@ -620,34 +620,63 @@ defmodule AtlasControl.SessionTest do
     assert FakeStore.last_fact() == nil
   end
 
-  test "hello carries the contract version: an older client, or one without, is told which contract each side speaks",
+  test "hello carries the contract version: any client is welcomed with Control's (D-0105)",
        %{port: port} do
     version = AtlasControl.Blocks.version()
+    newer = version |> Version.parse!() |> Map.update!(:minor, &(&1 + 1)) |> to_string()
 
-    for spec <- ["0.1.0", nil, "not a version"] do
-      {:ok, socket} =
-        :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+    # Control logs a difference at info; the tests' level is warning.
+    level = Logger.level()
+    Logger.configure(level: :info)
+    on_exit(fn -> Logger.configure(level: level) end)
 
-      hello = %{"op" => "hello", "env" => "test", "client" => "tui"}
-      put(socket, if(spec, do: Map.put(hello, "spec", spec), else: hello))
+    # Older, none, not a version, newer: each is welcomed, told Control's version, and
+    # shown its start page; the difference is the client's to show.
+    log =
+      ExUnit.CaptureLog.capture_log([level: :info], fn ->
+        for spec <- ["0.1.0", nil, "not a version", newer, version] do
+          {:ok, socket} =
+            :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
 
-      assert %{"op" => "bye", "text" => text, "reason" => "too_old", "spec" => ^version} =
-               next(socket, "bye")
+          hello = %{"op" => "hello", "env" => "test", "client" => "tui"}
+          put(socket, if(spec, do: Map.put(hello, "spec", spec), else: hello))
 
-      # What is true on each side, and no remedy the client may not take (IS-Atlas-76).
-      assert text ==
-               "This client implements contract #{spec || "(none)"}; Control test speaks " <>
-                 "#{version}, and no older one."
+          assert %{"op" => "welcome", "spec" => ^version} = next(socket, "welcome")
+          assert %{"op" => "page", "reason" => "open"} = next(socket, "page")
+          :gen_tcp.close(socket)
+        end
+      end)
 
-      refute text =~ "update"
-      assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
+    # Both versions are recorded when they differ.
+    assert log =~ ~s|client "tui" implements contract 0.1.0; Control speaks #{version}|
+    assert log =~ ~s|implements contract (none); Control speaks #{version}|
+    assert log =~ ~s|implements contract #{newer}; Control speaks #{version}|
+    refute log =~ ~s|implements contract #{version};|
+  end
+
+  test "an older client's answer is checked as any other: one its page does not offer is refused" do
+    port = gateway(Shop.Reviewed)
+
+    FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"card" => ["C-W-1"]})
+    FakeStore.put("C-W-1", %{"of" => "W-1", "step" => "check"}, "card", %{"held_by" => ["bob"]})
+    reviewing("C-W-1", ["bob"])
+    FakeStore.put("ada", %{"name" => "Ada"}, "member")
+    Application.put_env(:atlas_control, :tui_user, "ada")
+    on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+    {:ok, tui} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+    on_exit(fn -> :gen_tcp.close(tui) end)
+    put(tui, %{"op" => "hello", "env" => "test", "client" => "tui", "spec" => "0.1.0"})
+    assert %{"op" => "welcome"} = next(tui, "welcome")
+    next(tui, "page")
+
+    # Accept is offered to the card's holder (bob), not to ada; an answer the state does
+    # not declare is offered to no one. Neither is sent to Facts.
+    for answer <- ["a", "zz"] do
+      put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/answer/#{answer}", "values" => %{}})
+      assert %{"reason" => "refused"} = next(tui, "page")
     end
 
-    # The same version, or a newer one, is welcomed.
-    newer = version |> Version.parse!() |> Map.update!(:minor, &(&1 + 1)) |> to_string()
-    {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
-    put(socket, %{"op" => "hello", "env" => "test", "client" => "tui", "spec" => newer})
-    assert %{"spec" => ^version} = next(socket, "welcome")
+    assert FakeStore.sent() == []
   end
 
   test "a submit names its endpoint and params, as the form's submit_to holds them",

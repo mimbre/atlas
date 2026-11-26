@@ -223,15 +223,13 @@ defmodule AtlasBFF.Targets.Swift.Tests do
         [
           decodes,
           """
-              func test_block_#{name}_without_#{field.name}_or_with_a_wrong_one_falls_back() throws {
-                  for (text, reason) in [
-                      (#{raw(missing)}, Fallback.Reason.missing(path: [#{JSON.encode!(to_string(field.name))}])),
-                      (#{raw(wrong)}, Fallback.Reason.wrongType(path: [#{JSON.encode!(to_string(field.name))}])),
-                  ] {
+              func test_block_#{name}_without_#{field.name}_or_with_a_wrong_one_decodes_without_it() throws {
+                  for text in [#{raw(missing)}, #{raw(wrong)}] {
                       let block = try decode(Block.self, text)
-                      XCTAssertEqual(block.content, .fallback(Fallback(type: #{JSON.encode!(name)}, reason: reason, raw: try json(text))))
-                      try assertRoundTrip(block, text)
+                      guard case .#{member(block.name)}(let props) = block.content else { return XCTFail("#{name} fell back: \\(block.content)") }
+                      XCTAssertNil(props.#{member(field.name)})
                   }
+                  try assertRoundTrip(try decode(Block.self, #{raw(missing)}), #{raw(missing)})
               }
           """
         ]
@@ -417,7 +415,7 @@ defmodule AtlasBFF.Targets.Swift.Tests do
               """
             ]
           )
-      ] ++ undecodable_tests(ch, ctx)
+      ] ++ tolerant_tests(ch, ctx)
   end
 
   # A type a wrong value fails to decode as: not a block or markup entry (which fall back)
@@ -426,11 +424,11 @@ defmodule AtlasBFF.Targets.Swift.Tests do
   defp strict?({:list, inner}), do: strict?(inner)
   defp strict?(_type), do: true
 
-  # A message whose selector matches a case but whose fields do not decode: undecodable,
-  # with the path of the field, and encoded back as it came. One per channel, on the first
-  # message with a required field a wrong value fails and its selector does not name (left
-  # out, a field the selector needs present would no longer match the case).
-  defp undecodable_tests(ch, ctx) do
+  # A message whose selector matches a case reads every field on its own (D-0105): one
+  # missing or of a wrong type is nil, and the message still decodes. One per channel, on
+  # the first message with a required field its selector does not name (left out, a field
+  # the selector needs present would no longer match the case).
+  defp tolerant_tests(ch, ctx) do
     enum = type_name(ch.channel)
 
     candidate = fn m, f ->
@@ -453,13 +451,10 @@ defmodule AtlasBFF.Targets.Swift.Tests do
 
         [
           """
-              func test_#{ch.channel}_message_#{m.case |> String.trim("`") |> Macro.underscore()}_whose_fields_do_not_decode_is_undecodable() throws {
-                  for (text, reason) in [
-                      (#{raw(missing)}, Fallback.Reason.missing(path: [#{JSON.encode!(field.name)}])),
-                      (#{raw(wrong)}, Fallback.Reason.wrongType(path: [#{JSON.encode!(field.name)}])),
-                  ] {
-                      XCTAssertEqual(try decode(#{enum}Message.self, text), .undecodable(try json(text), reason))
-                      try assertRoundTrip(try decode(#{enum}Message.self, text), text)
+              func test_#{ch.channel}_message_#{m.case |> String.trim("`") |> Macro.underscore()}_without_a_field_or_with_a_wrong_one_still_decodes() throws {
+                  for text in [#{raw(missing)}, #{raw(wrong)}] {
+                      guard case .#{m.case}(let message) = try decode(#{enum}Message.self, text) else { return XCTFail("does not decode as #{m.case}") }
+                      XCTAssertNil(message.#{member(field.name)})
                   }
               }
           """

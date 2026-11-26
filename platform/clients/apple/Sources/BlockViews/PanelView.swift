@@ -35,7 +35,7 @@ struct PanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
-            PanelHeading(eyebrow: block.heading, title: block.title, key: block.key, trailing: block.aside)
+            PanelHeading(eyebrow: block.heading ?? "", title: block.title ?? "", key: block.key, trailing: block.aside)
             if let byline = block.byline, !byline.isEmpty {
                 // The ages keep current.
                 TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -87,8 +87,9 @@ struct PanelView: View {
     private var items: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s2) {
             ForEach(Array(panel.items.enumerated()), id: \.element.key) { offset, item in
-                PanelRow(marker: offset == panel.selected, key: item.key, label: item.label,
-                         accessibility: "\(item.key): \(item.label)", hint: "Select; again to open (↑ ↓, Return)") {
+                PanelRow(marker: offset == panel.selected, key: item.key ?? "", label: item.label ?? "",
+                         accessibility: [item.key, item.label].compactMap { $0 }.joined(separator: ": "),
+                         hint: "Select; again to open (↑ ↓, Return)") {
                     apply(panel.click(item: item))
                 }
             }
@@ -105,10 +106,10 @@ struct PanelView: View {
                 }
             }
             ForEach(Array(((block.actions ?? []) + others).enumerated()), id: \.offset) { _, action in
-                KeyButton(label: action.label, key: action.key) { act(action) }
+                KeyButton(label: action.label ?? "", key: action.key) { act(action) }
             }
             ForEach(Array(Panel.links(block).enumerated()), id: \.offset) { _, link in
-                KeyButton(label: link.link.label, key: link.link.key) { openURL(link.url) }
+                KeyButton(label: link.link.label ?? link.url.absoluteString, key: link.link.key) { openURL(link.url) }
             }
         }
         .textSelection(.disabled)
@@ -204,7 +205,7 @@ struct PanelDetails: View {
         Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.s13, verticalSpacing: Prism.Spacing.s6) {
             ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
                 GridRow {
-                    Text(pair.label).foregroundStyle(Prism.Colors.muted(scheme))
+                    Text(pair.label ?? "").foregroundStyle(Prism.Colors.muted(scheme))
                     Text(pair.value ?? "—").frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -222,15 +223,15 @@ struct PanelChecks: View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Prism.Spacing.s10, verticalSpacing: Prism.Spacing.s6) {
             ForEach(Array(checks.enumerated()), id: \.offset) { _, check in
                 GridRow {
-                    let role = Self.role(check.state)
-                    Text(Panel.glyph(check.state)).bold()
+                    let role = Self.role(check.state ?? "")
+                    Text(Panel.glyph(check.state ?? "")).bold()
                         .foregroundStyle(Prism.Colors.grey1)
                         .frame(width: Prism.Spacing.s18, height: Prism.Spacing.s18)
                         .background(role.tint, in: Circle())
                         .overlay(Circle().strokeBorder(role.color))
-                        .accessibilityLabel(check.state)
-                    Text(check.label).bold()
-                    Text(check.text).frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel(check.state ?? "")
+                    Text(check.label ?? "").bold()
+                    Text(check.text ?? "").frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -255,8 +256,10 @@ struct PanelBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s5) {
-            Text(box.title).prism(Prism.Typography.labelSmall).foregroundStyle(Prism.Colors.muted(scheme))
-            Text(box.text).frame(maxWidth: .infinity, alignment: .leading)
+            if let title = box.title {
+                Text(title).prism(Prism.Typography.labelSmall).foregroundStyle(Prism.Colors.muted(scheme))
+            }
+            Text(box.text ?? "").frame(maxWidth: .infinity, alignment: .leading)
         }
         .modifier(Framed(border: box.tone == "error" ? Prism.Colors.error : nil))
     }
@@ -299,10 +302,11 @@ struct AnswerButton: View {
             HStack(spacing: Prism.Spacing.s6) {
                 if pending {
                     ProgressView().controlSize(.mini)
-                } else {
-                    Keycap(key: answer.key, inButton: true)
+                } else if let key = answer.key {
+                    Keycap(key: key, inButton: true)
                 }
-                Text(no ? answer.label + " · note" : answer.label).prism(Prism.Typography.labelSmall)
+                let label = answer.label ?? ""
+                Text(no ? label + " · note" : label).prism(Prism.Typography.labelSmall)
             }
             .foregroundStyle(scheme == .dark ? Prism.Colors.white : Prism.Colors.grey1)
             .padding(.horizontal, Prism.Spacing.s10)
@@ -313,7 +317,7 @@ struct AnswerButton: View {
         }
         .buttonStyle(.plain)
         .disabled(pending)
-        .help("\(answer.label) (\(answer.key))")
+        .help([answer.label, answer.key.map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
     }
 
     private func fill(no: Bool) -> Color {
@@ -333,7 +337,7 @@ struct AnswerButton: View {
 /// An action or link of a panel as a quiet button: its key as a keycap, its label.
 struct KeyButton: View {
     let label: String
-    let key: String
+    let key: String?
     let take: () -> Void
 
     var body: some View {
@@ -383,8 +387,9 @@ struct Keycap: View {
 
     /// A key as a keycap shows it: one character as it is, Control's named keys as their
     /// signs (Enter ↩, Up ↑, Down ↓); nil for a key it does not show.
-    static func glyph(_ key: String) -> String? {
-        switch key {
+    static func glyph(_ key: String?) -> String? {
+        guard let key else { return nil }
+        return switch key {
         case "Enter": "↩"
         case "Up": "↑"
         case "Down": "↓"

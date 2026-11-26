@@ -7,8 +7,9 @@ import Foundation
 /// tests drive both.
 ///
 /// The rules are the TUI's (`AtlasTui.Console`, `AtlasTui.App`): hello with the contract
-/// version; a welcome for another environment, version or surface, or a bye, ends the
-/// session; the page hello brings is consumed, then `boot` gives the shell and `open` its
+/// version; a welcome for another environment or surface, or a bye, ends the session (any
+/// contract version is welcome, D-0105: the status bar only says they differ);
+/// the page hello brings is consumed, then `boot` gives the shell and `open` its
 /// start; one `open` on the wire at a time; a dropped connection retries every 2 s and, on
 /// return, boots for the page it was on and opens it again; every `reconcileSeconds` it
 /// boots again (shell changes) and sends `refresh`, except while a page with a form or
@@ -46,11 +47,7 @@ public struct SessionState: Sendable, Equatable {
     public enum Ending: Sendable, Equatable {
         /// Control said bye (another environment, …), with its text.
         case bye(String)
-        /// Control closed the app as too old (`reason` "too_old"): the contract Control
-        /// speaks, and its text. The app's update says what is true and what happens
-        /// (IS-Atlas-66), not this text alone.
-        case tooOld(control: String, text: String)
-        /// Control's welcome names another environment, contract version or surface.
+        /// Control's welcome names another environment or surface.
         case incompatible(WelcomeMessage)
         /// Control's welcome does not decode, and why (the TUI ends such a session too).
         case unreadableWelcome(Fallback.Reason)
@@ -73,7 +70,6 @@ public struct SessionState: Sendable, Equatable {
     /// What is wrong with a boot shell (the TUI's checks and the boot limits, ADR 0004).
     public enum ShellProblem: Sendable, Equatable {
         case env
-        case spec
         case title
         case revision
         case tabCount
@@ -194,6 +190,13 @@ public struct SessionState: Sendable, Equatable {
 
     public let settings: SessionSettings
     public private(set) var connection: Connection = .idle
+    /// The contract version Control's welcome named; nil before it, or when it named none.
+    public private(set) var controlSpec: String?
+    /// Control's contract version when it is newer than this app's: the app's update asks
+    /// the release feed at once (IS-Atlas-66, D-0105). Nil when the same or older.
+    public var newerControl: String? {
+        controlSpec.flatMap { StatusViewModel.newer($0, than: Contract.version) ? $0 : nil }
+    }
     var phase: Phase = .welcome
 
     /// The last good shell; nil until a boot succeeds.
@@ -271,7 +274,7 @@ public struct SessionState: Sendable, Equatable {
     /// Whether a page asks something: it holds a form or a confirm. Such a page is shown
     /// over the columns, as an action's pages are.
     public static func asks(_ page: PageMessage) -> Bool {
-        page.blocks.contains { block in
+        (page.blocks ?? []).contains { block in
             switch block.content {
             case .form, .confirm: true
             default: false
@@ -283,7 +286,7 @@ public struct SessionState: Sendable, Equatable {
     /// else its `back`.
     static func cancelTarget(_ page: PageMessage?) -> String? {
         guard let page else { return nil }
-        for block in page.blocks {
+        for block in page.blocks ?? [] {
             switch block.content {
             case .confirm(let confirm): return confirm.cancelTo
             case .form(let form): if let to = form.cancelTo { return to }
@@ -428,9 +431,9 @@ public struct SessionState: Sendable, Equatable {
                 if !effects.isEmpty { pending = Pending(kind: .sending, label: model.label, action: model) }
                 return effects
             }
-            guard Page.match(model.to) != nil else { return [] }
+            guard let to = model.to, Page.match(to) != nil else { return [] }
             if action == nil { action = Action(from: opened) }
-            let effects = navigate(model.to, column: .opened)
+            let effects = navigate(to, column: .opened)
             pending = Pending(kind: .opening, label: model.label, action: model)
             return effects
         case .leave:
@@ -459,10 +462,11 @@ public struct SessionState: Sendable, Equatable {
             // Not while a page is on its way (its reply would drop the submit's), and once
             // only until Control replies.
             guard expected == nil, inFlight == nil, !submitting else { return [] }
+            guard let endpoint = call.endpoint else { return [] }
             submitting = true
             answer = nil
             pending = Pending(kind: .sending, label: label, action: nil)
-            let request = SubmitRequest(endpoint: call.endpoint, params: call.params ?? [:], values: values)
+            let request = SubmitRequest(endpoint: endpoint, params: call.params ?? [:], values: values)
             return [.send(.submit(request))]
         case .steerLine(let line):
             guard let message = try? WireLine.decode(SteerMessage.self, from: line) else { return [] }
@@ -479,7 +483,7 @@ public struct SessionState: Sendable, Equatable {
         case .runPlan:
             return runPlan()
         case .togglePlanStep(let n):
-            guard plan?.state == "proposed", plan?.steps.contains(where: { $0.n == n }) == true else { return [] }
+            guard plan?.state == "proposed", plan?.steps?.contains(where: { $0.n == n }) == true else { return [] }
             if droppedSteps.contains(n) { droppedSteps.remove(n) } else { droppedSteps.insert(n) }
             return []
         case .stopPlan:
@@ -503,8 +507,8 @@ public struct SessionState: Sendable, Equatable {
     // MARK: The agent
 
     /// The intent of an action that asks the agent (`agent:<intent>`), else nil.
-    public static func agentIntent(_ to: String) -> String? {
-        guard to.hasPrefix("agent:") else { return nil }
+    public static func agentIntent(_ to: String?) -> String? {
+        guard let to, to.hasPrefix("agent:") else { return nil }
         let intent = String(to.dropFirst("agent:".count))
         return intent.isEmpty ? nil : intent
     }
@@ -514,7 +518,7 @@ public struct SessionState: Sendable, Equatable {
     func page(declaring action: ActionModel) -> PageMessage? {
         let pages = [opened, self.action?.from, index].compactMap { $0 }
         return pages.first { page in
-            page.blocks.contains { block in
+            (page.blocks ?? []).contains { block in
                 switch block.content {
                 case .item(let item): (item.actions ?? []).contains(action)
                 case .list(let list): (list.actions ?? []).contains(action)
@@ -533,7 +537,7 @@ public struct SessionState: Sendable, Equatable {
         plan = PlanBlock(title: "Planning…", request: model.label, state: "planning", steps: [])
         droppedSteps = []
         pending = Pending(kind: .asking, label: model.label, action: model)
-        return [.steer(.ask(AskRequest(intent: intent, on: on, request: model.label)))]
+        return [.steer(.ask(AskRequest(intent: intent, on: on, request: model.label ?? "")))]
     }
 
     private mutating func steer(_ message: SteerMessage) -> [Effect] {
@@ -542,7 +546,7 @@ public struct SessionState: Sendable, Equatable {
         case .plan(let message):
             // A plan after the user closed it is not shown again.
             guard let old = plan else { return [] }
-            guard case .plan(let block) = message.block.content else {
+            guard case .plan(let block)? = message.block?.content else {
                 notice = NoticeMessage(text: "The agent sent a plan this app cannot show.", tone: "error")
                 return []
             }
@@ -566,20 +570,22 @@ public struct SessionState: Sendable, Equatable {
     /// Run the kept steps, in order, with the values the agent gave them (the TUI's `run`).
     private mutating func runPlan() -> [Effect] {
         guard let plan, plan.state == "proposed" else { return [] }
-        let kept = plan.steps.filter { !droppedSteps.contains($0.n) && $0.state != "dropped" }
+        let kept = (plan.steps ?? []).filter { step in
+            step.state != "dropped" && !(step.n.map { droppedSteps.contains($0) } ?? false)
+        }
         if kept.isEmpty {
             notice = NoticeMessage(text: "Every step is dropped; cancel this plan.", tone: "info")
             return []
         }
         let blocked = kept.filter { $0.state == "blocked" }
         guard blocked.isEmpty else {
-            let numbers = blocked.map { String($0.n) }.joined(separator: ", ")
+            let numbers = blocked.map { $0.n.map(String.init) ?? "?" }.joined(separator: ", ")
             notice = NoticeMessage(text: "Step \(numbers) cannot run; drop it before running.", tone: "error")
             return []
         }
         let steps = kept.map { step in
             RunStepModel(n: step.n, values: step.inputs.map { inputs in
-                Dictionary(inputs.map { ($0.name, $0.value ?? "") }) { first, _ in first }
+                Dictionary(inputs.compactMap { input in input.name.map { ($0, input.value ?? "") } }) { first, _ in first }
             })
         }
         return [.steer(.run(RunRequest(steps: steps)))]
@@ -592,11 +598,7 @@ public struct SessionState: Sendable, Equatable {
         case .welcome(let welcome):
             return self.welcome(welcome)
         case .bye(let bye):
-            if bye.reason == "too_old" {
-                connection = .ended(.tooOld(control: bye.spec ?? "a newer contract", text: bye.text))
-            } else {
-                connection = .ended(.bye(bye.text))
-            }
+            connection = .ended(.bye(bye.text ?? ""))
             return [.close]
         case .notice(let notice):
             self.notice = notice
@@ -604,7 +606,7 @@ public struct SessionState: Sendable, Equatable {
         case .bootShell(let shell):
             return boot(.success(shell))
         case .bootError(let error):
-            return boot(.failure(.control(error.error)))
+            return boot(.failure(.control(error.error ?? "")))
         case .pageOpen(let page): return self.page(page, .open)
         case .pageStored(let page): return self.page(page, .stored)
         case .pageRefused(let page): return self.page(page, .refused)
@@ -648,11 +650,13 @@ public struct SessionState: Sendable, Equatable {
 
     private mutating func welcome(_ welcome: WelcomeMessage) -> [Effect] {
         guard connection == .handshake, phase == .welcome else { return [] }
-        guard welcome.env == settings.env, welcome.spec == Contract.version, welcome.surface == "console" else {
+        // Any contract version is welcome (D-0105): a difference is only a status warning.
+        guard welcome.env == settings.env, welcome.surface == "console" else {
             connection = .ended(.incompatible(welcome))
             return [.close]
         }
         connection = .connected
+        controlSpec = welcome.spec
         phase = .compatibility
         notice = nil
         return []
@@ -674,10 +678,10 @@ public struct SessionState: Sendable, Equatable {
             self.shell = shell
             shellStale = false
             bootFailure = nil
-            for tab in shell.tabs {
-                if let count = tab.count { groupCounts[tab.to] = count }
+            for tab in shell.tabs ?? [] {
+                if let to = tab.to, let count = tab.count { groupCounts[to] = count }
                 for group in tab.groups ?? [] {
-                    if let count = group.count { groupCounts[group.to] = count }
+                    if let to = group.to, let count = group.count { groupCounts[to] = count }
                 }
             }
             if phase == .boot { return start(shell) }
@@ -691,7 +695,8 @@ public struct SessionState: Sendable, Equatable {
         phase = .content
         let wished = startPage.flatMap { Page.match($0) != nil ? $0 : nil }
         startPage = nil
-        let target = isEditing ? (pageOnScreen?.path ?? shell.initialTo) : (wished ?? shell.initialTo)
+        let initialTo = shell.initialTo ?? ""
+        let target = isEditing ? (pageOnScreen?.path ?? initialTo) : (wished ?? initialTo)
         let column: Column
         if let opened, opened.path == target {
             column = .opened
@@ -708,15 +713,15 @@ public struct SessionState: Sendable, Equatable {
     /// A later boot: the shell changes, the page does not, unless the tab the user is on
     /// is gone and nothing is being edited.
     private mutating func keepTab(_ shell: Shell) -> [Effect] {
-        guard let activeTab, shell.tabs.contains(where: { $0.id == activeTab }) else {
+        guard let activeTab, (shell.tabs ?? []).contains(where: { $0.id == activeTab }) else {
             self.activeTab = shell.activeTab
             guard !isEditing, expected == nil else { return [] }
             if let index, Self.tab(showing: index.path, in: shell) != nil { return [] }
             opened = nil
             draft = [:]
             index = nil
-            self.activeTab = shell.activeTab ?? shell.tabs.first(where: { $0.to == shell.initialTo })?.id
-            return navigate(shell.initialTo, column: .index)
+            self.activeTab = shell.activeTab ?? shell.tabs?.first(where: { $0.to == shell.initialTo })?.id
+            return navigate(shell.initialTo ?? "", column: .index)
         }
         return []
     }
@@ -809,7 +814,8 @@ public struct SessionState: Sendable, Equatable {
         return navigate(expected, column: expectedColumn)
     }
 
-    private func column(showing path: String) -> Column? {
+    private func column(showing path: String?) -> Column? {
+        guard let path else { return nil }
         if opened?.path == path { return .opened }
         if index?.path == path { return .index }
         return nil
@@ -827,12 +833,14 @@ public struct SessionState: Sendable, Equatable {
             // Back on the page the action was taken on: the action is over.
             if page.path == action?.from?.path { action = nil }
         }
-        let update = Update(reason: reason, at: page.at, position: page.position, path: page.path)
+        let update = Update(reason: reason, at: page.at, position: page.position, path: page.path ?? "")
         lastUpdate = update
         if reason == .hint { lastHint = update }
-        for block in page.blocks {
+        for block in page.blocks ?? [] {
             if case .groups(let groups) = block.content {
-                for group in groups.groups { groupCounts[group.to] = group.count }
+                for group in groups.groups ?? [] {
+                    if let to = group.to { groupCounts[to] = group.count }
+                }
             }
         }
     }
@@ -844,21 +852,22 @@ public struct SessionState: Sendable, Equatable {
     }
 
     /// The tab that shows `path` in the middle column: the tab's page, or one of its groups.
-    static func tab(showing path: String, in shell: Shell) -> ShellTabModel? {
-        shell.tabs.first { $0.to == path || ($0.groups ?? []).contains { $0.to == path } }
+    static func tab(showing path: String?, in shell: Shell) -> ShellTabModel? {
+        guard let path else { return nil }
+        return (shell.tabs ?? []).first { $0.to == path || ($0.groups ?? []).contains { $0.to == path } }
     }
 
     // MARK: What the user does
 
     private mutating func selectTab(_ id: String) -> [Effect] {
         guard connection == .connected, phase == .ready || phase == .content else { return [] }
-        guard let tab = shell?.tabs.first(where: { $0.id == id }) else { return [] }
+        guard let tab = shell?.tabs?.first(where: { $0.id == id }), let to = tab.to else { return [] }
         guard !isEditing else { return [] }
         activeTab = tab.id
         opened = nil
         draft = [:]
-        if index?.path != tab.to { index = nil }
-        return navigate(tab.to, column: .index)
+        if index?.path != to { index = nil }
+        return navigate(to, column: .index)
     }
 
     /// Show one group of a tab's page in the middle column, on that tab (any tab's group
@@ -929,30 +938,39 @@ public struct SessionState: Sendable, Equatable {
     static let tabPages: Set<Page> = [.home, .list, .workers, .openForYou, .supervisedByYou]
 
     /// What is wrong with `shell` for `env`, if anything (the TUI's `validate_shell`).
+    /// A boot shell must name its environment, its tabs (an id and a page each) and the
+    /// start page; other fields are checked only when present (D-0105).
     static func check(_ shell: Shell, env: String) -> ShellProblem? {
         guard shell.env == env else { return .env }
-        guard shell.spec == Contract.version else { return .spec }
-        guard text(shell.title, limit: 128) else { return .title }
-        guard text(shell.revision, limit: 128) else { return .revision }
-        guard (1...tabLimit).contains(shell.tabs.count) else { return .tabCount }
-        for (index, tab) in shell.tabs.enumerated() {
-            guard text(tab.id, limit: 64), text(tab.label, limit: 128), path(tab.to),
-                  ["work", "browse"].contains(tab.section), let page = Page.match(tab.to)?.page, tabPages.contains(page)
+        guard optionalText(shell.title, limit: 128) else { return .title }
+        guard optionalText(shell.revision, limit: 128) else { return .revision }
+        let tabs = shell.tabs ?? []
+        guard (1...tabLimit).contains(tabs.count) else { return .tabCount }
+        for (index, tab) in tabs.enumerated() {
+            guard text(tab.id, limit: 64), optionalText(tab.label, limit: 128), path(tab.to),
+                  tab.section.map({ ["work", "browse"].contains($0) }) ?? true,
+                  let page = tab.to.flatMap({ Page.match($0)?.page }), tabPages.contains(page)
             else { return .tab(index: index) }
         }
-        guard Set(shell.tabs.map(\.id)).count == shell.tabs.count,
-              Set(shell.tabs.map(\.to)).count == shell.tabs.count else { return .duplicateTab }
+        guard Set(tabs.map(\.id)).count == tabs.count,
+              Set(tabs.map(\.to)).count == tabs.count else { return .duplicateTab }
         guard path(shell.initialTo) else { return .initialTo }
-        if let active = shell.activeTab, !shell.tabs.contains(where: { $0.id == active }) { return .activeTab }
+        if let active = shell.activeTab, !tabs.contains(where: { $0.id == active }) { return .activeTab }
         return nil
     }
 
-    private static func path(_ value: String) -> Bool {
-        text(value, limit: 2048) && Page.match(value) != nil
+    private static func optionalText(_ value: String?, limit: Int) -> Bool {
+        value.map { text($0, limit: limit) } ?? true
     }
 
-    private static func text(_ value: String, limit: Int) -> Bool {
-        value.utf8.count <= limit
+    private static func path(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return text(value, limit: 2048) && Page.match(value) != nil
+    }
+
+    private static func text(_ value: String?, limit: Int) -> Bool {
+        guard let value else { return false }
+        return value.utf8.count <= limit
             && !value.trimmingCharacters(in: .whitespaces).isEmpty
             && !value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
     }

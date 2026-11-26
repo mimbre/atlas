@@ -21,7 +21,7 @@ final class UpdateDecisionTests: XCTestCase {
         XCTAssertEqual(UpdateDecision.decide(installed: installed, feed: .success(earlier), controlSpec: nil), .current)
     }
 
-    func testClosedAsTooOldWithNoNewerEntryWaitsForTheRelease() {
+    func testANewerControlWithNoNewerEntryWaitsForTheRelease() {
         XCTAssertEqual(UpdateDecision.decide(installed: installed, feed: .success(same), controlSpec: "0.25.0"),
                        .waiting(newest: same, control: "0.25.0"))
     }
@@ -53,29 +53,10 @@ final class UpdateTextTests: XCTestCase {
         XCTAssertEqual(text?.tone, .error)
     }
 
-    func testClosedTextsNeverSayTooOldAlone() {
-        let all: [UpdateStatus] = [.quiet, .notRelease, .updating(newer), .deferred(newer), .waiting(newest: same, control: "0.25.0"),
-                                   .unreachable(.unreachable("offline")), .failed(newer, reason: "x"), .notStarted(newer, reason: "y")]
-        for status in all {
-            let text = status.closedText(installed: installed, env: "prod", control: "0.25.0", ownContract: "0.24.0")
-            XCTAssertTrue(text.hasPrefix("Control prod speaks contract 0.25.0; this app (aaaaaaa) speaks 0.24.0. "), text)
-            XCTAssertFalse(text.contains("too old"), text)
-        }
-    }
-
-    func testClosedWhileTheReleaseIsPublished() {
-        XCTAssertEqual(UpdateStatus.waiting(newest: same, control: "0.25.0").closedText(installed: installed, env: "prod", control: "0.25.0", ownContract: "0.24.0"),
-                       "Control prod speaks contract 0.25.0; this app (aaaaaaa) speaks 0.24.0. It is the newest release published; the release of Control's build is still being published. This app checks every minute and updates itself.")
-    }
-
-    func testClosedWithAnUnreachableFeed() {
-        XCTAssertEqual(UpdateStatus.unreachable(.unreachable("offline")).closedText(installed: installed, env: "prod", control: "0.25.0", ownContract: "0.24.0"),
-                       "Control prod speaks contract 0.25.0; this app (aaaaaaa) speaks 0.24.0. The release feed could not be reached (offline); this app tries again every minute and updates itself once it can.")
-    }
-
-    func testALocalBuildSaysItDoesNotUpdateItself() {
-        let text = UpdateStatus.notRelease.closedText(installed: nil, env: "prod", control: "0.25.0", ownContract: "0.24.0")
-        XCTAssertEqual(text, "Control prod speaks contract 0.25.0; this app speaks 0.24.0. It is a local build and does not update itself: quit it, and build AtlasMac again from master or install the release (docs/guides/prod.md, \"The Mac app\").")
+    func testWaitingForANewerControlsReleaseSaysWhatIsTrueAndWhatHappens() {
+        let text = UpdateStatus.waiting(newest: same, control: "0.25.0").statusText(installed: installed)
+        XCTAssertEqual(text?.text, "Control speaks contract 0.25.0; its release of this app is still being published. This app (aaaaaaa) checks every minute and updates itself.")
+        XCTAssertEqual(text?.tone, .info)
     }
 }
 
@@ -129,12 +110,22 @@ final class UpdaterTests: XCTestCase {
         XCTAssertEqual(timers.seconds, [600])
     }
 
-    func testClosedAsTooOldAsksEveryMinute() async {
+    func testANewerControlAsksEveryMinute() async {
         let (updater, timers) = make(feed: .success(same), installer: FakeInstaller())
-        updater.closedTooOld(controlSpec: "0.25.0")
+        updater.controlIsNewer(spec: "0.25.0")
         await updater.check()
         XCTAssertEqual(updater.status, .waiting(newest: same, control: "0.25.0"))
         XCTAssertEqual(timers.seconds.last, 60)
+    }
+
+    func testANewerControlsReleaseStillWaitsForAnOpenForm() async {
+        let installer = FakeInstaller()
+        let (updater, _) = make(feed: .success(newer), installer: installer)
+        updater.canTakeNow = { false }
+        updater.controlIsNewer(spec: "0.25.0")
+        await updater.check()
+        XCTAssertEqual(updater.status, .deferred(newer))
+        XCTAssertEqual(installer.installed, [])
     }
 
     func testAFailedInstallSaysWhyAndKeepsTheApp() async {

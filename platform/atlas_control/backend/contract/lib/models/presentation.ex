@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.32.0"
+  version "0.33.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -236,8 +236,8 @@ defmodule AtlasBFFContract.Models.Presentation do
   end
 
   # A client's first message: its environment, what it is, and the contract version it
-  # implements. Control of another environment, or one newer than the client's version,
-  # answers bye and closes; else welcome, then its start page. `as`: the key of the fact
+  # implements. Control of another environment answers bye and closes; else, whatever
+  # version the client says (D-0105), welcome with Control's, then its start page. `as`: the key of the fact
   # an agent client is (an agent's, such as coordinator), when it says so; no sign-in yet.
   defmodel :hello do
     field :surface, :string
@@ -253,13 +253,15 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :spec, :string, required: true
   end
 
-  # Why Control closes, when a client can act on it: `reason` "too_old" (the client's
-  # contract is older than Control's), with `spec`, the contract Control speaks. The text
-  # says which contract each side speaks; the remedy is the client's (IS-Atlas-76).
+  # Why Control closes. Until 0.32.0, `reason` "too_old" with `spec` (Control's contract)
+  # closed a client older than Control; from 0.33.0 Control welcomes any version (D-0105).
   defmodel :bye do
     field :text, :string, required: true
-    field :reason, :string
-    field :spec, :string
+
+    field :reason, :string,
+      deprecated: "never sent: Control closes no client for its version (D-0105)"
+
+    field :spec, :string, deprecated: "never sent: the welcome says Control's version (D-0105)"
   end
 
   # A line for the status bar: pending (until Facts answers), ok, error or info.

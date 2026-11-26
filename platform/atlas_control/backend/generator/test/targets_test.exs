@@ -89,20 +89,50 @@ defmodule AtlasBFF.TargetsTest do
                })
     end
 
-    test "an unknown or broken block becomes a fallback" do
+    test "every field is optional to a client: missing or mistyped is left out (D-0105)" do
       assert %Client.Fallback{type: "chart", reason: "unknown block"} =
                Client.decode(%{"type" => "chart"})
 
-      assert %Client.Fallback{reason: "card.title is missing"} =
+      assert %Client.Card{title: nil, links: nil} =
                Client.decode(%{"type" => "card", "props" => %{}})
 
-      assert %Client.Fallback{reason: "card.count has the wrong type"} =
+      assert %Client.Card{title: "T", count: nil} =
                Client.decode(%{"type" => "card", "props" => %{"title" => "T", "count" => "1"}})
+
+      assert %Client.Card{links: [%Client.Link{label: "a", to: nil}]} =
+               Client.decode(%{
+                 "type" => "card",
+                 "props" => %{"links" => [%{"label" => "a"}, "not a link"]}
+               })
+
+      assert %Client.Fallback{reason: "props are not an object"} =
+               Client.decode(%{"type" => "card", "props" => "T"})
 
       assert %Client.Fallback{reason: "not a block"} = Client.decode(nil)
     end
 
-    test "a view model: ids, and markup with its props decoded; bad markup is left out" do
+    test "an unknown block says its title and texts in plain words" do
+      assert %Client.Fallback{
+               type: "chart",
+               title: "Sales",
+               lines: ["Up 3%", "months", "Jan: 3", "Feb"]
+             } =
+               Client.decode(%{
+                 "type" => "chart",
+                 "props" => %{
+                   "title" => "Sales",
+                   "text" => "Up 3%",
+                   "to" => "/k/sales",
+                   "tone" => "ok",
+                   "axis" => "months",
+                   "points" => [%{"label" => "Jan", "value" => "3"}, %{"label" => "Feb"}, 7]
+                 }
+               })
+
+      assert {nil, []} = Client.plain(%{"id" => "x", "submit_to" => %{"endpoint" => "e"}})
+    end
+
+    test "a view model: ids, and markup with its props decoded; unknown markup is left out" do
       page = %{
         "blocks" => [
           %{"id" => "a", "type" => "note", "props" => %{"text" => "x"}},
@@ -115,10 +145,11 @@ defmodule AtlasBFF.TargetsTest do
         ]
       }
 
-      assert {[%Client.Note{text: "x"}, %Client.Fallback{}], ["a", "#1"], [entry]} =
+      assert {[%Client.Note{text: "x"}, %Client.Note{text: nil}], ["a", "#1"], [entry, bare]} =
                Client.view_model(page)
 
       assert %{"kind" => "group", "value" => %Client.Group{title: "G"}} = entry
+      assert %{"kind" => "group", "value" => %Client.Group{title: nil}} = bare
 
       crossing = %{
         page

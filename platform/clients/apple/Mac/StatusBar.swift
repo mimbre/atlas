@@ -18,6 +18,10 @@ struct StatusBar: View {
                 Circle().fill(dot).frame(width: 8, height: 8)
                 Text(connection)
             }
+            // Control speaks another contract version: said, never blocking (D-0105).
+            if let warning = status.versionWarning {
+                Text(warning).foregroundStyle(.orange).lineLimit(1).truncationMode(.middle)
+            }
             if let position = status.position {
                 Text("position \(position)")
             }
@@ -49,9 +53,9 @@ struct StatusBar: View {
                     .truncationMode(.middle)
                     .help(update.text)
             }
-            if let notice = status.notice {
-                Text(notice.text)
-                    .foregroundStyle(tone(notice.tone))
+            if let notice = status.notice, let text = notice.text {
+                Text(text)
+                    .foregroundStyle(tone(notice.tone ?? ""))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }

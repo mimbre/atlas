@@ -28,7 +28,7 @@ final class ShellTabsTests: XCTestCase {
         let active = tabs.first { $0["to"] as? String == initialTo }?["id"] as? String
         _ = state.handle(.line(Lines.boot(tabs: tabs, initialTo: initialTo, activeTab: active)))
         XCTAssertNil(state.bootFailure, "tabs \(tabs.map { $0["to"] ?? "" })", line: line)
-        XCTAssertEqual(state.shell?.tabs.map(\.to), tabs.map { $0["to"] as? String }, line: line)
+        XCTAssertEqual(state.shell?.tabs?.map(\.to), tabs.map { $0["to"] as? String }, line: line)
     }
 
     func testEveryIndexPageControlServesAsATabBootsAloneAndOpenedFirst() {

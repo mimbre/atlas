@@ -308,7 +308,7 @@ What differs by platform beyond the layout stays in the platform targets:
 | Connection, retry every 2 s, reopen the page on return | `AtlasTui.App`, `AtlasTui.Console` | `SessionState` (retrying is part of it), run by `Session` on `LineConnector` and `SessionClock` |
 | Environment: prod by default, test when asked; `products/software_factory/environments/<env>.json` or `ATLAS_ENV_FILE` | `AtlasTui.CLI` | macOS: the launcher passes env, host, port (§5); iOS: configuration (§6) |
 | Tunnel to Fly, readiness probe | `bin/atlas`, `bin/lib/tunnel.sh` | macOS: the launcher reuses it; iOS: the Mac mini's tunnel over the tailnet (§6) |
-| Handshake: hello with the spec, refused when too old, wrong env → bye | `AtlasTui.Console` | `Session` |
+| Handshake: hello with the spec, any version welcomed (a difference is a status warning, D-0105), wrong env → bye | `AtlasTui.Console` | `Session` |
 | Boot, tabs, initial page, active tab, stale shell | `AtlasTui.Console`, `AtlasTui.ConsoleView` | `Session`; sidebar (macOS, iPad), tab bar with More (iPhone) |
 | Pages: open, the page on screen, the title, "No such page" | `AtlasTui.Console`, `AtlasTui.View` | `Session`, `BlockViews`; index page in the middle column, opened page on the right |
 | Lists: id column, label, detail; one selection across a page's lists | `AtlasTui.Model`, `AtlasTui.View` | `BlockViews.ListView` |

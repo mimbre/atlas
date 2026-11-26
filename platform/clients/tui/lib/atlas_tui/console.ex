@@ -42,7 +42,7 @@ defmodule AtlasTui.Console do
             # The first key of a two-key sequence ("g" of "g s") waiting for its second.
             key_prefix: "",
             # The page to open after the first boot instead of the shell's start page: the
-            # one a TUI showed before it was closed as too old and updated (IS-Atlas-76).
+            # one a TUI showed before it ended to take a newer build (IS-Atlas-76).
             start_to: nil,
             generation: 0
 
@@ -83,16 +83,27 @@ defmodule AtlasTui.Console do
   def receive(model, %{"op" => "page"} = message),
     do: AtlasTui.Columns.settle(page(cache(model, message), message))
 
+  # Any contract version is welcome (D-0105): this TUI reads what it knows and shows the
+  # rest plainly; the status line says when the versions differ. A Control on a newer
+  # contract makes a TUI started by bin/atlas take the newest build (IS-Atlas-76): it
+  # ends with `{:update, page, control spec}` and bin/atlas starts it again on that page.
   def receive(model, %{"op" => "welcome"} = message) do
     if model.console.phase == :welcome and message["surface"] == "console" and
-         message["env"] == model.env and message["spec"] == Protocol.version() do
-      {%{
-         model
-         | connected: true,
-           closed: false,
-           notice: nil,
-           console: %{model.console | phase: :compatibility, error: nil}
-       }, []}
+         message["env"] == model.env do
+      theirs = if is_binary(message["spec"]), do: message["spec"]
+
+      model = %{
+        model
+        | connected: true,
+          closed: false,
+          notice: nil,
+          control_spec: theirs,
+          console: %{model.console | phase: :compatibility, error: nil}
+      }
+
+      if model.release == :restart and newer?(theirs),
+        do: {model, [{:update, model.path, theirs}]},
+        else: {model, []}
     else
       {%{
          model
@@ -155,29 +166,6 @@ defmodule AtlasTui.Console do
       end
     else
       {model, []}
-    end
-  end
-
-  # Closed as too old (IS-Atlas-76): started by bin/atlas, which can update this build,
-  # the TUI ends with `{:too_old, page, control spec}` and bin/atlas starts the newest
-  # build on that page. Otherwise it says what is true and what to do, and stays closed.
-  def receive(model, %{"op" => "bye", "reason" => "too_old"} = message) do
-    model = disconnected(model)
-    theirs = message["spec"] || "a newer contract"
-    said = "Control #{model.env} speaks #{theirs}; this build is #{Protocol.version()}"
-
-    case model.release do
-      :restart ->
-        notice = %{tone: "pending", text: "#{said}. Taking the newest build…"}
-        {%{model | notice: notice, closed: true}, [{:too_old, model.path, theirs}]}
-
-      {:not_updated, why, once} ->
-        text = "#{said} and could not be updated: #{why}. Quit and run atlas again once #{once}."
-        {%{model | notice: %{tone: "error", text: text}, closed: true}, []}
-
-      nil ->
-        text = "#{said}. Quit and run atlas again: it takes the newest build."
-        {%{model | notice: %{tone: "error", text: text}, closed: true}, []}
     end
   end
 
@@ -543,7 +531,7 @@ defmodule AtlasTui.Console do
 
     valid =
       match?({:reply, %{name: :shell, effect: :complete}}, Protocol.classify(:boot, message)) and
-        message["env"] == env and message["spec"] == Protocol.version() and
+        message["env"] == env and
         text?(message["title"], 128) and text?(message["revision"], 128) and
         is_list(tabs) and length(tabs) in 1..64 and Enum.all?(tabs, &valid_tab?/1) and
         distinct?(tabs, "id") and distinct?(tabs, "to") and path?(message["initial_to"]) and
@@ -580,4 +568,12 @@ defmodule AtlasTui.Console do
       is_binary(value) and byte_size(value) <= limit and
         String.valid?(value) and String.trim(value) != "" and
         !String.match?(value, ~r/[\x00-\x1f\x7f]/)
+
+  @doc "Whether Control's contract `theirs` is newer than this build's."
+  def newer?(theirs) do
+    case is_binary(theirs) && Version.parse(theirs) do
+      {:ok, version} -> Version.compare(version, Version.parse!(Protocol.version())) == :gt
+      _ -> false
+    end
+  end
 end

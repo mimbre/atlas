@@ -11,12 +11,15 @@ defmodule AtlasBFF.Targets.Client do
 
   - a struct per block, model and kind of markup, named after it (`MyClient.Blocks.List`,
     `MyClient.Blocks.Section`), and `MyClient.Blocks.Fallback` for a block it cannot show;
-  - `decode/1`: one block from its JSON map. An unknown block, or one that fails to
-    decode, becomes a `Fallback`, and the rest of the page still renders. Unknown keys
-    are ignored.
+  - `decode/1`: one block from its JSON map. It reads tolerantly (D-0105): `required`
+    binds Control, which must send it, never a client, so every field is optional here;
+    one that is missing or of another type is left out (nil), and so is an entry of a
+    list or map that does not decode. A page of a newer server, or an older one, always
+    decodes. An unknown block becomes a `Fallback` with its title and texts in plain
+    words (`plain/1`), and the rest of the page still renders. Unknown keys are ignored.
   - `view_model/1`: a page's `{blocks, ids, markup}`. Each markup entry keeps its wire
-    form and gets its props decoded as `"value"`. Markup of an unknown kind, or that fails
-    to decode, is left out; when the rest does not nest (`AtlasBFF.Markup.check/2`) all
+    form and gets its props decoded as `"value"`, as tolerantly. Markup of an unknown kind
+    is left out; when the rest does not nest (`AtlasBFF.Markup.check/2`) all
     of it is left out. The blocks always render.
   - `version/0`: the contract's version.
   """
@@ -33,7 +36,7 @@ defmodule AtlasBFF.Targets.Client do
       Map.new(entries, fn entry ->
         {Atom.to_string(entry.name),
          {struct_module(module, entry.name),
-          Enum.map(entry.fields, &{&1.name, type(&1.type, names), &1.required})}}
+          Enum.map(entry.fields, &{&1.name, type(&1.type, names)})}}
       end)
 
     structs =
@@ -97,7 +100,8 @@ defmodule AtlasBFF.Targets.Client do
 
       defmodule Fallback do
         @moduledoc false
-        defstruct [:type, :reason]
+        # `title` and `lines`: what the block says, in plain words (`plain/1`).
+        defstruct [:type, :reason, :title, lines: []]
       end
 
       unquote_splicing(structs)
@@ -105,6 +109,9 @@ defmodule AtlasBFF.Targets.Client do
       @doc "Decode one block from its JSON map; a `Fallback` when it cannot be shown."
       def decode(block),
         do: AtlasBFF.Targets.Client.decode(@table, @blocks, __MODULE__.Fallback, block)
+
+      @doc "What a block's props say, in plain words: `{title, lines}`."
+      def plain(props), do: AtlasBFF.Targets.Client.plain(props)
 
       @doc "A page's #{unquote(Names.view_model())}: `{blocks, ids, #{unquote(Names.markup())}}`."
       def unquote(Names.view_model_fun())(page),
@@ -134,8 +141,7 @@ defmodule AtlasBFF.Targets.Client do
     markup =
       for %{"kind" => kind} = entry <- page[Names.markup()] || [],
           kind in kinds,
-          {:ok, value} <- [decode_model(table, kind, Map.get(entry, "props") || %{})],
-          do: Map.put(entry, "value", value)
+          do: Map.put(entry, "value", decode_model(table, kind, Map.get(entry, "props")))
 
     markup = if AtlasBFF.Markup.check(ids, markup) == :ok, do: markup, else: []
     {Enum.map(raw, &decode(table, blocks, fallback, &1)), ids, markup}
@@ -146,69 +152,103 @@ defmodule AtlasBFF.Targets.Client do
 
   @doc false
   def decode(table, blocks, fallback, %{"type" => type} = block) do
-    if type in blocks do
-      case decode_model(table, type, Map.get(block, "props") || %{}) do
-        {:ok, struct} -> struct
-        {:error, reason} -> struct(fallback, type: type, reason: reason)
-      end
-    else
-      struct(fallback, type: type, reason: "unknown block")
+    props = Map.get(block, "props")
+
+    cond do
+      not is_map(props) and props != nil ->
+        struct(fallback, type: type, reason: "props are not an object")
+
+      type in blocks ->
+        decode_model(table, type, props || %{})
+
+      true ->
+        {title, lines} = plain(props || %{})
+        struct(fallback, type: type, reason: "unknown block", title: title, lines: lines)
     end
   end
 
   def decode(_table, _blocks, fallback, _other),
     do: struct(fallback, type: nil, reason: "not a block")
 
-  defp decode_model(table, name, props) when is_map(props) do
+  @title ~w(title label heading name)
+  # What only says where something goes or how it looks; never words for a person.
+  @structural ~w(id to path key kind type tone role style icon endpoint params scope operation keys at)
+  @first ~w(text description body summary value)
+
+  @doc """
+  What a block of a kind this client does not know says, in plain words (D-0105):
+  `{title, lines}`, its title or label (nil for none) and its other texts in order, a
+  text field first; an entry of a list with a label and a value as `label: value`.
+  """
+  def plain(props) when is_map(props) do
+    title = Enum.find_value(@title, &text(props[&1]))
+    title_key = Enum.find(@title, &text(props[&1]))
+
+    keys =
+      props
+      |> Map.keys()
+      |> Enum.reject(&(&1 == title_key or &1 in @structural or String.ends_with?(&1, "_to")))
+      |> Enum.sort_by(&{Enum.find_index(@first, fn k -> k == &1 end) || length(@first), &1})
+
+    {title, Enum.flat_map(keys, &lines(props[&1]))}
+  end
+
+  def plain(_props), do: {nil, []}
+
+  defp lines(value) when is_binary(value),
+    do: if(text(value), do: [String.trim(value)], else: [])
+
+  defp lines(values) when is_list(values), do: Enum.flat_map(values, &lines/1)
+
+  defp lines(value) when is_map(value) do
+    case plain(value) do
+      {nil, lines} -> lines
+      {title, [line | rest]} -> ["#{title}: #{line}" | rest]
+      {title, []} -> [title]
+    end
+  end
+
+  defp lines(_value), do: []
+
+  defp text(value) when is_binary(value), do: if(String.trim(value) != "", do: value)
+  defp text(_value), do: nil
+
+  # Every field is read on its own: one that is missing or does not decode is left out.
+  defp decode_model(table, name, props) do
     {module, fields} = Map.fetch!(table, name)
+    props = if is_map(props), do: props, else: %{}
 
-    Enum.reduce_while(fields, {:ok, struct(module)}, fn {field, type, required}, {:ok, acc} ->
-      case {Map.get(props, Atom.to_string(field)), required} do
-        {nil, true} ->
-          {:halt, {:error, "#{name}.#{field} is missing"}}
-
-        {nil, false} ->
-          {:cont, {:ok, acc}}
-
-        {value, _} ->
-          case decode_value(table, type, value) do
-            {:ok, value} -> {:cont, {:ok, Map.put(acc, field, value)}}
-            :error -> {:halt, {:error, "#{name}.#{field} has the wrong type"}}
-          end
+    Enum.reduce(fields, struct(module), fn {field, type}, acc ->
+      case decode_value(table, type, Map.get(props, Atom.to_string(field))) do
+        {:ok, value} -> Map.put(acc, field, value)
+        :error -> acc
       end
     end)
   end
-
-  defp decode_model(_table, name, _props), do: {:error, "#{name} is not an object"}
 
   defp decode_value(_table, :string, v) when is_binary(v), do: {:ok, v}
   defp decode_value(_table, :integer, v) when is_integer(v), do: {:ok, v}
   defp decode_value(_table, :boolean, v) when is_boolean(v), do: {:ok, v}
 
   defp decode_value(table, {:list, type}, values) when is_list(values) do
-    Enum.reduce_while(Enum.reverse(values), {:ok, []}, fn value, {:ok, acc} ->
-      case decode_value(table, type, value) do
-        {:ok, value} -> {:cont, {:ok, [value | acc]}}
-        :error -> {:halt, :error}
-      end
-    end)
+    {:ok, for(value <- values, {:ok, value} <- [decode_value(table, type, value)], do: value)}
   end
 
   defp decode_value(table, {:map, type}, values) when is_map(values) do
-    Enum.reduce_while(values, {:ok, %{}}, fn {k, v}, {:ok, acc} ->
-      case decode_value(table, type, v) do
-        {:ok, value} -> {:cont, {:ok, Map.put(acc, k, value)}}
-        :error -> {:halt, :error}
-      end
-    end)
+    {:ok,
+     for(
+       {k, v} <- values,
+       {:ok, value} <- [decode_value(table, type, v)],
+       into: %{},
+       do: {k, value}
+     )}
   end
 
-  defp decode_value(table, model, value) when is_binary(model) do
-    case decode_model(table, model, value) do
-      {:ok, struct} -> {:ok, struct}
-      {:error, _} -> :error
-    end
-  end
+  defp decode_value(table, model, value) when is_binary(model) and is_map(value),
+    do: {:ok, decode_model(table, model, value)}
+
+  defp decode_value(_table, type, value) when type in [:map, :list, :any] and value != nil,
+    do: {:ok, value}
 
   defp decode_value(_table, _type, _value), do: :error
 end

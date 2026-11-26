@@ -150,16 +150,17 @@ defmodule AtlasControl.ConsoleTest do
     assert FakeStore.sent() == []
   end
 
-  test "unsupported surface, environment and version refuse before acknowledgement", %{port: port} do
-    for extra <- [
-          %{"surface" => "ios"},
-          %{"surface" => "console", "env" => "prod"},
-          %{"surface" => "console", "spec" => "0.1.0"}
-        ] do
+  test "unsupported surface and environment refuse before acknowledgement", %{port: port} do
+    for extra <- [%{"surface" => "ios"}, %{"surface" => "console", "env" => "prod"}] do
       s = connect(port, extra)
       assert %{"op" => "bye"} = read(s)
       assert {:error, :closed} = :gen_tcp.recv(s, 0, 500)
     end
+
+    # Another contract version is no reason (D-0105): welcomed with Control's.
+    s = connect(port, %{"surface" => "console", "spec" => "0.1.0"})
+    version = AtlasControl.Blocks.version()
+    assert %{"op" => "welcome", "surface" => "console", "spec" => ^version} = read(s)
   end
 
   test "form projection reuses its ordinary typed submit and keeps literal question marks", %{

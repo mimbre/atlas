@@ -36,6 +36,10 @@ defmodule AtlasBFF.Schema do
     id) and markup: entries of a kind that cover the blocks from one id to another, with
     the kind's fields as props. All markup nests (`AtlasBFF.Markup` has the rules).
   - `field`: a snake_case name, a type and `required: true | false` (default `false`).
+    `required` binds the server, which must send it; a client reads every field as
+    optional (D-0105). `deprecated: "why"` marks a field that is going away: a contract
+    change is additive, and a field or entry is removed or retyped only after a published
+    version marked it so (`deprecated "why"` inside a block, model or markup marks it all).
     Types: `:string`, `:integer`, `:boolean`, a model, `{:list, type}`, or
     `{:map, primitive}` (an object of names to such values).
   - `defpage`: a page the server serves, by name and path. A segment `:name` is a
@@ -75,7 +79,7 @@ defmodule AtlasBFF.Schema do
       }
 
   where an entry is `%{name: atom, fields: [%{name: atom, type: type, required: boolean}]}`
-  in the order written, and a type is `:string`, `:integer`, `:boolean`, a model's name,
+  in the order written (an entry or field marked deprecated has `deprecated: "why"` too), and a type is `:string`, `:integer`, `:boolean`, a model's name,
   or `{:list, type}`. Pages and endpoints are in the order written: first the pages' own
   (call `:open`, the fetch of the page it names, replying a view model), then those of
   `defendpoint`.
@@ -98,7 +102,8 @@ defmodule AtlasBFF.Schema do
           defendpoint: 2,
           defendpoint: 3,
           field: 2,
-          field: 3
+          field: 3,
+          deprecated: 1
         ]
 
       Module.register_attribute(__MODULE__, :spec_entries, accumulate: true)
@@ -246,15 +251,19 @@ defmodule AtlasBFF.Schema do
       Module.register_attribute(__MODULE__, :spec_fields, accumulate: true)
       unquote(body)
 
-      @spec_entries %{
-        type: unquote(type),
-        name: unquote(name),
-        file: unquote(file),
-        line: unquote(line),
-        fields: Enum.reverse(Module.get_attribute(__MODULE__, :spec_fields))
-      }
+      @spec_entries AtlasBFF.Schema.__deprecated__(
+                      %{
+                        type: unquote(type),
+                        name: unquote(name),
+                        file: unquote(file),
+                        line: unquote(line),
+                        fields: Enum.reverse(Module.get_attribute(__MODULE__, :spec_fields))
+                      },
+                      Module.get_attribute(__MODULE__, :spec_deprecated)
+                    )
 
       Module.delete_attribute(__MODULE__, :spec_fields)
+      Module.delete_attribute(__MODULE__, :spec_deprecated)
       Module.delete_attribute(__MODULE__, :spec_open)
     end
   end
@@ -263,12 +272,13 @@ defmodule AtlasBFF.Schema do
     file = __CALLER__.file
     line = __CALLER__.line
 
-    unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:required] == [] and
-             is_boolean(Keyword.get(opts, :required, false)) do
+    unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:required, :deprecated] == [] and
+             is_boolean(Keyword.get(opts, :required, false)) and
+             is_binary(Keyword.get(opts, :deprecated, "")) do
       __fail__(
         __CALLER__.file,
         line,
-        "field #{inspect(name)}: the only option is required: true | false"
+        "field #{inspect(name)}: the options are required: true | false and deprecated: \"why\""
       )
     end
 
@@ -281,15 +291,40 @@ defmodule AtlasBFF.Schema do
         )
       end
 
-      @spec_fields %{
-        name: unquote(name),
-        type: unquote(type),
-        required: unquote(Keyword.get(opts, :required, false)),
-        file: unquote(file),
-        line: unquote(line)
-      }
+      @spec_fields AtlasBFF.Schema.__deprecated__(
+                     %{
+                       name: unquote(name),
+                       type: unquote(type),
+                       required: unquote(Keyword.get(opts, :required, false)),
+                       file: unquote(file),
+                       line: unquote(line)
+                     },
+                     unquote(opts[:deprecated])
+                   )
     end
   end
+
+  @doc "Inside a block, model or markup: it is going away, and why (see the moduledoc)."
+  defmacro deprecated(why) when is_binary(why) do
+    file = __CALLER__.file
+    line = __CALLER__.line
+
+    quote do
+      unless Module.get_attribute(__MODULE__, :spec_open) do
+        AtlasBFF.Schema.__fail__(
+          unquote(file),
+          unquote(line),
+          "deprecated outside a block, model or markup"
+        )
+      end
+
+      @spec_deprecated unquote(why)
+    end
+  end
+
+  @doc false
+  def __deprecated__(entry, nil), do: entry
+  def __deprecated__(entry, why), do: Map.put(entry, :deprecated, why)
 
   @doc false
   def __fail__(file, line, description),
@@ -323,7 +358,10 @@ defmodule AtlasBFF.Schema do
       )
 
     strip = fn entry ->
-      %{name: entry.name, fields: Enum.map(entry.fields, &Map.drop(&1, [:file, :line]))}
+      __deprecated__(
+        %{name: entry.name, fields: Enum.map(entry.fields, &Map.drop(&1, [:file, :line]))},
+        entry[:deprecated]
+      )
     end
 
     operations = env.module |> Module.get_attribute(:spec_protocol) |> Enum.reverse()

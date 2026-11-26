@@ -311,7 +311,8 @@ defmodule AtlasAgent.CLI do
 
   defp show({:page, page}, false) do
     blocks =
-      for %{"type" => type, "props" => props} <- page["blocks"] || [],
+      for %{"type" => type} = block <- page["blocks"] || [],
+          props = if(is_map(block["props"]), do: block["props"], else: %{}),
           do: [type <> ":" | lines(AtlasAgent.fields(type), props, "  ")]
 
     IO.puts(Enum.join([page["title"] | List.flatten(blocks)], "\n")) && 0
@@ -422,7 +423,12 @@ defmodule AtlasAgent.CLI do
         Enum.join(["#{list["title"] || "Under it"}:" | rows], "\n")
       end)
 
-    Enum.join(todo_text(item["todo"]) ++ [item["title"] | fields] ++ lists, "\n")
+    more =
+      Enum.flat_map(item["more"] || [], fn %{"title" => title, "lines" => lines} ->
+        if(title, do: [title], else: []) ++ Enum.map(lines, &("  " <> &1))
+      end)
+
+    Enum.join(todo_text(item["todo"]) ++ [item["title"] | fields] ++ lists ++ more, "\n")
   end
 
   # What to do, for its owner, before the rest (IS-Atlas-54).

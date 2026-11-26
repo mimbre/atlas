@@ -40,17 +40,15 @@ struct ShellView: View {
         }
         .onAppear { keys.start(session) }
         .onDisappear { keys.stop() }
-        // The app's update (IS-Atlas-66): asked at start, and at once when Control closes
-        // the app as too old; taken when no form or confirm is open, on the page shown.
+        // The app's update (IS-Atlas-66): asked at start, and at once when Control's welcome
+        // says a newer contract (D-0105); taken when no form or confirm is open, on the page shown.
         .task {
             updater.canTakeNow = { [session] in !session.state.isEditing && !session.state.submitting }
             updater.page = { [session] in session.state.pageOnScreen?.path ?? session.state.expected }
             updater.start()
         }
-        .onChange(of: session.state.connection) { _, connection in
-            if case .ended(.tooOld(let control, _)) = connection {
-                updater.closedTooOld(controlSpec: control)
-            }
+        .onChange(of: session.state.newerControl) { _, newer in
+            if let newer { updater.controlIsNewer(spec: newer) }
         }
         .onChange(of: session.state.isEditing) { updater.pageChanged() }
         .sheet(isPresented: Binding(get: { shell.sheet != nil || shell.plan != nil },
@@ -84,7 +82,7 @@ struct ShellView: View {
         }
         .overlay {
             if case .ended(let ending) = session.state.connection {
-                EndedView(ending: ending, env: session.state.settings.env, updater: updater)
+                EndedView(ending: ending, env: session.state.settings.env)
             }
         }
         .environment(\.pendingAction, shell.pending)
@@ -269,19 +267,14 @@ struct EnvironmentBadge: View {
 struct EndedView: View {
     let ending: SessionState.Ending
     let env: String
-    let updater: Updater
 
     var body: some View {
         VStack(spacing: 8) {
             switch ending {
             case .bye(let text):
                 Text(text)
-            case .tooOld(let control, _):
-                // What each side speaks and where the update stands, never "too old" alone.
-                Text(updater.status.closedText(installed: updater.installed, env: env, control: control,
-                                               ownContract: Contract.version))
             case .incompatible(let welcome):
-                Text("Control \(welcome.env) speaks contract \(welcome.spec); this app implements \(Contract.version) for this environment.")
+                Text("Control's welcome is for \(welcome.env ?? "another environment") (surface \(welcome.surface ?? "none")); this app is for \(env), surface console.")
             case .unreadableWelcome(let reason):
                 Text("Control's welcome could not be read (\(reason)); this app implements contract \(Contract.version).")
             case .stopped:

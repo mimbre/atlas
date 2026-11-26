@@ -108,10 +108,15 @@ defmodule AtlasTuiTest do
     assert Keys.parse("\e[H\e[F\e[1~\e[4~") == {[:home, :end, :home, :end], ""}
   end
 
-  test "an unknown or broken block becomes a fallback, and the rest still renders" do
-    assert %Blocks.Fallback{type: "chart"} = Blocks.decode(%{"type" => "chart", "props" => %{}})
+  test "an unknown block shows plainly, a missing property is left out, the rest still renders" do
+    assert %Blocks.Fallback{type: "chart", title: "Sales", lines: ["Up 3%"]} =
+             Blocks.decode(%{
+               "type" => "chart",
+               "props" => %{"title" => "Sales", "text" => "Up 3%"}
+             })
 
-    assert %Blocks.Fallback{type: "item"} =
+    # Every property is optional to a client (D-0105).
+    assert %Blocks.Item{title: nil, fields: []} =
              Blocks.decode(%{"type" => "item", "props" => %{"fields" => []}})
 
     assert %Blocks.Item{title: "T", fields: []} =
@@ -120,9 +125,15 @@ defmodule AtlasTuiTest do
                "props" => %{"title" => "T", "fields" => [], "extra" => 1}
              })
 
+    chart = %{"type" => "chart", "props" => %{"title" => "Sales", "text" => "Up 3%"}}
+    page = %{@list | "blocks" => [chart | @list["blocks"]]}
+    assert screen(model(page)) =~ "Sales"
+    assert screen(model(page)) =~ "Up 3%"
+    assert screen(model(page)) =~ "Second"
+
+    # One that says nothing in words says what it is.
     page = %{@list | "blocks" => [%{"type" => "chart", "props" => %{}} | @list["blocks"]]}
     assert screen(model(page)) =~ "(a chart block this TUI cannot show)"
-    assert screen(model(page)) =~ "Second"
   end
 
   test "a list: move, open a row, run an action from Control's keys" do

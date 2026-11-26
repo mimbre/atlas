@@ -34,7 +34,7 @@ final class PendingActionTests: XCTestCase {
     func submitted() -> Harness {
         let h = onItem()
         h.session.act(ActionTests.pickUp)
-        h.connection.receive(Lines.page(ActionTests.pickUp.to, blocks: [ActionTests.confirm()]))
+        h.connection.receive(Lines.page(ActionTests.pickUpTo, blocks: [ActionTests.confirm()]))
         h.session.submit(CallModel(endpoint: "pick_up"), label: "Pick up")
         _ = h.connection.take()
         return h
@@ -67,7 +67,7 @@ final class PendingActionTests: XCTestCase {
         h.clock.advance(by: 3)
         XCTAssertEqual(h.state.pending, pending)
 
-        h.connection.receive(Lines.page(ActionTests.pickUp.to, blocks: [ActionTests.confirm()]))
+        h.connection.receive(Lines.page(ActionTests.pickUpTo, blocks: [ActionTests.confirm()]))
         XCTAssertNil(h.state.pending)
         XCTAssertNil(StatusViewModel(h.state).pending)
     }
@@ -93,7 +93,7 @@ final class PendingActionTests: XCTestCase {
         XCTAssertEqual(StatusViewModel(h.state).pending, "Sending “Pick up”…")
         XCTAssertTrue(ShellViewModel(h.state).submitting)
 
-        h.connection.receive(Lines.page(ActionTests.pickUp.to, reason: "refused", blocks: [ActionTests.confirm()]))
+        h.connection.receive(Lines.page(ActionTests.pickUpTo, reason: "refused", blocks: [ActionTests.confirm()]))
         XCTAssertNil(h.state.pending)
         XCTAssertEqual(ShellViewModel(h.state).sheet?.path, ActionTests.pickUp.to)
     }
@@ -160,14 +160,14 @@ final class PendingActionTests: XCTestCase {
         XCTAssertEqual(shell.answer?.text, "Nothing to submit here.")
 
         // The refused page, when it follows, says why itself.
-        h.connection.receive(Lines.page(ActionTests.pickUp.to, reason: "refused", blocks: [ActionTests.confirm()]))
+        h.connection.receive(Lines.page(ActionTests.pickUpTo, reason: "refused", blocks: [ActionTests.confirm()]))
         XCTAssertNil(ShellViewModel(h.state).answer)
     }
 
     func testANoticeWithNoSubmitOnItsWayChangesNothing() {
         let h = onItem()
         h.session.act(ActionTests.pickUp)
-        h.connection.receive(Lines.page(ActionTests.pickUp.to, blocks: [ActionTests.confirm()]))
+        h.connection.receive(Lines.page(ActionTests.pickUpTo, blocks: [ActionTests.confirm()]))
         h.connection.receive(Lines.notice("W-02 was stored."))
         XCTAssertEqual(ShellViewModel(h.state).sheet?.path, ActionTests.pickUp.to)
     }
@@ -220,7 +220,7 @@ final class PendingActionTests: XCTestCase {
         for line in lines {
             agent.say(line)
             if case .plan(let message)? = try? WireLine.decode(SteerMessage.self, from: line),
-               case .plan(let block) = message.block.content {
+               case .plan(let block)? = message.block?.content {
                 last = block
                 XCTAssertEqual(h.state.plan, block)
             }
@@ -313,7 +313,7 @@ final class PendingActionTests: XCTestCase {
 /// and list actions; ControlSession's tests do not link BlockViews.
 enum PageActionsForTest {
     static func action(key: String, on page: PageMessage) -> ActionModel? {
-        page.blocks.flatMap { block -> [ActionModel] in
+        (page.blocks ?? []).flatMap { block -> [ActionModel] in
             switch block.content {
             case .item(let item): item.actions ?? []
             case .list(let list): list.actions ?? []

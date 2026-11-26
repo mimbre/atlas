@@ -64,10 +64,10 @@ final class TodoPageTests: XCTestCase {
 
         let steps = Self.instructions(try Self.page())
         XCTAssertEqual(steps.map(\.n), [1, 2, 3])
-        XCTAssertEqual(steps[1].lines.map(\.kind), ["text", "route", "command", "command"])
-        XCTAssertEqual(steps[1].lines.map(Instruction.shown),
+        XCTAssertEqual(steps[1].lines?.map(\.kind), ["text", "route", "command", "command"])
+        XCTAssertEqual(steps[1].lines?.map(Instruction.shown),
                        ["Drop the old tags.\nBoth of them.", "Terminal › New Window", "git tag -d v12", "git tag -d v13"])
-        XCTAssertEqual(steps[2].lines.map(Instruction.shown), ["Finder › Home › old.key > backup", "rm old.key"])
+        XCTAssertEqual(steps[2].lines?.map(Instruction.shown), ["Finder › Home › old.key > backup", "rm old.key"])
     }
 
     func testTheAnswersAreThePageActionsOnTheirKeysAndNoKeyMovesBetweenSteps() throws {
@@ -109,7 +109,7 @@ final class TodoPageTests: XCTestCase {
     }
 
     func testCopyPutsExactlyThatCommandOnThePasteboard() throws {
-        let command = try XCTUnwrap(Self.instructions(try Self.page())[1].lines[3].text)
+        let command = try XCTUnwrap(Self.instructions(try Self.page())[1].lines?[3].text)
         let pasteboard = NSPasteboard.withUniqueName()
         defer { pasteboard.releaseGlobally() }
 

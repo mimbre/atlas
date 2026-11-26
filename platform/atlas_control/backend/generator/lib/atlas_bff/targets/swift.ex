@@ -115,13 +115,18 @@ defmodule AtlasBFF.Targets.Swift do
   def swift_type(model) when is_atom(model), do: model_type(model)
 
   # A struct of `fields` (`%{name, type, required}`, `name` the wire key): its properties,
-  # coding keys and a public initialiser. Swift synthesises `Codable`: a missing optional
-  # field decodes as nil and is left out when encoded.
+  # coding keys and a public initialiser. What a client reads (`read: true`: models,
+  # blocks, markup and the messages it receives) has every field optional, whatever
+  # `required` says (it binds Control, D-0105), and decodes each field on its own: one
+  # that is missing or of another type is nil, never a failure of the whole. What a client
+  # only sends keeps its required fields required. Optional fields are left out when encoded.
   @doc false
-  def struct_swift(name, doc, fields) do
+  def struct_swift(name, doc, fields, read \\ true) do
+    optional? = fn f -> read or not f.required end
+
     props =
       Enum.map(fields, fn f ->
-        "    public var #{member(f.name)}: #{swift_type(f.type)}#{if f.required, do: "", else: "?"}\n"
+        "    public var #{member(f.name)}: #{swift_type(f.type)}#{if optional?.(f), do: "?", else: ""}\n"
       end)
 
     keys =
@@ -133,7 +138,7 @@ defmodule AtlasBFF.Targets.Swift do
 
     args =
       Enum.map_join(fields, ", ", fn f ->
-        "#{member(f.name)}: #{swift_type(f.type)}#{if f.required, do: "", else: "? = nil"}"
+        "#{member(f.name)}: #{swift_type(f.type)}#{if optional?.(f), do: "? = nil", else: ""}"
       end)
 
     assigns =
@@ -144,6 +149,25 @@ defmodule AtlasBFF.Targets.Swift do
         do: [],
         else: ["\n    enum CodingKeys: String, CodingKey {\n", keys, "    }\n"]
 
+    decode =
+      cond do
+        not read ->
+          []
+
+        fields == [] ->
+          "\n    public init(from decoder: any Decoder) throws {}\n"
+
+        true ->
+          [
+            "\n    public init(from decoder: any Decoder) throws {\n",
+            "        let c = try decoder.container(keyedBy: CodingKeys.self)\n",
+            Enum.map(fields, fn f ->
+              "        #{member(f.name)} = try? c.decodeIfPresent(#{swift_type(f.type)}.self, forKey: .#{member(f.name)})\n"
+            end),
+            "    }\n"
+          ]
+      end
+
     [
       "/// #{doc}\n",
       "public struct #{name}: Codable, Sendable, Equatable {\n",
@@ -152,6 +176,7 @@ defmodule AtlasBFF.Targets.Swift do
       "    public init(#{args}) {\n",
       assigns,
       "    }\n",
+      decode,
       keys_enum,
       "}\n"
     ]
@@ -726,13 +751,22 @@ defmodule AtlasBFF.Targets.Swift do
   end
 
   defp messages_swift(channels) do
+    # What a client receives it reads, so tolerantly; what it only sends stays strict.
+    received =
+      for ch <- channels, m <- ch.messages, m.struct != nil, into: MapSet.new(), do: m.struct
+
     structs =
       for ch <- channels, m <- ch.requests ++ ch.messages, m.struct != nil, uniq: true do
         {m.struct, m.fields}
       end
       |> Enum.uniq_by(&elem(&1, 0))
       |> Enum.map(fn {name, fields} ->
-        struct_swift(name, "The fields of a message (its selectors are the case's).", fields)
+        struct_swift(
+          name,
+          "The fields of a message (its selectors are the case's).",
+          fields,
+          MapSet.member?(received, name)
+        )
       end)
 
     enums =

@@ -59,7 +59,6 @@ defmodule AtlasTui.WorkerOutputConnectionTest do
 
   for {field, value} <- [
         {"env", "other-environment"},
-        {"spec", "incompatible-version"},
         {"surface", "other-surface"},
         {"surface", nil}
       ] do

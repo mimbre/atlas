@@ -137,10 +137,11 @@ public struct PageView: View {
                 switch entry.item {
                 case .list(let list):
                     if let title = list.title { blocks.append(Line(id: group.id + "/title", content: .title(title))) }
-                    if list.rows.isEmpty, let empty = list.empty {
+                    let rows = list.rows ?? []
+                    if rows.isEmpty, let empty = list.empty {
                         blocks.append(Line(id: group.id + "/empty", content: .empty(empty)))
                     }
-                    for (offset, row) in list.rows.enumerated() {
+                    for (offset, row) in rows.enumerated() {
                         blocks.append(Line(id: group.id + "/row/\(offset)", content: .row(row)))
                     }
                     let actions = PageActions.ofBlock(list.actions)
@@ -192,7 +193,9 @@ public struct PageView: View {
         case .form: FallbackView(type: "form", reason: nil)
         case .confirm: FallbackView(type: "confirm", reason: nil)
         case .notShown(let type): FallbackView(type: type, reason: nil)
-        case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
+        case .fallback(let fallback):
+            FallbackView(type: fallback.type, reason: fallback.reason,
+                         plain: fallback.reason == .unknownType ? fallback.plain : nil)
         }
     }
 
@@ -244,10 +247,10 @@ struct ListBlockView: View {
                 Text(title).prism(Prism.Typography.title7)
                     .padding(.bottom, Prism.Spacing.s5)
             }
-            if list.rows.isEmpty, let empty = list.empty {
+            if (list.rows ?? []).isEmpty, let empty = list.empty {
                 Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
             }
-            ForEach(Array(list.rows.enumerated()), id: \.offset) { _, row in
+            ForEach(Array((list.rows ?? []).enumerated()), id: \.offset) { _, row in
                 ListRowView(row: row, selected: row.to == selectedPath, open: open)
             }
             ActionsView(actions: PageActions.ofBlock(list.actions), act: act)
@@ -266,13 +269,14 @@ struct ListRowView: View {
     var body: some View {
         // The button owns its padded rectangle. Future nested controls must be
         // siblings of this button, with no overlay or parent tap gesture.
-        Button { open(row.to) } label: {
+        Button { if let to = row.to { open(to) } } label: {
             RowLabel(row: row)
                 .padding(.horizontal, Prism.Spacing.s10)
                 .padding(.vertical, Prism.Spacing.s9)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(row.to == nil)
         .background(Prism.Colors.row(scheme, selected: selected, hovering: hovering),
                     in: RoundedRectangle(cornerRadius: Prism.radius))
         .overlay(alignment: .leading) {
@@ -321,10 +325,10 @@ struct RowLabel: View {
                     .foregroundStyle(quiet)
                     .lineLimit(1).frame(width: 44, alignment: .trailing)
             }
-            Text(row.label).prism(Prism.Typography.tableRow)
+            Text(row.label ?? "").prism(Prism.Typography.tableRow)
                 .foregroundStyle(tone == .done ? quiet : AnyShapeStyle(.primary))
                 .lineLimit(1)
-                .help(row.label)
+                .help(row.label ?? "")
                 .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
             if let detail = row.detail {
                 Text(detail).prism(Prism.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -364,13 +368,15 @@ struct ItemBlockView: View {
 
     var body: some View {
         let content = VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
-            Text(item.title).prism(inDetails ? Prism.Typography.labelSmall : Prism.Typography.title7)
+            if let title = item.title {
+                Text(title).prism(inDetails ? Prism.Typography.labelSmall : Prism.Typography.title7)
+            }
             // The actions first: the next step is in reach without scrolling.
             ActionsView(actions: PageActions.ofBlock(item.actions), act: act)
-            ForEach(Array(item.fields.enumerated()), id: \.offset) { _, field in
+            ForEach(Array((item.fields ?? []).enumerated()), id: \.offset) { _, field in
                 VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
-                    if !field.label.isEmpty {
-                        Text(field.label).prism(inDetails ? Prism.Typography.captionSmall : Prism.Typography.labelSmall)
+                    if let label = field.label, !label.isEmpty {
+                        Text(label).prism(inDetails ? Prism.Typography.captionSmall : Prism.Typography.labelSmall)
                             .foregroundStyle(inDetails ? AnyShapeStyle(Prism.Colors.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
                     Text(field.value ?? "—").prism(inDetails ? Prism.Typography.caption : Prism.Typography.tableRow)
@@ -381,7 +387,7 @@ struct ItemBlockView: View {
             if let links = item.links, !links.isEmpty {
                 Text("Links are not supported in this client yet.").foregroundStyle(.secondary)
                 ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                    Text("\(link.label): \(link.url)")
+                    Text([link.label, link.url].compactMap { $0 }.joined(separator: ": "))
                 }
             }
         }
@@ -396,22 +402,39 @@ struct ItemBlockView: View {
     }
 }
 
-/// A block that is not shown: its type, and why when it could not be read.
+/// A block that is not shown. An unknown block shows what it says in plain words (its
+/// title and lines, D-0105); otherwise, or when it says nothing, its type, and why when it
+/// could not be read.
 struct FallbackView: View {
     let type: String?
     let reason: Fallback.Reason?
+    var plain: (title: String?, lines: [String])? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: reason == nil ? "square.dashed" : "exclamationmark.triangle")
-            Text(type ?? "?").monospaced()
-            if let reason {
-                Text(reason.description)
+        if let plain, plain.title != nil || !plain.lines.isEmpty {
+            VStack(alignment: .leading, spacing: Prism.Spacing.s5) {
+                if let title = plain.title {
+                    Text(title).bold().accessibilityAddTraits(.isHeader)
+                }
+                ForEach(Array(plain.lines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                }
             }
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: reason == nil || reason == .unknownType ? "square.dashed" : "exclamationmark.triangle")
+                Text(type ?? "?").monospaced()
+                if let reason, reason != .unknownType {
+                    Text(reason.description)
+                }
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(8)
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
         }
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .padding(8)
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
     }
 }

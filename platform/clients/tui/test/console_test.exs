@@ -103,12 +103,8 @@ defmodule AtlasTui.ConsoleTest do
     refute text =~ "tab next part"
   end
 
-  test "only an explicit compatible welcome enables Console" do
-    for welcome <- [
-          Map.delete(welcome(), "surface"),
-          Map.put(welcome(), "env", "prod"),
-          Map.put(welcome(), "spec", "999.0.0")
-        ] do
+  test "only an explicit Console welcome of this environment enables Console" do
+    for welcome <- [Map.delete(welcome(), "surface"), Map.put(welcome(), "env", "prod")] do
       {model, []} = Console.receive(fresh(), welcome)
       refute model.connected
       assert model.console.phase == :unsupported

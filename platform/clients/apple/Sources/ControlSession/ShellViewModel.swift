@@ -79,12 +79,15 @@ public struct ShellViewModel: Sendable, Equatable {
         greeting = shell?.greeting.flatMap { $0.isEmpty ? nil : $0 }
         env = shell?.env ?? state.settings.env
         isProduction = env == "prod"
-        tabs = (shell?.tabs ?? []).enumerated().map { offset, tab in
-            Tab(id: tab.id, label: tab.label, to: tab.to, section: tab.section, icon: tab.icon,
-                shortcut: offset < 9 ? offset + 1 : nil, count: state.groupCounts[tab.to],
-                groups: (tab.groups ?? []).map {
-                    Group(label: $0.label, count: state.groupCounts[$0.to], to: $0.to)
-                })
+        // A tab without a page to go to cannot be shown.
+        let shown = ((shell?.tabs ?? nil) ?? []).filter { $0.to != nil }
+        tabs = shown.enumerated().map { offset, tab in
+            let to = tab.to ?? ""
+            return Tab(id: tab.id ?? to, label: tab.label ?? to, to: to, section: tab.section ?? "browse",
+                       icon: tab.icon, shortcut: offset < 9 ? offset + 1 : nil, count: state.groupCounts[to],
+                       groups: (tab.groups ?? []).compactMap { group in
+                           group.to.map { Group(label: group.label ?? $0, count: state.groupCounts[$0], to: $0) }
+                       })
         }
         activeTab = state.activeTab
         stale = state.shellStale && shell != nil

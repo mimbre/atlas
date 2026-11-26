@@ -7,25 +7,25 @@ defmodule AtlasTui.CLI do
   Settings come from `products/software_factory/environments/<env>.json` at the repository root, or from `ATLAS_ENV_FILE`
   (a private instance), whose `"env"` must be the same environment.
 
-  Taking a release (IS-Atlas-76). bin/atlas says how this build takes a newer one:
-  `ATLAS_TUI_HANDOFF`, a file, when it can update it; `ATLAS_UPDATE_FAILED` (why) and
-  `ATLAS_UPDATE_ONCE` (until when) when it could not. Closed by Control as too old with a
-  handoff file and no failure, the TUI writes three lines to that file (the page it
-  showed, Control's contract, its own) and exits with 75 (`too_old_status/0`); bin/atlas
-  takes the newest build and starts it again with `--to <page>`.
+  Taking a release (IS-Atlas-76, D-0105). bin/atlas says how this build takes a newer
+  one: `ATLAS_TUI_HANDOFF`, a file, when it can update it; `ATLAS_UPDATE_FAILED` (why)
+  when it could not. Welcomed by a Control on a newer contract with a handoff file and no
+  failure, the TUI writes three lines to that file (the page it showed, Control's
+  contract, its own) and exits with 75 (`update_status/0`); bin/atlas takes the newest
+  build and starts it again with `--to <page>`. Without, it stays and says so.
   """
 
   @root Path.expand("../../../../..", __DIR__)
-  # EX_TEMPFAIL: closed as too old; bin/atlas updates the build and starts it again.
-  @too_old 75
+  # EX_TEMPFAIL: Control is newer; bin/atlas updates the build and starts it again.
+  @update 75
 
-  def too_old_status, do: @too_old
+  def update_status, do: @update
 
   @doc "How this build takes a newer one, from what bin/atlas set (see the moduledoc)."
   def release(env \\ System.get_env()) do
     case {env["ATLAS_UPDATE_FAILED"], env["ATLAS_TUI_HANDOFF"]} do
       {why, _} when why not in [nil, ""] ->
-        {:not_updated, why, env["ATLAS_UPDATE_ONCE"] || "it can be updated"}
+        {:not_updated, why}
 
       {_, file} when file not in [nil, ""] ->
         :restart
@@ -73,13 +73,13 @@ defmodule AtlasTui.CLI do
 
   defp run(env, settings, to) do
     case AtlasTui.App.run(env, settings, release: release(), to: to) do
-      {:too_old, page, theirs} ->
+      {:update, page, theirs} ->
         File.write!(
           System.fetch_env!("ATLAS_TUI_HANDOFF"),
           handoff(page, theirs, AtlasTui.Protocol.version())
         )
 
-        System.halt(@too_old)
+        System.halt(@update)
 
       :ok ->
         :ok
