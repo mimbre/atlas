@@ -17,6 +17,12 @@ struct ShellView: View {
     let session: Session
     let updater: Updater
     @State private var keys = ActionKeys()
+    /// The split view's columns: all of them in a wide window; in a narrow one
+    /// (`WindowLayout.showsSidebar`) the sidebar folds away, as Mail's does (macOS's split
+    /// view folds no other column). Set only when the window crosses that width, so the
+    /// sidebar toggle still shows and hides it in between.
+    @State private var visibility: NavigationSplitViewVisibility = .all
+    @State private var sidebarShown: Bool?
 
     /// A submit, with what it is in the words of the page that declares it.
     private func submit(_ call: CallModel, _ values: [String: String]) {
@@ -27,16 +33,20 @@ struct ShellView: View {
 
     var body: some View {
         let shell = ShellViewModel(session.state)
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $visibility) {
             Sidebar(shell: shell, select: session.selectTab, filter: session.filter)
         } content: {
-            // Room for a row's key, title (two lines) and to-do side by side.
             Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
                    act: session.act)
-                .navigationSplitViewColumnWidth(min: 420, ideal: 560)
+                .navigationSplitViewColumnWidth(WindowLayout.list)
         } detail: {
             Column(page: shell.opened, header: true, selectedPath: shell.selectedPath, open: session.open,
                    act: session.act)
+        }
+        .onGeometryChange(for: Bool.self) { WindowLayout.showsSidebar(window: $0.size.width) } action: { shows in
+            guard shows != sidebarShown else { return }
+            sidebarShown = shows
+            visibility = shows ? .all : .doubleColumn
         }
         .onAppear { keys.start(session) }
         .onDisappear { keys.stop() }
@@ -167,9 +177,9 @@ struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
-        // Room for the longest work tab's label beside its icon, chevron and count
-        // ("Supervised by you   12") without cutting it.
-        .navigationSplitViewColumnWidth(min: 220, ideal: 240)
+        // The sidebar's fixed width (`WindowLayout.sidebar`): room for the longest work tab's
+        // label beside its icon, chevron and count without cutting it.
+        .navigationSplitViewColumnWidth(WindowLayout.sidebar)
     }
 
     private func rowViews(_ rows: [Row]) -> some View {

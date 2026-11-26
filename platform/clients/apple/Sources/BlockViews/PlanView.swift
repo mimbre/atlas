@@ -63,7 +63,7 @@ public struct PlanView: View {
             }
         }
         .padding(Prism.Spacing.px22)
-        .frame(minWidth: 460, idealWidth: 560, maxWidth: 720, alignment: .leading)
+        .frame(minWidth: 460, idealWidth: 560, maxWidth: WindowLayout.page, alignment: .leading)
     }
 
     @ViewBuilder private var buttons: some View {

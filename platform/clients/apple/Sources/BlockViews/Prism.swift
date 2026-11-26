@@ -10,12 +10,8 @@ extension Prism {
     static let radius: CGFloat = 4
 
     /// One character of the body font (`Typography.bodysmall`), on average: the unit of
-    /// an opened page's layout, the TUI's in characters (docs/design/apple-clients.md, Page width).
+    /// an opened page's layout, the TUI's in characters (docs/design/apple-clients.md, Layout).
     static let characterWidth: CGFloat = 7.2
-    /// An opened page, centred in its column, at most 100 characters wide; its details
-    /// under what is decided. Chrome (toolbar, sidebar, list, status) is not the page's
-    /// and keeps its own width.
-    static let readableWidth = 100 * characterWidth
 }
 
 extension View {
