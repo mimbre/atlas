@@ -7,7 +7,8 @@ import SwiftUI
 /// choice's answer) and its values; `act` with an action a block declares (its button).
 /// Under a block are only its own actions; the page's (`PageActions.ofPage`) are in the
 /// header, the page's title with them, when `header` is set, else where the page's
-/// container puts them (the window's toolbar).
+/// container puts them (the window's toolbar). A page with a panel (`hasPanel`) has no
+/// header: the panel names what it is about, and its buttons are the page's actions.
 public struct PageView: View {
     let presentation: PagePresentation
     let pageActions: [ActionModel]
@@ -31,9 +32,11 @@ public struct PageView: View {
     }
 
     /// The page in the room its column gives it: at most `Prism.readableWidth` wide,
-    /// centred; its details, when it has them, under what is decided, at any width.
+    /// centred; its details, when it has them, under what is decided as one recessed card
+    /// (`RecessedCard`), at any width.
     public var body: some View {
-        list(lines(presentation.groups, header: header) + (presentation.details.map { lines($0) } ?? []))
+        list(lines(presentation.groups, header: header)
+             + (presentation.details.map { [Line(id: "\u{0}details", content: .details($0))] } ?? []))
             .frame(maxWidth: Prism.readableWidth)
             .frame(maxWidth: .infinity)
             .navigationTitle(presentation.title)
@@ -66,6 +69,8 @@ public struct PageView: View {
                     still(entryView(entry))
                 case .section(let section):
                     still(sectionView(section))
+                case .details(let details):
+                    still(detailsView(details))
                 }
             }
         }
@@ -84,6 +89,7 @@ public struct PageView: View {
             case actions([ActionModel])
             case entry(PagePresentation.Entry)
             case section(PagePresentation.Section)
+            case details(PagePresentation.Details)
         }
 
         let id: String
@@ -95,9 +101,20 @@ public struct PageView: View {
         }
     }
 
-    /// The details' rows: their title, then theirs.
-    private func lines(_ details: PagePresentation.Details) -> [Line] {
-        [Line(id: "\u{0}details", content: .title(details.title))] + lines(details.groups, header: false)
+    /// The details, in one recessed card under the page: their title, small, then their
+    /// blocks, without cards of their own (no card inside a card).
+    private func detailsView(_ details: PagePresentation.Details) -> some View {
+        VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+            Text(details.title).prism(Prism.Typography.labelSmall)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(details.groups) { group in
+                switch group {
+                case .entry(let entry): entryView(entry, inDetails: true)
+                case .section(let section): sectionView(section, inDetails: true)
+                }
+            }
+        }
+        .modifier(RecessedCard())
     }
 
     /// The rows of `groups`, top down, each id made of its block's (the header's, which no
@@ -126,7 +143,13 @@ public struct PageView: View {
                 return lines
             }
         }
-        return header ? [Line(id: "\u{0}header", content: .header)] + blocks : blocks
+        return header && !presentation.hasPanel ? [Line(id: "\u{0}header", content: .header)] + blocks : blocks
+    }
+
+    /// The page's actions a panel shows at its bottom: on a page with a header, which a
+    /// page with a panel leaves out.
+    private var panelActions: [ActionModel] {
+        header && presentation.hasPanel ? pageActions : []
     }
 
     /// A row of the page that is not one of its selection.
@@ -137,19 +160,19 @@ public struct PageView: View {
             .listRowSeparator(.hidden)
     }
 
-    @ViewBuilder private func entryView(_ entry: PagePresentation.Entry) -> some View {
+    @ViewBuilder private func entryView(_ entry: PagePresentation.Entry, inDetails: Bool = false) -> some View {
         switch entry.item {
         case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
-        case .item(let item): ItemBlockView(item: item, act: act)
+        case .item(let item): ItemBlockView(item: item, inDetails: inDetails, act: act)
         case .singleChoice(let choice):
             // A view of its own per page and revision: nothing typed for one
             // decision stays for another.
-            SingleChoiceView(block: choice, submit: submit)
+            SingleChoiceView(block: choice, others: panelActions, act: act, submit: submit)
                 .id(SingleChoiceView.identity(path: presentation.path, block: choice))
         case .panel(let panel):
             // A view of its own per page: a selection never stays for another page.
-            PanelView(block: panel, open: open, act: act).id(presentation.path)
-        case .steps(let steps): StepsView(block: steps, act: act)
+            PanelView(block: panel, others: panelActions, open: open, act: act).id(presentation.path)
+        case .steps(let steps): StepsView(block: steps, others: panelActions, act: act)
         // A page that asks is shown over the window (ActionPageView), not in a column.
         case .form: FallbackView(type: "form", reason: nil)
         case .confirm: FallbackView(type: "confirm", reason: nil)
@@ -158,17 +181,17 @@ public struct PageView: View {
         }
     }
 
-    private func blocks(_ section: PagePresentation.Section) -> some View {
+    private func blocks(_ section: PagePresentation.Section, inDetails: Bool) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
-            ForEach(section.entries) { entryView($0) }
+            ForEach(section.entries) { entryView($0, inDetails: inDetails) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private func sectionView(_ section: PagePresentation.Section) -> some View {
+    @ViewBuilder private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false) -> some View {
         if section.collapsible {
             DisclosureGroup(isExpanded: expansion(section)) {
-                blocks(section).padding(.top, Prism.Spacing.s10)
+                blocks(section, inDetails: inDetails).padding(.top, Prism.Spacing.s10)
             } label: {
                 Text(section.title).prism(Prism.Typography.label)
             }
@@ -177,7 +200,7 @@ public struct PageView: View {
                 Text(section.title).prism(Prism.Typography.label)
                     .accessibilityAddTraits(.isHeader)
                 Divider()
-                blocks(section)
+                blocks(section, inDetails: inDetails)
             }
         }
     }
@@ -252,7 +275,8 @@ struct ListRowView: View {
 /// id (the item's key; a row without one has no id column at all), how long it has been
 /// where it stands (its age, from `since`), its label, its detail, and whether a write to
 /// it is being processed. The id, the age and the detail have narrow columns of a fixed
-/// width, so rows line up; the label has the rest. A done row is muted.
+/// width, so rows line up; the label has the rest, on one line ending in … when it is
+/// longer (its page shows it whole), with the whole of it in a tooltip. A done row is muted.
 struct RowLabel: View {
     let row: RowModel
     @Environment(\.colorScheme) private var scheme
@@ -284,7 +308,8 @@ struct RowLabel: View {
             }
             Text(row.label).prism(Prism.Typography.tableRow)
                 .foregroundStyle(tone == .done ? quiet : AnyShapeStyle(.primary))
-                .lineLimit(2)
+                .lineLimit(1)
+                .help(row.label)
                 .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
             if let detail = row.detail {
                 Text(detail).prism(Prism.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -313,22 +338,28 @@ struct RowLabel: View {
 }
 
 /// A calm card (Prism). Blank labels are prose. Nil values use the TUI's absent-value marker.
-/// Text stays literal, selectable and unbounded, including embedded blank lines.
+/// Text stays literal, selectable and unbounded, including embedded blank lines. In the
+/// page's details (`inDetails`) it has no card of its own (the details' recessed card holds
+/// it): a small heading, the values smaller and muted, so the panel above keeps the focus.
 struct ItemBlockView: View {
     let item: ItemBlock
+    var inDetails = false
     let act: (ActionModel) -> Void
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
-            Text(item.title).prism(Prism.Typography.title7)
+        let content = VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+            Text(item.title).prism(inDetails ? Prism.Typography.labelSmall : Prism.Typography.title7)
             // The actions first: the next step is in reach without scrolling.
             ActionsView(actions: PageActions.ofBlock(item.actions), act: act)
             ForEach(Array(item.fields.enumerated()), id: \.offset) { _, field in
                 VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
                     if !field.label.isEmpty {
-                        Text(field.label).prism(Prism.Typography.labelSmall).foregroundStyle(.secondary)
+                        Text(field.label).prism(inDetails ? Prism.Typography.captionSmall : Prism.Typography.labelSmall)
+                            .foregroundStyle(inDetails ? AnyShapeStyle(Prism.Colors.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
-                    Text(field.value ?? "—").prism(Prism.Typography.tableRow)
+                    Text(field.value ?? "—").prism(inDetails ? Prism.Typography.caption : Prism.Typography.tableRow)
+                        .foregroundStyle(inDetails ? AnyShapeStyle(Prism.Colors.muted(scheme)) : AnyShapeStyle(.primary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -342,7 +373,11 @@ struct ItemBlockView: View {
         .lineLimit(nil)
         .fixedSize(horizontal: false, vertical: true)
         .textSelection(.enabled)
-        .modifier(PrismCard())
+        if inDetails {
+            content
+        } else {
+            content.modifier(PrismCard())
+        }
     }
 }
 

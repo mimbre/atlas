@@ -25,6 +25,11 @@ defmodule AtlasTui.PanelTest do
     assert screen =~ "i Full proposal" and screen =~ "↑↓ choose"
   end
 
+  test "the bar carries the key of the fact the panel is about" do
+    screen = screen(PanelFixture.model(:accept, %{"key" => "UC-Atlas-23"}))
+    assert line(screen, "TO ACCEPT") =~ "◆ TO ACCEPT · UC-Atlas-23"
+  end
+
   test "an age alone, without text, is shown as an age" do
     screen = screen(PanelFixture.model(:decision))
     assert line(screen, "│ 1d ")

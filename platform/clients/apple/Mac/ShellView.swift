@@ -90,6 +90,7 @@ struct ShellView: View {
         }
         .environment(\.pendingAction, shell.pending)
         .environment(\.typingFocus, keys.typing)
+        .environment(\.panelKeys, keys.panels)
     }
 }
 
@@ -175,7 +176,9 @@ struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 160, ideal: 220)
+        // Room for the longest work tab's label beside its icon, chevron and count
+        // ("Supervised by you   12") without cutting it.
+        .navigationSplitViewColumnWidth(min: 220, ideal: 240)
     }
 
     private func rowViews(_ rows: [Row]) -> some View {
