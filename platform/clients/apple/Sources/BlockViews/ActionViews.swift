@@ -313,10 +313,12 @@ public struct ActionPageView: View {
             }
             ForEach(refused, id: \.self) { reason in
                 Label(reason, systemImage: "exclamationmark.triangle")
+                    .prism(Prism.Typography.bodysmall)
                     .foregroundStyle(Prism.Colors.error)
             }
             if let text = answer?.text {
                 Label(text, systemImage: "exclamationmark.triangle")
+                    .prism(Prism.Typography.bodysmall)
                     .foregroundStyle(Prism.Colors.error)
             }
             ForEach(presentation.entries) { entry in
@@ -327,7 +329,7 @@ public struct ActionPageView: View {
                     // The confirm and the form say "Sending…" themselves.
                     if let pending {
                         ProgressView().progressViewStyle(.prism(.accent, size: .size20))
-                        Text(pending.text).foregroundStyle(.secondary)
+                        Text(pending.text).prism(Prism.Typography.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button("Cancel", action: leave).keyboardShortcut(.cancelAction)
@@ -365,7 +367,7 @@ public struct ActionPageView: View {
         case .instruction(let instruction):
             InstructionView(block: instruction)
         case .answers(let answers):
-            AnswersView(block: answers, quiet: presentation.hasOptions, act: act)
+            AnswersView(block: answers, act: act)
         case .actions(let actions):
             OtherActionsView(block: actions, act: act)
         case .notShown(let type): FallbackView(type: type, reason: nil)
@@ -391,7 +393,7 @@ struct ConfirmView: View {
             HStack(spacing: Prism.Spacing.px10) {
                 if submitting {
                     ProgressView().progressViewStyle(.prism(.accent, size: .size20))
-                    Text("Sending…").foregroundStyle(.secondary)
+                    Text("Sending…").prism(Prism.Typography.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Cancel", action: leave).keyboardShortcut(.cancelAction)
@@ -422,6 +424,7 @@ struct FormView: View {
             if let title = block.title { Text(title).prism(Prism.Typography.title6) }
             ForEach(block.errors ?? [], id: \.self) { error in
                 Label(error, systemImage: "exclamationmark.triangle")
+                    .prism(Prism.Typography.bodysmall)
                     .foregroundStyle(Prism.Colors.error)
             }
             Form {
@@ -434,7 +437,7 @@ struct FormView: View {
             HStack(spacing: Prism.Spacing.px10) {
                 if submitting {
                     ProgressView().progressViewStyle(.prism(.accent, size: .size20))
-                    Text("Sending…").foregroundStyle(.secondary)
+                    Text("Sending…").prism(Prism.Typography.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Cancel", action: leave).keyboardShortcut(.cancelAction)

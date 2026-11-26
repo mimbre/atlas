@@ -60,7 +60,7 @@ defmodule AtlasControl.ShellTest do
   defp connected(port) do
     s = socket(port)
     hello(s)
-    assert %{"op" => "welcome", "spec" => "0.35.0"} = receive_message(s)
+    assert %{"op" => "welcome", "spec" => "0.36.0"} = receive_message(s)
     assert %{"op" => "page"} = receive_message(s)
     s
   end
@@ -199,7 +199,7 @@ defmodule AtlasControl.ShellTest do
     # D-0105: an older client is welcomed with Control's version.
     old = socket(port)
     hello(old, %{"spec" => "0.1.0"})
-    assert %{"op" => "welcome", "spec" => "0.35.0"} = receive_message(old)
+    assert %{"op" => "welcome", "spec" => "0.36.0"} = receive_message(old)
   end
 
   test "boot separates queued pages and preserves the edit form", %{port: port} do

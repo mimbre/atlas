@@ -35,16 +35,17 @@ public struct PlanView: View {
                 Text(plan.title ?? "").prism(Prism.Typography.title6).accessibilityAddTraits(.isHeader)
             }
             if let request = plan.request, !request.isEmpty {
-                Text("Asked: \(request)").foregroundStyle(.secondary).textSelection(.enabled)
+                Text("Asked: \(request)").prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
             if let before = plan.before, !before.isEmpty {
-                Text(before).fixedSize(horizontal: false, vertical: true)
+                Text(before).prism(Prism.Typography.bodysmall).fixedSize(horizontal: false, vertical: true)
             }
             if let summary = plan.summary, !summary.isEmpty {
-                Text(summary).fixedSize(horizontal: false, vertical: true)
+                Text(summary).prism(Prism.Typography.bodysmall).fixedSize(horizontal: false, vertical: true)
             }
             if let by = plan.by, !by.isEmpty {
-                Text("By \(by)").font(.caption).foregroundStyle(.secondary)
+                Text("By \(by)").prism(Prism.Typography.caption).foregroundStyle(.secondary)
             }
             if let steps = plan.steps, !steps.isEmpty {
                 ScrollView {
@@ -103,22 +104,23 @@ public struct PlanView: View {
                     .toggleStyle(.checkbox)
                     #endif
             }
-            if let n = step.n { Text("\(n).").monospaced().bold() }
+            if let n = step.n { Text("\(n).").monospacedDigit().prism(Prism.Typography.label) }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text(step.label ?? "").bold().strikethrough(isDropped)
-                    Text(isDropped ? "dropped" : step.state ?? "").font(.caption.weight(.semibold))
+                    Text(step.label ?? "").strikethrough(isDropped).prism(Prism.Typography.label)
+                    Text(isDropped ? "dropped" : step.state ?? "").prism(Prism.Typography.labelsmall)
                         .padding(.horizontal, 6).padding(.vertical, 1)
                         .background(Color.primary.opacity(0.08), in: Capsule())
                 }
                 ForEach(Array((step.inputs ?? []).enumerated()), id: \.offset) { _, input in
-                    Text([input.label, input.value].compactMap { $0 }.joined(separator: ": ")).foregroundStyle(.secondary)
+                    Text([input.label, input.value].compactMap { $0 }.joined(separator: ": "))
+                        .prism(Prism.Typography.caption).foregroundStyle(.secondary)
                 }
                 if let why = step.why, !why.isEmpty {
-                    Text(why).foregroundStyle(.secondary)
+                    Text(why).prism(Prism.Typography.caption).foregroundStyle(.secondary)
                 }
                 if let detail = step.detail, !detail.isEmpty {
-                    Text(detail)
+                    Text(detail).prism(Prism.Typography.bodysmall)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)

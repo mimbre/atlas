@@ -59,7 +59,7 @@ struct PanelView: View {
             if let pending, pending.kind == .sending {
                 HStack(spacing: Prism.Spacing.px6) {
                     ProgressView().progressViewStyle(.prism(.accent, size: .size20))
-                    Text(pending.text).foregroundStyle(muted)
+                    Text(pending.text).prism(Prism.Typography.caption).foregroundStyle(muted)
                 }
             }
             buttons
@@ -107,7 +107,7 @@ struct PanelView: View {
                 }
             }
             ForEach(Array(((block.actions ?? []) + others).enumerated()), id: \.offset) { _, action in
-                KeyButton(label: action.label ?? "", key: action.key) { act(action) }
+                KeyButton(label: action.label ?? "", key: action.key, icon: action.icon) { act(action) }
             }
             ForEach(Array(Panel.links(block).enumerated()), id: \.offset) { _, link in
                 KeyButton(label: link.link.label ?? link.url.absoluteString, key: link.link.key) { openURL(link.url) }
@@ -142,10 +142,10 @@ struct PanelHeading: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
-            Text(eyebrow.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.8)
+            Text(eyebrow.uppercased()).tracking(0.8).prism(Prism.Typography.labelsmall)
                 .foregroundStyle(PrismDarkGap.accentText(scheme))
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
-                (Text(title) + Text(key.map { "   " + $0 } ?? "").font(Prism.Typography.label.font.weight(.regular))
+                (Text(title) + Text(key.map { "   " + $0 } ?? "").font(Prism.Typography.label.emphasis(.data).font)
                     .foregroundColor(PrismDarkGap.muted(scheme)))
                     .prism(Prism.Typography.title7)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -177,7 +177,7 @@ struct PanelRow: View {
         Button(action: take) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
                 Text(key).monospaced().foregroundStyle(PrismDarkGap.muted(scheme)).fixedSize()
-                Text(label).bold(marker)
+                Text(label).prism(marker ? Prism.Typography.tablehead : Prism.Typography.tablerow)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .prism(Prism.Typography.tablerow)
@@ -225,13 +225,13 @@ struct PanelChecks: View {
             ForEach(Array(checks.enumerated()), id: \.offset) { _, check in
                 GridRow {
                     let role = Self.role(check.state ?? "")
-                    Text(Panel.glyph(check.state ?? "")).bold()
+                    Text(Panel.glyph(check.state ?? "")).prism(Prism.Typography.tablehead)
                         .foregroundStyle(Prism.Colors.grey1)
                         .frame(width: Prism.Spacing.px18, height: Prism.Spacing.px18)
                         .background(role.tint, in: Circle())
                         .overlay(Circle().strokeBorder(role.color))
                         .accessibilityLabel(check.state ?? "")
-                    Text(check.label ?? "").bold()
+                    Text(check.label ?? "").prism(Prism.Typography.tablehead)
                     Text(check.text ?? "").frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -283,32 +283,64 @@ struct Framed: ViewModifier {
     }
 }
 
-/// An answer as Prism's button (`AnswerLabelButton`), "· note" after one given with a
-/// note: a yes `primary` in success, a no `secondary` in warning, a `quiet` one `plain`.
-/// Its key only in its tooltip.
+/// An answer as Prism's button (`AnswerLabelButton`), styled by the weight Control gives
+/// it (`AnswerLook`), never by whether it asks a note. Its key only in its tooltip.
 struct AnswerButton: View {
     let answer: PanelAnswerModel
-    var quiet = false
     let pending: Bool
     let take: () -> Void
 
     var body: some View {
-        let no = answer.note == true
-        let label = answer.label ?? ""
-        PrismActionButton(label: no ? label + " · note" : label, key: answer.key, pending: pending,
-                          variant: no ? .secondary : quiet ? .plain : .primary,
-                          tone: no ? .warning : quiet ? .accent : .success, take: take)
+        let look = AnswerLook.of(answer)
+        PrismActionButton(label: AnswerLook.label(answer), key: answer.key, pending: pending,
+                          variant: look.variant, tone: look.tone, take: take)
     }
 }
 
-/// An action or link of a panel as Prism's `plain` button; its key only in its tooltip.
+/// How an answer looks, by its weight: the main one Prism's `primary`, the no
+/// `secondary`, any other `plain`, all in the primary colour (Prism's default tone).
+/// One that opens a note form says so with "…" after its label.
+public enum AnswerLook {
+    public static func of(_ answer: PanelAnswerModel) -> (variant: PrismButtonVariant, tone: PrismButtonTone) {
+        switch answer.weight {
+        case "main": (.primary, .accent)
+        case "no": (.secondary, .accent)
+        default: (.plain, .accent)
+        }
+    }
+
+    public static func label(_ answer: PanelAnswerModel) -> String {
+        let label = answer.label ?? ""
+        return answer.note == true && !label.hasSuffix("…") ? label + "…" : label
+    }
+}
+
+/// The SF Symbol of an action's `icon`, as Control names what it does; nil (no icon) for
+/// a name it does not know or none.
+public enum ActionIcon {
+    public static func symbol(_ name: String?) -> String? {
+        switch name {
+        case "edit": "pencil"
+        case "delete": "trash"
+        case "hand_over": "person.and.arrow.left.and.arrow.right"
+        case "create": "plus"
+        case "open": "arrow.up.right.square"
+        default: nil
+        }
+    }
+}
+
+/// An action or link of a panel as Prism's `plain` button, with its icon when Control
+/// names one; its key only in its tooltip.
 struct KeyButton: View {
     let label: String
     let key: String?
+    var icon: String? = nil
     let take: () -> Void
 
     var body: some View {
-        PrismActionButton(label: label, key: key, pending: false, variant: .plain, take: take)
+        PrismActionButton(label: label, key: key, pending: false, variant: .plain,
+                          icon: ActionIcon.symbol(icon), take: take)
     }
 }
 

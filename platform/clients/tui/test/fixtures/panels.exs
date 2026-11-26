@@ -45,10 +45,15 @@ defmodule AtlasTui.PanelFixture do
       [
         header("YOUR DECISION", "D-7", "How do we store examples?"),
         text("why", %{"label" => "Why", "text" => "Files need nothing to run."}),
-        adopt.(1, "files", "Use files", %{"badge" => "★ Recommended", "tone" => "success"}),
-        adopt.(2, "memory", "Use memory", %{}),
+        adopt.(1, "files", "Use files", %{
+          "badge" => "★ Recommended",
+          "tone" => "success",
+          "weight" => "main"
+        }),
+        adopt.(2, "memory", "Use memory", %{"weight" => "other"}),
         option(3, "Decline", [{"Details", "None of these fits; say why."}], %{
-          "label" => "Decline…",
+          "label" => "Decline",
+          "weight" => "no",
           "key" => "3",
           "to" => @decision <> "/answer/decline",
           "note" => true,
@@ -106,6 +111,7 @@ defmodule AtlasTui.PanelFixture do
       }),
       option(1, "Retry", [{"Then", "Runs the work again from where it stopped."}], %{
         "label" => "Choose",
+        "weight" => "main",
         "key" => "t",
         "to" => @stuck <> "/answer/retry",
         "submit_to" => call("widget", "K-1", "retry"),
@@ -113,7 +119,8 @@ defmodule AtlasTui.PanelFixture do
         "tone" => "success"
       }),
       option(2, "Close it", [{"Details", "Closes the widget; you say why."}], %{
-        "label" => "Decline…",
+        "label" => "Decline",
+        "weight" => "no",
         "key" => "c",
         "to" => @stuck <> "/answer/close",
         "note" => true,
