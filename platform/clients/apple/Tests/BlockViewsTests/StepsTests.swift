@@ -75,12 +75,59 @@ final class StepsTests: XCTestCase {
         XCTAssertEqual(done.action(.up)?.submitTo, call(3))
     }
 
-    func testTheAnswersAreThePagesActionsOnTheirKeys() throws {
+    func testTheButtonsAreThisStepDoneThenThePagesAnswersAndTheArrowsAreKeysOnly() throws {
         let page = try page()
+        let panel = try panel(page)
 
         XCTAssertEqual(PageActions.ofPage(page).map(\.key), ["x"])
         XCTAssertEqual(PageActions.action(key: "x", on: page)?.to, "/k/chore/C-7/answer/x")
-        XCTAssertEqual(PageActions.ofBlock(try panel(page).block.actions).map(\.key), ["Enter", "Down", "Up"])
+        let more = ActionModel(label: "More…", key: ".", to: "/k/chore/C-7/more", page: true)
+        XCTAssertEqual(panel.buttons(others: PageActions.ofPage(page) + [more]).map(\.key), ["Enter", "x", "."])
+    }
+
+    func testClickingStepThreeSendsTheStepActionForThree() throws {
+        let line = Self.line(current: 1, actions: [Self.action("Step 1 done", "Enter", 2)])
+            .replacingOccurrences(of: #""n":3,"text""#, with: #""n":3,"submit_to":\#(Self.step(3)),"text""#)
+        let message = try WireLine.decode(ControlMessage.self, from: Data(line.utf8))
+        guard case .pageOpen(let page) = message else { return XCTFail("not a page") }
+        let panel = try panel(page)
+
+        XCTAssertEqual(panel.select(panel.block.steps[2])?.submitTo, call(3))
+        // The current step is not moved to; a step Control gives no call takes no click.
+        XCTAssertNil(panel.select(panel.block.steps[0]))
+        XCTAssertNil(panel.select(panel.block.steps[1]))
+    }
+
+    func testAKeyHeldDownMovesTheStepOnceAndTheArrowsComeFromTheirKeyCodes() throws {
+        let panel = try panel(page())
+        XCTAssertEqual(panel.press(.down, isRepeat: false)?.submitTo, call(3))
+        XCTAssertNil(panel.press(.down, isRepeat: true))
+        XCTAssertNil(panel.press(.enter, isRepeat: true))
+        XCTAssertEqual(PanelKey(keyCode: 126), .up)
+        XCTAssertEqual(PanelKey(keyCode: 125), .down)
+        XCTAssertEqual(PanelKey(keyCode: 36), .enter)
+        XCTAssertNil(PanelKey(keyCode: 0))
+    }
+
+    func testAFoldedStepDropsItsColonAndSaysHowManyCommandsItHolds() throws {
+        let panel = try panel(page())
+        XCTAssertEqual(StepsPanel.firstLine("Build the Mac app:\nIn the checkout."), "Build the Mac app")
+        XCTAssertEqual(StepsPanel.holds(panel.block.steps[1]), "2 commands")
+        XCTAssertEqual(StepsPanel.holds(panel.block.steps[2]), "1 command")
+        XCTAssertNil(StepsPanel.holds(panel.block.steps[0]))
+    }
+
+    @MainActor
+    func testThePanelOnScreenTakesTheKeysUntilItIsGone() {
+        let keys = PanelKeys()
+        var taken: [String] = []
+        XCTAssertFalse(keys.press(.down, isRepeat: false))
+        keys.claim("a") { key, _ in taken.append("a\(key)"); return true }
+        keys.claim("b") { key, _ in taken.append("b\(key)"); return true }
+        XCTAssertTrue(keys.press(.down, isRepeat: false))
+        keys.release("b")
+        XCTAssertTrue(keys.press(.up, isRepeat: false))
+        XCTAssertEqual(taken, ["bdown", "aup"])
     }
 
     @MainActor

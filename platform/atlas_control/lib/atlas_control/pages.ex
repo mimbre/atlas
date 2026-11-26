@@ -2161,7 +2161,7 @@ defmodule AtlasControl.Pages do
             item =
               item
               |> update_in(["props", "fields"], fn fields ->
-                Enum.reject(fields, &(&1["label"] in shown)) ++ todo_pairs(todo)
+                said(Enum.reject(fields, &(&1["label"] in shown))) ++ todo_pairs(todo)
               end)
               |> put_in(["props", "actions"], [])
 
@@ -2211,10 +2211,17 @@ defmodule AtlasControl.Pages do
                   {decide_blocks(todo, kind, key, next), judged, item}
               end
 
+            # Under a panel (or a choice), which names the fact, its details say only what
+            # says something.
+            fields =
+              if panel != nil or Map.get(todo, :choice) != nil,
+                do: &(said(&1) ++ todo_pairs(todo)),
+                else: &(&1 ++ todo_pairs(todo))
+
             content =
               head ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
-                [{"item", update_in(item, ["props", "fields"], &(&1 ++ todo_pairs(todo)))}] ++
+                [{"item", update_in(item, ["props", "fields"], fields)}] ++
                 lists
 
             markup =
@@ -2877,6 +2884,11 @@ defmodule AtlasControl.Pages do
   end
 
   defp unshared(block), do: block
+
+  # The details under a panel, which names the fact: without its Id, and without a value
+  # that is not there.
+  defp said(fields),
+    do: Enum.reject(fields, &(&1["label"] == "Id" or &1["value"] in [nil, "", "—"]))
 
   # A relation a route names that the model does not have: nothing to set or show.
   defp missing_relation(relation),

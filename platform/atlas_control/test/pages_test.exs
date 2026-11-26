@@ -2089,6 +2089,8 @@ defmodule AtlasControl.PagesTest do
     assert props == %{"title" => "Item details", "collapsible" => true}
     labels = Enum.map(by_id(page)["item"]["fields"], & &1["label"])
     refute "Notes" in labels or "At" in labels
+    # The panel names the fact: its details leave the Id out.
+    refute "Id" in labels
     refute Enum.any?(page.blocks, &(&1["id"] == "todo"))
     assert [%{label: "Item details", keys: ["i"]}] = page.console_actions
   end

@@ -31,6 +31,12 @@ enum Prism {
             scheme == .dark ? grey2 : grey1.opacity(0.8)
         }
 
+        /// Primary as text (a panel's eyebrow): primary is 4.3:1 on white, so a shade of it
+        /// in light (4.7:1 on grey5, more on white), a tint of it in dark (6.2:1 on #1E1E1E).
+        static func accentText(_ scheme: ColorScheme) -> Color {
+            scheme == .dark ? Color(hex: 0x7B9AF4) : Color(hex: 0x3A66DB)
+        }
+
         /// Prism's selection tint for a row: primarylight under dark text in light
         /// appearance; in dark appearance primary, faint, so light text stays legible.
         static func row(_ scheme: ColorScheme, selected: Bool, hovering: Bool) -> Color {
@@ -123,4 +129,36 @@ struct PrismCard: ViewModifier {
     #else
     static let systemBackground = Color(uiColor: .secondarySystemBackground)
     #endif
+}
+
+/// The card of the panel a page leads with, which has the focus: white in light, a raised
+/// surface in dark, rounded, with a soft shadow a little stronger than `PrismCard`'s, cast
+/// by the card alone (not by what is on it).
+struct PanelCard: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(Prism.Spacing.s18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: Prism.radius * 2)
+                    .fill(scheme == .dark ? Color(white: 0.17) : Prism.Colors.white)
+                    .prismShadow(Prism.Shadow(color: .black.opacity(scheme == .dark ? 0.4 : 0.14), radius: 12, y: 5))
+            }
+    }
+}
+
+/// The card of the details under a panel, recessed: no shadow and no stroke, on a light
+/// grey surface (grey5 in light, a step below the page in dark).
+struct RecessedCard: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(Prism.Spacing.s15)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(scheme == .dark ? Color(white: 0.08) : Prism.Colors.grey5,
+                        in: RoundedRectangle(cornerRadius: Prism.radius * 2))
+    }
 }

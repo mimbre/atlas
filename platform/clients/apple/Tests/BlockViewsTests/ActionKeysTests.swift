@@ -76,6 +76,23 @@ final class ActionKeysTests: XCTestCase {
             "kind": "decision", "key": "D-12", "answer": "option-12"]), values: [:]))
     }
 
+    func testTheArrowsNeverAnswerAChoiceAlsoHeldDownAndAReturnHeldDownAnswersNothing() throws {
+        var (_, choice) = try Self.twelve()
+        for isRepeat in [false, true, true, true] {
+            for key in [SingleChoice.Key.down, .down, .up, .down] {
+                let outcome = choice.press(key, isRepeat: isRepeat)
+                XCTAssertEqual(outcome, .nothing, "\(key) \(isRepeat)")
+            }
+        }
+        // Past the last choice and before the first, an arrow still only moves.
+        for _ in 0..<20 { XCTAssertEqual(choice.press(.down, isRepeat: true), .nothing) }
+        for _ in 0..<20 { XCTAssertEqual(choice.press(.up, isRepeat: true), .nothing) }
+        // Return held down answers nothing; pressed, it answers the selected choice.
+        XCTAssertEqual(choice.press(.enter, isRepeat: true), .nothing)
+        XCTAssertEqual(choice.press(.digit("1"), isRepeat: true), .nothing)
+        guard case .submit? = choice.press(.enter, isRepeat: false) else { return XCTFail("Return answered nothing") }
+    }
+
     func testAPageActionKeepsItsKeyWhereNothingIsTyping() throws {
         let (page, choice) = try Self.twelve()
         let typing = TypingFocus()

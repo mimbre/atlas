@@ -5,29 +5,14 @@ import AppKit
 #endif
 
 /// A `steps` block as it is worked through: where each step stands (done, the current
-/// one, later), the action a key takes, and what Copy copies. Control moves the step (its
-/// actions keyed `Enter`, `Down` and `Up`); the app decides nothing about it.
+/// one, later), the action a key or a click on a step takes, the buttons under it, and
+/// what Copy copies. Control moves the step (its actions keyed `Enter`, `Down` and `Up`,
+/// and each step's own `submit_to`); the app decides nothing about it.
 public struct StepsPanel: Sendable, Equatable {
     public enum Place: Sendable, Equatable {
         case done
         case current
         case later
-    }
-
-    /// A key, as the panel takes it while it has the focus.
-    public enum Key: Sendable, Equatable {
-        case enter
-        case up
-        case down
-
-        /// The key of the action Control declares for it.
-        var name: String {
-            switch self {
-            case .enter: "Enter"
-            case .up: "Up"
-            case .down: "Down"
-            }
-        }
     }
 
     public let block: StepsBlock
@@ -50,8 +35,36 @@ public struct StepsPanel: Sendable, Equatable {
 
     /// The action `key` takes, as Control declares it; nil when there is none (no next
     /// step after the last, no previous before the first).
-    public func action(_ key: Key) -> ActionModel? {
-        block.actions?.first { $0.key == key.name && $0.submitTo != nil }
+    public func action(_ key: PanelKey) -> ActionModel? {
+        let name = switch key {
+        case .enter: "Enter"
+        case .up: "Up"
+        case .down: "Down"
+        }
+        return block.actions?.first { $0.key == name && $0.submitTo != nil }
+    }
+
+    /// A key the panel takes (`PanelKeys`): the action Control declares for it. Each moves
+    /// the step, so a key held down (`isRepeat`) moves it once, not on every repeat.
+    public func press(_ key: PanelKey, isRepeat: Bool) -> ActionModel? {
+        isRepeat ? nil : action(key)
+    }
+
+    /// A click on a step: the action that makes it the current one (its own `submit_to`);
+    /// nil for the current step, or one Control gives no call.
+    public func select(_ step: InstructionStepModel) -> ActionModel? {
+        guard place(step) != .current, let call = step.submitTo else { return nil }
+        return ActionModel(label: "Step \(step.n)", key: "", to: "", submitTo: call)
+    }
+
+    /// The buttons at the panel's bottom: this step done (Return), then the page's
+    /// answers and other actions (`page`, in Control's order), and those the page has
+    /// besides (`others`, More…). The arrows' moves are keys and clicks on the steps.
+    public func buttons(others: [ActionModel] = []) -> [ActionModel] {
+        let actions = block.actions ?? []
+        let done = actions.filter { $0.key == "Enter" }
+        let page = actions.filter { $0.page == true }
+        return done + page + others.filter { other in !page.contains { $0.key == other.key } }
     }
 
     /// The commands of the current step, one per line: what Copy all copies.
@@ -71,9 +84,21 @@ public struct StepsPanel: Sendable, Equatable {
         }
     }
 
-    /// A step's first line: what a step not open shows.
+    /// A step's first line: what a step not open shows, without the colon that leads
+    /// into what it folds away.
     static func firstLine(_ text: String) -> String {
-        String(text.split(separator: "\n", omittingEmptySubsequences: false).first ?? "")
+        let line = String(text.split(separator: "\n", omittingEmptySubsequences: false).first ?? "")
+        return line.hasSuffix(":") ? String(line.dropLast()) : line
+    }
+
+    /// What a folded step holds besides its first line, counted from what Control sent:
+    /// "2 commands"; nil when it holds nothing more.
+    static func holds(_ step: InstructionStepModel) -> String? {
+        switch step.commands.count {
+        case 0: nil
+        case 1: "1 command"
+        case let n: "\(n) commands"
+        }
     }
 
     /// How long ago `since` (ISO 8601) was: "just now", "5m ago", "3h ago", "2d ago".

@@ -7,7 +7,8 @@ import SwiftUI
 /// choice's answer) and its values; `act` with an action a block declares (its button).
 /// Under a block are only its own actions; the page's (`PageActions.ofPage`) are in the
 /// header, the page's title with them, when `header` is set, else where the page's
-/// container puts them (the window's toolbar).
+/// container puts them (the window's toolbar). A page with a panel (`hasPanel`) has no
+/// header: the panel names what it is about, and its buttons are the page's actions.
 public struct PageView: View {
     let presentation: PagePresentation
     let pageActions: [ActionModel]
@@ -114,7 +115,13 @@ public struct PageView: View {
                 return lines
             }
         }
-        return header ? [Line(id: "\u{0}header", content: .header)] + blocks : blocks
+        return header && !presentation.hasPanel ? [Line(id: "\u{0}header", content: .header)] + blocks : blocks
+    }
+
+    /// The page's actions a panel shows at its bottom: on a page with a header, which a
+    /// page with a panel leaves out.
+    private var panelActions: [ActionModel] {
+        header && presentation.hasPanel ? pageActions : []
     }
 
     /// A row of the page that is not one of its selection.
@@ -128,16 +135,16 @@ public struct PageView: View {
     @ViewBuilder private func entryView(_ entry: PagePresentation.Entry) -> some View {
         switch entry.item {
         case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
-        case .item(let item): ItemBlockView(item: item, act: act)
+        case .item(let item): ItemBlockView(item: item, recessed: presentation.hasPanel, act: act)
         case .singleChoice(let choice):
             // A view of its own per page and revision: nothing typed for one
             // decision stays for another.
-            SingleChoiceView(block: choice, submit: submit)
+            SingleChoiceView(block: choice, others: panelActions, act: act, submit: submit)
                 .id(SingleChoiceView.identity(path: presentation.path, block: choice))
         case .panel(let panel):
             // A view of its own per page: a selection never stays for another page.
-            PanelView(block: panel, open: open, act: act).id(presentation.path)
-        case .steps(let steps): StepsView(block: steps, act: act)
+            PanelView(block: panel, others: panelActions, open: open, act: act).id(presentation.path)
+        case .steps(let steps): StepsView(block: steps, others: panelActions, act: act)
         // A page that asks is shown over the window (ActionPageView), not in a column.
         case .form: FallbackView(type: "form", reason: nil)
         case .confirm: FallbackView(type: "confirm", reason: nil)
@@ -240,7 +247,8 @@ struct ListRowView: View {
 /// id (the item's key; a row without one has no id column at all), how long it has been
 /// where it stands (its age, from `since`), its label, its detail, and whether a write to
 /// it is being processed. The id, the age and the detail have narrow columns of a fixed
-/// width, so rows line up; the label has the rest. A done row is muted.
+/// width, so rows line up; the label has the rest, on one line ending in … when it is
+/// longer (its page shows it whole), with the whole of it in a tooltip. A done row is muted.
 struct RowLabel: View {
     let row: RowModel
     @Environment(\.colorScheme) private var scheme
@@ -272,7 +280,8 @@ struct RowLabel: View {
             }
             Text(row.label).prism(Prism.Typography.tableRow)
                 .foregroundStyle(tone == .done ? quiet : AnyShapeStyle(.primary))
-                .lineLimit(2)
+                .lineLimit(1)
+                .help(row.label)
                 .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
             if let detail = row.detail {
                 Text(detail).prism(Prism.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -301,22 +310,28 @@ struct RowLabel: View {
 }
 
 /// A calm card (Prism). Blank labels are prose. Nil values use the TUI's absent-value marker.
-/// Text stays literal, selectable and unbounded, including embedded blank lines.
+/// Text stays literal, selectable and unbounded, including embedded blank lines. Under a
+/// panel (`recessed`) it is the details: recessed (`RecessedCard`), a small heading, the
+/// values smaller and muted, so the panel above keeps the focus.
 struct ItemBlockView: View {
     let item: ItemBlock
+    var recessed = false
     let act: (ActionModel) -> Void
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
-            Text(item.title).prism(Prism.Typography.title7)
+        let content = VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+            Text(item.title).prism(recessed ? Prism.Typography.labelSmall : Prism.Typography.title7)
             // The actions first: the next step is in reach without scrolling.
             ActionsView(actions: PageActions.ofBlock(item.actions), act: act)
             ForEach(Array(item.fields.enumerated()), id: \.offset) { _, field in
                 VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
                     if !field.label.isEmpty {
-                        Text(field.label).prism(Prism.Typography.labelSmall).foregroundStyle(.secondary)
+                        Text(field.label).prism(recessed ? Prism.Typography.captionSmall : Prism.Typography.labelSmall)
+                            .foregroundStyle(recessed ? AnyShapeStyle(Prism.Colors.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
-                    Text(field.value ?? "—").prism(Prism.Typography.tableRow)
+                    Text(field.value ?? "—").prism(recessed ? Prism.Typography.caption : Prism.Typography.tableRow)
+                        .foregroundStyle(recessed ? AnyShapeStyle(Prism.Colors.muted(scheme)) : AnyShapeStyle(.primary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -330,7 +345,11 @@ struct ItemBlockView: View {
         .lineLimit(nil)
         .fixedSize(horizontal: false, vertical: true)
         .textSelection(.enabled)
-        .modifier(PrismCard())
+        if recessed {
+            content.modifier(RecessedCard())
+        } else {
+            content.modifier(PrismCard())
+        }
     }
 }
 

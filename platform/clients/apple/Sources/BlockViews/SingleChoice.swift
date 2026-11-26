@@ -114,10 +114,13 @@ public struct SingleChoice: Sendable, Equatable {
     /// A key the block has the focus for: what it does, or nil when the block leaves it to
     /// the view below (the note field while its form is open, or a key that does nothing
     /// with no number being typed). The arrows are the block's while it has choices, also
-    /// at the first or last, so they never move the selection of the list around it.
-    public mutating func press(_ key: Key) -> Outcome? {
+    /// at the first or last, so they never move the selection of the list around it, and
+    /// they never answer. A key held down (`isRepeat`) only moves the selection: Return or
+    /// a digit answers once.
+    public mutating func press(_ key: Key, isRepeat: Bool = false) -> Outcome? {
         guard noting == nil else { return nil }
         if key == .up || key == .down { return choices.isEmpty ? nil : self.key(key) }
+        if isRepeat { return .nothing }
         let wasTyping = !typed.isEmpty
         let outcome = self.key(key)
         if outcome == .nothing, !wasTyping, typed.isEmpty { return nil }
