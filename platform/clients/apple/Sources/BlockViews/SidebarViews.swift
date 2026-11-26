@@ -152,7 +152,8 @@ public struct SidebarView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        .onMoveCommand(perform: move)
+        .onKeyPress(.upArrow) { step(-1) }
+        .onKeyPress(.downArrow) { step(1) }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             SidebarFoot(name: name, env: env, production: production, connection: connection)
         }
@@ -181,15 +182,12 @@ public struct SidebarView: View {
     }
 
     /// Up and down: the row before or after the selected one.
-    private func move(_ direction: MoveCommandDirection) {
+    private func step(_ by: Int) -> KeyPress.Result {
         let ids = (work + browse).map(\.id)
         let at = selection.flatMap { ids.firstIndex(of: $0) }
-        let next: Int? = switch direction {
-        case .up: at.map { $0 - 1 } ?? ids.indices.last
-        case .down: at.map { $0 + 1 } ?? ids.indices.first
-        default: nil
-        }
+        let next = at.map { $0 + by } ?? (by < 0 ? ids.indices.last : ids.indices.first)
         if let next, ids.indices.contains(next) { select(ids[next]) }
+        return .handled
     }
 }
 
