@@ -10,7 +10,7 @@ import SwiftUI
 /// each with its key. The answers are buttons, a yes green and a no (with a note) orange;
 /// ↑ ↓ select an item and Return opens it (`PanelKeys`). An answer is the page's action of
 /// its key (`Panel.action`): `act` submits its call, or opens its page (a no's note form).
-/// `others`: the page's actions besides (More…).
+/// `others`: the page's other actions.
 struct PanelView: View {
     let block: PanelBlock
     let others: [ActionModel]
@@ -81,7 +81,7 @@ struct PanelView: View {
         }
     }
 
-    private var muted: Color { Prism.Colors.muted(scheme) }
+    private var muted: Color { PrismDarkGap.muted(scheme) }
 
     /// The items, one row each: its key, its label; the selected one set apart.
     private var items: some View {
@@ -142,14 +142,14 @@ struct PanelHeading: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s6) {
             Text(eyebrow.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.8)
-                .foregroundStyle(Prism.Colors.accentText(scheme))
+                .foregroundStyle(PrismDarkGap.accentText(scheme))
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
                 (Text(title) + Text(key.map { "   " + $0 } ?? "").font(Prism.Typography.label.font.weight(.regular))
-                    .foregroundColor(Prism.Colors.muted(scheme)))
+                    .foregroundColor(PrismDarkGap.muted(scheme)))
                     .prism(Prism.Typography.title7)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let trailing, !trailing.isEmpty {
-                    Text(trailing).prism(Prism.Typography.caption).foregroundStyle(Prism.Colors.muted(scheme))
+                    Text(trailing).prism(Prism.Typography.caption).foregroundStyle(PrismDarkGap.muted(scheme))
                         .fixedSize()
                 }
             }
@@ -175,7 +175,7 @@ struct PanelRow: View {
     var body: some View {
         Button(action: take) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
-                Text(key).monospaced().foregroundStyle(Prism.Colors.muted(scheme)).fixedSize()
+                Text(key).monospaced().foregroundStyle(PrismDarkGap.muted(scheme)).fixedSize()
                 Text(label).bold(marker)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -187,7 +187,7 @@ struct PanelRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Prism.Colors.row(scheme, selected: marker, hovering: hovering),
+        .background(PrismDarkGap.row(scheme, selected: marker, hovering: hovering),
                     in: RoundedRectangle(cornerRadius: Prism.radius))
         .onHover { hovering = $0 }
         .help(hint)
@@ -205,7 +205,7 @@ struct PanelDetails: View {
         Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.s13, verticalSpacing: Prism.Spacing.s6) {
             ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
                 GridRow {
-                    Text(pair.label ?? "").foregroundStyle(Prism.Colors.muted(scheme))
+                    Text(pair.label ?? "").foregroundStyle(PrismDarkGap.muted(scheme))
                     Text(pair.value ?? "—").frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -257,7 +257,7 @@ struct PanelBox: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s5) {
             if let title = box.title {
-                Text(title).prism(Prism.Typography.labelSmall).foregroundStyle(Prism.Colors.muted(scheme))
+                Text(title).prism(Prism.Typography.labelSmall).foregroundStyle(PrismDarkGap.muted(scheme))
             }
             Text(box.text ?? "").frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -277,116 +277,44 @@ struct Framed: ViewModifier {
             .textSelection(.enabled)
             .padding(Prism.Spacing.s10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(scheme == .dark ? Color.white.opacity(0.05) : Prism.Colors.grey6,
-                        in: RoundedRectangle(cornerRadius: Prism.radius))
+            .background(PrismDarkGap.framed(scheme), in: RoundedRectangle(cornerRadius: Prism.radius))
             .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(border ?? .clear))
     }
 }
 
-/// An answer as a button: its key as a keycap on its left, its label, with "· note" for
-/// one given with a note. A yes in success, a no in warning, a `quiet` one (More…) in grey.
-/// Light: on the tone's light tint with grey1 text, the quiet one on grey5 with a grey edge
-/// (3.7:1 on white). Dark: a faint wash of the tone with white text (over 10:1) and the
-/// tone as its edge (over 5:1 on the dark surface), the quiet one's edge grey2. Pending, a
-/// spinner in place of its key.
+/// An answer as Prism's button (`AnswerLabelButton`), "· note" after one given with a
+/// note: a yes `primary` in success, a no `secondary` in warning, a `quiet` one `plain`.
+/// Its key only in its tooltip.
 struct AnswerButton: View {
     let answer: PanelAnswerModel
     var quiet = false
     let pending: Bool
     let take: () -> Void
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let no = answer.note == true
-        Button(action: take) {
-            HStack(spacing: Prism.Spacing.s6) {
-                if pending {
-                    ProgressView().controlSize(.mini)
-                } else if let key = answer.key {
-                    Keycap(key: key, inButton: true)
-                }
-                let label = answer.label ?? ""
-                Text(no ? label + " · note" : label).prism(Prism.Typography.labelSmall)
-            }
-            .foregroundStyle(scheme == .dark ? Prism.Colors.white : Prism.Colors.grey1)
-            .padding(.horizontal, Prism.Spacing.s10)
-            .padding(.vertical, Prism.Spacing.s6)
-            .background(fill(no: no), in: RoundedRectangle(cornerRadius: Prism.radius))
-            .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(edge(no: no), lineWidth: 1))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(pending)
-        .help([answer.label, answer.key.map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
-    }
-
-    private func fill(no: Bool) -> Color {
-        let dark = scheme == .dark
-        if no { return dark ? Prism.Colors.warning.opacity(0.18) : Prism.Colors.warningLight }
-        if quiet { return dark ? Prism.Colors.white.opacity(0.06) : Prism.Colors.grey5 }
-        return dark ? Prism.Colors.success.opacity(0.18) : Prism.Colors.successLight
-    }
-
-    private func edge(no: Bool) -> Color {
-        if no { return Prism.Colors.warning }
-        if quiet { return scheme == .dark ? Prism.Colors.grey2 : Prism.Colors.grey1.opacity(0.55) }
-        return Prism.Colors.success
+        let label = answer.label ?? ""
+        AnswerLabelButton(label: no ? label + " · note" : label, key: answer.key, pending: pending, take: take)
+            .buttonStyle(no ? PrismButtonStyle(.secondary, tone: .warning)
+                : quiet ? PrismButtonStyle(.plain) : PrismButtonStyle(.primary, tone: .success))
     }
 }
 
-/// An action or link of a panel as a quiet button: its key as a keycap, its label.
+/// An action or link of a panel as Prism's `plain` button; its key only in its tooltip.
 struct KeyButton: View {
     let label: String
     let key: String?
     let take: () -> Void
 
     var body: some View {
-        Button(action: take) {
-            HStack(spacing: Prism.Spacing.s6) {
-                if let glyph = Keycap.glyph(key) { Keycap(key: glyph, inButton: true) }
-                Text(label)
-            }
-        }
-        .buttonStyle(.bordered)
-        .help(Keycap.glyph(key).map { "\(label) (\($0))" } ?? label)
+        AnswerLabelButton(label: label, key: key, pending: false, take: take)
+            .buttonStyle(PrismButtonStyle(.plain))
     }
 }
 
-/// A key, as macOS shows a menu's shortcut: a small neutral keycap (grey5 with a thin grey3
-/// border in light, a grey a little lighter than the surface in dark), in the text's own
-/// colour. Inside a button (`inButton`) it is quieter: no fill, the label's colour. `light`,
-/// on a filled button: white with a faint grey1 edge and grey1 text, in either appearance.
-struct Keycap: View {
-    let key: String
-    var inButton = false
-    var light = false
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        Text(key).font(.caption.monospaced())
-            .foregroundStyle(light ? AnyShapeStyle(Prism.Colors.grey1) : AnyShapeStyle(.foreground))
-            .padding(.horizontal, Prism.Spacing.s5).padding(.vertical, Prism.Spacing.s1)
-            .background(fill, in: RoundedRectangle(cornerRadius: Prism.radius))
-            .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(border, lineWidth: 0.5))
-            .opacity(inButton ? 0.85 : 1)
-            .fixedSize()
-            .accessibilityHidden(true)
-    }
-
-    private var fill: Color {
-        if light { return Prism.Colors.white }
-        if inButton { return .clear }
-        return scheme == .dark ? Color.white.opacity(0.12) : Prism.Colors.grey5
-    }
-
-    private var border: Color {
-        if light { return Prism.Colors.grey1.opacity(0.35) }
-        if inButton { return Color.primary.opacity(0.3) }
-        return scheme == .dark ? Color.white.opacity(0.2) : Prism.Colors.grey3
-    }
-
-    /// A key as a keycap shows it: one character as it is, Control's named keys as their
-    /// signs (Enter ↩, Up ↑, Down ↓); nil for a key it does not show.
+/// How a key reads in a tooltip or the menu bar: one character as it is, Control's named
+/// keys as their signs (Enter ↩, Up ↑, Down ↓); nil for a key it does not show.
+enum KeyGlyph {
     static func glyph(_ key: String?) -> String? {
         guard let key else { return nil }
         return switch key {

@@ -1,14 +1,14 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.33.0"
+  version "0.34.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
   # Something the user can do from a block: open `to`. `key` is the key a keyboard
   # client binds it to; other clients may show it as a button. `page`: the action is the
-  # page's (what is done with the page's subject: create one, the fact's next step and
-  # More…), not its block's; a client shows it with the page's title, not under the block.
+  # page's (what is done with the page's subject: create one, the fact's next step), not
+  # its block's; a client shows it with the page's title, not under the block.
   defmodel :action do
     field :label, :string, required: true
     field :key, :string, required: true

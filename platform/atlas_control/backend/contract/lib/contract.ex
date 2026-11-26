@@ -67,7 +67,10 @@ defmodule AtlasBFFContract.Contract do
   # (`required` binds Control), an unknown block shows plainly, and Control welcomes a
   # client of any version (its welcome says Control's); `bye`'s `reason` and `spec` are
   # deprecated, never sent. A change is additive; what goes is deprecated first.
-  version "0.33.0"
+  # 0.34.0: a fact's page shows everything it offers besides the flow's next step directly,
+  # in an `actions` block below its answers; no More… action. The `more` page is
+  # deprecated: Control links to it no more.
+  version "0.34.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

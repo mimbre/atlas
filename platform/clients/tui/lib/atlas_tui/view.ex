@@ -5,6 +5,7 @@ defmodule AtlasTui.View do
   """
 
   alias AtlasTui.Blocks.{
+    Actions,
     Answers,
     Box,
     Confirm,
@@ -67,7 +68,7 @@ defmodule AtlasTui.View do
   def known,
     do: %{
       blocks:
-        ~w(list groups item option panel header text instruction answers form confirm plan console_action),
+        ~w(list groups item option panel header text instruction answers actions form confirm plan console_action),
       markup: ~w(part section highlight legend)
     }
 
@@ -952,12 +953,15 @@ defmodule AtlasTui.View do
   end
 
   # What the viewer can answer, each on its key as far as Control projects it (one given
-  # with a note says so), then the keys of the page's commands: ↑↓, c and y.
+  # with a note says so), then, muted, the page's other actions (its `actions` block), then
+  # the keys of the page's commands: ↑↓, c and y.
   defp block(%Answers{} = block, _at, model, width, _room) do
     keys = projected_keys(model)
 
     answers =
       for answer <- block.answers || [], MapSet.member?(keys, answer.key), do: answer_key(answer)
+
+    others = for %Actions{} = actions <- model.blocks, item <- other_keys(actions, keys), do: item
 
     copies =
       case Model.commands(model) do
@@ -967,7 +971,20 @@ defmodule AtlasTui.View do
       end
 
     copies = for {key, what} <- copies, do: [{:key, key}, {:dim, " " <> what}]
-    for line <- key_lines(answers ++ copies, max(width - 4, 1)), do: [{:plain, "   "} | line]
+
+    for line <- key_lines(answers ++ others ++ copies, max(width - 4, 1)),
+        do: [{:plain, "   "} | line]
+  end
+
+  # What else can be done with the page's subject, quieter than its answers: in the
+  # answers' key line when the page has one, else a key line of its own.
+  defp block(%Actions{} = block, _at, model, width, _room) do
+    if Enum.any?(model.blocks, &match?(%Answers{}, &1)) do
+      []
+    else
+      items = other_keys(block, projected_keys(model))
+      for line <- key_lines(items, max(width - 4, 1)), do: [{:plain, "   "} | line]
+    end
   end
 
   # Values keep their line breaks and blank lines; a heading line (`#`) is bold. A value
@@ -1398,6 +1415,13 @@ defmodule AtlasTui.View do
       |> Enum.map(fn {key, what} -> [{:key, key}, {:dim, " " <> what}] end)
 
     key_lines(answers ++ opens ++ moves, width)
+  end
+
+  # The page's other actions on their keys, muted, as far as Control projects them.
+  defp other_keys(%Actions{actions: actions}, keys) do
+    for action <- actions || [],
+        MapSet.member?(keys, action.key),
+        do: [{:muted, action.key}, {:muted, " " <> single_line(action.label)}]
   end
 
   # An answer on its key: a yes, or one given with a note, which says so.

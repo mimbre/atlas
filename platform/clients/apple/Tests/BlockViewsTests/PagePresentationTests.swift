@@ -108,7 +108,6 @@ final class PagePresentationTests: XCTestCase {
             ])], id: "parts"),
             block("item", ["title": .string("W-01"), "fields": .array([]), "actions": .array([
                 action("Pick up", "p", "/k/widget/W-01/pick_up", page: true),
-                action("More…", "m", "/k/widget/W-01/more", page: true),
                 action("Note", "o", "/k/widget/W-01/note", page: false),
             ])], id: "item"),
         ])
@@ -117,7 +116,7 @@ final class PagePresentationTests: XCTestCase {
         else { return XCTFail("not a list and an item") }
 
         // The page's, in block order, shown with its title; the rest stay under their block.
-        XCTAssertEqual(PageActions.ofPage(widget).map(\.label), ["New widget", "Pick up", "More…"])
+        XCTAssertEqual(PageActions.ofPage(widget).map(\.label), ["New widget", "Pick up"])
         XCTAssertEqual(PageActions.ofBlock(list.actions).map(\.label), ["Add a part"])
         XCTAssertEqual(PageActions.ofBlock(item.actions).map(\.label), ["Note"])
         // A key takes its action wherever its button shows.

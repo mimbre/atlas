@@ -15,7 +15,7 @@ struct HeaderBlockView: View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s6) {
             if let eyebrow {
                 Text(eyebrow).font(.system(size: 11, weight: .semibold)).tracking(0.8)
-                    .foregroundStyle(Prism.Colors.accentText(scheme))
+                    .foregroundStyle(PrismDarkGap.accentText(scheme))
                     .textSelection(.enabled)
             }
             PageHeader(title: block.title ?? "", actions: actions, act: act)
@@ -63,7 +63,7 @@ struct TextBlockView: View {
             } else {
                 Text(TextLine.line(block, now: context.date))
                     .prism(Prism.Typography.caption)
-                    .foregroundStyle(Prism.Colors.muted(scheme))
+                    .foregroundStyle(PrismDarkGap.muted(scheme))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -175,8 +175,7 @@ struct CardStack: View {
 /// without the keys' focus), as a step's: its number as a step's, its text, its badge in
 /// its tone (★ Recommended in success, Decline · note in warning), what it means as label
 /// and value rows (its Rule and what follows Then; a decline's Details), and its own answer
-/// as a button with its key in a neutral keycap: a yes (Choose) filled green, one that asks
-/// a note (Decline…) an orange outline, which opens the note form. The button is the page's
+/// as Prism's button (`OptionButton`). The button is the page's
 /// action of the answer's key (`Panel.action`): exactly what the key does.
 struct OptionView: View {
     let block: OptionBlock
@@ -194,15 +193,14 @@ struct OptionView: View {
                     Text(block.text ?? "").prism(Prism.Typography.title7)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let badge = block.badge, !badge.isEmpty {
-                        let tone = Self.tone(block.tone)
-                        RoleTag(text: badge, role: tone.role, tint: tone.tint)
+                        PrismTag(text: badge, tone: Self.tone(block.tone))
                     }
                 }
                 if let fields = block.fields, !fields.isEmpty {
                     Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.s13, verticalSpacing: Prism.Spacing.s6) {
                         ForEach(Array(fields.enumerated()), id: \.offset) { _, field in
                             GridRow {
-                                Text(field.label ?? "").foregroundStyle(Prism.Colors.muted(scheme))
+                                Text(field.label ?? "").foregroundStyle(PrismDarkGap.muted(scheme))
                                 Text(field.value ?? "—").frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
@@ -224,75 +222,57 @@ struct OptionView: View {
         .accessibilityLabel(block.n.map { "Option \($0)" } ?? "Option")
     }
 
-    /// A badge's colours by its tone: success, warning, else neutral grey.
-    private static func tone(_ tone: String?) -> (role: Color, tint: Color) {
+    /// A badge's tone: success, warning, else neutral.
+    private static func tone(_ tone: String?) -> PrismTagTone {
         switch tone {
-        case "success": (Prism.Colors.success, Prism.Colors.successLight)
-        case "warning": (Prism.Colors.warning, Prism.Colors.warningLight)
-        default: (Prism.Colors.grey2, Prism.Colors.grey5)
+        case "success": .success
+        case "warning": .warning
+        default: .neutral
         }
     }
 }
 
-/// An option's own answer as a button: its key in a neutral keycap, then its label. A yes
-/// (Choose) is filled in success green with grey1 text (6.3:1) and a light keycap, in both
-/// appearances; one that asks a note (Decline…) is an orange outline in warning, its text
-/// the text's colour. Pending, a spinner in place of its key.
+/// An option's own answer as Prism's button: a yes (Choose) `primary` in success, one that
+/// asks a note (Decline…) `secondary` in warning, which opens the note form. Its key is not
+/// shown (the menu bar lists it, its tooltip names it). Pending, a spinner in place of its
+/// label, as Prism's loading button.
 struct OptionButton: View {
     let answer: PanelAnswerModel
     let pending: Bool
     let take: () -> Void
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let decline = answer.note == true
-        Button(action: take) {
-            HStack(spacing: Prism.Spacing.s6) {
-                if pending {
-                    ProgressView().controlSize(.mini)
-                } else if let glyph = Keycap.glyph(answer.key) {
-                    Keycap(key: glyph, light: !decline)
-                }
-                Text(answer.label ?? "").prism(Prism.Typography.labelSmall)
-            }
-            .foregroundStyle(decline ? (scheme == .dark ? Prism.Colors.white : Prism.Colors.grey1) : Prism.Colors.grey1)
-            .padding(.horizontal, Prism.Spacing.s13)
-            .padding(.vertical, Prism.Spacing.s7)
-            .background(decline ? Color.clear : Prism.Colors.success, in: RoundedRectangle(cornerRadius: Prism.radius))
-            .overlay(RoundedRectangle(cornerRadius: Prism.radius)
-                .strokeBorder(decline ? Prism.Colors.warning : Color.clear, lineWidth: 1.5))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .textSelection(.disabled)
-        .disabled(pending)
-        .help([answer.label, answer.key.map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
+        AnswerLabelButton(label: answer.label ?? "", key: answer.key, pending: pending, take: take)
+            .buttonStyle(decline ? PrismButtonStyle(.secondary, tone: .warning) : PrismButtonStyle(.primary, tone: .success))
     }
 }
 
-/// A short word that sets something apart ("★ Recommended"): grey1 on the role's light
-/// tint, readable in either appearance, the role's colour as its border; the words say it,
-/// not the colour.
-struct RoleTag: View {
-    let text: String
-    let role: Color
-    let tint: Color
+/// A button's label, or a spinner in its place while pending (the label keeps its room);
+/// its key only in its tooltip.
+struct AnswerLabelButton: View {
+    let label: String
+    let key: String?
+    let pending: Bool
+    let take: () -> Void
 
     var body: some View {
-        Text(text).prism(Prism.Typography.captionSmall)
-            .foregroundStyle(Prism.Colors.grey1)
-            .padding(.horizontal, Prism.Spacing.s6).padding(.vertical, Prism.Spacing.s2)
-            .background(tint, in: Capsule())
-            .overlay(Capsule().strokeBorder(role))
-            .fixedSize()
+        Button(action: take) {
+            Text(label)
+                .opacity(pending ? 0 : 1)
+                .overlay { if pending { ProgressView().controlSize(.small) } }
+        }
+        .textSelection(.disabled)
+        .disabled(pending)
+        .help([label, KeyGlyph.glyph(key).map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
     }
 }
 
 /// An `answers` block, on the page itself: a button per answer, in Control's order, each
-/// with its key, each taking its answer as the page's action of that key (`Panel.action`).
-/// The first (the next step) is a yes, green; one that asks a note is a no, orange, as a
-/// panel's answers are; the others (More…) quiet. Under a decision's options (`quiet`),
-/// which are its answers, every one but a no is quiet.
+/// taking its answer as the page's action of that key (`Panel.action`), as Prism's buttons:
+/// the first (the next step) `primary` in success, one that asks a note `secondary` in
+/// warning, the others `plain`. Under a decision's options (`quiet`), which are its
+/// answers, every one but a no is plain.
 struct AnswersView: View {
     let block: AnswersBlock
     var quiet = false
@@ -314,6 +294,29 @@ struct AnswersView: View {
     }
 }
 
+/// An `actions` block: what else can be done with the page's subject, below its answers
+/// and quieter than they are, in one row of Prism's `plain` buttons (unpadded), in
+/// Control's order. One that is dangerous opens Control's confirm first.
+struct OtherActionsView: View {
+    let block: ActionsBlock
+    let act: (ActionModel) -> Void
+    @Environment(\.pendingAction) private var pending
+
+    var body: some View {
+        FlowLayout(spacing: Prism.Spacing.s22) {
+            ForEach(Array(PageActions.buttons(block.actions ?? []).enumerated()), id: \.offset) { _, action in
+                AnswerLabelButton(label: action.label ?? "", key: action.key,
+                                  pending: PageActions.isPending(action, pending)) { act(action) }
+                    .buttonStyle(PrismButtonStyle(.plain, padded: false))
+            }
+        }
+        .font(.system(size: 14))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Prism.Spacing.s15)
+        .padding(.bottom, Prism.Spacing.s10)
+    }
+}
+
 /// A route, the way to something in an app: a muted ⌘, then each part as a small label
 /// with a muted › before the next; a long route wraps before a ›. Dark: primarylight on a
 /// faint primary; light: grey1 on white with a grey3 edge.
@@ -323,10 +326,10 @@ struct RouteLine: View {
 
     var body: some View {
         FlowLayout(spacing: Prism.Spacing.s6) {
-            Text("⌘").foregroundStyle(Prism.Colors.muted(scheme))
+            Text("⌘").foregroundStyle(PrismDarkGap.muted(scheme))
             ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                 HStack(spacing: Prism.Spacing.s6) {
-                    if index > 0 { Text("›").foregroundStyle(Prism.Colors.muted(scheme)) }
+                    if index > 0 { Text("›").foregroundStyle(PrismDarkGap.muted(scheme)) }
                     label(part)
                 }
             }
@@ -337,13 +340,12 @@ struct RouteLine: View {
 
     private func label(_ part: String) -> some View {
         Text(part).prism(Prism.Typography.labelSmall).textSelection(.enabled)
-            .foregroundStyle(scheme == .dark ? Prism.Colors.primaryLight : Prism.Colors.grey1)
+            .foregroundStyle(PrismDarkGap.routeText(scheme))
             .padding(.horizontal, Prism.Spacing.s6)
             .padding(.vertical, 3)
-            .background(scheme == .dark ? Prism.Colors.primary.opacity(0.35) : Prism.Colors.white,
-                        in: RoundedRectangle(cornerRadius: 4))
+            .background(PrismDarkGap.routeFill(scheme), in: RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4)
-                .strokeBorder(scheme == .dark ? Color.clear : Prism.Colors.grey3))
+                .strokeBorder(PrismDarkGap.routeEdge(scheme)))
     }
 }
 
@@ -360,23 +362,22 @@ struct CommandBlock: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
             Text(command).monospaced().textSelection(.enabled)
-                .foregroundStyle(scheme == .dark ? Prism.Colors.white : Prism.Colors.grey1)
+                .foregroundStyle(PrismDarkGap.text(scheme))
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: copy) {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(Prism.Colors.muted(scheme))
+            .foregroundStyle(PrismDarkGap.muted(scheme))
             .help(copied ? "Copied" : "Copy")
             .accessibilityLabel(copied ? "Copied" : "Copy")
         }
         .prism(Prism.Typography.tableRow)
         .padding(.horizontal, Prism.Spacing.s10)
         .padding(.vertical, Prism.Spacing.s7)
-        .background(scheme == .dark ? Prism.Colors.grey1 : Prism.Colors.grey5,
-                    in: RoundedRectangle(cornerRadius: Prism.radius))
+        .background(PrismDarkGap.inset(scheme), in: RoundedRectangle(cornerRadius: Prism.radius))
         .overlay(RoundedRectangle(cornerRadius: Prism.radius)
-            .strokeBorder(scheme == .dark ? Color.white.opacity(0.08) : Prism.Colors.grey4))
+            .strokeBorder(PrismDarkGap.insetEdge(scheme)))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command: \(command)")
     }
