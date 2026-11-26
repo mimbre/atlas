@@ -47,7 +47,8 @@ defmodule AtlasTui.ConsoleView do
     ]
   end
 
-  defp tabs(nil, _active, width), do: [{:dim, fit(" Waiting for Console boot…", width)}]
+  # No tabs before boot: the status line says what the TUI waits for.
+  defp tabs(nil, _active, width), do: [{:dim, String.duplicate(" ", width)}]
 
   # The work tabs, a separator, then the browse tabs, each with its key (as "g s").
   defp tabs(shell, active, width) do
@@ -109,6 +110,4 @@ defmodule AtlasTui.ConsoleView do
       [{style, part} | slice(rest, 0, width - String.length(part))]
     end
   end
-
-  defp fit(text, width), do: String.pad_trailing(String.slice(text, 0, width), width)
 end

@@ -112,7 +112,8 @@ defmodule AtlasTui.ConsoleTest do
       {model, []} = Console.receive(fresh(), welcome)
       refute model.connected
       assert model.console.phase == :unsupported
-      assert screen(model) =~ "did not acknowledge"
+      assert model.offline == :refused
+      assert screen(model) =~ "○ not connected · Control test refused this TUI as its Console"
       {model, []} = Console.receive(model, page())
       assert model.path == nil
     end

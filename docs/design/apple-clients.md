@@ -317,7 +317,7 @@ What differs by platform beyond the layout stays in the platform targets:
 | Forms: text (wraps), multiline (enter = new line), choice, boolean, readonly, errors, Ctrl+S | `AtlasTui.Model`, `AtlasTui.Text`, `AtlasTui.View` | `BlockViews.FormView` in a sheet over the right column; ⌘S / Done |
 | Submit, confirm, refused page (`refused`), errors on the form | `AtlasTui.Console`, `AtlasTui.Model` | `Session.submit(call, values)`; a confirm as a dialog |
 | Pending marker `⋯ being processed`, pending pages | `AtlasTui.View`, `AtlasTui.Console` | `BlockViews` row marker, muted; `Session` |
-| Notices with tone; status bar: connected, updated how and when, position, last hint, reconcile interval | `AtlasTui.View` (`status/2`) | the status bar below the columns |
+| Notices with tone; status bar: connected, updated how and when, position, last hint, reconcile interval; not connected, with why and what happens next in plain words (no message in the content area or over the window) | `AtlasTui.View` (`status/3`) | the status bar below the columns (`StatusViewModel.text`) |
 | Hints for recent paths, refresh every `reconcile_seconds` | `AtlasTui.App`, `AtlasTui.Console` | `Session` with an injected clock |
 | Page cache: newest per path, shown at once on Back and tab switch | `AtlasTui.PageCache` | `Session.cache` |
 | Parts: side by side or stacked; own scroll each; tab moves focus | `AtlasTui.View`, `AtlasTui.Model` | `BlockViews.PartsLayout` |

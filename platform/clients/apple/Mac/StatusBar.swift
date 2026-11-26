@@ -3,21 +3,29 @@ import AppUpdate
 import ControlSession
 import SwiftUI
 
-/// Below the columns: connected or not, the position of the page on screen, how and when
-/// it last changed, the last hint, the reconcile interval, what is being sent and not
-/// answered yet, the app's update and the last notice.
+/// Below the columns: connected or not (when not, why and what happens next, in plain
+/// words: the window shows no message of its own), the position of the page on screen,
+/// how and when it last changed, the last hint, the reconcile interval, what is being sent
+/// and not answered yet, the app's update and the last notice.
 struct StatusBar: View {
     let status: StatusViewModel
     let shell: ShellViewModel
     /// What the app's update says ("Updating to <revision>…"), when it says anything.
     let update: (text: String, tone: UpdateStatus.Tone)?
+    /// What the app's update says when Control closed it as too old, given Control's contract.
+    let closedTooOld: (String) -> String
 
     var body: some View {
         HStack(spacing: 14) {
             HStack(spacing: 5) {
                 Circle().fill(dot).frame(width: 8, height: 8)
+                let connection = status.text(closedTooOld: closedTooOld)
                 Text(connection)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .help(connection)
             }
+            .layoutPriority(1)
             if let position = status.position {
                 Text("position \(position)")
             }
@@ -63,21 +71,11 @@ struct StatusBar: View {
         .background(.bar)
     }
 
-    private var connection: String {
-        switch status.connection {
-        case .idle, .connecting: "connecting…"
-        case .handshake: "saying hello…"
-        case .connected: "connected"
-        case .retrying: "not connected; retrying every 2 s"
-        case .ended: "disconnected"
-        }
-    }
-
     private var dot: Color {
-        switch status.connection {
+        switch status.mark {
         case .connected: .green
-        case .retrying, .ended: .red
-        default: .yellow
+        case .notConnected: .red
+        case .connecting: .yellow
         }
     }
 
