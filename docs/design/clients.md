@@ -153,7 +153,7 @@ nothing about an action, only how it is triggered.
 |---|---|---|---|
 | Main answer | the first of `answers` (or an option's Choose): the next step | `primary` button (success) | key in green |
 | Decline | weight `decline` (`no`, deprecated): Won't do, Decline, Decline all | `secondary` button; one with `note` opens the note form on click, its label unchanged | key in the primary colour, `· note` when it asks one |
-| Other action | the `actions` block: change, hand over, delete, create under | `plain` button, quieter | muted in the key line |
+| Other action | the `actions` block: change, hand over, delete, create under | `plain` button, quieter, its icon in the primary colour (dark: PrismDarkGap's readable primary) | muted in the key line |
 
 - **Mac**: buttons on the page, and the menu bar's **Actions** menu lists the shown page's
   actions with their keys. Keys are invisible on the page (a button's tooltip names its

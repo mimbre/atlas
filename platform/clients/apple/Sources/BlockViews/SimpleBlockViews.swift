@@ -252,7 +252,12 @@ struct PrismActionButton: View {
 
     var body: some View {
         Button(action: take) {
-            if let icon { Label(label, systemImage: icon) } else { Text(label) }
+            // Its icon in the primary colour; its label as Prism's button text.
+            if let icon {
+                Label { Text(label) } icon: { Image(systemName: icon).foregroundStyle(PrismDarkGap.icon(scheme)) }
+            } else {
+                Text(label)
+            }
         }
         .buttonStyle(PrismDarkGap.buttonStyle(variant, tone: tone, padded: padded, loading: pending,
                                               icon: icon != nil, scheme: scheme))

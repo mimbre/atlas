@@ -51,7 +51,7 @@ defmodule AtlasControl.ShellTest do
     send_message(
       s,
       Map.merge(
-        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.37.0"),
+        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.38.0"),
         overrides
       )
     )

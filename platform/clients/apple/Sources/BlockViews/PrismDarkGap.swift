@@ -28,6 +28,11 @@ enum PrismDarkGap {
         pick(scheme, light: Color(hex: 0x3A66DB), dark: Color(hex: 0x7B9AF4))
     }
 
+    /// A button's icon: Prism's primary in light, the readable tint of it in dark.
+    static func icon(_ scheme: ColorScheme) -> Color {
+        pick(scheme, light: Prism.Colors.primary, dark: accentText(scheme))
+    }
+
     /// Prism's selection tint for a row: primarylight under dark text in light; in dark
     /// primary, faint, so light text stays legible.
     static func row(_ scheme: ColorScheme, selected: Bool, hovering: Bool) -> Color {
