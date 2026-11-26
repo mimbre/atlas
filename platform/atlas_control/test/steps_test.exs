@@ -16,9 +16,9 @@ defmodule AtlasControl.StepsTest do
        in the console.
     2. Put it in the vault.
        $ vault put key
-    3. Close the old issues.
-       $ gh issue close 12
-       $ gh issue close 13
+    3. Drop the old tags.
+       $ git tag -d v12
+       $ git tag -d v13
     4. Remove the old key file.
     $ rm ~/.keys/old
     """
@@ -30,8 +30,8 @@ defmodule AtlasControl.StepsTest do
                %{n: 2, text: "Put it in the vault.", commands: ["vault put key"]},
                %{
                  n: 3,
-                 text: "Close the old issues.",
-                 commands: ["gh issue close 12", "gh issue close 13"]
+                 text: "Drop the old tags.",
+                 commands: ["git tag -d v12", "git tag -d v13"]
                },
                %{n: 4, text: "Remove the old key file.", commands: ["rm ~/.keys/old"]}
              ]
