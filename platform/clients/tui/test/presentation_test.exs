@@ -154,7 +154,7 @@ defmodule AtlasTui.PresentationTest do
       assert text =~ "Second"
       assert text =~ "connected"
       for row <- rows, do: assert(Enum.sum(Enum.map(row, &String.length(elem(&1, 1)))) <= width)
-      assert Enum.any?(rows, &Enum.any?(&1, fn {style, _} -> style == :border end))
+      refute text =~ ~r/[┌└]─* ?Widgets/u
 
       for theme <- [:light, :dark] do
         ansi = rows |> View.to_ansi(theme) |> IO.iodata_to_binary()
@@ -211,10 +211,13 @@ defmodule AtlasTui.PresentationTest do
     end
   end
 
-  test "list headings retain their count across the minimum framing width" do
+  test "list headings retain their count at every narrow width" do
     for width <- 1..20 do
       rows = View.render(model(), width, 240, 5)
-      heading = for row <- rows, {:bold, text} <- row, into: "", do: text
+
+      heading =
+        for row <- rows, {style, text} <- row, style == :bold or text =~ "·", into: "", do: text
+
       assert String.replace(heading, ~r/\s/u, "") =~ "Widgets·2"
       for row <- rows, do: assert(Enum.sum(Enum.map(row, &String.length(elem(&1, 1)))) <= width)
     end
