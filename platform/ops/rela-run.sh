@@ -24,9 +24,11 @@ inner=$((port + 1))
 # to the project's .rela/secrets.yaml (only the owner may read it), never printed, and
 # kept from rela's environment. Only the app with the Fly secret GITHUB_WRITE=true (prod's
 # rela, never test's: both read the same repositories) writes to GitHub: closing the pull
-# of an issue closed in Atlas, which also needs the token's Pull requests write permission;
-# a refused close is logged and written to the issue's pr_close_failure. Without a token
-# it reads GitHub anonymously.
+# of an issue closed in Atlas and each pull request recorded to close (its close_reason:
+# superseded by a Retry, its issue removed; never one found by its branch name), which
+# also needs the token's Pull requests write permission; a refused close is logged and
+# written to the issue's pr_close_failure or the pull request's close_failure. Without a
+# token it reads GitHub anonymously.
 mkdir -p /data/rela/.rela
 (
   umask 077

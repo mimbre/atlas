@@ -96,6 +96,24 @@ defmodule Model.PullRequest do
         "Flow: how integrating it ended, or a maintainer's retry (none, done, refused, retry)"
     )
 
+    # Stray pull requests (IS-Atlas-130, IS-Atlas-133): the one an issue leaves behind when a
+    # run replaces its pr_url (Retry past publishing) or the issue is removed in Atlas is
+    # recorded here as one to close, with why. rela's GitHub sync closes exactly these while
+    # they are open, never a pull it finds only by its branch name.
+    field(:close_reason, :string,
+      description:
+        "Atlas: why its pull request is to be closed on GitHub (superseded by <url>, issue removed); rela's GitHub sync closes it while it is open, with a comment saying so",
+      set_by: [:flow, :connector],
+      label: "To close because"
+    )
+
+    field(:close_failure, :string,
+      description:
+        "GitHub: why closing it failed (to close because close_reason); the next sync tries again",
+      set_by: :connector,
+      label: "Close failure"
+    )
+
     primary(:title)
 
     create(

@@ -6,6 +6,8 @@ defmodule Model.GithubSyncTest do
   # pull's head becomes the issue's (pr_head) only when none is recorded or someone else
   # pushed onto it, never when GitHub has not caught up with Code's push yet. What failed
   # (pr_checks_failure) holds only the failing lines of a failed job's log (IS-Atlas-124).
+  # Only pulls recorded to close (close_reason) are closed, never one found by its branch
+  # name, and only with github_write (IS-Atlas-130, IS-Atlas-133).
   use ExUnit.Case, async: false
   @moduletag :rela
   @moduletag :tmp_dir
@@ -19,6 +21,16 @@ defmodule Model.GithubSyncTest do
     def call(conn, %{test: test, routes: routes}) do
       query = if conn.query_string == "", do: "", else: "?" <> conn.query_string
       send(test, {:github, conn.method, conn.request_path <> query})
+
+      # A write (a close, a comment) also says what it sent.
+      conn =
+        if conn.method == "GET" do
+          conn
+        else
+          {:ok, body, conn} = read_body(conn)
+          send(test, {:github_write, conn.method, conn.request_path, JSON.decode!(body)})
+          conn
+        end
 
       case Map.fetch(routes, conn.request_path) do
         # A job's log: plain text, as GitHub's storage answers it.
@@ -359,5 +371,125 @@ defmodule Model.GithubSyncTest do
           "GenServer #PID"
         ],
         do: refute(failure =~ line, failure)
+  end
+
+  # Stray pull requests (IS-Atlas-130, IS-Atlas-133): IS-Atlas-10 was retried past
+  # publishing, so its pr_url names pull 11 and pull 10, which it left behind, is recorded
+  # to close; IS-Atlas-09 was removed in Atlas, its pull x/y#3 recorded to close before it
+  # went, in a repository no remaining issue names. Pull 12 has a fact without a reason;
+  # pull 13, open on an atlas/TK- branch, has no record at all.
+  defp stray_routes do
+    open = fn number, branch ->
+      Map.put(open_pull(number, @sha), "head", %{"sha" => @sha, "ref" => branch})
+    end
+
+    %{
+      "/repos/o/r/pulls" => [
+        open.(10, "atlas/TK-IS-Atlas-10-1"),
+        open.(11, "atlas/TK-IS-Atlas-10-2"),
+        open.(12, "atlas/TK-IS-Atlas-12-1"),
+        open.(13, "atlas/TK-IS-Atlas-13-1")
+      ],
+      "/repos/o/r/pulls/10" => open.(10, "atlas/TK-IS-Atlas-10-1"),
+      "/repos/o/r/pulls/11" => open.(11, "atlas/TK-IS-Atlas-10-2"),
+      "/repos/o/r/pulls/12" => open.(12, "atlas/TK-IS-Atlas-12-1"),
+      "/repos/o/r/pulls/13" => open.(13, "atlas/TK-IS-Atlas-13-1"),
+      "/repos/x/y/pulls/3" => open.(3, "atlas/TK-IS-Atlas-09-1"),
+      "/repos/o/r/issues/10/comments" => %{},
+      "/repos/x/y/issues/3/comments" => %{},
+      "/repos/o/r/commits/#{@sha}/check-runs" => passed(),
+      "/repos/o/r/commits/#{@sha}/status" => @no_statuses
+    }
+  end
+
+  # What the fake GitHub reported so far, forgotten.
+  defp flush do
+    receive do
+      {:github, _, _} -> flush()
+      {:github_write, _, _, _} -> flush()
+    after
+      0 -> :ok
+    end
+  end
+
+  defp strays(dir) do
+    create(dir, "issue", "IS-Atlas-10",
+      title: "Retried",
+      pr_url: "https://github.com/o/r/pull/11",
+      pr_state: "open",
+      pr_head: @sha
+    )
+
+    create(dir, "pull_request", "PR-o-r-10",
+      url: "https://github.com/o/r/pull/10",
+      state: "open",
+      close_reason: "superseded by https://github.com/o/r/pull/11"
+    )
+
+    create(dir, "pull_request", "PR-x-y-3",
+      url: "https://github.com/x/y/pull/3",
+      state: "open",
+      close_reason: "its issue IS-Atlas-09 was removed"
+    )
+
+    create(dir, "pull_request", "PR-o-r-12", url: "https://github.com/o/r/pull/12", state: "open")
+  end
+
+  test "only the pulls recorded to close are closed, each with its reason; none by its branch name",
+       %{tmp_dir: tmp} do
+    port = github(stray_routes())
+    dir = project(tmp, port, ~s(github_token: "test-token"\ngithub_write: "true"\n))
+    strays(dir)
+
+    sync(dir)
+
+    # (1) The pull left behind by the Retry is closed, its comment naming the new one; the
+    # new one stays open.
+    assert_received {:github_write, "PATCH", "/repos/o/r/pulls/10", %{"state" => "closed"}}
+
+    assert_received {:github_write, "POST", "/repos/o/r/issues/10/comments", %{"body" => comment}}
+
+    assert comment =~ "superseded by https://github.com/o/r/pull/11"
+    assert %{"state" => "closed"} = closed = properties(dir, "PR-o-r-10")
+    refute closed["close_failure"]
+    refute_received {:github_write, _, "/repos/o/r/pulls/11", _}
+    assert properties(dir, "IS-Atlas-10")["pr_state"] == "open"
+
+    # (2) The removed issue's recorded pull is closed in a repository no issue names.
+    assert_received {:github_write, "PATCH", "/repos/x/y/pulls/3", %{"state" => "closed"}}
+    assert_received {:github_write, "POST", "/repos/x/y/issues/3/comments", %{"body" => removed}}
+    assert removed =~ "IS-Atlas-09 was removed"
+    assert properties(dir, "PR-x-y-3")["state"] == "closed"
+
+    # (3) Open atlas/TK- pulls with no reason recorded are left alone.
+    refute_received {:github_write, _, "/repos/o/r/pulls/12", _}
+    refute_received {:github_write, _, "/repos/o/r/pulls/13", _}
+    refute_received {:github_write, _, "/repos/o/r/issues/" <> _, _}
+    assert properties(dir, "PR-o-r-12")["state"] == "open"
+
+    # Closed by Atlas is final: the next run reads neither again.
+    flush()
+    sync(dir)
+    refute_received {:github, _, "/repos/o/r/pulls/10"}
+    refute_received {:github, _, "/repos/x/y/pulls/3"}
+  end
+
+  test "without github_write nothing is closed, and why is recorded for the next run",
+       %{tmp_dir: tmp} do
+    port = github(stray_routes())
+    dir = project(tmp, port, ~s(github_token: "test-token"\n))
+    strays(dir)
+
+    sync(dir)
+
+    # (4) Nothing is written to GitHub; each recorded pull says why it is still open.
+    refute_received {:github_write, _, _, _}
+
+    for id <- ["PR-o-r-10", "PR-x-y-3"] do
+      assert %{"state" => "open", "close_failure" => "github_write is not set" <> _} =
+               properties(dir, id)
+    end
+
+    refute properties(dir, "PR-o-r-12")["close_failure"]
   end
 end

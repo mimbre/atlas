@@ -7,9 +7,11 @@ defmodule Model.Issue do
   them for the head `pr_checks_head`, which must be the head Code pushed, `pr_head`; red is
   fixed at most twice, `ci_fixes`), a conflict with develop is updated once
   (`pr_mergeable`, as the sync writes it; `pr_updates`), and its supervisor merges it;
-  merged (`pr_state`, as the GitHub connector copies it) is done. Closed or removed in
-  Atlas, rela's GitHub sync closes its open pull request (`pr_close_failure` when GitHub
-  refused).
+  merged (`pr_state`, as the GitHub connector copies it) is done. Closed in Atlas,
+  rela's GitHub sync closes its open pull request (`pr_close_failure` when GitHub
+  refused). A pull it leaves behind (its `pr_url` replaced by a Retry past publishing, or
+  the issue removed in Atlas) is closed only as recorded: a pull request fact with a
+  `close_reason` (IS-Atlas-130, IS-Atlas-133), never by its branch name.
 
   `pass_result`, `gate_result`, `effect_result` and `pr_outcome` stay on the kind with
   what earlier flows wrote; no flow writes them now. The gates stay defined, for when
