@@ -197,7 +197,26 @@ defmodule AtlasControl.Console do
     Stream.flat_map(blocks, fn block ->
       props = block["props"] || %{}
       on = block["id"]
-      actions = Stream.map(props["actions"] || [], &source_action(&1, on))
+
+      # What the viewer can answer: an `answers` block's answers, an option's own answer
+      # (the recommended one, tone success, on `0` too).
+      answers =
+        case block do
+          %{"type" => "answers"} ->
+            props["answers"]
+
+          %{"type" => "option", "props" => %{"answer" => a, "tone" => "success"}} ->
+            [a, Map.put(a, "key", "0")]
+
+          %{"type" => "option", "props" => %{"answer" => a}} ->
+            [a]
+
+          _ ->
+            []
+        end
+
+      actions = Stream.map((props["actions"] || []) ++ answers, &source_action(&1, on))
+
       links = Stream.map(props["links"] || [], &source_link(&1, on, nil))
       rows = props["rows"] || []
 

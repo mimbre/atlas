@@ -72,17 +72,16 @@ final class TodoPageTests: XCTestCase {
 
     func testTheAnswersAreThePageActionsOnTheirKeysAndNoKeyMovesBetweenSteps() throws {
         let page = try Self.page()
-        let typing = TypingFocus()
 
         XCTAssertEqual(PageActions.all(page).map(\.key), ["x", "n", "m"])
-        let done = try XCTUnwrap(PageActions.action(key: "x", on: [page], typing: typing))
+        let done = try XCTUnwrap(PageActions.action(key: "x", on: [page]))
         XCTAssertEqual(done.submitTo, CallModel(endpoint: "answer", params: ["kind": "chore", "key": "TD-12", "answer": "done"]))
-        let wont = try XCTUnwrap(PageActions.action(key: "n", on: [page], typing: typing))
+        let wont = try XCTUnwrap(PageActions.action(key: "n", on: [page]))
         XCTAssertNil(wont.submitTo, "a no opens its note form")
         XCTAssertEqual(wont.to, "/k/chore/TD-12/answer/n")
-        XCTAssertEqual(PageActions.action(key: "m", on: [page], typing: typing)?.to, "/k/chore/TD-12/more")
+        XCTAssertEqual(PageActions.action(key: "m", on: [page])?.to, "/k/chore/TD-12/more")
         for key in ["Enter", "Up", "Down"] {
-            XCTAssertNil(PageActions.action(key: key, on: [page], typing: typing), "\(key) moves no step")
+            XCTAssertNil(PageActions.action(key: key, on: [page]), "\(key) moves no step")
         }
         XCTAssertEqual(PageActions.label(of: try XCTUnwrap(done.submitTo), on: [page]), "Done")
     }

@@ -2215,11 +2215,21 @@ defmodule AtlasControl.Pages do
 
           deciding ->
             # A page where its owner decides is one stretch, top down: the to-do and its
-            # answers in one line, or the panel the model declares for its state; what is
-            # judged (the choice's options, the section of the fact the state names, the
-            # facts under it, but those the panel lists); then the details.
+            # answers in one line, the panel the model declares for its state, or a choice
+            # as a stack of simple blocks (`decision_blocks/3`) with the page's other next
+            # steps as its answers; what is judged (the section of the fact the state
+            # names, the facts under it, but those the panel lists); then the details.
+            others = next ++ more_action(kind, key, more)
+            choice = Map.get(todo, :choice)
+
             {head, judged, item} =
               case panel do
+                %{"choose" => true} = spec ->
+                  related = Enum.zip(relations, child_answers)
+
+                  {stuck_blocks(m, kind, key, fact, todo, spec, related, others), judged,
+                   put_in(item, ["props", "actions"], [])}
+
                 %{} = spec ->
                   related = Enum.zip(relations, child_answers)
                   {block, listed} = panel_block(m, kind, key, fact, todo, spec, related)
@@ -2230,8 +2240,12 @@ defmodule AtlasControl.Pages do
                      links && Enum.reject(links, &(&1["key"] in keys))
                    end)}
 
+                nil when is_map(choice) ->
+                  {choice_blocks(todo, choice, key, others), judged,
+                   put_in(item, ["props", "actions"], [])}
+
                 nil ->
-                  {decide_blocks(todo, kind, key, next), judged, item}
+                  {decide_blocks(todo, next), judged, item}
               end
 
             content =
@@ -2269,7 +2283,7 @@ defmodule AtlasControl.Pages do
                   {content, markup}
 
                 todo ->
-                  {[{"todo", todo_item(todo, kind, key)} | content],
+                  {[{"todo", todo_item(todo)} | content],
                    [Blocks.part("todo", "todo", title: todo.words.title, role: "todo") | markup]}
               end
 
@@ -3298,23 +3312,24 @@ defmodule AtlasControl.Pages do
           {"step-#{s.n}",
            Blocks.instruction(n: s.n, lines: for(line <- s.lines, do: instruction_line(line)))}
       ) ++
-      [
-        {"answers",
-         Blocks.answers(
-           answers:
-             for(
-               a <- actions,
-               do:
-                 Blocks.panel_answer(
-                   label: a["label"],
-                   key: a["key"],
-                   to: a["to"],
-                   submit_to: a["submit_to"],
-                   note: if(a["key"] in notes, do: true)
-                 )
-             )
-         )}
-      ]
+      [{"answers", answers_block(actions, notes)}]
+  end
+
+  # The page's `actions` as what the viewer can answer, each on its key, those whose key is
+  # in `notes` asking a note.
+  defp answers_block(actions, notes) do
+    Blocks.answers(
+      answers:
+        for a <- actions do
+          Blocks.panel_answer(
+            label: a["label"],
+            key: a["key"],
+            to: a["to"],
+            submit_to: a["submit_to"],
+            note: if(a["key"] in notes, do: true)
+          )
+        end
+    )
   end
 
   defp instruction_line(%{kind: :route, parts: parts}),
@@ -3324,37 +3339,9 @@ defmodule AtlasControl.Pages do
     do: Blocks.instruction_line(kind: Atom.to_string(kind), text: text)
 
   # What its owner is to do (IS-Atlas-54), as the model's `todo/4` gives it: what is
-  # expected, why it came to them, the instructions, the section of the fact they name;
-  # a choice, its options. Every word is the model's or the fact's.
-  defp todo_item(%{choice: %{} = choice} = todo, kind, key) do
-    options =
-      Enum.zip(choice["options"], todo.answers)
-      |> Enum.map(fn {option, answer} ->
-        Blocks.choice_option(
-          id: option["id"],
-          text: option["text"],
-          details: option["details"],
-          effect: option["effect"],
-          rule: option["rule"],
-          consequences: option["consequences"],
-          answer: call_to({:answer, kind, key, answer.name}),
-          note: answer.note,
-          shortcut: answer.key
-        )
-      end)
-
-    Blocks.single_choice(
-      question: choice["question"],
-      options: options,
-      recommended: choice["recommended"],
-      rationale: choice["rationale"],
-      revision: choice["revision"],
-      instructions: todo.instructions <> choice_keys(length(options)),
-      key: key
-    )
-  end
-
-  defp todo_item(todo, _kind, _key),
+  # expected, why it came to them, the instructions, the section of the fact they name.
+  # Every word is the model's or the fact's.
+  defp todo_item(todo),
     do:
       Blocks.item(
         title: "#{todo.title}: #{todo.expected}",
@@ -3363,26 +3350,178 @@ defmodule AtlasControl.Pages do
 
   # Where its owner decides: one line, the to-do and the keys of its answers and of the
   # page's other next steps (`next`: Retry, Pick up, the restart), with what is judged of
-  # the fact itself under it: the section the state names, the choice.
-  defp decide_blocks(todo, kind, key, next) do
-    answered = ["0" | Enum.map(todo.answers, & &1.key)]
+  # the fact itself under it: the section the state names.
+  defp decide_blocks(todo, next) do
+    answered = Enum.map(todo.answers, & &1.key)
 
     steps =
       for action <- next,
           action["key"] not in answered,
           do: "   #{action["key"]} #{action["label"]}"
 
-    line =
-      Blocks.item(
-        title:
-          "#{todo.title}: #{todo.expected}   #{todo.words.answers}: #{answer_keys(todo)}#{steps}",
-        fields: section_pairs(todo)
-      )
+    [
+      {"todo",
+       Blocks.item(
+         title:
+           "#{todo.title}: #{todo.expected}   #{todo.words.answers}: #{answer_keys(todo)}#{steps}",
+         fields: section_pairs(todo)
+       )}
+    ]
+  end
 
-    case todo do
-      %{choice: %{}} -> [{"todo", line}, {"choice", todo_item(todo, kind, key)}]
-      _ -> [{"todo", line}]
-    end
+  # A decision's choice (`todo.choice`): the question, why, then each option with its rule
+  # and what follows from it (a decline: its details).
+  defp choice_blocks(todo, choice, key, others) do
+    options =
+      for {option, a} <- Enum.zip(choice["options"], todo.answers) do
+        fields =
+          if a.note,
+            do: [Blocks.pair(label: "Details", value: option["details"])],
+            else: [
+              Blocks.pair(label: "Rule", value: option["rule"]),
+              Blocks.pair(label: "Then", value: option["consequences"])
+            ]
+
+        %{
+          text: option["text"],
+          recommended: option["id"] == choice["recommended"],
+          answer: a,
+          fields: fields
+        }
+      end
+
+    decision_blocks(
+      [
+        {"header", Blocks.header(eyebrow: "YOUR DECISION", key: key, title: choice["question"])},
+        {"why", Blocks.text(label: "Why", text: choice["rationale"])}
+      ],
+      options,
+      others,
+      todo
+    )
+  end
+
+  # Stuck work, as the model's `panel` with `choose` declares it: its title as the
+  # question, its byline, what went wrong (its `box`), then each answer as an option, the
+  # first recommended, with what it does (`details`); its `actions` (the agent's log) go
+  # with the page's other answers.
+  defp stuck_blocks(m, kind, key, fact, todo, spec, related, others) do
+    k = kind(m, kind) || unknown_kind(kind)
+
+    records =
+      for {name, r} <- spec["records"] || %{}, into: %{} do
+        {name, latest_record(m, related, r)}
+      end
+
+    scope = %{m: m, k: k, key: key, fact: fact, records: records}
+    clauses = byline(scope, spec["byline"] || [], todo)
+    details = spec["details"] || %{}
+    keys = Enum.map(others, & &1["key"])
+
+    options =
+      todo.answers
+      |> Enum.filter(&(&1.key in keys))
+      |> Enum.with_index()
+      |> Enum.map(fn {a, i} ->
+        detail = details[a.key] || Map.get(a, :details)
+
+        %{
+          text: a.label,
+          recommended: i == 0,
+          answer: a,
+          fields:
+            if(detail,
+              do: [Blocks.pair(label: if(a.note, do: "Details", else: "Then"), value: detail)],
+              else: []
+            )
+        }
+      end)
+
+    byline =
+      case clauses do
+        [] ->
+          []
+
+        _ ->
+          text = Enum.map_join(clauses, " · ", & &1["text"])
+          since = Enum.find_value(clauses, & &1["since"])
+          [{"why", Blocks.text(text: text, since: since)}]
+      end
+
+    failure =
+      case panel_box(scope, spec["box"]) do
+        nil ->
+          []
+
+        box ->
+          [{"failure", Blocks.text(label: box["title"], text: box["text"], role: box["tone"])}]
+      end
+
+    decision_blocks(
+      [
+        {"header",
+         Blocks.header(
+           eyebrow: spec["heading"],
+           key: key,
+           title: template(scope, spec["title"] || "") || "—"
+         )}
+      ] ++ byline ++ failure,
+      options,
+      panel_actions(scope, spec["actions"] || []) ++ others,
+      todo
+    )
+  end
+
+  # A decision as a stack of simple blocks (D-0104): `intro` (its header, why, what went
+  # wrong), one `option` block per option, the recommended one first, each with its own
+  # answer: the page's action of the same key (`others`), "Choose", or "Decline…" for one
+  # given with a note; then the rest of `others` as the page's answers.
+  defp decision_blocks(intro, options, others, todo) do
+    by_key = Map.new(others, &{&1["key"], &1})
+    options = Enum.filter(options, &Map.has_key?(by_key, &1.answer.key))
+    taken = Enum.map(options, & &1.answer.key)
+
+    option_blocks =
+      options
+      |> Enum.sort_by(&(!&1.recommended))
+      |> Enum.with_index(1)
+      |> Enum.map(fn {o, n} ->
+        action = by_key[o.answer.key]
+
+        {badge, tone} =
+          cond do
+            o.recommended -> {"★ Recommended", "success"}
+            o.answer.note -> {"Decline · note", "warning"}
+            true -> {nil, nil}
+          end
+
+        {"option-#{n}",
+         Blocks.option(
+           n: n,
+           text: o.text,
+           badge: badge,
+           tone: tone,
+           fields: o.fields,
+           answer:
+             Blocks.panel_answer(
+               label: if(o.answer.note, do: "Decline…", else: "Choose"),
+               key: action["key"],
+               to: action["to"],
+               submit_to: action["submit_to"],
+               note: if(o.answer.note, do: true)
+             )
+         )}
+      end)
+
+    # `0` answers the recommended option again (`answer_actions/3`); its option shows it.
+    rest = Enum.reject(others, &(&1["key"] in ["0" | taken]))
+
+    intro ++
+      option_blocks ++
+      if(rest == [],
+        do: [],
+        else: [{"answers", answers_block(rest, for(a <- todo.answers, a.note, do: a.key))}]
+      )
   end
 
   # -- The panel its owner decides in --------------------------------------------------
@@ -3417,8 +3556,7 @@ defmodule AtlasControl.Pages do
         items: items,
         checks: for(c <- spec["checks"] || [], do: check(scope, c)),
         box: panel_box(scope, spec["box"]),
-        answers: panel_answers(kind, key, todo, spec),
-        choose: if(spec["choose"] == true, do: true),
+        answers: panel_answers(kind, key, todo),
         actions: panel_actions(scope, spec["actions"] || []),
         links: panel_links(scope, spec["links"] || [])
       )
@@ -3556,16 +3694,11 @@ defmodule AtlasControl.Pages do
     Blocks.box(title: box["title"], text: dash(text), tone: box["tone"])
   end
 
-  # The answers, as the page's actions of the same keys (`answer_actions/3`) give them; in
-  # a choice the first is the recommended one. `details` says what each one does.
-  defp panel_answers(kind, key, todo, spec) do
-    choose = spec["choose"] == true
-    details = spec["details"] || %{}
-
+  # The answers, as the page's actions of the same keys (`answer_actions/3`) give them.
+  defp panel_answers(kind, key, todo) do
     todo.answers
     |> Enum.filter(&(&1.change or is_binary(&1.set) or is_binary(&1.remove)))
-    |> Enum.with_index()
-    |> Enum.map(fn {a, i} ->
+    |> Enum.map(fn a ->
       name = Map.get(a, :name) || a.key
 
       to =
@@ -3581,9 +3714,7 @@ defmodule AtlasControl.Pages do
         to: to,
         submit_to:
           if((a.change and a[:name]) && !a.note, do: call_to({:answer, kind, key, name})),
-        note: if(a.note, do: true),
-        recommended: if(choose and i == 0, do: true),
-        detail: details[a.key] || Map.get(a, :details)
+        note: if(a.note, do: true)
       )
     end)
   end
@@ -3684,12 +3815,6 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # A choice's keys select its options by number, `0` the recommended one.
-  defp answer_keys(%{choice: %{}, answers: answers}),
-    do:
-      Enum.map_join(Enum.uniq([hd(answers), List.last(answers)]), "–", & &1.key) <>
-        "   0 Recommended"
-
   defp answer_keys(todo), do: Enum.map_join(todo.answers, "   ", &"#{&1.key} #{&1.label}")
 
   # Why it came to its owner, and how to do it.
@@ -3712,13 +3837,6 @@ defmodule AtlasControl.Pages do
     do: [Blocks.pair(label: heading, value: text)]
 
   defp section_pairs(_todo), do: []
-
-  # How the numbered shortcuts `answer_actions/3` binds select a choice. Past 9 choices
-  # a number takes more than one key, so it is typed and then confirmed.
-  defp choice_keys(count),
-    do:
-      "\n0 selects recommended choice 1." <>
-        if(count > 9, do: " Type a number, then Enter.", else: "")
 
   @doc "The owner's answer `name` (one that writes a change), from fresh item reads; or nil."
   def declared_answer(m, kind, "_restart-" <> run, answers, form) do

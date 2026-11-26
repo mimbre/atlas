@@ -3,34 +3,30 @@ import SwiftUI
 
 /// A page: its title and its blocks. Its lists' rows are the page's selection: selecting
 /// one (a click, or the arrow keys) calls `open` with its `to`, and the row whose `to` is
-/// `selectedPath` shows selected. `submit` is called with a call a block declares (a
-/// choice's answer) and its values; `act` with an action a block declares (its button).
-/// Under a block are only its own actions; the page's (`PageActions.ofPage`) are in the
-/// header, the page's title with them, when `header` is set, else where the page's
+/// `selectedPath` shows selected. `act` is called with an action a block declares (its
+/// button). Under a block are only its own actions; the page's (`PageActions.ofPage`) are
+/// in the header, the page's title with them, when `header` is set, else where the page's
 /// container puts them (the window's toolbar). A page with a panel (`hasPanel`) has no
 /// header: the panel names what it is about, and its buttons are the page's actions. A page
 /// with a `header` block (`hasHeader`) has that in place of its own: the page's actions
 /// beside its title. Its `text` and `answers` blocks are on the page too, each `instruction`
-/// in a card of its own.
+/// and each `option` in a card of its own.
 public struct PageView: View {
     let presentation: PagePresentation
     let pageActions: [ActionModel]
     let header: Bool
     let selectedPath: String?
     let open: (String) -> Void
-    let submit: (CallModel, [String: String]) -> Void
     let act: (ActionModel) -> Void
 
     public init(page: PageMessage, header: Bool = false, selectedPath: String? = nil,
                 open: @escaping (String) -> Void,
-                submit: @escaping (CallModel, [String: String]) -> Void = { _, _ in },
                 act: @escaping (ActionModel) -> Void = { _ in }) {
         presentation = PagePresentation(page)
         pageActions = PageActions.ofPage(page)
         self.header = header
         self.selectedPath = selectedPath
         self.open = open
-        self.submit = submit
         self.act = act
     }
 
@@ -72,8 +68,8 @@ public struct PageView: View {
                     still(entryView(entry))
                 case .section(let section):
                     still(sectionView(section))
-                case .instructions(let blocks):
-                    still(InstructionsView(blocks: blocks))
+                case .cards(let items):
+                    still(CardStack(items: items, act: act))
                 case .details(let details):
                     still(detailsView(details))
                 }
@@ -83,8 +79,8 @@ public struct PageView: View {
     }
 
     /// A row of the page's list: the page's header, a list block's title, its empty text,
-    /// one of its rows (the page's selection), its actions; steps that follow each other
-    /// (one stack of cards); or any other block, or a section, as one row.
+    /// one of its rows (the page's selection), its actions; cards that follow each other
+    /// (steps, options: one stack); or any other block, or a section, as one row.
     private struct Line: Identifiable {
         enum Content {
             case header
@@ -93,7 +89,7 @@ public struct PageView: View {
             case row(RowModel)
             case actions([ActionModel])
             case entry(PagePresentation.Entry)
-            case instructions([InstructionBlock])
+            case cards([PagePresentation.Item])
             case section(PagePresentation.Section)
             case details(PagePresentation.Details)
         }
@@ -124,21 +120,21 @@ public struct PageView: View {
     }
 
     /// The rows of `groups`, top down, each id made of its block's (the header's, which no
-    /// block's id can be, its own); steps that follow each other are one row, by the first's.
+    /// block's id can be, its own); cards that follow each other are one row, by the first's.
     private func lines(_ groups: [PagePresentation.Group], header: Bool) -> [Line] {
         var blocks: [Line] = []
         for group in groups {
             switch group {
             case .section(let section):
                 blocks.append(Line(id: group.id, content: .section(section)))
+            case .entry(let entry) where CardStack.stacks(entry.item):
+                if let last = blocks.last, case .cards(let cards) = last.content {
+                    blocks[blocks.count - 1] = Line(id: last.id, content: .cards(cards + [entry.item]))
+                } else {
+                    blocks.append(Line(id: group.id, content: .cards([entry.item])))
+                }
             case .entry(let entry):
                 switch entry.item {
-                case .instruction(let step):
-                    if let last = blocks.last, case .instructions(let steps) = last.content {
-                        blocks[blocks.count - 1] = Line(id: last.id, content: .instructions(steps + [step]))
-                    } else {
-                        blocks.append(Line(id: group.id, content: .instructions([step])))
-                    }
                 case .list(let list):
                     if let title = list.title { blocks.append(Line(id: group.id + "/title", content: .title(title))) }
                     if list.rows.isEmpty, let empty = list.empty {
@@ -184,18 +180,14 @@ public struct PageView: View {
         switch entry.item {
         case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
         case .item(let item): ItemBlockView(item: item, inDetails: inDetails, act: act)
-        case .singleChoice(let choice):
-            // A view of its own per page and revision: nothing typed for one
-            // decision stays for another.
-            SingleChoiceView(block: choice, others: panelActions, act: act, submit: submit)
-                .id(SingleChoiceView.identity(path: presentation.path, block: choice))
+        case .option(let option): OptionView(block: option, act: act)
         case .panel(let panel):
             // A view of its own per page: a selection never stays for another page.
             PanelView(block: panel, others: panelActions, open: open, act: act).id(presentation.path)
         case .header(let block): HeaderBlockView(block: block, actions: headerActions, act: act)
         case .text(let text): TextBlockView(block: text)
         case .instruction(let instruction): InstructionView(block: instruction)
-        case .answers(let answers): AnswersView(block: answers, act: act)
+        case .answers(let answers): AnswersView(block: answers, quiet: presentation.hasOptions, act: act)
         // A page that asks is shown over the window (ActionPageView), not in a column.
         case .form: FallbackView(type: "form", reason: nil)
         case .confirm: FallbackView(type: "confirm", reason: nil)

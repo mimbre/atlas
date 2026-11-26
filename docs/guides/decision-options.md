@@ -55,17 +55,19 @@ decision, keeps its existing rule, status and a/f answers without invented
 alternatives or selections.
 
 The native model's semantic answer IDs include the displayed revision and stable
-option ID. The BFF `single_choice` block separately supplies question, ordered
-options, recommended ID, rationale, revision and each option's answer call. A radio,
-dropdown or cards renderer can use the same calls without a model, schema or Flow
-change. Keyboard shortcuts are projection data. The TUI invokes a generic declared
-call and does not recognize decision kinds or interpret option effects. It shows the
-block as a decision panel: the question, why, the options one per line in Control's
-order (the recommended one labelled, one given with a note labelled `decline · note`),
-and the selected option's rule and consequences (a note option: its details). ↑/↓
-select an option, starting on the recommended one; Enter answers it with the option's
-own projected key, so a note option still opens its note form. The key line names
-only keys Control projects there.
+option ID. Control shows the offer as a stack of simple blocks (D-0104): a
+`header` (YOUR DECISION, the key, the question), a `text` (Why: the rationale),
+then one `option` block per option in order, the recommended one first: its
+number, its text, a badge (`★ Recommended`, or `Decline · note` for an option
+given with a note), its Rule and Then (a decline: its Details) and its own
+answer, the page's action on the option's key (Choose, or Decline… which opens
+the note form). A radio, dropdown or cards renderer can use the same answers
+without a model, schema or Flow change. Keyboard shortcuts are projection data.
+The TUI invokes a generic declared call and does not recognize decision kinds or
+interpret option effects. It frames each option, the selected one in the primary
+frame; ↑/↓ select an option, starting on the recommended one, and never answer;
+Enter answers the selected one exactly as its key does, so a decline still opens
+its note form. The Mac shows each option as a card with its own button.
 
 The single-choice mechanism in `products/software_factory/model/generator` (`RelaDSL.DecisionOptions`) is generic:
 it knows no decision fields, statuses or wording. A kind passes them in with its
@@ -91,8 +93,10 @@ by the kind's `panel(...)` rule; Control fills it and names no kinds. ◆ TO ACC
 (a use case or scene in accepting) lists what is to be built, with What / Done /
 Needs per item. ◆ TO MERGE (an issue in merging) shows CI, the review's verdict and
 GitHub's state, with only the keys the page has (open on GitHub, full review).
-◆ YOUR DECISION (stuck work) shows the task, the failed attempt and how long it has
-been stuck, the recorded failure in a "What went wrong" box, and the page's answers
-as a choice with the first one recommended. Every answer is one of the page's
-existing actions with its own key; Not accepted is `n`, and a no answer opens the
-note form.
+Every answer is one of the page's existing actions with its own key; Not
+accepted is `n`, and a no answer opens the note form. Stuck work (a panel with
+`choose`) is no panel but the same stack as a decision: YOUR DECISION and its
+title, the task, the failed attempt and how long it has been stuck, the recorded
+failure in a "What went wrong" text with role error (Mac: a red-tinted card; TUI:
+a red frame), then each answer as an `option`, the first recommended, with what
+it does (Then), and the agent's log among the other answers.

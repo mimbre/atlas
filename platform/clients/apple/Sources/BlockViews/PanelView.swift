@@ -2,17 +2,15 @@ import AtlasControlKit
 import ControlSession
 import SwiftUI
 
-/// A `panel` block, where its owner decides (to accept, to merge, stuck work), in the calm
-/// card the details below it have too (`PrismCard`): the eyebrow (the heading) over the
-/// title with its key (and the aside at its right), the byline, the items it is judged on
-/// (the selected one on a light background, its details under them), its checks (✓ ✗ … —,
-/// by state), its box, then at the bottom its answers and the page's other actions and
-/// links, each with its key. Without `choose` the answers are buttons, a yes green and a no
-/// (with a note) orange; ↑ ↓ select an item and Return opens it. With `choose` the answers
-/// are a choice, the recommended one selected at first, the selected one's detail under
-/// it; ↑ ↓ move the selection and Return answers it (`PanelKeys`). An answer is the page's
-/// action of its key (`Panel.action`): `act` submits its call, or opens its page (a no's
-/// note form). `others`: the page's actions besides (More…).
+/// A `panel` block, where its owner decides (to accept, to merge), in the calm card the
+/// details below it have too (`PrismCard`): the eyebrow (the heading) over the title with
+/// its key (and the aside at its right), the byline, the items it is judged on (the
+/// selected one on a light background, its details under them), its checks (✓ ✗ … —, by
+/// state), its box, then at the bottom its answers and the page's other actions and links,
+/// each with its key. The answers are buttons, a yes green and a no (with a note) orange;
+/// ↑ ↓ select an item and Return opens it (`PanelKeys`). An answer is the page's action of
+/// its key (`Panel.action`): `act` submits its call, or opens its page (a no's note form).
+/// `others`: the page's actions besides (More…).
 struct PanelView: View {
     let block: PanelBlock
     let others: [ActionModel]
@@ -57,9 +55,6 @@ struct PanelView: View {
             if let box = block.box {
                 PanelBox(box: box)
             }
-            if panel.choosing {
-                choice
-            }
             if let pending, pending.kind == .sending {
                 HStack(spacing: Prism.Spacing.s6) {
                     ProgressView().controlSize(.small)
@@ -92,7 +87,7 @@ struct PanelView: View {
     private var items: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s2) {
             ForEach(Array(panel.items.enumerated()), id: \.element.key) { offset, item in
-                PanelRow(marker: offset == panel.selected, key: item.key, label: item.label, tags: [],
+                PanelRow(marker: offset == panel.selected, key: item.key, label: item.label,
                          accessibility: "\(item.key): \(item.label)", hint: "Select; again to open (↑ ↓, Return)") {
                     apply(panel.click(item: item))
                 }
@@ -100,35 +95,13 @@ struct PanelView: View {
         }
     }
 
-    /// The answers as a choice, as the single choice shows its options, and what the
-    /// selected one does.
-    private var choice: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s6) {
-            VStack(alignment: .leading, spacing: Prism.Spacing.s2) {
-                ForEach(Array(panel.answers.enumerated()), id: \.element.key) { offset, answer in
-                    PanelRow(marker: offset == panel.selected, key: answer.key, label: answer.label,
-                             tags: Self.tags(answer), accessibility: "Answer \(answer.key): \(answer.label)",
-                             hint: "Answer (\(answer.key); ↑ ↓ choose, Return answers the selected one)") {
-                        apply(panel.answer(answer))
-                    }
-                }
-            }
-            if let detail = panel.selectedAnswer?.detail, !detail.isEmpty {
-                Text(detail).prism(Prism.Typography.caption).foregroundStyle(muted)
-                    .padding(.leading, Prism.Spacing.s10)
-            }
-        }
-    }
-
-    /// At the bottom: the answers as buttons (not in a choice), then the panel's actions
-    /// and links, and the page's other actions, each with its key.
+    /// At the bottom: the answers as buttons, then the panel's actions and links, and the
+    /// page's other actions, each with its key.
     private var buttons: some View {
         FlowLayout(spacing: Prism.Spacing.s10) {
-            if !panel.choosing {
-                ForEach(panel.answers, id: \.key) { answer in
-                    AnswerButton(answer: answer, pending: PageActions.isPending(Panel.action(answer), pending)) {
-                        apply(panel.answer(answer))
-                    }
+            ForEach(panel.answers, id: \.key) { answer in
+                AnswerButton(answer: answer, pending: PageActions.isPending(Panel.action(answer), pending)) {
+                    apply(panel.answer(answer))
                 }
             }
             ForEach(Array(((block.actions ?? []) + others).enumerated()), id: \.offset) { _, action in
@@ -139,17 +112,6 @@ struct PanelView: View {
             }
         }
         .textSelection(.disabled)
-    }
-
-    private static func tags(_ answer: PanelAnswerModel) -> [RoleTagModel] {
-        var tags: [RoleTagModel] = []
-        if answer.recommended == true {
-            tags.append(RoleTagModel(text: "★ recommended", role: Prism.Colors.success, tint: Prism.Colors.successLight))
-        }
-        if answer.note == true {
-            tags.append(RoleTagModel(text: "· note", role: Prism.Colors.warning, tint: Prism.Colors.warningLight))
-        }
-        return tags
     }
 
     private func apply(_ outcome: Panel.Outcome) {
@@ -197,19 +159,12 @@ struct PanelHeading: View {
     }
 }
 
-struct RoleTagModel: Hashable {
-    let text: String
-    let role: Color
-    let tint: Color
-}
-
-/// One item or answer, one row: its key, its label, and at the right what sets it apart.
-/// The selected row is on Prism's selection tint; hovering one shows it takes a click.
+/// One item, one row: its key and its label. The selected row is on Prism's selection
+/// tint; hovering one shows it takes a click.
 struct PanelRow: View {
     let marker: Bool
     let key: String
     let label: String
-    let tags: [RoleTagModel]
     let accessibility: String
     var hint: String = ""
     let take: () -> Void
@@ -222,9 +177,6 @@ struct PanelRow: View {
                 Text(key).monospaced().foregroundStyle(Prism.Colors.muted(scheme)).fixedSize()
                 Text(label).bold(marker)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                ForEach(tags, id: \.self) { tag in
-                    RoleTag(text: tag.text, role: tag.role, tint: tag.tint)
-                }
             }
             .prism(Prism.Typography.tableRow)
             .multilineTextAlignment(.leading)
@@ -238,7 +190,7 @@ struct PanelRow: View {
                     in: RoundedRectangle(cornerRadius: Prism.radius))
         .onHover { hovering = $0 }
         .help(hint)
-        .accessibilityLabel(accessibility + tags.map { ", " + $0.text }.joined())
+        .accessibilityLabel(accessibility)
         .accessibilityAddTraits(marker ? [.isSelected] : [])
     }
 }
@@ -307,6 +259,24 @@ struct PanelBox: View {
             Text(box.text).frame(maxWidth: .infinity, alignment: .leading)
         }
         .modifier(Framed(border: box.tone == "error" ? Prism.Colors.error : nil))
+    }
+}
+
+/// A text without a title, in caption type, on a faint surface; framed only with `border`
+/// (an error), the one frame that says something.
+struct Framed: ViewModifier {
+    var border: Color?
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .prism(Prism.Typography.caption)
+            .textSelection(.enabled)
+            .padding(Prism.Spacing.s10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(scheme == .dark ? Color.white.opacity(0.05) : Prism.Colors.grey6,
+                        in: RoundedRectangle(cornerRadius: Prism.radius))
+            .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(border ?? .clear))
     }
 }
 
@@ -380,14 +350,17 @@ struct KeyButton: View {
 
 /// A key, as macOS shows a menu's shortcut: a small neutral keycap (grey5 with a thin grey3
 /// border in light, a grey a little lighter than the surface in dark), in the text's own
-/// colour. Inside a button (`inButton`) it is quieter: no fill, the label's colour.
+/// colour. Inside a button (`inButton`) it is quieter: no fill, the label's colour. `light`,
+/// on a filled button: white with a faint grey1 edge and grey1 text, in either appearance.
 struct Keycap: View {
     let key: String
     var inButton = false
+    var light = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Text(key).font(.caption.monospaced())
+            .foregroundStyle(light ? AnyShapeStyle(Prism.Colors.grey1) : AnyShapeStyle(.foreground))
             .padding(.horizontal, Prism.Spacing.s5).padding(.vertical, Prism.Spacing.s1)
             .background(fill, in: RoundedRectangle(cornerRadius: Prism.radius))
             .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(border, lineWidth: 0.5))
@@ -397,11 +370,13 @@ struct Keycap: View {
     }
 
     private var fill: Color {
+        if light { return Prism.Colors.white }
         if inButton { return .clear }
         return scheme == .dark ? Color.white.opacity(0.12) : Prism.Colors.grey5
     }
 
     private var border: Color {
+        if light { return Prism.Colors.grey1.opacity(0.35) }
         if inButton { return Color.primary.opacity(0.3) }
         return scheme == .dark ? Color.white.opacity(0.2) : Prism.Colors.grey3
     }

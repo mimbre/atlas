@@ -107,7 +107,7 @@ defmodule AtlasAgent.FakeControl do
 
   @doc """
   Blocks the page of `key` opens with, before its item, as Control sends its owner's
-  to-do (a `todo` item, a `single_choice`, its steps as `instruction` blocks) or anything else a page may hold.
+  to-do (a `todo` item, its options as `option` blocks, its steps as `instruction` blocks) or anything else a page may hold.
   """
   def lead(control, key, blocks),
     do: Agent.update(control.store, &put_in(&1, [:lead, key], blocks))
