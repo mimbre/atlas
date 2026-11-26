@@ -190,10 +190,11 @@ defmodule AtlasAgent do
              "key" => key,
              "path" => page["path"],
              "title" => item["title"],
-             "fields" => Enum.map(item["fields"] || [], &[&1["label"], &1["value"]]),
+             "fields" => pairs(item["fields"]),
              "origins" => origins,
              "lists" => lists(page),
-             "values" => values
+             "values" => values,
+             "more" => more(page)
            }
            |> then(&if(todo, do: Map.put(&1, "todo", todo_of(todo)), else: &1))}
 
@@ -250,7 +251,7 @@ defmodule AtlasAgent do
   defp todo_of(todo),
     do: %{
       "title" => todo["title"],
-      "fields" => Enum.map(todo["fields"] || [], &[&1["label"], &1["value"]])
+      "fields" => pairs(todo["fields"])
     }
 
   @doc """
@@ -392,7 +393,30 @@ defmodule AtlasAgent do
 
   @doc "The contract's fields of a block (its `type`, a string) or of a model (an atom); nil when unknown."
   def fields(block) when is_binary(block), do: @blocks[block]
+
   def fields(model), do: @models[model]
+
+  # Label-value pairs as `[label, value]`, texts only: an entry or value of another shape
+  # (a newer Control's) is left out, never a crash (D-0105).
+  defp pairs(fields) when is_list(fields) do
+    for %{} = pair <- fields,
+        do: [text(pair["label"]), text(pair["value"])]
+  end
+
+  defp pairs(_fields), do: []
+
+  defp text(value) when is_binary(value), do: value
+  defp text(_value), do: nil
+
+  # Blocks of a type this client does not know (a newer Control's, D-0105), in plain
+  # words: `[%{"title", "lines"}]`, those that say nothing in words left out.
+  defp more(page) do
+    for %{"type" => type} = block <- page["blocks"] || [],
+        is_binary(type) and not Map.has_key?(@blocks, type),
+        {title, lines} = AtlasBFF.Targets.Client.plain(block["props"]),
+        title != nil or lines != [],
+        do: %{"title" => title, "lines" => lines}
+  end
 
   @doc "The actions Control offers on `page`: every `action` its blocks hold, in order."
   def actions(page), do: found(page, :action)

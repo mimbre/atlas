@@ -233,7 +233,7 @@ defmodule AtlasBFF.Targets.SwiftTest do
     assert header == "// " <> Header.text("c.ex")
   end
 
-  test "a struct per model, block and kind of markup, required fields required" do
+  test "a struct per model, block and kind of markup: every field optional to a client (D-0105)" do
     models = file("Sources/MyKit/Models.swift")
     blocks = file("Sources/MyKit/Blocks.swift")
     markup = file("Sources/MyKit/Markup.swift")
@@ -248,19 +248,22 @@ defmodule AtlasBFF.Targets.SwiftTest do
       assert source =~ "public struct #{type}: Codable, Sendable, Equatable {"
     end
 
-    assert models =~ "    public var label: String\n"
+    assert models =~ "    public var label: String?\n"
     assert models =~ "    public var to: String?\n"
     assert models =~ "    public var tags: [String: String]?\n"
     assert models =~ "    public var links: [LinkModel]?\n"
-    assert blocks =~ "    public var title: String\n"
+    assert blocks =~ "    public var title: String?\n"
     assert blocks =~ "    public var count: Int?\n"
     # A Swift keyword is escaped; a snake_case name is camelCased, keyed by its wire name.
     assert blocks =~ "    public var `in`: Bool?\n"
 
     assert blocks =~
-             "public init(title: String, count: Int? = nil, links: [LinkModel]? = nil, `in`: Bool? = nil)"
+             "public init(title: String? = nil, count: Int? = nil, links: [LinkModel]? = nil, `in`: Bool? = nil)"
 
-    assert markup =~ "    public var title: String\n"
+    assert markup =~ "    public var title: String?\n"
+
+    # Each field decodes on its own: missing or of another type, it is nil.
+    assert blocks =~ "title = try? c.decodeIfPresent(String.self, forKey: .title)"
   end
 
   test "an unknown or broken block, or markup entry, falls back with a reason and its JSON" do
@@ -417,7 +420,7 @@ defmodule AtlasBFF.Targets.SwiftTest do
     for name <- ~w(
           test_version
           test_block_card_decodes_and_round_trips
-          test_block_card_without_title_or_with_a_wrong_one_falls_back
+          test_block_card_without_title_or_with_a_wrong_one_decodes_without_it
           test_block_rule_line_decodes_and_round_trips
           test_an_unknown_block_or_one_that_is_none_falls_back_and_round_trips
           test_a_list_of_blocks_keeps_every_known_block_around_a_fallback
@@ -432,21 +435,17 @@ defmodule AtlasBFF.Targets.SwiftTest do
           test_front_message_page_nudge_decodes_and_round_trips
           test_front_message_of_an_unknown_op_is_unknown_and_round_trips
           test_front_request_of_an_unknown_op_does_not_decode
-          test_front_message_hi_whose_fields_do_not_decode_is_undecodable
+          test_front_message_hi_without_a_field_or_with_a_wrong_one_still_decodes
           test_side_message_drawn_decodes_and_round_trips
         ) do
       assert tests =~ "func #{name}()", name
     end
 
-    # Reasons are compared as cases with paths, not as text.
-    assert tests =~ ~s|Fallback.Reason.missing(path: ["title"])|
-    assert tests =~ ~s|Fallback.Reason.wrongType(path: ["title"])|
-    assert tests =~ ~s|Fallback.Reason.missing(path: ["name"])|
-    refute tests =~ "is missing"
-    refute tests =~ "wrong type\""
+    assert tests =~ "XCTAssertNil(props.title)"
+    assert tests =~ "XCTAssertNil(message.name)"
 
-    # drawn carries only a block, which never fails: no undecodable test on side.
-    refute tests =~ "test_side_message_drawn_whose_fields_do_not_decode"
+    # drawn carries only a block, which never fails: no such test on side.
+    refute tests =~ "test_side_message_drawn_without_a_field"
 
     fixtures = file("Tests/MyKitTests/FixtureTests.swift")
     assert fixtures =~ "func test_front_sent_lines_decode_and_round_trip()"
@@ -460,7 +459,7 @@ defmodule AtlasBFF.Targets.SwiftTest do
     refute fixtures =~ "of_this_contract_version"
   end
 
-  test "the undecodable test never leaves out or breaks a field the selector names" do
+  test "the tolerance test never leaves out or breaks a field the selector names" do
     # drawn is selected by `mark` being present and by a literal `kind`, both also required
     # fields: left out, the message would match no case, so neither is a candidate.
     drawn = %{
@@ -481,16 +480,16 @@ defmodule AtlasBFF.Targets.SwiftTest do
     end
 
     tests = file("Tests/MyKitTests/ContractTests.swift", with_drawn.(drawn))
-    refute tests =~ "test_side_message_drawn_whose_fields_do_not_decode"
-    refute tests =~ ~s|missing(path: ["mark"])|
-    refute tests =~ ~s|missing(path: ["kind"])|
+    refute tests =~ "test_side_message_drawn_without_a_field"
 
     # With a required field the selector does not name, that field is the one.
     drawn = %{drawn | required: Map.put(drawn.required, "size", :integer)}
     tests = file("Tests/MyKitTests/ContractTests.swift", with_drawn.(drawn))
-    assert tests =~ "func test_side_message_drawn_whose_fields_do_not_decode_is_undecodable()"
-    assert tests =~ ~s|Fallback.Reason.missing(path: ["size"])|
-    assert tests =~ ~s|Fallback.Reason.wrongType(path: ["size"])|
+
+    assert tests =~
+             "func test_side_message_drawn_without_a_field_or_with_a_wrong_one_still_decodes()"
+
+    assert tests =~ "XCTAssertNil(message.size)"
   end
 
   test "with version_field, the fixtures of a channel whose messages carry it must carry this version" do

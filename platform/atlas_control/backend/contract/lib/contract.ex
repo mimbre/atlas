@@ -63,7 +63,11 @@ defmodule AtlasBFFContract.Contract do
   # 0.32.0: a decision as a stack of simple blocks: one `option` block per option and a
   # `text`'s `role` (error: what went wrong), in place of `single_choice` (and its
   # `choice_option`) and a panel's `choose` (and a `panel_answer`'s `recommended`, `detail`).
-  version "0.32.0"
+  # 0.33.0 (D-0105): clients are tolerant readers: every field is optional to a client
+  # (`required` binds Control), an unknown block shows plainly, and Control welcomes a
+  # client of any version (its welcome says Control's); `bye`'s `reason` and `spec` are
+  # deprecated, never sent. A change is additive; what goes is deprecated first.
+  version "0.33.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

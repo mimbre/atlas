@@ -17,6 +17,9 @@ public struct StatusViewModel: Sendable, Equatable {
     public var openFailure: SessionState.OpenFailure?
     /// What the user did that is not answered yet ("Sending “Pick up”…"), at once.
     public var pending: String?
+    /// Connected to a Control that speaks another contract version: which is newer, in
+    /// plain words (D-0105: a difference never blocks, it is only said). Nil when the same.
+    public var versionWarning: String?
 
     public init(_ state: SessionState) {
         connection = state.connection
@@ -29,6 +32,9 @@ public struct StatusViewModel: Sendable, Equatable {
         notice = state.notice
         openFailure = state.openFailure
         pending = state.pending?.text
+        versionWarning = state.connection == .connected
+            ? Self.versionWarning(env: state.settings.env, control: state.controlSpec, app: Contract.version)
+            : nil
     }
 
     public var isConnected: Bool { connection == .connected }
@@ -46,23 +52,17 @@ public struct StatusViewModel: Sendable, Equatable {
     }
 
     /// The connection in plain words, compact: connected, or not with why and what happens
-    /// next, as the app knows it (the TUI's status line says the same). A session Control
-    /// closed as too old is worded by the app's update (`closedTooOld`, given Control's
-    /// contract): what each side speaks and what to do, also for a local build.
-    public func text(ownContract: String = Contract.version, closedTooOld: (String) -> String) -> String {
+    /// next, as the app knows it (the TUI's status line says the same). A contract version
+    /// never ends the session (D-0105): `versionWarning` says a difference.
+    public func text(ownContract: String = Contract.version) -> String {
         let retries = "retries every \(SessionState.retrySeconds.formatted()) s"
         switch connection {
         case .connected:
             return "connected"
         case .ended(.bye(let text)):
             return "not connected · \(text)"
-        case .ended(.tooOld(let control, _)):
-            return "not connected · \(closedTooOld(control))"
         case .ended(.incompatible(let welcome)):
-            if welcome.env == env, welcome.surface == "console", Self.older(welcome.spec, than: ownContract) {
-                return "not connected · this app is newer than \(env) (\(ownContract) vs \(welcome.spec)); open it again once \(env) is updated"
-            }
-            return "not connected · Control \(welcome.env) speaks contract \(welcome.spec); this app implements \(ownContract) for \(env)"
+            return "not connected · Control's welcome is for \(welcome.env ?? "another environment") (surface \(welcome.surface ?? "none")); this app is for \(env), surface console"
         case .ended(.unreadableWelcome(let reason)):
             return "not connected · Control's welcome could not be read (\(reason)); this app speaks contract \(ownContract)"
         case .ended(.stopped):
@@ -76,11 +76,30 @@ public struct StatusViewModel: Sendable, Equatable {
         }
     }
 
-    /// Whether contract version `spec` (x.y.z) is older than `own`.
-    static func older(_ spec: String, than own: String) -> Bool {
-        let parts = { (text: String) in text.split(separator: ".").map { Int($0) ?? 0 } }
-        let theirs = parts(spec), ours = parts(own)
-        guard theirs.count == 3, ours.count == 3 else { return false }
-        return theirs.lexicographicallyPrecedes(ours)
+    /// "prod is newer (0.33 vs 0.32); some parts may look plain" when Control is newer,
+    /// "this app is newer than prod (0.33 vs 0.32)" when the app is; nil when they match
+    /// (or Control named no version).
+    static func versionWarning(env: String, control: String?, app: String) -> String? {
+        guard let control, control != app else { return nil }
+        let theirs = short(control), ours = short(app)
+        if newer(control, than: app) {
+            return "\(env) is newer (\(theirs) vs \(ours)); some parts may look plain"
+        }
+        return "this app is newer than \(env) (\(ours) vs \(theirs))"
+    }
+
+    /// A version without a ".0" patch: 0.33.0 → 0.33.
+    static func short(_ version: String) -> String {
+        version.split(separator: ".").count == 3 && version.hasSuffix(".0") ? String(version.dropLast(2)) : version
+    }
+
+    /// Whether `a` is a later version than `b`, part by number (a missing part is 0).
+    static func newer(_ a: String, than b: String) -> Bool {
+        let x = a.split(separator: ".").map { Int($0) ?? 0 }, y = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(x.count, y.count) {
+            let p = i < x.count ? x[i] : 0, q = i < y.count ? y[i] : 0
+            if p != q { return p > q }
+        }
+        return false
     }
 }

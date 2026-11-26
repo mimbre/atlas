@@ -8,9 +8,9 @@ defmodule AtlasTui.App do
   - A link's key opens its web address in the browser (`AtlasTui.Browser`).
   - When the connection drops it says why, in its status line, retries every 2 seconds,
     and on return opens the page it was on.
-  - Closed by Control as too old, when it can take a newer build (`release: :restart`),
-    it ends: `run/3` returns `{:too_old, page, control spec}`, for `AtlasTui.CLI` to hand
-    to bin/atlas (IS-Atlas-76).
+  - Welcomed by a Control on a newer contract, when it can take a newer build
+    (`release: :restart`), it ends: `run/3` returns `{:update, page, control spec}`, for
+    `AtlasTui.CLI` to hand to bin/atlas (IS-Atlas-76, D-0105).
   - The first `:` starts the agent (`atlas steer`, a Control client of its own) as a
     child process, and keeps it while the TUI runs. They talk in JSON lines on its stdin
     and stdout (`AtlasAgent.Steer`); its stderr goes to `steer.log` beside the
@@ -29,8 +29,8 @@ defmodule AtlasTui.App do
   @root Path.expand("../../../../..", __DIR__)
 
   @doc """
-  Runs until its user quits (`:ok`) or Control closes this build as too old and it can
-  take a newer one (`{:too_old, page, control spec}`). Options: `release` (see
+  Runs until its user quits (`:ok`) or Control is on a newer contract and it can take a
+  newer build (`{:update, page, control spec}`). Options: `release` (see
   `AtlasTui.Model`) and `to`, the page to open instead of Control's start page.
   """
   def run(env, settings, opts \\ []) do
@@ -107,9 +107,9 @@ defmodule AtlasTui.App do
           {:ok, message} ->
             {model, effects} = Console.receive(state.model, message)
 
-            case List.keyfind(effects, :too_old, 0) do
+            case List.keyfind(effects, :update, 0) do
               nil -> loop(draw(effects(%{state | model: model}, effects)))
-              too_old -> stop(draw(%{state | model: model}), too_old)
+              update -> stop(draw(%{state | model: model}), update)
             end
 
           _ ->

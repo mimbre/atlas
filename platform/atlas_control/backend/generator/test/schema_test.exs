@@ -66,9 +66,13 @@ defmodule AtlasBFF.SchemaTest do
       end
     end
 
-    test "an option other than required" do
-      assert_raise CompileError, ~r/the only option is required/, fn ->
+    test "an option other than required or deprecated" do
+      assert_raise CompileError, ~r/the options are required: true \| false and deprecated/, fn ->
         spec("defblock :a do field :x, :string, requird: true end")
+      end
+
+      assert_raise CompileError, ~r/deprecated outside a block/, fn ->
+        spec(~s|deprecated "gone"|)
       end
     end
 
@@ -113,6 +117,37 @@ defmodule AtlasBFF.SchemaTest do
         assert error.line == 6
       end
     end
+  end
+
+  test "a field or an entry marked deprecated says why in the schema; others say nothing" do
+    [{module, _}] =
+      spec("""
+      defblock :old do
+        deprecated "use new"
+        field :x, :string
+      end
+
+      defblock :new do
+        field :x, :string, required: true
+        field :y, :string, deprecated: "use x"
+      end
+      """)
+
+    assert [%{name: :old, deprecated: "use new", fields: [x]}, %{name: :new} = new] =
+             module.__schema__().blocks
+
+    refute Map.has_key?(x, :deprecated)
+    refute Map.has_key?(new, :deprecated)
+    assert [%{name: :x} = kept, %{name: :y, deprecated: "use x"}] = new.fields
+    refute Map.has_key?(kept, :deprecated)
+
+    json = AtlasBFF.Targets.Json.files(module.__schema__()) |> hd() |> elem(1) |> JSON.decode!()
+    assert [%{"name" => "old", "deprecated" => "use new"}, new_json] = json["blocks"]
+
+    assert [%{"name" => "x"} = x_json, %{"name" => "y", "deprecated" => "use x"}] =
+             new_json["fields"]
+
+    refute Map.has_key?(x_json, "deprecated")
   end
 
   defp spec(body, file \\ "nofile") do

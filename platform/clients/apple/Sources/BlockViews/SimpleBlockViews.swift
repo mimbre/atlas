@@ -18,7 +18,7 @@ struct HeaderBlockView: View {
                     .foregroundStyle(Prism.Colors.accentText(scheme))
                     .textSelection(.enabled)
             }
-            PageHeader(title: block.title, actions: actions, act: act)
+            PageHeader(title: block.title ?? "", actions: actions, act: act)
         }
         .accessibilityElement(children: .contain)
         .padding(.horizontal, Prism.Spacing.s15)
@@ -86,9 +86,9 @@ struct InstructionView: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
-            StepNumber(n: block.n)
+            if let n = block.n { StepNumber(n: n) }
             VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
-                ForEach(Array(block.lines.enumerated()), id: \.offset) { _, line in
+                ForEach(Array((block.lines ?? []).enumerated()), id: \.offset) { _, line in
                     lineView(line)
                 }
             }
@@ -98,7 +98,7 @@ struct InstructionView: View {
         .fixedSize(horizontal: false, vertical: true)
         .modifier(PanelCard(focusable: false, room: room))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Step \(block.n)")
+        .accessibilityLabel(block.n.map { "Step \($0)" } ?? "Step")
     }
 
     @ViewBuilder
@@ -188,29 +188,31 @@ struct OptionView: View {
     var body: some View {
         let action = Option.action(block)
         HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
-            StepNumber(n: block.n)
+            if let n = block.n { StepNumber(n: n) }
             VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
                 HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
-                    Text(block.text).prism(Prism.Typography.title7)
+                    Text(block.text ?? "").prism(Prism.Typography.title7)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let badge = block.badge, !badge.isEmpty {
                         let tone = Self.tone(block.tone)
                         RoleTag(text: badge, role: tone.role, tint: tone.tint)
                     }
                 }
-                if !block.fields.isEmpty {
+                if let fields = block.fields, !fields.isEmpty {
                     Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.s13, verticalSpacing: Prism.Spacing.s6) {
-                        ForEach(Array(block.fields.enumerated()), id: \.offset) { _, field in
+                        ForEach(Array(fields.enumerated()), id: \.offset) { _, field in
                             GridRow {
-                                Text(field.label).foregroundStyle(Prism.Colors.muted(scheme))
+                                Text(field.label ?? "").foregroundStyle(Prism.Colors.muted(scheme))
                                 Text(field.value ?? "—").frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
                     .prism(Prism.Typography.caption)
                 }
-                OptionButton(answer: block.answer, pending: PageActions.isPending(action, pending)) { act(action) }
-                    .padding(.top, Prism.Spacing.s3)
+                if let answer = block.answer, let action {
+                    OptionButton(answer: answer, pending: PageActions.isPending(action, pending)) { act(action) }
+                        .padding(.top, Prism.Spacing.s3)
+                }
             }
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -219,7 +221,7 @@ struct OptionView: View {
         .fixedSize(horizontal: false, vertical: true)
         .modifier(PanelCard(focusable: false, room: room))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Option \(block.n)")
+        .accessibilityLabel(block.n.map { "Option \($0)" } ?? "Option")
     }
 
     /// A badge's colours by its tone: success, warning, else neutral grey.
@@ -251,7 +253,7 @@ struct OptionButton: View {
                 } else if let glyph = Keycap.glyph(answer.key) {
                     Keycap(key: glyph, light: !decline)
                 }
-                Text(answer.label).prism(Prism.Typography.labelSmall)
+                Text(answer.label ?? "").prism(Prism.Typography.labelSmall)
             }
             .foregroundStyle(decline ? (scheme == .dark ? Prism.Colors.white : Prism.Colors.grey1) : Prism.Colors.grey1)
             .padding(.horizontal, Prism.Spacing.s13)
@@ -264,7 +266,7 @@ struct OptionButton: View {
         .buttonStyle(.plain)
         .textSelection(.disabled)
         .disabled(pending)
-        .help("\(answer.label) (\(answer.key))")
+        .help([answer.label, answer.key.map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
     }
 }
 
@@ -299,7 +301,7 @@ struct AnswersView: View {
 
     var body: some View {
         FlowLayout(spacing: Prism.Spacing.s10) {
-            ForEach(Array(block.answers.enumerated()), id: \.offset) { offset, answer in
+            ForEach(Array((block.answers ?? []).enumerated()), id: \.offset) { offset, answer in
                 let action = Panel.action(answer)
                 AnswerButton(answer: answer, quiet: answer.note != true && (quiet || offset > 0),
                              pending: PageActions.isPending(action, pending)) { act(action) }

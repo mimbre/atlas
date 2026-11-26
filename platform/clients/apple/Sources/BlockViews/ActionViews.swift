@@ -20,13 +20,13 @@ public enum PageActions {
     /// of its `answers` blocks (each answer as the page's action of its key, `Panel.action`),
     /// in block order.
     public static func all(_ page: PageMessage) -> [ActionModel] {
-        page.blocks.flatMap { block -> [ActionModel] in
+        (page.blocks ?? []).flatMap { block -> [ActionModel] in
             switch block.content {
             case .item(let item): item.actions ?? []
             case .list(let list): list.actions ?? []
             case .panel(let panel): Panel.actions(panel)
             case .option(let option): Option.actions(option)
-            case .answers(let answers): answers.answers.map(Panel.action)
+            case .answers(let answers): (answers.answers ?? []).map(Panel.action)
             default: []
             }
         }
@@ -35,11 +35,11 @@ public enum PageActions {
     /// The page's own actions (`page`), in block order; not those a panel, an option or an
     /// `answers` block of the page shows (by key, or doing what one does).
     public static func ofPage(_ page: PageMessage) -> [ActionModel] {
-        let shown = page.blocks.flatMap { block -> [ActionModel] in
+        let shown = (page.blocks ?? []).flatMap { block -> [ActionModel] in
             switch block.content {
             case .panel(let panel): Panel.actions(panel)
             case .option(let option): Option.actions(option)
-            case .answers(let answers): answers.answers.map(Panel.action)
+            case .answers(let answers): (answers.answers ?? []).map(Panel.action)
             default: []
             }
         }
@@ -54,7 +54,7 @@ public enum PageActions {
     public static func link(key: String, on pages: [PageMessage?]) -> URL? {
         for page in pages.compactMap({ $0 }) {
             if all(page).contains(where: { $0.key == key }) { return nil }
-            for block in page.blocks {
+            for block in page.blocks ?? [] {
                 guard case .panel(let panel) = block.content else { continue }
                 if let link = Panel.links(panel).first(where: { $0.link.key == key }) { return link.url }
             }
@@ -84,7 +84,7 @@ public enum PageActions {
     /// Whether the action does something this app can do: submit a call, open a page of
     /// Control's, or ask the agent (`agent:<intent>`).
     public static func doable(_ action: ActionModel) -> Bool {
-        action.submitTo != nil || Page.match(action.to) != nil || SessionState.agentIntent(action.to) != nil
+        action.submitTo != nil || action.to.flatMap(Page.match) != nil || SessionState.agentIntent(action.to) != nil
     }
 
     /// One button per thing to do: an action that does exactly what an earlier one does
@@ -108,7 +108,7 @@ public enum PageActions {
     /// button, or the action's label; nil when none declares it.
     public static func label(of call: CallModel, on pages: [PageMessage?]) -> String? {
         for page in pages.compactMap({ $0 }) {
-            for block in page.blocks {
+            for block in page.blocks ?? [] {
                 switch block.content {
                 case .confirm(let confirm) where confirm.confirmTo == call:
                     return confirm.confirmLabel ?? "Confirm"
@@ -175,11 +175,11 @@ public struct ActionButtons: View {
                 } else if let glyph {
                     Keycap(key: glyph, inButton: true)
                 }
-                Text(action.label)
+                Text(action.label ?? "")
             }
         }
         .disabled(pending)
-        .help(pending ? (self.pending?.text ?? action.label) : glyph.map { "\(action.label) (\($0))" } ?? action.label)
+        .help(pending ? (self.pending?.text ?? action.label ?? "") : glyph.map { "\(action.label ?? "") (\($0))" } ?? action.label ?? "")
         .accessibilityValue(pending ? Text(self.pending?.text ?? "") : Text(""))
     }
 }
@@ -311,14 +311,14 @@ public struct ActionPageView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
             if !asks {
-                PageHeader(title: page.title, actions: PageActions.ofPage(page), act: act)
+                PageHeader(title: page.title ?? "", actions: PageActions.ofPage(page), act: act)
             }
             ForEach(refused, id: \.self) { reason in
                 Label(reason, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(Prism.Colors.error)
             }
-            if let answer {
-                Label(answer.text, systemImage: "exclamationmark.triangle")
+            if let text = answer?.text {
+                Label(text, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(Prism.Colors.error)
             }
             ForEach(presentation.entries) { entry in
@@ -384,8 +384,8 @@ struct ConfirmView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
-            Text(block.title).prism(Prism.Typography.title6)
-            Text(block.text).prism(Prism.Typography.caption)
+            if let title = block.title { Text(title).prism(Prism.Typography.title6) }
+            Text(block.text ?? "").prism(Prism.Typography.caption)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
             HStack(spacing: Prism.Spacing.s10) {
@@ -419,13 +419,13 @@ struct FormView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
-            Text(block.title).prism(Prism.Typography.title6)
+            if let title = block.title { Text(title).prism(Prism.Typography.title6) }
             ForEach(block.errors ?? [], id: \.self) { error in
                 Label(error, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(Prism.Colors.error)
             }
             Form {
-                ForEach(block.inputs, id: \.name) { input in
+                ForEach(Self.named(block), id: \.name) { input in
                     field(input)
                 }
             }
@@ -438,36 +438,43 @@ struct FormView: View {
                 }
                 Spacer()
                 Button("Cancel", action: leave).keyboardShortcut(.cancelAction)
-                Button(block.submitLabel) { submit(block.submitTo, Self.values(block, draft)) }
+                Button(block.submitLabel ?? "Save") { if let call = block.submitTo { submit(call, Self.values(block, draft)) } }
                     .keyboardShortcut("s", modifiers: .command)
                     .buttonStyle(.borderedProminent)
-                    .disabled(submitting)
-                    .help("\(block.submitLabel) (⌘S)")
+                    .disabled(submitting || block.submitTo == nil)
+                    .help("\(block.submitLabel ?? "Save") (⌘S)")
             }
         }
     }
 
+    /// The inputs that have a name: only those can be edited and sent.
+    static func named(_ block: FormBlock) -> [InputModel] {
+        (block.inputs ?? []).filter { $0.name != nil }
+    }
+
     /// Every input's value: what was typed, else the value Control sent.
     static func values(_ block: FormBlock, _ draft: [String: String]) -> [String: String] {
-        Dictionary(block.inputs.map { ($0.name, draft[$0.name] ?? $0.value ?? "") }) { first, _ in first }
+        Dictionary(named(block).map { ($0.name ?? "", draft[$0.name ?? ""] ?? $0.value ?? "") }) { first, _ in first }
     }
 
     private func binding(_ input: InputModel) -> Binding<String> {
-        Binding(get: { draft[input.name] ?? input.value ?? "" }, set: { edit(input.name, $0) })
+        let name = input.name ?? ""
+        return Binding(get: { draft[name] ?? input.value ?? "" }, set: { edit(name, $0) })
     }
 
     private func label(_ input: InputModel) -> String {
-        input.required == true ? input.label + " *" : input.label
+        let label = input.label ?? input.name ?? ""
+        return input.required == true ? label + " *" : label
     }
 
     @ViewBuilder private func field(_ input: InputModel) -> some View {
         switch input.kind {
         case "readonly":
-            LabeledContent(input.label) { Text(input.value ?? "—").textSelection(.enabled) }
+            LabeledContent(input.label ?? input.name ?? "") { Text(input.value ?? "—").textSelection(.enabled) }
         case "choice", "boolean":
             Picker(label(input), selection: binding(input)) {
                 ForEach(input.choices ?? [], id: \.value) { choice in
-                    Text(choice.label).tag(choice.value)
+                    Text(choice.label ?? choice.value ?? "").tag(choice.value ?? "")
                 }
             }
             .help(input.hint ?? "")

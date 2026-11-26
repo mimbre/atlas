@@ -102,6 +102,9 @@ defmodule AtlasControl.Session do
        # TUI picks a flow up or hands it over, or an agent picks it up on behalf of whom it
        # assists (M3b plan §1, IS-Atlas-47; no sign-in yet).
        client: nil,
+       # The contracts the client implements (as its hello said; nil for none) and Control
+       # speaks (`%{client, control}`), once it said hello (D-0105).
+       specs: nil,
        # What is assigned to the client, for the header of every page (`start.assigned`):
        # its words and what they were read from (`set`; nil: to be read again with the
        # next page, the words meanwhile those read last).
@@ -359,9 +362,10 @@ defmodule AtlasControl.Session do
 
   # Protocol
 
-  # A client says which contract version it implements. One older than Control's cannot
-  # render what Control sends now: it is told which contract each side speaks and closed,
-  # rather than shown a page it breaks on. A newer one shows what it knows, and the rest as fallbacks.
+  # A client says which contract version it implements. Whatever it is (older, newer, none),
+  # the client is welcomed and told Control's (D-0105): clients are tolerant readers, which
+  # show what they know and the rest plainly; a difference is their status warning. Both
+  # versions are kept and logged. What a client sends stays checked as for any client.
   defp handle_op(op, _message, %{output_connection: true} = state)
        when op not in ~w(worker_output_subscribe worker_output_next worker_output_unsubscribe),
        do: bye(state, "This connection is reserved for worker output.")
@@ -377,51 +381,11 @@ defmodule AtlasControl.Session do
           "This is Control #{environment}; it does not serve #{inspect(message["env"])}."
         )
 
-      # What each side speaks, and no remedy: how a client takes a newer build is its own
-      # (the TUI updates and starts again, IS-Atlas-76). `reason` and `spec` let it act.
-      too_old?(message["spec"], version) ->
-        bye(
-          state,
-          "This client implements contract #{message["spec"] || "(none)"}; Control " <>
-            "#{environment} speaks #{version}, and no older one.",
-          %{"reason" => "too_old", "spec" => version}
-        )
-
       message["surface"] not in [nil, "console"] ->
         bye(state, "Unsupported Control presentation surface")
 
-      message["surface"] == "console" ->
-        state =
-          describe(%{
-            state
-            | hello: true,
-              surface: "console",
-              client: message["client"],
-              by: actor(message["client"], message["as"])
-          })
-
-        welcome = %{
-          "op" => "welcome",
-          "env" => environment,
-          "spec" => version,
-          "surface" => "console"
-        }
-
-        {:noreply, show(state, :home, "open", nil, nil, welcome)}
-
       true ->
-        send_client(state, %{"op" => "welcome", "env" => environment, "spec" => version})
-
-        state =
-          describe(%{
-            state
-            | hello: true,
-              surface: nil,
-              client: message["client"],
-              by: actor(message["client"], message["as"])
-          })
-
-        {:noreply, show(state, :home, "open", nil)}
+        welcomed(versions(state, message, version), message, environment, version)
     end
   end
 
@@ -766,17 +730,46 @@ defmodule AtlasControl.Session do
       else: put_in(state.tab_counts[to], %{counts: counts, set: set})
   end
 
-  defp bye(state, text, why \\ %{}) do
-    send_client(state, Map.merge(%{"op" => "bye", "text" => text}, why))
+  defp bye(state, text) do
+    send_client(state, %{"op" => "bye", "text" => text})
     {:stop, :normal, state}
   end
 
-  # Older than Control's contract, or no version at all. Versions are x.y.z.
-  defp too_old?(spec, version) do
-    case is_binary(spec) && Version.parse(spec) do
-      {:ok, theirs} -> Version.compare(theirs, Version.parse!(version)) == :lt
-      _ -> true
+  defp welcomed(state, message, environment, version) do
+    surface = message["surface"]
+
+    state =
+      describe(%{
+        state
+        | hello: true,
+          surface: surface,
+          client: message["client"],
+          by: actor(message["client"], message["as"])
+      })
+
+    welcome = %{"op" => "welcome", "env" => environment, "spec" => version}
+
+    if surface == "console" do
+      {:noreply, show(state, :home, "open", nil, nil, Map.put(welcome, "surface", "console"))}
+    else
+      send_client(state, welcome)
+      {:noreply, show(state, :home, "open", nil)}
     end
+  end
+
+  # The contract the client says it implements (any text, or nil) beside Control's; a
+  # difference is logged, so a client on another version shows in Control's log.
+  defp versions(state, message, version) do
+    client = if is_binary(message["spec"]), do: String.slice(message["spec"], 0, 32)
+
+    if client != version do
+      Logger.info(
+        "control: client #{inspect(message["client"])} implements contract " <>
+          "#{client || "(none)"}; Control speaks #{version}; welcomed (D-0105)"
+      )
+    end
+
+    %{state | specs: %{client: client, control: version}}
   end
 
   # "No such page" only for a path the contract has no page for. A page of the contract

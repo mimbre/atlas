@@ -55,15 +55,20 @@ final class StatusViewModelTests: XCTestCase {
         XCTAssertEqual(status.notice?.text, h.state.notice?.text)
     }
 
-    func testAnOpenThatFailedUntilTheNextOpen() {
-        let h = Harness()
-        h.connect()
-        h.session.open("/k/widget/W-01")
-        h.connection.receive(Lines.with(Lines.page("/k/widget/W-01"), "title", 1))
-        XCTAssertEqual(StatusViewModel(h.state).openFailure?.path, "/k/widget/W-01")
+    func testAnOpenThatFailedUntilTheNextOpen() throws {
+        var state = SessionState(settings: SessionSettings(env: "test", host: "127.0.0.1", port: 7001))
+        for input: SessionState.Input in [.start, .ready, .line(Lines.welcome()), .line(Lines.page("/")),
+                                          .line(Lines.boot()), .line(Lines.page("/k/widget")),
+                                          .open(to: "/k/widget/W-01")] {
+            _ = state.handle(input)
+        }
+        // The package gives a page it cannot decode so (every field is optional, D-0105).
+        let raw = try JSONDecoder().decode(JSONValue.self, from: Lines.page("/k/widget/W-01"))
+        _ = state.receive(.undecodable(raw, .undecodable))
+        XCTAssertEqual(StatusViewModel(state).openFailure?.path, "/k/widget/W-01")
 
-        h.session.open("/k/widget/W-02")
-        XCTAssertNil(StatusViewModel(h.state).openFailure)
+        _ = state.handle(.open(to: "/k/widget/W-02"))
+        XCTAssertNil(StatusViewModel(state).openFailure)
     }
 
     func testAnEndedSession() {
@@ -78,7 +83,7 @@ final class StatusViewModelTests: XCTestCase {
     // window has no message of its own (the TUI's status line says the same).
 
     private func text(_ h: Harness) -> String {
-        StatusViewModel(h.state).text(closedTooOld: { "closed for \($0)" })
+        StatusViewModel(h.state).text()
     }
 
     func testConnectingSaysSoUntilSomethingFails() {
@@ -108,32 +113,19 @@ final class StatusViewModelTests: XCTestCase {
         XCTAssertEqual(text(h), "not connected · Control is down or restarting; connects once it answers · retries every 2 s")
     }
 
-    func testThisAppNewerThanControl() {
-        let h = Harness()
-        h.session.start()
-        h.connection.ready()
-        h.connection.receive(Lines.welcome(spec: "0.1.0"))
-        XCTAssertEqual(text(h), "not connected · this app is newer than test (\(Contract.version) vs 0.1.0); open it again once test is updated")
-    }
-
     func testAnotherEnvironmentOrNoConsole() {
         let h = Harness()
         h.session.start()
         h.connection.ready()
         h.connection.receive(Lines.welcome(env: "prod"))
-        XCTAssertEqual(text(h), "not connected · Control prod speaks contract \(Contract.version); this app implements \(Contract.version) for test")
+        XCTAssertEqual(text(h), "not connected · Control's welcome is for prod (surface console); this app is for test, surface console")
     }
 
-    func testClosedByControlSaysItsWordsOrTheUpdates() {
+    func testClosedByControlSaysItsWords() {
         let h = Harness()
         h.connect()
         h.connection.receive(Lines.bye("This is Control prod; it does not serve \"test\"."))
         XCTAssertEqual(text(h), "not connected · This is Control prod; it does not serve \"test\".")
-
-        let old = Harness()
-        old.connect()
-        old.connection.receive(Lines.json(["op": "bye", "text": "too old", "reason": "too_old", "spec": "9.0.0"]))
-        XCTAssertEqual(text(old), "not connected · closed for 9.0.0")
     }
 
     func testWelcomedAgainTheStateGoes() {
@@ -145,5 +137,41 @@ final class StatusViewModelTests: XCTestCase {
         XCTAssertNil(h.state.lost)
         XCTAssertEqual(text(h), "connected")
         XCTAssertEqual(StatusViewModel(h.state).mark, .connected)
+    }
+
+    private func welcomed(by spec: String) -> Harness {
+        let h = Harness()
+        h.session.start()
+        h.connection.ready()
+        h.connection.receive(Lines.welcome(spec: spec))
+        return h
+    }
+
+    private var ours: String { StatusViewModel.short(Contract.version) }
+
+    func testANewerControlConnectsAndTheStatusSaysSomePartsMayLookPlain() {
+        let h = welcomed(by: "9.9.0")
+        XCTAssertTrue(StatusViewModel(h.state).isConnected)
+        XCTAssertEqual(StatusViewModel(h.state).versionWarning,
+                       "test is newer (9.9 vs \(ours)); some parts may look plain")
+    }
+
+    func testAnOlderControlConnectsAndTheStatusSaysThisAppIsNewer() {
+        let h = welcomed(by: "0.1.0")
+        XCTAssertTrue(StatusViewModel(h.state).isConnected)
+        XCTAssertEqual(StatusViewModel(h.state).versionWarning, "this app is newer than test (\(ours) vs 0.1)")
+    }
+
+    func testTheSameVersionHasNoWarning() {
+        let h = welcomed(by: Contract.version)
+        XCTAssertTrue(StatusViewModel(h.state).isConnected)
+        XCTAssertNil(StatusViewModel(h.state).versionWarning)
+    }
+
+    func testTheWarningComparesVersionsByNumber() {
+        XCTAssertEqual(StatusViewModel.versionWarning(env: "prod", control: "0.33.0", app: "0.32.0"),
+                       "prod is newer (0.33 vs 0.32); some parts may look plain")
+        XCTAssertEqual(StatusViewModel.versionWarning(env: "prod", control: "0.9.1", app: "0.10.0"),
+                       "this app is newer than prod (0.10 vs 0.9.1)")
     }
 }

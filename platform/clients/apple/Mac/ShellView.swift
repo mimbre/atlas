@@ -40,17 +40,15 @@ struct ShellView: View {
         }
         .onAppear { keys.start(session) }
         .onDisappear { keys.stop() }
-        // The app's update (IS-Atlas-66): asked at start, and at once when Control closes
-        // the app as too old; taken when no form or confirm is open, on the page shown.
+        // The app's update (IS-Atlas-66): asked at start, and at once when Control's welcome
+        // says a newer contract (D-0105); taken when no form or confirm is open, on the page shown.
         .task {
             updater.canTakeNow = { [session] in !session.state.isEditing && !session.state.submitting }
             updater.page = { [session] in session.state.pageOnScreen?.path ?? session.state.expected }
             updater.start()
         }
-        .onChange(of: session.state.connection) { _, connection in
-            if case .ended(.tooOld(let control, _)) = connection {
-                updater.closedTooOld(controlSpec: control)
-            }
+        .onChange(of: session.state.newerControl) { _, newer in
+            if let newer { updater.controlIsNewer(spec: newer) }
         }
         .onChange(of: session.state.isEditing) { updater.pageChanged() }
         .sheet(isPresented: Binding(get: { shell.sheet != nil || shell.plan != nil },
@@ -80,12 +78,7 @@ struct ShellView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             StatusBar(status: StatusViewModel(session.state), shell: shell,
-                      update: updater.status.statusText(installed: updater.installed),
-                      closedTooOld: { [session, updater] control in
-                          // What each side speaks and where the update stands, never "too old" alone.
-                          updater.status.closedText(installed: updater.installed, env: session.state.settings.env,
-                                                    control: control, ownContract: Contract.version)
-                      })
+                      update: updater.status.statusText(installed: updater.installed))
         }
         .environment(\.pendingAction, shell.pending)
         .environment(\.panelKeys, keys.panels)
@@ -264,6 +257,7 @@ struct EnvironmentBadge: View {
             .background(production ? Color.primary : Color.clear, in: RoundedRectangle(cornerRadius: 4))
     }
 }
+
 
 /// Started without the launcher: how to start it.
 struct NotLaunchedView: View {

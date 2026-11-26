@@ -156,14 +156,15 @@ public struct Panel: Sendable, Equatable {
             return .nothing
         case .enter:
             if isRepeat { return .nothing }
-            return selectedItem.map { .open($0.to) }
+            guard let item = selectedItem else { return nil }
+            return item.to.map { .open($0) } ?? .nothing
         }
     }
 
     /// Select this item (a click); a click on the selected one opens it.
     public mutating func click(item: PanelItemModel) -> Outcome {
         guard let index = items.firstIndex(of: item) else { return .nothing }
-        if index == selected { return .open(item.to) }
+        if index == selected { return item.to.map { .open($0) } ?? .nothing }
         selected = index
         return .nothing
     }
@@ -187,7 +188,8 @@ public struct Panel: Sendable, Equatable {
     /// The links a client opens: http and https addresses only.
     public static func links(_ block: PanelBlock) -> [(link: LinkModel, url: URL)] {
         (block.links ?? []).compactMap { link in
-            guard let url = URL(string: link.url), ["http", "https"].contains(url.scheme?.lowercased()) else { return nil }
+            guard let url = link.url.flatMap(URL.init(string:)), ["http", "https"].contains(url.scheme?.lowercased())
+            else { return nil }
             return (link, url)
         }
     }
@@ -197,7 +199,7 @@ public struct Panel: Sendable, Equatable {
     public static func byline(_ clauses: [ClauseModel], now: Date) -> String {
         clauses.compactMap { clause -> String? in
             let age = clause.since.flatMap { since in Self.age(since: since, now: now) }
-            let parts = [clause.text, age ?? ""].filter { !$0.isEmpty }
+            let parts = [clause.text ?? "", age ?? ""].filter { !$0.isEmpty }
             return parts.isEmpty ? nil : parts.joined(separator: " ")
         }.joined(separator: " · ")
     }

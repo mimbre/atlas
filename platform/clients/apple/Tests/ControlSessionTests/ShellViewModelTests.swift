@@ -230,11 +230,12 @@ final class ShellViewModelTests: XCTestCase {
         h.connection.receive(Lines.page("/k/widget/unrelated", reason: "hint"))
         XCTAssertEqual(ShellViewModel(h.state).selectedPath, "/k/widget/redirected")
 
-        h.session.open("/k/widget/broken")
+        // A page whose blocks are of another type is shown without them.
+        h.session.open("/k/widget/plain")
         _ = h.connection.take()
-        h.connection.receive(Lines.with(Lines.page("/k/widget/broken"), "blocks", "invalid"))
-        XCTAssertNotNil(h.state.openFailure)
-        XCTAssertEqual(ShellViewModel(h.state).selectedPath, "/k/widget/redirected")
+        h.connection.receive(Lines.with(Lines.page("/k/widget/plain"), "blocks", "invalid"))
+        XCTAssertNil(h.state.openFailure)
+        XCTAssertEqual(ShellViewModel(h.state).selectedPath, "/k/widget/plain")
 
         h.session.open("/k/widget/next")
         XCTAssertEqual(h.connection.take(), [.open(OpenRequest(to: "/k/widget/next"))])

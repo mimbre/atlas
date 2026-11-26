@@ -10,14 +10,21 @@ defmodule AtlasBFF.Targets.Json do
   def files(schema, _opts \\ []) do
     markup = Names.markup()
 
+    # What is going away says why (`deprecated`), for the additive check (D-0105).
+    deprecated = fn map, e ->
+      if e[:deprecated], do: Map.put(map, "deprecated", e.deprecated), else: map
+    end
+
     entry = fn e ->
       %{
         "name" => Atom.to_string(e.name),
         "fields" =>
           Enum.map(e.fields, fn f ->
             %{"name" => Atom.to_string(f.name), "type" => type(f.type), "required" => f.required}
+            |> deprecated.(f)
           end)
       }
+      |> deprecated.(e)
     end
 
     body =

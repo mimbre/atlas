@@ -225,7 +225,7 @@ defmodule AtlasAgent.TransportTest do
 
           case failure do
             :bye ->
-              send_line(socket, %{"op" => "bye", "text" => "too old"})
+              send_line(socket, %{"op" => "bye", "text" => "go away"})
 
             :malformed ->
               :gen_tcp.send(socket, "broken\n")

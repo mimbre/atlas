@@ -140,7 +140,7 @@ Client to Control:
 
 | Message | Meaning |
 |---|---|
-| `{"op":"hello","env":"test","client":"tui","spec":"0.16.0"}` | First message, with the contract version the client implements; an agent may add `"as"`: the key of the fact it is (`coordinator`), so it is the owner of what is assigned to it (IS-Atlas-54; `ATLAS_AS` for `atlas`). Control of another environment answers `bye` and closes; so does Control on a newer contract than the client's (or when the client says none): `This client implements contract 0.10.0; Control test speaks 0.11.0, and no older one.`, with `"reason":"too_old"` and Control's `"spec"`. The remedy is the client's: the TUI updates itself and starts again on the same page (IS-Atlas-76). A newer client is welcomed: it shows what it knows, the rest as fallbacks. |
+| `{"op":"hello","env":"test","client":"tui","spec":"0.16.0"}` | First message, with the contract version the client implements; an agent may add `"as"`: the key of the fact it is (`coordinator`), so it is the owner of what is assigned to it (IS-Atlas-54; `ATLAS_AS` for `atlas`). Control of another environment answers `bye` and closes. Any contract version, older, newer or none, is welcomed (D-0105): Control records both versions (its log says a difference) and its welcome says its own; the client shows what it knows and the rest plainly, and says the difference in its status line. What it sends is checked as any client's: an answer its page does not offer is refused. A TUI started by `atlas` that meets a newer Control takes the newest build and starts again on the same page (IS-Atlas-76). |
 | `{"op":"open","to":"/k/<kind>/<key>"}` | Show the page at this path. |
 | `{"op":"submit","endpoint":"update","params":{"kind":"issue","key":"IS-Atlas-01"},"values":{...}}` | Submit a form or a confirm: the endpoint and params its `submit_to` or `confirm_to` (a `call`) names, one of the contract's submit endpoints (create, create_under, update, delete, link, accept, reopen); values travel as text. A client that knows only paths may send `"to"` with the endpoint's path instead. Anything else is refused, unsent. |
 | `{"op":"turn"}` | Read the agent's single running turn and its original item, using `runtime.turn`. |
@@ -154,7 +154,7 @@ Control to client:
 | `{"op":"welcome","env":"test","spec":"0.16.0"}` | Answer to hello, with Control's contract version. |
 | `{"op":"page","path","title","back","blocks","markup","reason","position","at"}` | A page: a view model (`blocks` and `markup`) with its path, title and `back`: the page it belongs under (its owner, or its kind's list). Console's Back (`esc`, Left, `b`) does not follow `back`: it is always declared, and a client returns to the page its user came from, in its own history (the TUI keeps the selected row and scroll of each). `reason` is `open`, `hint` (a change stored by anyone), `pending` (the same page with rows marked pending), `reconcile`, `stored` (your change) or `refused`. `position` is Facts' position the page is as of: the page's version for its path. A `hint` page is for the path on screen or for one of the paths the client viewed recently (the last 8; at most 3 are pushed per batch of changes). A client keeps the newest page per path (a page replaces the kept one unless both have a `position` and its own is lower), draws it only if its path is on screen, and on back or a tab switch shows the kept page at once while it asks for the page again (`open`). On a page without a form, a `refused` page also has `refused`: Facts' reasons. When the client's user has a start page of assignments, every page has `count`: what waits for them, in the model's words, for the header. |
 | `{"op":"notice","tone":"pending\|ok\|error\|info","text","at"}` | A line for the status bar. `pending` until Facts answers. |
-| `{"op":"bye","text"}` | Control closes the connection. A client too old for Control's contract gets `"reason":"too_old"` and `"spec"` too (optional, so older clients read the bye as before). |
+| `{"op":"bye","text"}` | Control closes the connection. `reason` and `spec` are deprecated: until 0.32.0 they closed a client older than Control ("too_old"); Control no longer sends them. |
 | `{"op":"turn","key":"<turn>","on":"<item>"}` | Current turn context; errors have `error` instead of the keys. An outcome is acknowledged with a stored page. |
 
 Every message here is an endpoint of the contract (`defendpoint`, its call the message's `op`; ADR 0002), with what it takes and what it replies, and `blocks.json` lists them: hello, refresh, the pages' `open`, the submits, what Control sends unasked (`page` by hint, `notice`, `bye`), the agent's `ask`, `run`, `cancel` and `stop`, and the worker pages' messages (below, [Worker Control contract](#worker-control-contract)). Unasked pages are the pushes `hint` and `pending`.
@@ -232,8 +232,9 @@ IS-101 keeps wire version **0.14.0**: it describes the existing server protocol 
 corrects semantic metadata without changing bytes sent by Control. Existing
 0.14.0 clients remain usable in either delivery order; no negotiation change or
 client-before-server deployment is needed for this slice. Deployments still go
-through coordinator review. A later version bump must distribute compatible
-clients before advancing Control, since older versions are refused at hello.
+through coordinator review. Until 0.33.0 a version bump had to distribute compatible
+clients before advancing Control, since older versions were refused at hello (the notes
+below); from 0.33.0 on no client is refused for its version (D-0105, below).
 
 0.15.0 (page freshness, docs/design/page-freshness.md §3) is such a bump: the row fields
 `key` and `pending`, `hint` pages for recently viewed paths and `pending` overlays. Control
@@ -268,6 +269,8 @@ client) before advancing Control.
 0.31.0 is a bump of the same kind: the to-do page as a stack of simple blocks, `header`, `text`, `instruction` and `answers`, in place of the `steps` block (and its `instruction_step`); the page and submit `/k/:kind/:key/step/:step` are gone, as nothing keeps a to-do's step. Control on 0.31.0 refuses older clients at hello; release the TUI and the Mac app with it.
 
 0.32.0 is a bump of the same kind: a decision as a stack of simple blocks, one `option` block per option (its number, text, badge, Rule and Then or a decline's Details, and its own answer) and a `text` block's `role` (error: what went wrong), in place of the `single_choice` block (and its `choice_option`) and a panel's `choose` (and a `panel_answer`'s `recommended` and `detail`). Control on 0.32.0 refuses older clients at hello; release the TUI and the Mac app with it.
+
+0.33.0 (D-0105) ends such bumps. Clients are tolerant readers: they skip markup they do not know, read every block property as optional (`required` binds Control, which must send it; a missing or mistyped property is left out, never a crash) and show a block of a type they do not know plainly (its title or label and its texts). Control welcomes a client of any version and says its own; a difference is a warning in the client's status line ("prod speaks 0.34, this TUI 0.33 · updating"; the Mac app: "prod is newer (0.34 vs 0.33); some parts may look plain"). What clients send stays checked by Control exactly as before. So a contract change is additive: a new block, model, kind of markup or field is safe; one is removed or retyped only after a published version marked it `deprecated` (AtlasBFF.Schema). CI warns on a pull request whose contract is not additive to master's (`platform/ops/contract-additive.py`; D-0103: it warns, never blocks). `bye`'s `reason` and `spec` are deprecated.
 
 
 ### Worker Control contract

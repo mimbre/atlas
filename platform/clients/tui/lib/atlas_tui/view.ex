@@ -559,11 +559,25 @@ defmodule AtlasTui.View do
     line ++ [{:plain, String.duplicate(" ", max(width - used, 0))}]
   end
 
+  # A tolerant reader (D-0105): a block that cannot be drawn as its type (a property it
+  # needs is missing) is drawn plainly, and markup that cannot be drawn leaves its blocks
+  # as they are; never a crash.
   defp nodes(tree, model, width, room) do
     tree
     |> Enum.map(fn
-      {:block, block, at} -> block(block, at, model, width, room)
-      {:markup, %{"value" => value}, children} -> markup(value, children, model, width, room)
+      {:block, block, at} ->
+        try do
+          block(block, at, model, width, room)
+        rescue
+          _ -> block(plainly(block), at, model, width, room)
+        end
+
+      {:markup, %{"value" => value}, children} ->
+        try do
+          markup(value, children, model, width, room)
+        rescue
+          _ -> nodes(children, model, width, room)
+        end
     end)
     |> Enum.intersperse([[]])
     |> Enum.concat()
@@ -1054,8 +1068,34 @@ defmodule AtlasTui.View do
     title(plan.title, width) ++ [[]] ++ about ++ [[]] ++ steps
   end
 
-  defp block(%Fallback{type: type}, _at, _model, _width, _room),
+  # A block this TUI does not know, or cannot draw as its type: what it says, plainly.
+  defp block(%Fallback{title: nil, lines: [], type: type}, _at, _model, _width, _room),
     do: [[{:dim, "   (a #{type || "?"} block this TUI cannot show)"}]]
+
+  defp block(%Fallback{title: title, lines: lines}, _at, _model, width, _room) do
+    heading = if title, do: [[{:bold, " " <> single_line(title)}]], else: []
+
+    heading ++
+      Enum.flat_map(lines, fn line ->
+        Enum.map(Text.wrap(line, max(width - 4, 1)), &[{:plain, "   " <> &1}])
+      end)
+  end
+
+  defp plainly(%Fallback{} = fallback), do: fallback
+
+  defp plainly(block) do
+    {title, lines} = AtlasTui.Blocks.plain(props(block))
+    %Fallback{type: type_name(block), title: title, lines: lines}
+  end
+
+  # A decoded block as its props: string keys, nested structs as maps.
+  defp props(%_{} = struct), do: struct |> Map.from_struct() |> props()
+  defp props(map) when is_map(map), do: Map.new(map, fn {k, v} -> {to_string(k), props(v)} end)
+  defp props(list) when is_list(list), do: Enum.map(list, &props/1)
+  defp props(value), do: value
+
+  defp type_name(block),
+    do: block.__struct__ |> Module.split() |> List.last() |> Macro.underscore()
 
   # The frame of a decision: a bar with what is asked (`heading`) and its title, `aside`
   # at its right; `body` under it, each line fitted inside.
@@ -1766,10 +1806,8 @@ defmodule AtlasTui.View do
       end
 
     [
-      [
-        {:ok, " ● connected"},
-        {:dim, waiting(model) <> updated <> hint <> " · reconciles every #{reconcile_seconds}s"}
-      ]
+      [{:ok, " ● connected"} | versions(model)] ++
+        [{:dim, waiting(model) <> updated <> hint <> " · reconciles every #{reconcile_seconds}s"}]
     ]
   end
 
@@ -1809,15 +1847,42 @@ defmodule AtlasTui.View do
   defp offline(%Model{offline: :silent}),
     do: {"Control is down or restarting; connects once it answers", true}
 
-  defp offline(%Model{offline: {:newer, theirs}, env: env}),
-    do:
-      {"this TUI is newer than #{env} (#{AtlasTui.Protocol.version()} vs #{theirs}); " <>
-         "connects once #{env} is updated", false}
-
   defp offline(%Model{offline: :refused, env: env}),
     do: {"Control #{env} refused this TUI as its Console; connects once Control restarts", false}
 
   defp offline(_model), do: {"connecting to Control", false}
+
+  # Control on another contract than this build (D-0105): the two versions in plain words,
+  # and what happens: a newer Control is taken as a reason to update (bin/atlas restarts
+  # this TUI on a newer build); otherwise it still shows what it knows, the rest plainly.
+  @doc false
+  def versions(%Model{connected: true, control_spec: theirs, env: env} = model)
+      when is_binary(theirs) do
+    ours = AtlasTui.Protocol.version()
+
+    cond do
+      theirs == ours ->
+        []
+
+      AtlasTui.Console.newer?(theirs) ->
+        next =
+          case model.release do
+            :restart -> "updating"
+            {:not_updated, why} -> "not updated: #{why}; some parts may look plain"
+            nil -> "some parts may look plain; run atlas again to update"
+          end
+
+        [{:warning, " · #{env} speaks #{short(theirs)}, this TUI #{short(ours)} · #{next}"}]
+
+      true ->
+        [{:warning, " · this TUI is newer than #{env} (#{short(ours)} vs #{short(theirs)})"}]
+    end
+  end
+
+  def versions(_model), do: []
+
+  # A version in short: 0.33.0 is 0.33.
+  defp short(version), do: String.replace_suffix(version, ".0", "")
 
   defp reason("open"), do: "opened"
   defp reason("hint"), do: "updated by hint"

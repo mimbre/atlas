@@ -224,6 +224,19 @@ jobs:
       - run: mix test --warnings-as-errors
       - run: python3 -m unittest discover -s platform/ops/tests -v
         working-directory: .
+      # D-0105, D-0103: a contract change is additive to the published contract (prod's,
+      # on master): nothing removed or retyped that was not deprecated first. It warns
+      # (annotations and the job summary), it never blocks.
+      - name: Contract change additive to the published one (warns only)
+        continue-on-error: true
+        working-directory: .
+        run: |
+          git fetch --no-tags --depth=1 origin master
+          git worktree add -q "$RUNNER_TEMP/published" FETCH_HEAD
+          (cd "$RUNNER_TEMP/published/platform/atlas_control/backend/contract" && mix atlas.gen >/dev/null)
+          python3 platform/ops/contract-additive.py \
+            "$RUNNER_TEMP/published/platform/atlas_control/backend/targets/json/blocks.json" \
+            platform/atlas_control/backend/targets/json/blocks.json
 
   runtime-model:
     name: Runtime private model, its generator and file targets
