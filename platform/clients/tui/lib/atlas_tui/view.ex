@@ -1881,7 +1881,7 @@ defmodule AtlasTui.View do
 
   def versions(_model), do: []
 
-  # A version as people say it: 0.33.0 is 0.33.
+  # A version in short: 0.33.0 is 0.33.
   defp short(version), do: String.replace_suffix(version, ".0", "")
 
   defp reason("open"), do: "opened"
