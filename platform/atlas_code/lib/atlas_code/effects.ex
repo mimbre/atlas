@@ -323,9 +323,12 @@ defmodule AtlasCode.Effects do
   @doc """
   The commit a result onto a pull publishes, in the Git repository `dir`: a result whose
   only parent is an update's merge ("Atlas: merge …", two parents) becomes one merge
-  commit, its tree on the merge's parents, the merge's message as "Merge …", Code's
-  identity and the result's date (so the same result always folds the same), and `ref`
-  (the result's) is moved to it. Any other result is itself.
+  commit, its tree on the merge's parents, the merge's message as "Merge …" (saying its
+  agent resolved its conflicts, or, for a merge without any, that its agent's changes are
+  on it), Code's identity and the result's date (so the same result always folds the
+  same), and `ref` (the result's) is moved to it. Any other result is itself: a CI fix
+  made on the pull's head as it is (an update of a pull that already holds its base, see
+  `AtlasCode.Service.resolve_reference/2`) fast-forwards the pull's branch.
   """
   @spec fold(Path.t(), String.t(), String.t()) :: String.t()
   def fold(dir, commit, ref) do
@@ -346,7 +349,12 @@ defmodule AtlasCode.Effects do
            {"GIT_COMMITTER_EMAIL", "code@atlas"},
            {"GIT_COMMITTER_DATE", date}
          ],
-         message = "Merge " <> String.trim(title) <> "\n\nIts conflicts resolved by its agent.",
+         said =
+           if(title =~ "\n\nConflicts:",
+             do: "Its conflicts resolved by its agent.",
+             else: "With its agent's changes on it."
+           ),
+         message = "Merge " <> String.trim(title) <> "\n\n" <> said,
          parent_args = Enum.flat_map(two, &["-p", &1]),
          {made, 0} <-
            git.(["commit-tree", commit <> "^{tree}" | parent_args] ++ ["-m", message], identity),
