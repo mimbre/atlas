@@ -1330,7 +1330,7 @@ defmodule AtlasControl.SessionTest do
       })
     end
 
-    notes = "1. Make a key.\n2. Close them.\n   $ gh issue close 12"
+    notes = "1. Make a key.\n2. Close them.\n   $ git tag -d v12"
 
     FakeStore.put("W-1", %{"title" => "Rotate", "notes" => notes}, "widget", %{
       "card" => ["C-W-1"]

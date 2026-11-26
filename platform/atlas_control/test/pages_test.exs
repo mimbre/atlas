@@ -1935,9 +1935,9 @@ defmodule AtlasControl.PagesTest do
   Why: the old key leaked.
 
   1. Make a new key.
-  2. Close the issues.
-     $ gh issue close 12
-     $ gh issue close 13
+  2. Drop the old tags.
+     $ git tag -d v12
+     $ git tag -d v13
   3. Remove the old file.
      $ rm old.key
   """
@@ -1959,8 +1959,8 @@ defmodule AtlasControl.PagesTest do
                %{"n" => 1, "text" => "Make a new key.", "commands" => []},
                %{
                  "n" => 2,
-                 "text" => "Close the issues.",
-                 "commands" => ["gh issue close 12", "gh issue close 13"]
+                 "text" => "Drop the old tags.",
+                 "commands" => ["git tag -d v12", "git tag -d v13"]
                },
                %{"n" => 3, "text" => "Remove the old file.", "commands" => ["rm old.key"]}
              ]
