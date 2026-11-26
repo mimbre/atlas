@@ -18,6 +18,9 @@ public struct PageView: View {
     let selectedPath: String?
     let open: (String) -> Void
     let act: (ActionModel) -> Void
+    @Environment(\.colorScheme) private var scheme
+    /// Whether the list has the keys: its selected card shows Prism's tint, else calm grey.
+    @FocusState private var listFocused: Bool
 
     public init(page: PageMessage, header: Bool = false, selectedPath: String? = nil,
                 open: @escaping (String) -> Void,
@@ -61,7 +64,10 @@ public struct PageView: View {
                 case .empty(let empty):
                     still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary))
                 case .row(let row):
-                    RowLabel(row: row).listRowSeparator(.hidden)
+                    RowCard(row: row, selected: line.to == selectedPath, focused: listFocused)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(PrismDarkGap.listGround(scheme))
                 case .actions(let actions):
                     still(ActionsView(actions: actions, act: act))
                 case .entry(let entry):
@@ -76,6 +82,15 @@ public struct PageView: View {
             }
         }
         .listStyle(.inset)
+        .focused($listFocused)
+        // A page of lists (no panel, no details) lies on the list's ground, so its row
+        // cards stand out from it; another keeps the system's.
+        .scrollContentBackground(listPage ? .hidden : .automatic)
+        .background(listPage ? PrismDarkGap.listGround(scheme) : .clear)
+    }
+
+    private var listPage: Bool {
+        presentation.details == nil && !presentation.hasPanel
     }
 
     /// A row of the page's list: the page's header, a list block's title, its empty text,
@@ -264,85 +279,102 @@ struct ListRowView: View {
     let row: RowModel
     let selected: Bool
     let open: (String) -> Void
+
+    var body: some View {
+        // The button owns its card. Future nested controls must be siblings of this
+        // button, with no overlay or parent tap gesture.
+        Button { if let to = row.to { open(to) } } label: {
+            RowCard(row: row, selected: selected, focused: true)
+        }
+        .buttonStyle(.plain)
+        .disabled(row.to == nil)
+    }
+}
+
+/// A list row as a small card (the Mac list): a top line, small and muted, with where its
+/// work stands (a dot in the colour of Control's `tone`), what it is (its kind and key,
+/// `DECISION · D-0104`), its state when Control sends one (`· waiting for you`) and, at the
+/// right, how long it has been there (`3h`); under it the title, semibold, on one or two
+/// lines (… only past two, the whole of it in a tooltip), and whether a write to it is
+/// being processed. The card follows its title's height; it is a little lighter than the
+/// list's ground, rounded, without a shadow (list cards are an overview). Selected: Prism's
+/// light primary tint with a thin primary border while the list has the focus (`focused`),
+/// calm grey without it. The card covers its whole row with the list's ground around it,
+/// so the system's own selection never shows.
+struct RowCard: View {
+    let row: RowModel
+    let selected: Bool
+    /// Whether the list the card is in has the keys.
+    let focused: Bool
     @State private var hovering = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        // The button owns its padded rectangle. Future nested controls must be
-        // siblings of this button, with no overlay or parent tap gesture.
-        Button { if let to = row.to { open(to) } } label: {
-            RowLabel(row: row)
-                .padding(.horizontal, Prism.Spacing.s10)
-                .padding(.vertical, Prism.Spacing.s9)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(row.to == nil)
-        .background(PrismDarkGap.row(scheme, selected: selected, hovering: hovering),
-                    in: RoundedRectangle(cornerRadius: Prism.radius))
-        .overlay(alignment: .leading) {
-            if selected {
-                RoundedRectangle(cornerRadius: Prism.radius / 2).fill(Prism.Colors.primary)
-                    .frame(width: Prism.Spacing.s3)
+        let shape = RoundedRectangle(cornerRadius: Prism.radius * 2)
+        content
+            // Our own colours on our own card: not the List's selected (white) text.
+            .environment(\.backgroundProminence, .standard)
+            .padding(.horizontal, Prism.Spacing.s13)
+            .padding(.vertical, Prism.Spacing.s10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PrismDarkGap.listCard(scheme, selected: selected, focused: focused, hovering: hovering),
+                        in: shape)
+            .overlay {
+                if selected { shape.strokeBorder(PrismDarkGap.listCardEdge(scheme, focused: focused), lineWidth: 1) }
             }
-        }
-        .onHover { hovering = $0 }
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
+            .contentShape(shape)
+            .onHover { hovering = $0 }
+            .padding(.vertical, Prism.Spacing.s3)
+            .padding(.horizontal, Prism.Spacing.s10)
+            .background(PrismDarkGap.listGround(scheme))
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
-}
 
-/// A row's content: where its work stands (a dot in the colour of Control's `tone`), its
-/// id (the item's key; a row without one has no id column at all), how long it has been
-/// where it stands (its age, from `since`), its label, its detail, and whether a write to
-/// it is being processed. The id, the age and the detail have narrow columns of a fixed
-/// width, so rows line up; the label has the rest, on one line ending in … when it is
-/// longer (its page shows it whole), with the whole of it in a tooltip. A done row is muted.
-struct RowLabel: View {
-    let row: RowModel
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.backgroundProminence) private var prominence
-
-    var body: some View {
+    private var content: some View {
         let tone = RowTone(row.tone)
-        // Muted text that keeps 4.5:1; inside the list's emphasized selection the system's
-        // own secondary colour, which stays legible on it.
-        let quiet = prominence == .increased ? AnyShapeStyle(.secondary) : AnyShapeStyle(PrismDarkGap.muted(scheme))
-        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
-            if row.tone != nil || row.since != nil {
-                Circle().fill(tone.map(Self.colour) ?? .clear)
-                    .frame(width: Prism.Spacing.s9, height: Prism.Spacing.s9)
-                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
-                    .help(tone?.meaning ?? "")
-                    .accessibilityLabel(tone?.meaning ?? "")
-                    .accessibilityHidden(tone == nil)
+        let muted = PrismDarkGap.listMuted(scheme, selected: selected)
+        return VStack(alignment: .leading, spacing: Prism.Spacing.s5) {
+            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s6) {
+                if let tone {
+                    Circle().fill(RowCard.colour(tone))
+                        .frame(width: Prism.Spacing.s7, height: Prism.Spacing.s7)
+                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                        .help(tone.meaning)
+                        .accessibilityLabel(tone.meaning)
+                }
+                topLine.prism(Prism.Typography.captionSmall)
+                Spacer(minLength: Prism.Spacing.s6)
+                if let age = RowAge.text(since: row.since, now: Date()) {
+                    Text(age).prism(Prism.Typography.captionSmall).monospacedDigit()
+                }
             }
-            if let id = row.id {
-                Text(id).monospaced().prism(Prism.Typography.tableRow).foregroundStyle(.secondary)
-                    .lineLimit(1).frame(width: 100, alignment: .leading)
-            }
-            if row.tone != nil || row.since != nil {
-                Text(RowAge.text(since: row.since, now: Date()) ?? "")
-                    .prism(Prism.Typography.tableRow).monospacedDigit()
-                    .foregroundStyle(quiet)
-                    .lineLimit(1).frame(width: 44, alignment: .trailing)
-            }
-            Text(row.label ?? "").prism(Prism.Typography.tableRow)
-                .foregroundStyle(tone == .done ? quiet : AnyShapeStyle(.primary))
-                .lineLimit(1)
+            .foregroundStyle(muted)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            Text(row.label ?? "")
+                .prism(Prism.Typography.labelSmall)
+                .lineSpacing(Prism.Spacing.s3)
+                .foregroundStyle(tone == .done ? muted : PrismDarkGap.text(scheme))
+                .lineLimit(RowCardText.titleLines)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
                 .help(row.label ?? "")
-                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
-            if let detail = row.detail {
-                Text(detail).prism(Prism.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
-                    .frame(width: 110, alignment: .leading)
-            }
             if row.pending == true {
-                Text("⋯ being processed").prism(Prism.Typography.captionSmall)
-                    .foregroundStyle(.secondary).lineLimit(1)
+                Text("⋯ being processed").prism(Prism.Typography.captionSmall).foregroundStyle(muted)
             }
         }
-        .truncationMode(.tail)
-        .multilineTextAlignment(.leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// `DECISION · D-0104 · waiting for you`: the kind and key spaced out as small caps, the
+    /// state in plain case.
+    private var topLine: Text {
+        let what = RowCardText.kindAndKey(kind: row.kind, id: row.id)
+        let state = RowCardText.state(row.detail)
+        var line = Text(what ?? "").tracking(0.6)
+        if let state { line = line + Text(what == nil ? state : " · " + state) }
+        return line
     }
 
     /// The tone's colour: needs you error red, under way warning orange, waiting primary

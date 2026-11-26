@@ -24,6 +24,7 @@ enum Prism {
         /// Primary at 97%: the lightest shade of it under which white text is 4.5:1 (primary
         /// itself is 4.3:1), for bars with white text. As the TUI's `primaryshade`.
         static let primaryShade = Color(hex: 0x406FE8)
+
     }
 
     /// `default` radius, 0.25rem.

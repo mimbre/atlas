@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.34.0"
+  version "0.35.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -91,7 +91,9 @@ defmodule AtlasBFFContract.Models.Presentation do
   # else, or an agent, is at it), "waiting" (planned, or waiting on someone or something
   # else), "done". Left out where Control cannot tell. A client shows it as a mark beside
   # the row, never instead of the row's own words. `since` (ISO 8601, UTC) is when the row
-  # entered the state it is in, so a client can say how long it has been there.
+  # entered the state it is in, so a client can say how long it has been there. `kind` is
+  # the kind of the item the row opens, in plain words (its label, "Decision"), so a client
+  # can say what the row is.
   defmodel :row do
     field :id, :string
     field :label, :string, required: true
@@ -102,6 +104,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :pending, :boolean
     field :tone, :string
     field :since, :string
+    field :kind, :string
   end
 
   # One group of a `groups` block: its name, how many items it has, the page that shows
