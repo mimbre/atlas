@@ -15,7 +15,7 @@ defmodule AtlasTui.PanelTest do
     screen = screen(PanelFixture.model(:accept))
     bar = line(screen, "TO ACCEPT")
 
-    assert bar =~ "◆ TO ACCEPT" and bar =~ "Plan for UC-Atlas-23" and bar =~ "3 issues"
+    assert bar =~ "◆ TO ACCEPT" and bar =~ "Plan for UC-Atlas-23" and bar =~ "3 widgets"
     assert screen =~ "Proposed by planner · waiting 3h"
     assert line(screen, "IS-Atlas-162") =~ "▸"
     refute line(screen, "IS-Atlas-163  Show") =~ "▸"
@@ -53,21 +53,21 @@ defmodule AtlasTui.PanelTest do
     assert again.choice == "IS-Atlas-163"
 
     {other, _} =
-      AtlasTui.ConsoleProjectionFixture.receive(down, %{page | "path" => "/k/issue/K-2"})
+      AtlasTui.ConsoleProjectionFixture.receive(down, %{page | "path" => "/k/widget/K-2"})
 
     assert other.choice == nil
   end
 
   test "Enter opens the selected item's page" do
     {model, effects} = effects(PanelFixture.model(:accept), [:down, :enter])
-    assert [{:send, %{"op" => "open", "to" => "/k/issue/IS-Atlas-163"}}] = effects
-    assert model.console.expected == "/k/issue/IS-Atlas-163"
+    assert [{:send, %{"op" => "open", "to" => "/k/widget/IS-Atlas-163"}}] = effects
+    assert model.console.expected == "/k/widget/IS-Atlas-163"
   end
 
   test "an answer given with a note opens its note form, never submits" do
     {model, effects} = Model.key(PanelFixture.model(:accept), {:char, "n"})
-    assert [{:send, %{"op" => "open", "to" => "/k/issue/K-1/answer/reject"}}] = effects
-    assert model.console.expected == "/k/issue/K-1/answer/reject"
+    assert [{:send, %{"op" => "open", "to" => "/k/widget/K-1/answer/reject"}}] = effects
+    assert model.console.expected == "/k/widget/K-1/answer/reject"
 
     {_, accept} = Model.key(PanelFixture.model(:accept), {:char, "a"})
     assert [{:send, %{"op" => "submit", "params" => %{"answer" => "accept"}}}] = accept
@@ -109,7 +109,7 @@ defmodule AtlasTui.PanelTest do
 
     {down, []} = Model.key(model, :down)
     assert down.choice == "c"
-    assert screen(down) =~ "Closes the issue; you say why."
+    assert screen(down) =~ "Closes the widget; you say why."
     refute screen(down) =~ "Runs the work again"
   end
 
@@ -123,8 +123,8 @@ defmodule AtlasTui.PanelTest do
 
   test "Enter on an answer given with a note opens its note form, never submits" do
     {model, effects} = effects(PanelFixture.model(:decision), [:down, :enter])
-    assert [{:send, %{"op" => "open", "to" => "/k/issue/K-1/answer/close"}}] = effects
-    assert model.console.expected == "/k/issue/K-1/answer/close"
+    assert [{:send, %{"op" => "open", "to" => "/k/widget/K-1/answer/close"}}] = effects
+    assert model.console.expected == "/k/widget/K-1/answer/close"
   end
 
   test "a panel fits any width" do

@@ -10,23 +10,23 @@ import XCTest
 @MainActor
 final class PanelTests: XCTestCase {
     private static func call(_ answer: String) -> [String: Any] {
-        ["endpoint": "answer", "params": ["kind": "issue", "key": "IS-1", "answer": answer]]
+        ["endpoint": "answer", "params": ["kind": "widget", "key": "IS-1", "answer": answer]]
     }
 
     private static func item(_ key: String, _ label: String) -> [String: Any] {
-        ["key": key, "label": label, "to": "/k/issue/\(key)",
+        ["key": key, "label": label, "to": "/k/widget/\(key)",
          "details": [["label": "What", "value": "\(label)."], ["label": "Done", "value": "—"]]]
     }
 
     /// To accept: three items, Accept at once, Not accepted with a note; the page's item
     /// carries the same answers as the page's actions, and one more.
     private static let accept: [String: Any] = ["id": "panel", "type": "panel", "props": [
-        "heading": "TO ACCEPT", "title": "Plan for UC-1", "aside": "3 issues",
+        "heading": "TO ACCEPT", "title": "Plan for UC-1", "aside": "3 widgets",
         "byline": [["text": "Proposed by IN-2"], ["text": "", "since": "2026-11-26T09:00:00Z"]],
         "items": [item("IS-1", "One"), item("IS-2", "Two"), item("IS-3", "Three")],
         "answers": [
-            ["label": "Accept", "key": "a", "to": "/k/use_case/UC-1/answer/a", "submit_to": call("accept")],
-            ["label": "Not accepted", "key": "n", "to": "/k/use_case/UC-1/answer/n", "note": true],
+            ["label": "Accept", "key": "a", "to": "/k/gadget/UC-1/answer/a", "submit_to": call("accept")],
+            ["label": "Not accepted", "key": "n", "to": "/k/gadget/UC-1/answer/n", "note": true],
         ],
         "actions": [["label": "Full proposal", "key": "i", "to": "/k/inspection/IN-2"]],
         "links": [["label": "Open on GitHub", "key": "o", "url": "https://github.com/mimbre/atlas/pull/605"],
@@ -34,11 +34,11 @@ final class PanelTests: XCTestCase {
     ]]
 
     private static let itemBlock: [String: Any] = ["id": "item", "type": "item", "props": [
-        "title": "Use case UC-1", "fields": [],
+        "title": "Gadget UC-1", "fields": [],
         "actions": [
-            ["label": "Accept", "key": "a", "to": "/k/use_case/UC-1/answer/a", "submit_to": call("accept"), "page": true],
-            ["label": "Not accepted", "key": "n", "to": "/k/use_case/UC-1/answer/n", "page": true],
-            ["label": "More…", "key": "m", "to": "/k/use_case/UC-1/more", "page": true],
+            ["label": "Accept", "key": "a", "to": "/k/gadget/UC-1/answer/a", "submit_to": call("accept"), "page": true],
+            ["label": "Not accepted", "key": "n", "to": "/k/gadget/UC-1/answer/n", "page": true],
+            ["label": "More…", "key": "m", "to": "/k/gadget/UC-1/more", "page": true],
         ],
     ]]
 
@@ -47,14 +47,14 @@ final class PanelTests: XCTestCase {
         "heading": "YOUR DECISION", "title": "IS-1 is stuck: what now?", "choose": true,
         "box": ["title": "What went wrong", "text": "The build failed.", "tone": "error"],
         "answers": [
-            ["label": "Close it", "key": "c", "to": "/k/issue/IS-1/answer/c", "note": true, "detail": "Ends it."],
-            ["label": "Retry", "key": "r", "to": "/k/issue/IS-1/answer/r", "submit_to": call("retry"),
+            ["label": "Close it", "key": "c", "to": "/k/widget/IS-1/answer/c", "note": true, "detail": "Ends it."],
+            ["label": "Retry", "key": "r", "to": "/k/widget/IS-1/answer/r", "submit_to": call("retry"),
              "recommended": true, "detail": "Builds it again."],
         ],
     ]]
 
     private static func page(_ blocks: [[String: Any]]) throws -> PageMessage {
-        let object: [String: Any] = ["op": "page", "reason": "open", "path": "/k/use_case/UC-1", "title": "Page",
+        let object: [String: Any] = ["op": "page", "reason": "open", "path": "/k/gadget/UC-1", "title": "Page",
                                      "at": "12:00:00", "position": 1, "blocks": blocks, "markup": []]
         let line = try JSONSerialization.data(withJSONObject: object)
         guard case .pageOpen(let page) = try WireLine.decode(ControlMessage.self, from: line) else {
@@ -71,8 +71,8 @@ final class PanelTests: XCTestCase {
         return panel
     }
 
-    private static let acceptCall = CallModel(endpoint: "answer", params: ["kind": "issue", "key": "IS-1", "answer": "accept"])
-    private static let retryCall = CallModel(endpoint: "answer", params: ["kind": "issue", "key": "IS-1", "answer": "retry"])
+    private static let acceptCall = CallModel(endpoint: "answer", params: ["kind": "widget", "key": "IS-1", "answer": "accept"])
+    private static let retryCall = CallModel(endpoint: "answer", params: ["kind": "widget", "key": "IS-1", "answer": "retry"])
 
     func testTheArrowsMoveTheItemSelectionAndReturnOpensTheSelectedItem() throws {
         var panel = Panel(try Self.panel(Self.accept))
@@ -88,7 +88,7 @@ final class PanelTests: XCTestCase {
         XCTAssertEqual(panel.selectedItem?.key, "IS-3")
         _ = panel.press(.up)
         XCTAssertEqual(panel.selectedItem?.details?.first?.value, "Two.")
-        XCTAssertEqual(panel.press(.enter), .open("/k/issue/IS-2"))
+        XCTAssertEqual(panel.press(.enter), .open("/k/widget/IS-2"))
         // Without a choice no answer is selected: Return never answers.
         XCTAssertNil(panel.selectedAnswer)
     }
@@ -99,7 +99,7 @@ final class PanelTests: XCTestCase {
 
         XCTAssertEqual(panel.click(item: third), .nothing)
         XCTAssertEqual(panel.selectedItem, third)
-        XCTAssertEqual(panel.click(item: third), .open("/k/issue/IS-3"))
+        XCTAssertEqual(panel.click(item: third), .open("/k/widget/IS-3"))
     }
 
     func testAYesSubmitsItsCallAndANoOpensItsNoteFormInstead() throws {
@@ -109,7 +109,7 @@ final class PanelTests: XCTestCase {
         XCTAssertEqual(yes.submitTo, Self.acceptCall)
         guard case .act(let no) = panel.answer(panel.answers[1]) else { return XCTFail("not an action") }
         XCTAssertNil(no.submitTo)
-        XCTAssertEqual(no.to, "/k/use_case/UC-1/answer/n")
+        XCTAssertEqual(no.to, "/k/gadget/UC-1/answer/n")
         XCTAssertTrue(PageActions.doable(no))
     }
 
@@ -120,7 +120,7 @@ final class PanelTests: XCTestCase {
         XCTAssertEqual(PageActions.action(key: "a", on: [page], typing: typing)?.submitTo, Self.acceptCall)
         let no = try XCTUnwrap(PageActions.action(key: "n", on: [page], typing: typing))
         XCTAssertNil(no.submitTo)
-        XCTAssertEqual(no.to, "/k/use_case/UC-1/answer/n")
+        XCTAssertEqual(no.to, "/k/gadget/UC-1/answer/n")
         XCTAssertEqual(PageActions.action(key: "i", on: [page], typing: typing)?.to, "/k/inspection/IN-2")
         XCTAssertEqual(PageActions.ofPage(page).map(\.key), ["m"])
         XCTAssertEqual(PageActions.label(of: Self.acceptCall, on: [page]), "Accept")
@@ -146,7 +146,7 @@ final class PanelTests: XCTestCase {
         // A no: Return opens its note form, it does not submit.
         guard case .act(let close)? = panel.press(.enter) else { return XCTFail("Return answered nothing") }
         XCTAssertNil(close.submitTo)
-        XCTAssertEqual(close.to, "/k/issue/IS-1/answer/c")
+        XCTAssertEqual(close.to, "/k/widget/IS-1/answer/c")
     }
 
     func testTheSelectionStaysOnTheSameAnswerWhenControlSendsThePanelAgain() throws {

@@ -8,7 +8,7 @@ defmodule AtlasTui.PanelFixture do
   def model(kind, props \\ %{}), do: kind |> page(props) |> projected()
 
   def page(kind, props \\ %{}) do
-    path = "/k/issue/K-1"
+    path = "/k/widget/K-1"
 
     panel = %{
       "id" => "panel",
@@ -19,7 +19,7 @@ defmodule AtlasTui.PanelFixture do
     %{
       "op" => "page",
       "path" => path,
-      "title" => "Issue K-1",
+      "title" => "Widget K-1",
       "reason" => "open",
       "blocks" => [panel]
     }
@@ -28,7 +28,7 @@ defmodule AtlasTui.PanelFixture do
   def call(answer),
     do: %{
       "endpoint" => "answer",
-      "params" => %{"kind" => "issue", "key" => "K-1", "answer" => answer}
+      "params" => %{"kind" => "widget", "key" => "K-1", "answer" => answer}
     }
 
   defp props(:accept, path) do
@@ -36,7 +36,7 @@ defmodule AtlasTui.PanelFixture do
       %{
         "key" => "IS-Atlas-#{n}",
         "label" => what,
-        "to" => "/k/issue/IS-Atlas-#{n}",
+        "to" => "/k/widget/IS-Atlas-#{n}",
         "details" => [
           %{"label" => "What", "value" => what},
           %{"label" => "Done", "value" => done},
@@ -48,7 +48,7 @@ defmodule AtlasTui.PanelFixture do
     %{
       "heading" => "TO ACCEPT",
       "title" => "Plan for UC-Atlas-23 · Every item has a producer",
-      "aside" => "3 issues",
+      "aside" => "3 widgets",
       "byline" => [%{"text" => "Proposed by planner"}, %{"text" => "waiting", "since" => ago(3)}],
       "items" => [
         item.(162, "Record who produced each item", "Every new item names its producer.", "—"),
@@ -125,7 +125,7 @@ defmodule AtlasTui.PanelFixture do
           "key" => "c",
           "to" => path <> "/answer/close",
           "note" => true,
-          "detail" => "Closes the issue; you say why."
+          "detail" => "Closes the widget; you say why."
         }
       ],
       "actions" => [%{"label" => "Agent's log", "key" => "l", "to" => "/k/run/W-134"}]
