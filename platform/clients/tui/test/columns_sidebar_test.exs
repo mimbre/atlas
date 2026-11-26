@@ -146,4 +146,52 @@ defmodule AtlasTui.ColumnsSidebarTest do
     model = put_in(model.console.viewport, {209, 40})
     refute screen(model, 209) =~ "Decisions 2"
   end
+
+  # The supervised list as Control sends it: its groups line, then a titled list.
+  defp grouped(model) do
+    groups = [
+      %{"label" => "Decisions", "count" => 2, "to" => "/_supervised/decide/open"},
+      %{"label" => "To-Dos", "count" => 3, "to" => "/_supervised/todo/open"}
+    ]
+
+    rows = [%{"label" => "Widget W-3", "id" => "W-3", "to" => "/k/widget/W-3"}]
+
+    page = %{
+      list("/_supervised", "Supervised by you", ["W-3"])
+      | "blocks" => [
+          %{"id" => "groups", "type" => "groups", "props" => %{"groups" => groups}},
+          %{"id" => "list", "type" => "list", "props" => %{"title" => "Design", "rows" => rows}}
+        ]
+    }
+
+    {model, [{:send, %{"op" => "open"}}]} = ConsoleProjectionFixture.receive(model, page)
+    {model, []} = ConsoleProjectionFixture.receive(model, widget("W-3"))
+    model
+  end
+
+  test "with the group row under the tab bar, the list column leaves out its own groups" do
+    model = wide(250)
+    {model, [{:send, %{"op" => "open", "to" => "/_supervised"}}]} = Model.key(model, :tab)
+    model = grouped(model)
+
+    text = screen(model, 250)
+    assert length(Regex.scan(~r/Decisions 2/u, text)) == 1
+    assert text =~ ~r/│   Decisions 2 · To-Dos 3 +│\n└/u
+
+    # Narrower, no group row: the list column keeps its line.
+    model = put_in(model.console.viewport, {160, 40})
+    assert length(Regex.scan(~r/Decisions 2/u, screen(model, 160))) == 1
+  end
+
+  test "a list's group heading is plain: bold title, dim count, no box lines" do
+    model = wide(250)
+    {model, [{:send, %{"op" => "open", "to" => "/_supervised"}}]} = Model.key(model, :tab)
+    rows = View.render(grouped(model), 250, 40, 5)
+
+    [heading] = Enum.filter(rows, &Enum.member?(&1, {:bold, "Design"}))
+    assert Enum.member?(heading, {:dim, " · 1"})
+    [before | _] = String.split(View.plain([heading]), "Design")
+    refute before =~ ~r/[┌┐└┘─│]/u
+    refute View.plain(rows) =~ ~r/[┌└]─* ?Design/u
+  end
 end
