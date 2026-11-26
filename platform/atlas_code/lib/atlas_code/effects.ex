@@ -570,11 +570,11 @@ defmodule AtlasCode.Effects do
         case record["round"] do
           "update" ->
             {"Update",
-             "An agent updated it with #{r["input"]["base"]} (task #{task}); Code pushed its result onto this pull request."}
+             "An agent updated it with #{r["input"]["base"]} (task #{task}); Code pushed its result onto this pull."}
 
           _ ->
             {"CI fix",
-             "An agent fixed its failing CI (task #{task}); Code pushed its result onto this pull request."}
+             "An agent fixed its failing CI (task #{task}); Code pushed its result onto this pull."}
         end
 
       n = length(Regex.scan(~r/^\*\*#{label} \d+\.\*\*/m, body)) + 1

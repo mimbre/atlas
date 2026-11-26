@@ -417,7 +417,7 @@ defmodule AtlasCode.EffectsTest do
     assert body =~ "> Fixed the second typo."
 
     assert body =~
-             "**CI fix 1.** An agent fixed its failing CI (task TK-JB-1-5); Code pushed its result onto this pull request. Its answer:\n\n" <>
+             "**CI fix 1.** An agent fixed its failing CI (task TK-JB-1-5); Code pushed its result onto this pull. Its answer:\n\n" <>
                "> Fixed the failing README test; it fixes (#12).\n> Left open: nothing."
 
     [earlier, later] = String.split(body, "**CI fix 1.**")
@@ -427,7 +427,7 @@ defmodule AtlasCode.EffectsTest do
 
     # Nothing else of the body changed.
     section =
-      "**CI fix 1.** An agent fixed its failing CI (task TK-JB-1-5); Code pushed its result onto this pull request. Its answer:\n\n" <>
+      "**CI fix 1.** An agent fixed its failing CI (task TK-JB-1-5); Code pushed its result onto this pull. Its answer:\n\n" <>
         "> Fixed the failing README test; it fixes (#12).\n> Left open: nothing."
 
     assert String.replace(body, "\n\n" <> section, "") == published
@@ -542,7 +542,7 @@ defmodule AtlasCode.EffectsTest do
     assert %{"status" => "done", "outputs" => %{"head" => ^folded}} = call(s, "submit", r)
 
     assert FakeGitHub.get_pull(c.gh, 9)["body"] ==
-             "A pull.\n\n**Update 1.** An agent updated it with main (task TK-JB-1-7); Code pushed its result onto this pull request. Its answer:\n\n" <>
+             "A pull.\n\n**Update 1.** An agent updated it with main (task TK-JB-1-7); Code pushed its result onto this pull. Its answer:\n\n" <>
                "> Kept both READMEs.\n\nAtlas JB-3, task TK-JB-3-1: merging this finishes it."
   end
 
