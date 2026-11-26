@@ -98,38 +98,68 @@ struct StepsView: View {
             } else {
                 Text(" ").frame(width: 18)
             }
-            Text("\(step.n). \(StepsPanel.firstLine(step.text))").lineLimit(1).truncationMode(.tail)
+            number(step)
+            Text(StepsPanel.head(step)).lineLimit(1).truncationMode(.tail)
                 .foregroundStyle(muted)
         }
         .prism(Prism.Typography.tableRow)
-        .padding(.horizontal, Prism.Spacing.s6)
+        .padding(.horizontal, Prism.Spacing.s10)
         .accessibilityLabel("Step \(step.n), \(done ? "done" : "to come"): \(step.text)")
     }
 
-    /// The current step, framed and open: ▸, its text, its commands.
+    /// A step's number, in a column as wide for every step, so the numbers and the texts
+    /// after them line up whether the step is done, current or to come.
+    private func number(_ step: InstructionStepModel) -> some View {
+        Text("\(step.n).").monospacedDigit().foregroundStyle(panel.place(step) == .current ? .primary : muted)
+            .frame(width: numberWidth, alignment: .leading)
+    }
+
+    private var numberWidth: CGFloat {
+        CGFloat(String(block.steps.map(\.n).max() ?? 1).count) * 9 + 10
+    }
+
+    /// The current step, set apart and open: ▸ and its number in the columns of the other
+    /// steps (its frame is outside them), then its lines in the order written: text, a
+    /// command in its block with Copy, a route as its parts.
     private func current(_ step: InstructionStepModel) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
                 Text("▸").bold().frame(width: 18)
-                Text("\(step.n). \(step.text)").bold().textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            ForEach(Array(step.commands.enumerated()), id: \.offset) { _, command in
-                CommandBlock(command: command, copied: copied == command) { copy(command) }
-            }
-            if let all = panel.allCommands, step.commands.count > 1 {
-                Button(copied == all ? "✓ copied" : "Copy all commands") { copy(all) }
-                    .buttonStyle(.bordered).controlSize(.small)
+                number(step).bold()
+                VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+                    ForEach(Array(step.lines.enumerated()), id: \.offset) { _, line in
+                        lineView(line)
+                    }
+                    if let all = panel.allCommands, step.commands.count > 1 {
+                        Button(copied == all ? "✓ copied" : "Copy all commands") { copy(all) }
+                            .buttonStyle(.bordered).controlSize(.small)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .prism(Prism.Typography.tableRow)
-        .padding(Prism.Spacing.s10)
+        .padding(.horizontal, Prism.Spacing.s10)
+        .padding(.vertical, Prism.Spacing.s10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(scheme == .dark ? Prism.Colors.primary.opacity(0.18) : Prism.Colors.primaryLight,
                     in: RoundedRectangle(cornerRadius: Prism.radius))
         .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(Prism.Colors.primary))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Current step \(step.n)")
+    }
+
+    @ViewBuilder
+    private func lineView(_ line: InstructionLineModel) -> some View {
+        switch line.kind {
+        case "command":
+            let command = line.text ?? ""
+            CommandBlock(command: command, copied: copied == command) { copy(command) }
+        case "route":
+            RouteLine(parts: line.parts ?? [])
+        default:
+            Text(line.text ?? "").bold().textSelection(.enabled)
+        }
     }
 
     private func copy(_ text: String) {
@@ -188,5 +218,38 @@ struct CommandBlock: View {
         .overlay(RoundedRectangle(cornerRadius: Prism.radius)
             .strokeBorder(scheme == .dark ? Prism.Colors.grey2 : Prism.Colors.grey3))
         .accessibilityLabel("Command: \(command)")
+    }
+}
+
+/// A route, the way to something in an app: a muted ⌘, then each part as a small label
+/// with a muted › before the next; a long route wraps before a ›. Dark: primarylight on a
+/// faint primary; light: grey1 on white with a grey3 edge, on the current step's tint.
+struct RouteLine: View {
+    let parts: [String]
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        FlowLayout(spacing: Prism.Spacing.s6) {
+            Text("⌘").foregroundStyle(Prism.Colors.muted(scheme))
+            ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
+                HStack(spacing: Prism.Spacing.s6) {
+                    if index > 0 { Text("›").foregroundStyle(Prism.Colors.muted(scheme)) }
+                    label(part)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Go to \(parts.joined(separator: ", then "))")
+    }
+
+    private func label(_ part: String) -> some View {
+        Text(part).prism(Prism.Typography.labelSmall).textSelection(.enabled)
+            .foregroundStyle(scheme == .dark ? Prism.Colors.primaryLight : Prism.Colors.grey1)
+            .padding(.horizontal, Prism.Spacing.s6)
+            .padding(.vertical, 3)
+            .background(scheme == .dark ? Prism.Colors.primary.opacity(0.35) : Prism.Colors.white,
+                        in: RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(scheme == .dark ? Color.clear : Prism.Colors.grey3))
     }
 }

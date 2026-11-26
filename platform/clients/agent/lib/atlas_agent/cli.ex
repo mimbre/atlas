@@ -424,7 +424,7 @@ defmodule AtlasAgent.CLI do
   defp todo_text(nil), do: []
 
   # Instructions step by step: why, then each step (✓ done, ▸ the one it is at) with its
-  # commands, as they are run.
+  # lines in order as written: text, commands (`$ `, as they are run) and routes (`> `).
   defp todo_text(%{"steps" => steps, "current" => current} = todo) do
     why = if todo["why"], do: ["  Why: #{todo["why"]}"], else: []
 
@@ -437,10 +437,20 @@ defmodule AtlasAgent.CLI do
             true -> " "
           end
 
-        [first | rest] = String.split(step["text"], "\n")
+        written =
+          Enum.flat_map(step["lines"], fn
+            %{"kind" => "command", "text" => command} ->
+              ["$ " <> command]
 
-        ["  #{mark} #{step["n"]}. #{first}"] ++
-          Enum.map(rest, &"       #{&1}") ++ Enum.map(step["commands"], &"       $ #{&1}")
+            %{"kind" => "route", "parts" => parts} ->
+              ["> " <> Enum.map_join(parts, " > ", &part/1)]
+
+            %{"text" => text} ->
+              String.split(text, "\n")
+          end)
+
+        [first | rest] = if written == [], do: [""], else: written
+        ["  #{mark} #{step["n"]}. #{first}"] ++ Enum.map(rest, &"       #{&1}")
       end)
 
     keys = Enum.map_join(todo["actions"] || [], "   ", &"#{&1["key"]} #{&1["label"]}")
@@ -463,6 +473,9 @@ defmodule AtlasAgent.CLI do
 
     [todo["title"] | fields] ++ [""]
   end
+
+  # A route's part as written: in double quotes when it holds ` > `.
+  defp part(part), do: if(String.contains?(part, " > "), do: ~s("#{part}"), else: part)
 
   # The fact that set a link: "since 3 Nov 15:10, by melle: why", in local time.
   defp origin_text(nil), do: ""

@@ -2,7 +2,24 @@ defmodule AtlasTui.StepsPanelTest do
   use ExUnit.Case, async: true
   alias AtlasTui.{Clipboard, Model, View}
 
-  defp page do
+  defp text(text), do: %{"kind" => "text", "text" => text}
+  defp command(command), do: %{"kind" => "command", "text" => command}
+  defp route(parts), do: %{"kind" => "route", "parts" => parts}
+
+  # A step as Control sends it: its lines in order, and its text, commands and routes.
+  defp step(n, lines) do
+    of = fn kind, key -> for %{"kind" => ^kind} = line <- lines, do: line[key] end
+
+    %{
+      "n" => n,
+      "text" => Enum.join(of.("text", "text"), "\n"),
+      "commands" => of.("command", "text"),
+      "routes" => of.("route", "parts"),
+      "lines" => lines
+    }
+  end
+
+  defp page(steps \\ nil, current \\ 2) do
     path = "/k/widget/W-01"
 
     move = fn label, key, to ->
@@ -24,16 +41,19 @@ defmodule AtlasTui.StepsPanelTest do
         "title" => "Set up the widget",
         "why" => "The widget needs a home.",
         "since" => DateTime.utc_now() |> DateTime.add(-3 * 3600) |> DateTime.to_iso8601(),
-        "current" => 2,
-        "steps" => [
-          %{"n" => 1, "text" => "Open a terminal", "commands" => []},
-          %{
-            "n" => 2,
-            "text" => "Make its folder\nIn your home.",
-            "commands" => ["mkdir w", "cd w"]
-          },
-          %{"n" => 3, "text" => "Tell us", "commands" => []}
-        ],
+        "current" => current,
+        "steps" =>
+          steps ||
+            [
+              step(1, [text("Open a terminal")]),
+              step(2, [
+                text("Make its folder\nIn your home."),
+                command("mkdir w"),
+                route(["Finder", "Home", "w"]),
+                command("cd w")
+              ]),
+              step(3, [text("Tell us")])
+            ],
         "actions" => [
           move.("Step 2 done", "Enter", 3),
           move.("Next step", "Down", 3),
@@ -61,6 +81,7 @@ defmodule AtlasTui.StepsPanelTest do
     assert text =~ "✓ 1. Open a terminal"
     assert text =~ ~r/▸ 2\. Make its folder +│ │\n.*│      In your home\./
     assert text =~ "│ mkdir w"
+    assert text =~ "⌘ Finder › Home › w"
     assert text =~ "│ cd w"
     assert text =~ "3. Tell us"
     assert text =~ "Enter Step 2 done"
@@ -99,5 +120,64 @@ defmodule AtlasTui.StepsPanelTest do
     assert "\ePtmux;\e\e]52;c;" <> _ = wrapped
     [_, payload] = Regex.run(~r/\e\]52;c;([^\a]*)\a$/, wrapped)
     assert Base.decode64!(payload) == "cd w"
+  end
+
+  test "a route shows ⌘, its parts in the route colour and muted › between them, in order" do
+    lines = View.render(page(), 90, 40, 30)
+    plain = View.plain(lines)
+    order = for line <- ["mkdir w", "⌘ Finder", "cd w"], do: :binary.match(plain, line) |> elem(0)
+    assert order == Enum.sort(order)
+
+    [route] = Enum.filter(lines, fn line -> Enum.any?(line, &match?({:route, "Finder"}, &1)) end)
+    segments = Enum.drop_while(route, &(&1 != {:dim, "⌘ "}))
+
+    assert [
+             {:dim, "⌘ "},
+             {:route, "Finder"},
+             {:dim, " › "},
+             {:route, "Home"},
+             {:dim, " › "},
+             {:route, "w"} | _
+           ] = segments
+  end
+
+  test "a long route goes on at a separator, the next row starting with ›" do
+    parts = [
+      "Keychain Access",
+      "login",
+      "My Certificates",
+      "Developer ID Application: A > B (TEAMID)"
+    ]
+
+    steps = [step(1, [text("Export it"), route(parts)])]
+    rows = View.render(page(steps, 1), 60, 40, 30) |> View.plain() |> String.split("\n")
+
+    assert Enum.any?(rows, &(&1 =~ "⌘ Keychain Access › login › My Certificates"))
+    assert Enum.any?(rows, &(&1 =~ ~r/│\s+› Developer ID Application: A > B \(TEAMID\)/))
+    refute Enum.any?(rows, &(&1 =~ ~r/Certificates › Developer/))
+  end
+
+  test "copy keys copy only commands, never a route" do
+    {_, [{:copy, "mkdir w\ncd w"}]} = Model.key(page(), {:char, "y"})
+    steps = [step(1, [text("Open it"), route(["Finder", "Home"])])]
+
+    assert {_, []} =
+             Model.key(page(steps, 1), {:char, "c"})
+             |> then(fn {m, e} -> {m, Enum.filter(e, &match?({:copy, _}, &1))} end)
+  end
+
+  test "every step's number starts at the same column, done, current and later" do
+    steps = for n <- 1..10, do: step(n, [text("Step #{n} text"), command("true")])
+    rows = View.render(page(steps, 2), 90, 60, 30) |> View.plain() |> String.split("\n")
+
+    columns =
+      for n <- [1, 2, 3, 10] do
+        row = Enum.find(rows, &(&1 =~ ~r/\b#{n}\. +Step #{n} text/))
+        [{number, _}] = Regex.run(~r/\b#{n}\. /, row, return: :index)
+        [{text, _}] = Regex.run(~r/Step #{n} text/, row, return: :index)
+        {String.length(binary_part(row, 0, number)), String.length(binary_part(row, 0, text))}
+      end
+
+    assert [_] = Enum.uniq(columns)
   end
 end
