@@ -16,6 +16,9 @@ defmodule AtlasTui.Palette do
   `:pending_selected` is `:pending` inside the selection: yellow text cannot reach 4.5:1 on
   the selection background, so there the yellow is the background, under dark text.
   `:active` (the group shown) looks like `:selected` but is not the selected row.
+  `:frame` is a frame in primary (a line, not text). `:key` names a key (tertiary) and
+  `:warning` warns (Prism's warning); in the light theme, where those colours are too
+  faint as text on white, both are dark text on warninglight.
   The `:tone_*` roles draw a list row's dot (where its work stands): red when it needs the
   viewer, orange when under way, blue when planned or waiting, green when done. In dark the
   dot is the colour on the surface; in light, where those colours are too faint as text on
@@ -59,6 +62,9 @@ defmodule AtlasTui.Palette do
         :prod -> {:primaryshade, :white}
         :dim -> if dark, do: {:grey3, :grey1}, else: base
         :border -> if dark, do: {:grey2, :grey1}, else: {:grey2, :white}
+        :frame -> if dark, do: {:primary, :grey1}, else: {:primary, :white}
+        :key -> if dark, do: {:tertiary, :grey1}, else: {:grey1, :warninglight}
+        :warning -> if dark, do: {:warning, :grey1}, else: {:grey1, :warninglight}
         :ok -> if dark, do: {:success, :grey1}, else: {:grey1, :successlight}
         :pending -> if dark, do: {:tertiary, :grey1}, else: {:grey1, :warninglight}
         :tone_attention -> if dark, do: {:secondary, :grey1}, else: {:white, :error}
