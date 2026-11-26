@@ -2,7 +2,8 @@ defmodule AtlasTui.Interactions do
   @moduledoc """
   Console operations from the current BFF projection. Contract owns validation,
   binding selection and action identity. The renderer adds local focus and shell
-  revision checks to reject captured events after its own state changes.
+  revision checks to reject captured events after its own state changes. On a page with a
+  single choice, ↑/↓ select an option and Enter answers it with the option's own key.
   """
   alias AtlasTui.{Blocks, Console, Legend, Model}
   alias AtlasBFFContract.Console, as: Contract
@@ -179,11 +180,36 @@ defmodule AtlasTui.Interactions do
       _ ->
         model = put_in(model.console.key_buffer, "")
 
-        if prefix?(model, key),
-          do: {put_in(model.console.key_prefix, elem(key, 1)), []},
-          else: direct_key(model, key)
+        cond do
+          choice = choice_key(model, key) -> choice
+          prefix?(model, key) -> {put_in(model.console.key_prefix, elem(key, 1)), []}
+          true -> direct_key(model, key)
+        end
     end
   end
+
+  # A page with a single choice: the arrows move its selection (the recommended option
+  # first) and Enter answers the selected option exactly as its key does, through the
+  # action Control projects for that key; a key Control does not project does nothing.
+  defp choice_key(model, key) when key in [:up, :down, :enter] do
+    with "browse" <- context(model),
+         %Blocks.SingleChoice{options: [_ | _] = options} = choice <- Model.single_choice(model) do
+      at = Model.chosen(choice, model.choice)
+
+      case key do
+        :enter ->
+          dispatch(model, capture(model, {:char, Model.option_key(Enum.at(options, at), at)}))
+
+        move ->
+          to = (at + if(move == :up, do: -1, else: 1)) |> max(0) |> min(length(options) - 1)
+          {%{model | choice: Enum.at(options, to).id}, []}
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp choice_key(_model, _key), do: nil
 
   # Whether `key` starts an action's two-key sequence; a single-key action on the
   # same character keeps it.

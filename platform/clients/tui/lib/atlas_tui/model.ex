@@ -13,7 +13,7 @@ defmodule AtlasTui.Model do
   """
 
   alias AtlasTui.{Blocks, Selection, Text}
-  alias AtlasTui.Blocks.{Confirm, Form, Input, Item, Part, Plan, Section}
+  alias AtlasTui.Blocks.{Confirm, Form, Input, Item, Part, Plan, Section, SingleChoice}
   alias AtlasTui.Blocks.List, as: ListBlock
 
   @scroll_step 10
@@ -32,6 +32,9 @@ defmodule AtlasTui.Model do
             ids: [],
             markup: [],
             selected: 0,
+            # The option of the page's single choice that Enter answers, by id; nil (or an
+            # id the choice no longer has) is the recommended one.
+            choice: nil,
             # A page longer than the screen: nil follows the selected row or the focus;
             # a number of lines is scrolled to by page up and page down.
             scroll: nil,
@@ -106,6 +109,7 @@ defmodule AtlasTui.Model do
       model
       | selected: Selection.after_replace(before, rows(model)) || 0,
         focus: if(same, do: model.focus, else: 0),
+        choice: if(same, do: model.choice, else: nil),
         cursor: if(same, do: model.cursor, else: nil),
         scroll: if(same, do: model.scroll, else: first_scroll(blocks)),
         part: if(same, do: model.part, else: nil),
@@ -178,6 +182,17 @@ defmodule AtlasTui.Model do
   # The block that takes the keys.
 
   def form(model), do: Enum.find(model.blocks, &match?(%Form{}, &1))
+
+  def single_choice(model), do: Enum.find(model.blocks, &match?(%SingleChoice{}, &1))
+
+  @doc "Where in its options the selected option of `choice` is (`choice` in the model)."
+  def chosen(%SingleChoice{options: options, recommended: recommended}, id) do
+    Enum.find_index(options, &(&1.id == id)) ||
+      Enum.find_index(options, &(&1.id == recommended)) || 0
+  end
+
+  @doc "The key that answers an option: Control's shortcut, else its place from 1."
+  def option_key(option, index), do: option.shortcut || Integer.to_string(index + 1)
 
   @doc """
   The form a step of the plan is edited in: the step's inputs, as Control's form for it
