@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppUpdate
 import ControlSession
+import Prism
 import SwiftUI
 
 /// Below the columns: connected or not (when not, why and what happens next, in plain
@@ -48,7 +49,7 @@ struct StatusBar: View {
             // What is being sent (or opened, or asked), at once, until Control answers.
             if let pending = status.pending {
                 HStack(spacing: 5) {
-                    ProgressView().controlSize(.mini)
+                    ProgressView().progressViewStyle(.prism(.accent, size: .size16))
                     Text(pending).foregroundStyle(.orange).lineLimit(1).truncationMode(.middle)
                 }
             }

@@ -34,13 +34,14 @@ defmodule AtlasTui.DecisionTest do
     order =
       Enum.map(
         [
-          "◆ YOUR DECISION · D-7   How do we store examples?",
+          "◆ YOUR DECISION · D-7",
+          "How do we store examples?",
           "Why: Files need nothing to run.",
           "1. Use files",
           "2. Use memory",
           "3. Decline",
           "l Inspector's log",
-          "Details ─",
+          ~r/^  Details$/,
           "Status"
         ],
         &at(lines, &1)
@@ -78,16 +79,17 @@ defmodule AtlasTui.DecisionTest do
     assert line(model, "3 Decline…")
   end
 
-  test "the selection starts on the first option, framed in primary, and the arrows move it" do
+  test "the selection starts on the first option, on the selected surface, and the arrows move it" do
     model = PanelFixture.model(:choice)
     assert line(model, "1. Use files") =~ "▸"
-    assert :frame in styles(model, "1. Use files")
-    assert :rest_frame in styles(model, "2. Use memory")
+    assert {:card_selected, :bold} in styles(model, "1. Use files")
+    assert {:card, :bold} in styles(model, "2. Use memory")
 
     {down, []} = Model.key(model, :down)
     refute line(down, "1. Use files") =~ "▸"
     assert line(down, "2. Use memory") =~ "▸"
-    assert :frame in styles(down, "2. Use memory")
+    assert {:card_selected, :bold} in styles(down, "2. Use memory")
+    assert {:card, :bold} in styles(down, "1. Use files")
 
     {last, []} = press(down, [:down, :down, :down])
     assert line(last, "3. Decline") =~ "▸"
@@ -127,7 +129,7 @@ defmodule AtlasTui.DecisionTest do
     end
   end
 
-  test "stuck work: the question, its byline, what went wrong in a red frame, then its options" do
+  test "stuck work: the question, its byline, what went wrong in an error card, then its options" do
     model = PanelFixture.model(:stuck)
     lines = lines(model)
 
@@ -150,9 +152,8 @@ defmodule AtlasTui.DecisionTest do
     assert Enum.all?(order, &is_integer/1)
     assert order == Enum.sort(order)
 
-    assert :error_frame in styles(model, "What went wrong")
-    assert :error in styles(model, "What went wrong")
-    assert :error_frame in styles(model, "could not reach the database")
+    assert {:card, :error} in styles(model, "What went wrong")
+    assert {:card, :plain} in styles(model, "could not reach the database")
     assert line(model, "1. Retry") =~ "★ Recommended"
     assert line(model, "2. Close it") =~ "Decline · note"
   end

@@ -101,7 +101,13 @@ defmodule AtlasTui.InstructionsTest do
   end
 
   defp model(opts \\ []), do: PanelFixture.projected(page(opts))
-  defp rows(model, width \\ 90), do: View.render(model, width, 60, 30) |> View.plain() |> lines()
+
+  defp rows(model, width \\ 90, height \\ 60),
+    do: View.render(model, width, height, 30) |> View.plain() |> lines()
+
+  # A segment's role, whether on the page or on a card.
+  defp on_page({{surface, role}, text}) when surface in [:card, :card_selected], do: {role, text}
+  defp on_page(segment), do: segment
   defp lines(text), do: String.split(text, "\n")
   defp screen(model, width \\ 90), do: model |> rows(width) |> Enum.join("\n")
   defp marked(model), do: model |> rows() |> Enum.filter(&(&1 =~ ~r/^\s*▸ /u))
@@ -115,10 +121,13 @@ defmodule AtlasTui.InstructionsTest do
 
   test "the header, the why and every step in full, one under the other, then the answers" do
     text = screen(model())
-    assert text =~ "◆ TO DO FOR YOU · TD-12   Rotate the key"
+    assert text =~ " ◆ TO DO FOR YOU · TD-12\n Rotate the key\n"
     assert text =~ "Why: The old key leaked. · 3h ago"
-    assert text =~ ~r/1\. Open a terminal\n\n.*│ cd ~\n\n +2\. Make its folder\n +In your home\./
-    assert text =~ ~r/│ mkdir w\n\n +⌘ Finder › Home › w\n\n +│ cd w\n\n +3\. Tell us/
+
+    assert text =~
+             ~r/1\. Open a terminal\n\n.*▎ cd ~\n.*\n\n.*\n +2\. Make its folder\n +In your home\./
+
+    assert text =~ ~r/▎ mkdir w\n\n +⌘ Finder › Home › w\n\n +▎ cd w\n.*\n\n.*\n +3\. Tell us/
 
     assert text =~
              "x Done · note · n Won't do · note · u Update chore · ↑↓ command · c copy · y copy all"
@@ -129,7 +138,7 @@ defmodule AtlasTui.InstructionsTest do
 
   test "every step's number and text start at the same columns, however many steps" do
     steps = for n <- 1..10, do: step(n, [text("Step #{n} text"), command("true")])
-    rows = rows(model(steps: steps))
+    rows = rows(model(steps: steps), 90, 100)
 
     columns =
       for n <- [1, 2, 9, 10] do
@@ -146,19 +155,19 @@ defmodule AtlasTui.InstructionsTest do
   test "↑↓ move ▸ from command to command across the steps, stopping at the ends" do
     model = model()
     assert [first] = marked(model)
-    assert first =~ "│ cd ~"
+    assert first =~ "▎ cd ~"
 
     {model, []} = press(model, [:down])
     assert [row] = marked(model)
-    assert row =~ "│ mkdir w"
+    assert row =~ "▎ mkdir w"
 
     {model, []} = press(model, [:down, :down, :down])
     assert [row] = marked(model)
-    assert row =~ "│ cd w"
+    assert row =~ "▎ cd w"
 
     {model, []} = press(model, [:up, :up, :up, :up])
     assert [row] = marked(model)
-    assert row =~ "│ cd ~"
+    assert row =~ "▎ cd ~"
   end
 
   test "c copies the selected command, y all of the page's, one per line; the TUI says so" do
@@ -189,7 +198,7 @@ defmodule AtlasTui.InstructionsTest do
   end
 
   test "a route shows ⌘, its parts in the route colour and muted › between them, in order" do
-    lines = View.render(model(), 90, 60, 30)
+    lines = for line <- View.render(model(), 90, 60, 30), do: Enum.map(line, &on_page/1)
 
     [route] = Enum.filter(lines, fn line -> Enum.any?(line, &match?({:route, "Finder"}, &1)) end)
     segments = Enum.drop_while(route, &(&1 != {:dim, "⌘ "}))
@@ -221,12 +230,12 @@ defmodule AtlasTui.InstructionsTest do
 
   test "the details stand beside the steps on a wide terminal, under the answers otherwise" do
     wide = rows(model(), 160)
-    details = Enum.find(wide, &(&1 =~ "Details ─"))
-    assert details =~ "Rotate the key"
+    details = Enum.find_index(wide, &(&1 =~ ~r/  Details( |$)/))
+    assert Enum.at(wide, details) =~ "Rotate the key"
 
     narrow = rows(model(), 90)
     answers = Enum.find_index(narrow, &(&1 =~ "x Done"))
-    details = Enum.find_index(narrow, &(&1 =~ "Details ─"))
+    details = Enum.find_index(narrow, &(&1 =~ ~r/^  Details$/))
     assert answers < details
   end
 
@@ -264,8 +273,8 @@ defmodule AtlasTui.InstructionsTest do
     {page, []} = press(model, [:right, :down])
     assert page.path == "/k/todo/TD-1"
     screen = page |> View.render(220, 60, 30) |> View.plain() |> lines()
-    assert [row] = Enum.filter(screen, &(&1 =~ ~r/▸ +│ /))
-    assert row =~ "│ mkdir w"
+    assert [row] = Enum.filter(screen, &(&1 =~ ~r/▸ +▎ /))
+    assert row =~ "▎ mkdir w"
 
     {_listed, [{:send, %{"op" => "open", "to" => "/k/todo/TD-2"}}]} = press(model, [:down])
   end

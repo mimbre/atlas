@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 // The Apple clients' hand-written code (docs/design/apple-clients.md §2). The contract is
 // the generated package AtlasControlKit, published in github.com/mimbre/atlas-swift with a
 // tag per contract version; nothing here is generated.
@@ -19,9 +19,14 @@ let contract: Package.Dependency = local.map { .package(path: $0) }
 let identity = local.map { URL(fileURLWithPath: $0).lastPathComponent.lowercased() } ?? "atlas-swift"
 let kit: Target.Dependency = .product(name: "AtlasControlKit", package: identity)
 
+// Prism, Eyra's design system: its tokens and components (Tag, Button, StepIndicator,
+// MessageBar, Spinner), exactly at this release. What Atlas still adds (dark appearance,
+// which Prism has no tokens for yet) is in Sources/BlockViews/PrismDarkGap.swift.
+let prism: Package.Dependency = .package(url: "https://github.com/novasoftwarefoundation/prism-swift.git", exact: "0.7.0")
+
 let package = Package(
     name: "AtlasApple",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         // Transport and session state, no UI; the same on macOS and iOS.
         .library(name: "ControlSession", targets: ["ControlSession"]),
@@ -33,15 +38,15 @@ let package = Package(
         // The macOS app: the three-column window (§2, "The shell").
         .executable(name: "AtlasMac", targets: ["AtlasMac"]),
     ],
-    dependencies: [contract],
+    dependencies: [contract, prism],
     targets: [
         .target(name: "ControlSession", dependencies: [kit]),
-        .target(name: "BlockViews", dependencies: ["ControlSession", kit]),
+        .target(name: "BlockViews", dependencies: ["ControlSession", kit, .product(name: "Prism", package: "prism-swift")]),
         .target(name: "AppUpdate"),
-        .executableTarget(name: "AtlasMac", dependencies: ["ControlSession", "BlockViews", "AppUpdate", kit], path: "Mac"),
+        .executableTarget(name: "AtlasMac", dependencies: ["ControlSession", "BlockViews", "AppUpdate", kit, .product(name: "Prism", package: "prism-swift")], path: "Mac"),
         .testTarget(name: "ControlSessionTests", dependencies: ["ControlSession", kit]),
         .testTarget(name: "AppUpdateTests", dependencies: ["AppUpdate"]),
-        .testTarget(name: "BlockViewsTests", dependencies: ["BlockViews", "ControlSession", kit]),
+        .testTarget(name: "BlockViewsTests", dependencies: ["BlockViews", "ControlSession", kit, .product(name: "Prism", package: "prism-swift")]),
     ],
     swiftLanguageModes: [.v6]
 )

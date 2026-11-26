@@ -1,3 +1,4 @@
+import Prism
 import AppKit
 import AtlasControlKit
 @testable import BlockViews
@@ -11,7 +12,7 @@ import XCTest
 final class WindowLayoutTests: XCTestCase {
     func testThePageIsAboutAHundredCharactersOfTheBodyFont() {
         let text = String(repeating: "The quick brown fox jumps over the lazy dog. ", count: 3).prefix(100)
-        let body = Prism.Typography.bodySmall
+        let body = Prism.Typography.bodysmall
         let font = NSFont.systemFont(ofSize: body.size, weight: .light)
         let width = (String(text) as NSString).size(withAttributes: [.font: font]).width
         XCTAssertEqual(WindowLayout.page, width, accuracy: width * 0.1)

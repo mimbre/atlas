@@ -1020,17 +1020,19 @@ defmodule AtlasTuiTest do
       for {width, body, side} <- [{250, 200, 100}, {160, 160, 60}, {140, 140, 40}] do
         assert View.body_width(m, width) == body
         lines = m |> View.render(width, 30, 5) |> View.plain() |> String.split("\n")
-        details = Enum.find(lines, &(&1 =~ "Details ─"))
+        details = Enum.find_index(lines, &(&1 =~ ~r/  Details( |$)/))
+        top = Enum.at(lines, details - 1)
         wheel = Enum.find(lines, &(&1 =~ "› Wheel"))
 
-        # On the same rows: the page from the left edge, its details' column right after
-        # its 100 cells (their text 4 into it); nothing further right than the details.
-        [before | _] = String.split(details, " Details")
+        # On the same rows: the page from the left edge, its details' card right after its
+        # 100 cells and a gap of 4 (the card's margin, its padding, then its text), its
+        # rounded top on the first row, its heading under it; nothing further right.
+        [before | _] = String.split(Enum.at(lines, details), "  Details")
         assert String.length(before) == 100 + 4
-        # A heading's rule ends one cell short of its column's edge.
-        assert String.length(details) == 100 + side - 1
+        assert top =~ ~r/▗▄+▖$/u
+        assert String.length(top) == 100 + side
         assert String.starts_with?(wheel, " › Wheel")
-        assert details == wheel
+        assert top == wheel
 
         # The room left over is at the far right: no line of the body reaches past it.
         page = lines |> Enum.drop(4) |> Enum.take_while(&(&1 != String.duplicate("─", width)))
@@ -1041,9 +1043,9 @@ defmodule AtlasTuiTest do
       for width <- [139, 100, 60] do
         lines = m |> View.render(width, 30, 5) |> View.plain() |> String.split("\n")
         wheel = Enum.find_index(lines, &(&1 =~ "› Wheel"))
-        details = Enum.find_index(lines, &(&1 =~ "Details ─"))
+        details = Enum.find_index(lines, &(&1 =~ ~r/  Details$/))
         assert wheel < details
-        assert Enum.at(lines, details) |> String.starts_with?(" Details")
+        assert Enum.at(lines, details) |> String.starts_with?("  Details")
       end
     end
   end

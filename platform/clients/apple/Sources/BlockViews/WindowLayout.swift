@@ -1,3 +1,4 @@
+import Prism
 import CoreGraphics
 
 /// The window's columns, left to right against each other, never centred: the sidebar, the
