@@ -284,6 +284,28 @@ defmodule AtlasTui.PresentationTest do
     end
   end
 
+  test "one column of page content is at most 100 wide and centred; the chrome spans the terminal" do
+    model = model()
+
+    for {width, body, margin} <- [{250, 100, 75}, {80, 80, 0}] do
+      text = model |> View.render(width, 40, 5) |> View.plain() |> String.split("\n")
+      header = AtlasTui.ConsoleView.header(model, width)
+      assert View.body_width(model, width) == body
+
+      # The body sits between the margins: its rows start at the left one and no page line
+      # reaches past the right one.
+      row = Enum.find(text, &(&1 =~ "› W-01"))
+      assert String.length(row) - String.length(String.trim_leading(row)) >= margin
+      page = text |> Enum.drop(length(header)) |> Enum.drop(-3)
+      assert Enum.all?(page, &(String.length(&1) <= margin + body))
+
+      # The tab/title bar and the footer rule span the whole terminal.
+      [bar | _] = header
+      assert Enum.sum(Enum.map(bar, &String.length(elem(&1, 1)))) >= width
+      assert Enum.any?(text, &(&1 == String.duplicate("─", width)))
+    end
+  end
+
   defp luminance({r, g, b}) do
     [r, g, b]
     |> Enum.map(fn value ->

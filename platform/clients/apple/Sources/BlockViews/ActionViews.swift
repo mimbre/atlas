@@ -335,7 +335,7 @@ public struct ActionPageView: View {
             }
         }
         .padding(Prism.Spacing.s22)
-        .frame(minWidth: 460, idealWidth: 560, maxWidth: 720, alignment: .leading)
+        .frame(minWidth: 460, idealWidth: 560, maxWidth: Prism.readableWidth, alignment: .leading)
     }
 
     /// What Control refused, in its words.

@@ -81,14 +81,20 @@ defmodule AtlasTui.Legend do
 
   def scroll(model, by) do
     {width, height} = model.console.viewport
-    geometry = LegendView.geometry(model, width, max(height - 7, 1))
+
+    geometry =
+      LegendView.geometry(model, AtlasTui.View.body_width(model, width), max(height - 7, 1))
+
     offset = (model.console.legend.scroll + by) |> max(0) |> min(geometry.max_scroll)
     %{model | console: %{model.console | legend: %{scroll: offset}}}
   end
 
   def page(model, direction) do
     {width, height} = model.console.viewport
-    geometry = LegendView.geometry(model, width, max(height - 7, 1))
+
+    geometry =
+      LegendView.geometry(model, AtlasTui.View.body_width(model, width), max(height - 7, 1))
+
     scroll(model, direction * max(geometry.room - 1, 1))
   end
 

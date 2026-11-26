@@ -198,6 +198,28 @@ readonly), errors, submit and cancel; links opened with `openURL` (http and http
 Layout adapts by size, not by platform: two or more parts side by side when wide, stacked
 when narrow (the TUI's 120-column rule becomes a width threshold and size classes).
 
+#### Page width (TUI and Mac, 2026-11-26)
+
+One rule, in characters, for the room an opened page gets: the whole terminal in the
+TUI; the page's column (after tabs and the tab's list) on the Mac. The chrome (title and
+tab bars, toolbar, sidebars, status and footer lines) is not the page's and keeps the
+full width.
+
+- What is decided (lists, groups, panels, steps, item pages, forms) is one column of at
+  most **100** characters, centred; narrower, it takes the room it has. Text wraps at the
+  column's width.
+- A page whose markup has a `part` of role `details` (the item's facts where its owner
+  decides: its key, state, for whom and from whom since when, what it is about or based
+  on, and note, evidence or deadline once filled) shows them **beside** that column from
+  **144** characters on: 4 apart, at least 40 and at most 100 wide, growing with the
+  room; the two centred together. Narrower, the details follow under it, compact.
+- Parts side by side (`main`/`related`/`todo`, from 120 columns) keep the full width.
+
+The TUI keeps these in `AtlasTui.View` (`@measure`, `@gap`, `@side_least`, `@beside`,
+`body_width/2`); the Mac in `Prism` (`characterWidth`, about one character of
+`Typography.bodySmall`, and the widths made of it), applied by `PageView`. Behaviour tests:
+`AtlasTuiTest` (markup) and `PresentationTest` in the TUI, `ReadableWidthTests` on the Mac.
+
 ### The shell (approved, 2026-11-13)
 
 This is the plan for the macOS shell and for slice S1. iPhone and iPad follow it as the

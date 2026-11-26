@@ -44,6 +44,17 @@ enum Prism {
     /// `default` radius, 0.25rem.
     static let radius: CGFloat = 4
 
+    /// One character of the body font (`Typography.bodySmall`), on average: the unit of
+    /// an opened page's layout, the TUI's in characters (docs/design/apple-clients.md, Page width).
+    static let characterWidth: CGFloat = 7.2
+    /// What is decided on a page, centred, at most 100 characters wide.
+    static let readableWidth = 100 * characterWidth
+    /// The page's details beside it: 4 characters apart, at least 40 wide; so from 144
+    /// characters of the page's column on. Chrome (toolbar, sidebar, list, status) is not
+    /// the page's and keeps its own width.
+    static let detailsGap = 4 * characterWidth
+    static let besideWidth = readableWidth + detailsGap + 40 * characterWidth
+
     /// Prism's spacing scale, in points, by its step names.
     enum Spacing {
         static let s1: CGFloat = 1, s2: CGFloat = 2, s3: CGFloat = 3, s5: CGFloat = 5, s6: CGFloat = 6

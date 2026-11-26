@@ -30,8 +30,30 @@ public struct PageView: View {
         self.act = act
     }
 
+    /// The page in the room its column gives it: what is decided at most
+    /// `Prism.readableWidth` wide, centred; its details beside it when the column has room
+    /// for both (`Prism.besideWidth`), growing with the room up to the same width, else under it.
     public var body: some View {
-        let lines = lines
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            if let details = presentation.details, width >= Prism.besideWidth {
+                HStack(alignment: .top, spacing: Prism.detailsGap) {
+                    list(lines(presentation.groups, header: header))
+                        .frame(width: Prism.readableWidth)
+                    list(lines(details))
+                        .frame(width: min(Prism.readableWidth, width - Prism.readableWidth - Prism.detailsGap))
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                list(lines(presentation.groups, header: header) + (presentation.details.map { lines($0) } ?? []))
+                    .frame(maxWidth: Prism.readableWidth)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .navigationTitle(presentation.title)
+    }
+
+    private func list(_ lines: [Line]) -> some View {
         // The list selects a row by its id (the line's), never by a tag inside it; the row
         // selected is the first whose `to` is `selectedPath`, and selecting one opens its `to`.
         List(selection: Binding(
@@ -62,7 +84,6 @@ public struct PageView: View {
             }
         }
         .listStyle(.inset)
-        .navigationTitle(presentation.title)
     }
 
     /// A row of the page's list: the page's header, a list block's title, its empty text,
@@ -88,10 +109,15 @@ public struct PageView: View {
         }
     }
 
-    /// The page's rows, top down, each id made of its block's (the header's, which no
+    /// The details' rows: their title, then theirs.
+    private func lines(_ details: PagePresentation.Details) -> [Line] {
+        [Line(id: "\u{0}details", content: .title(details.title))] + lines(details.groups, header: false)
+    }
+
+    /// The rows of `groups`, top down, each id made of its block's (the header's, which no
     /// block's id can be, its own).
-    private var lines: [Line] {
-        let blocks = presentation.groups.flatMap { group -> [Line] in
+    private func lines(_ groups: [PagePresentation.Group], header: Bool) -> [Line] {
+        let blocks = groups.flatMap { group -> [Line] in
             switch group {
             case .section(let section):
                 return [Line(id: group.id, content: .section(section))]
