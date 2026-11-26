@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.29.0"
+  version "0.30.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -32,12 +32,25 @@ defmodule AtlasBFFContract.Models.Presentation do
   end
 
   # One step of a `steps` block: its number (from 1), its text (the lines that are no
-  # command, kept with their breaks) and its commands, each a line to run as it is (the
-  # instructions' `$ ` taken off).
+  # command or route, kept with their breaks), its commands, each a line to run as it is
+  # (the instructions' `$ ` taken off), its routes, each the parts of the way to something
+  # in an app (`> Keychain Access > login`), and all of them in the order written (`lines`),
+  # which a client shows.
   defmodel :instruction_step do
     field :n, :integer, required: true
     field :text, :string, required: true
     field :commands, {:list, :string}, required: true
+    field :routes, {:list, {:list, :string}}, required: true
+    field :lines, {:list, :instruction_line}, required: true
+  end
+
+  # A line of a step, in order: `kind` `text` (its `text`, the lines between two commands
+  # or routes), `command` (its `text`, without the `$ `) or `route` (its `parts`, without
+  # the ` > ` between them).
+  defmodel :instruction_line do
+    field :kind, :string, required: true
+    field :text, :string
+    field :parts, {:list, :string}
   end
 
   # One part of a panel's byline (`panel`): `text`, and with `since` (ISO 8601, UTC) how

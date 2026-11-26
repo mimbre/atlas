@@ -76,6 +76,14 @@ public struct StepsPanel: Sendable, Equatable {
         }
     }
 
+    /// What a step not open shows: its first line as written, a route as its parts with ›
+    /// between them.
+    static func head(_ step: InstructionStepModel) -> String {
+        guard let line = step.lines.first else { return "" }
+        if line.kind == "route" { return (line.parts ?? []).joined(separator: " › ") }
+        return firstLine(line.text ?? "")
+    }
+
     /// How long ago `since` (ISO 8601) was: "just now", "5m ago", "3h ago", "2d ago".
     static func age(since: String, now: Date) -> String? {
         guard let at = ISO8601DateFormatter().date(from: since) else { return nil }

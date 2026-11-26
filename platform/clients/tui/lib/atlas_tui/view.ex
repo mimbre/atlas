@@ -897,13 +897,18 @@ defmodule AtlasTui.View do
 
   # A to-do step by step, as a panel like the single choice's: the work in a bar with how
   # far its owner is, why and since when, the done steps one line each (✓), the current
-  # one framed with its commands each on its own line beside a bar, the later ones one
-  # faint line each with how many commands they hold, and the keys: Control's actions and
-  # c/C/y to copy.
+  # one framed with its lines in order (text, commands beside a bar, routes), the later
+  # ones one faint line each, and the keys: Control's actions and c/C/y to copy. Every
+  # step has the same mark column (✓, ▸ or blank) and number column, so the numbers and
+  # the texts line up; the current step's frame is in the gutter left of them, which why
+  # and the keys are indented past too.
   defp block(%Steps{} = block, _at, _model, width, _room) do
     inner = max(width - 3, 1)
     content = max(inner - 2, 1)
+    body_width = max(content - 2, 1)
     total = length(block.steps)
+    numbers = display_width("#{Enum.max([total | Enum.map(block.steps, & &1.n)])}. ")
+    text_width = max(content - 6 - numbers, 1)
 
     progress =
       if block.current > total, do: "all #{total} done", else: "step #{block.current} of #{total}"
@@ -911,36 +916,29 @@ defmodule AtlasTui.View do
     why =
       case [single_line(block.why), age(block.since)] |> Enum.reject(&(&1 == "")) do
         [] -> []
-        [why, age] -> [[]] ++ hanging("Why: ", why <> " · " <> age, content, :dim, :dim)
-        [text] -> [[]] ++ hanging("Why: ", text, content, :dim, :dim)
+        [why, age] -> [[]] ++ hanging("Why: ", why <> " · " <> age, body_width, :dim, :dim)
+        [text] -> [[]] ++ hanging("Why: ", text, body_width, :dim, :dim)
       end
 
     rows =
       Enum.flat_map(block.steps, fn step ->
-        number = "#{step.n}. "
-        # A closed step shows its first line: the rest is how, for when it is current.
-        head = closed_line(step)
+        number = String.pad_trailing("#{step.n}. ", numbers)
 
         cond do
           step.n < block.current ->
-            [fit([{:ok, "✓"}, {:dim, " " <> number <> head}], content)]
+            [[{:plain, "  "}, {:ok, "✓"}, {:dim, " " <> number <> step_head(step)}]]
 
           step.n == block.current ->
-            current_step(step, content)
+            current_step(step, number, text_width, content)
 
           true ->
-            more =
-              case step_holds(step) do
-                "" -> []
-                holds -> [{:muted, " · " <> holds}]
-              end
-
-            [fit([{:dim, "  " <> number <> head} | more], content)]
+            [[{:dim, "    " <> number <> step_head(step)}]]
         end
       end)
 
-    keys = steps_keys(block, content)
-    body = why ++ [[]] ++ rows ++ if(keys == [], do: [], else: [[]] ++ keys)
+    keys = steps_keys(block, body_width)
+    indent = fn lines -> Enum.map(lines, &if(&1 == [], do: [], else: [{:plain, "  "} | &1])) end
+    body = indent.(why) ++ [[]] ++ rows ++ if(keys == [], do: [], else: [[]] ++ indent.(keys))
 
     framed =
       for line <- body,
@@ -1078,41 +1076,92 @@ defmodule AtlasTui.View do
   defp keyed(heading, key) when key in [nil, ""], do: heading
   defp keyed(heading, key), do: heading <> " · " <> single_line(key)
 
-  # A closed step's first line, without the colon that leads into what it folds away.
-  defp closed_line(step),
-    do: step.text |> String.split("\n") |> hd() |> single_line() |> String.trim_trailing(":")
+  # The current step in a box drawn in the gutter, so its mark (▸) and number stay in the
+  # columns of the other steps: its lines in the order written, a blank line where the kind
+  # changes. Text is bold; a command is plain behind a bar; a route is a muted ⌘ and its
+  # parts (`route_rows/2`). Plain text and no background: the same in both themes.
+  defp current_step(step, number, text_width, width) do
+    blank = String.duplicate(" ", 2 + display_width(number))
 
-  # What a closed step holds besides its first line, counted from what Control sent: "2
-  # commands"; "" when it holds none.
-  defp step_holds(step) do
-    case length(step.commands || []) do
-      0 -> ""
-      1 -> "1 command"
-      n -> "#{n} commands"
-    end
-  end
-
-  # The current step in a box: ▸, its text, and its commands each on its own line behind
-  # a bar, in plain text (no background: the same in both themes).
-  defp current_step(step, width) do
-    inner = max(width - 4, 1)
-    number = "#{step.n}. "
-    indent = String.duplicate(" ", 2 + display_width(number))
-    [first | rest] = detail_wrap(String.trim(step.text), max(inner - display_width(indent), 1))
+    rows =
+      step.lines
+      |> Enum.chunk_by(& &1.kind)
+      |> Enum.map(fn run -> Enum.flat_map(run, &step_line_rows(&1, text_width)) end)
+      |> Enum.intersperse([[]])
+      |> Enum.concat()
+      |> case do
+        [] -> [[]]
+        rows -> rows
+      end
 
     lines =
-      [[{:bold, "▸ " <> number <> first}] | Enum.map(rest, &[{:bold, indent <> &1}])] ++
-        if(step.commands == [], do: [], else: [[]]) ++
-        Enum.flat_map(step.commands, fn command ->
-          for line <- detail_wrap(command, max(inner - 2 - display_width(indent), 1)),
-              do: [{:plain, indent}, {:border, "│ "}, {:plain, line}]
-        end)
+      rows
+      |> Enum.with_index()
+      |> Enum.map(fn
+        {row, 0} -> [{:bold, "▸ " <> number} | pad_line(fit(row, text_width), text_width)]
+        {row, _} -> [{:plain, blank} | pad_line(fit(row, text_width), text_width)]
+      end)
 
     rule = String.duplicate("─", max(width - 2, 0))
 
     [[{:border, "┌" <> rule <> "┐"}]] ++
-      Enum.map(lines, &([{:border, "│ "} | pad_line(fit(&1, inner), inner)] ++ [{:border, " │"}])) ++
+      Enum.map(lines, &([{:border, "│ "} | &1] ++ [{:border, " │"}])) ++
       [[{:border, "└" <> rule <> "┘"}]]
+  end
+
+  defp step_line_rows(%{kind: "command", text: command}, width),
+    do:
+      for(line <- detail_wrap(command, max(width - 2, 1)), do: [{:border, "│ "}, {:plain, line}])
+
+  defp step_line_rows(%{kind: "route", parts: parts}, width), do: route_rows(parts || [], width)
+
+  defp step_line_rows(%{text: text}, width),
+    do: for(line <- detail_wrap(text || "", width), do: [{:bold, line}])
+
+  # A route: a muted ⌘, then its parts bold in `:route`, a muted › between them. A route
+  # too long for its row goes on at a separator: the next row starts with that › under
+  # the first part. A part too long for a row of its own wraps, under itself.
+  defp route_rows(parts, width) do
+    {rows, row, _used} =
+      parts
+      |> Enum.with_index()
+      |> Enum.reduce({[], [{:dim, "⌘ "}], 2}, fn {part, index}, {rows, row, used} ->
+        need = display_width(part)
+
+        cond do
+          index == 0 and used + need <= width ->
+            {rows, row ++ [{:route, part}], used + need}
+
+          index > 0 and used + 3 + need <= width ->
+            {rows, row ++ [{:dim, " › "}, {:route, part}], used + 3 + need}
+
+          true ->
+            {rows, lead} =
+              if index == 0, do: {rows, row}, else: {[row | rows], [{:plain, "  "}, {:dim, "› "}]}
+
+            [first | rest] = detail_wrap(part, max(width - 4, 1))
+
+            Enum.reduce(
+              rest,
+              {rows, lead ++ [{:route, first}],
+               if(index == 0, do: 2, else: 4) + display_width(first)},
+              fn piece, {rows, row, _used} ->
+                {[row | rows], [{:plain, "    "}, {:route, piece}], 4 + display_width(piece)}
+              end
+            )
+        end
+      end)
+
+    Enum.reverse([row | rows])
+  end
+
+  # What a closed step shows: its first line (a route's parts with › between them).
+  defp step_head(step) do
+    case step.lines do
+      [%{kind: "route", parts: parts} | _] -> Enum.join(parts || [], " › ")
+      [%{text: text} | _] -> text |> String.split("\n") |> hd() |> single_line()
+      _ -> ""
+    end
   end
 
   # Control's actions on their keys, then what c, C and y copy when the step has commands.

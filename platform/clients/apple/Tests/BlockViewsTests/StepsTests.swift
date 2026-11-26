@@ -21,9 +21,12 @@ final class StepsTests: XCTestCase {
     private static func line(current: Int, actions: [String]) -> String { #"""
     {"at":"15:51:05","back":"/","blocks":[{"id":"steps","props":{"actions":[\#(actions.joined(separator: ",")),\#
     {"key":"x","label":"Done","page":true,"to":"/k/chore/C-7/answer/x"}],"current":\#(current),"since":"2026-11-24T10:00:00Z",\#
-    "steps":[{"commands":[],"n":1,"text":"Make a new key."},\#
-    {"commands":["git tag -d v12","git tag -d v13"],"n":2,"text":"Drop the old tags.\nBoth of them."},\#
-    {"commands":["rm old.key"],"n":3,"text":"Remove the old file."}],\#
+    "steps":[{"commands":[],"lines":[{"kind":"text","text":"Make a new key."}],"n":1,"routes":[],"text":"Make a new key."},\#
+    {"commands":["git tag -d v12","git tag -d v13"],"lines":[{"kind":"text","text":"Drop the old tags.\nBoth of them."},\#
+    {"kind":"route","parts":["Terminal","New Window"]},{"kind":"command","text":"git tag -d v12"},\#
+    {"kind":"command","text":"git tag -d v13"}],"n":2,"routes":[["Terminal","New Window"]],"text":"Drop the old tags.\nBoth of them."},\#
+    {"commands":["rm old.key"],"lines":[{"kind":"route","parts":["Finder","Home","old.key > backup"]},\#
+    {"kind":"command","text":"rm old.key"}],"n":3,"routes":[["Finder","Home","old.key > backup"]],"text":""}],\#
     "title":"Rotate the key","why":"the old key leaked."},"type":"steps"}],\#
     "markup":[],"op":"page","path":"/k/chore/C-7","position":4,"reason":"open","title":"Chore C-7"}
     """# }
@@ -161,5 +164,19 @@ final class StepsTests: XCTestCase {
 
         Clipboard.copy(try XCTUnwrap(panel.allCommands), to: pasteboard)
         XCTAssertEqual(pasteboard.string(forType: .string), "git tag -d v12\ngit tag -d v13")
+    }
+
+    func testAStepsLinesComeInTheOrderWrittenARouteAsItsParts() throws {
+        let panel = try panel(page())
+        let current = try XCTUnwrap(panel.current)
+
+        XCTAssertEqual(current.lines.map(\.kind), ["text", "route", "command", "command"])
+        XCTAssertEqual(current.lines[1].parts, ["Terminal", "New Window"])
+        XCTAssertEqual(current.routes, [["Terminal", "New Window"]])
+        // Copy all copies the commands only, never a route.
+        XCTAssertEqual(panel.allCommands, "git tag -d v12\ngit tag -d v13")
+        // A step not open shows its first line; one that starts with a route, its parts.
+        XCTAssertEqual(StepsPanel.head(panel.block.steps[2]), "Finder › Home › old.key > backup")
+        XCTAssertEqual(StepsPanel.head(panel.block.steps[0]), "Make a new key.")
     }
 }

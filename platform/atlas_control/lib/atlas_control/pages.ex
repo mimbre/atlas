@@ -3352,14 +3352,25 @@ defmodule AtlasControl.Pages do
       why: why,
       since: todo.why.since,
       steps:
-        for(
-          s <- steps,
-          do: Blocks.instruction_step(n: s.n, text: s.text, commands: s.commands)
-        ),
+        for s <- steps do
+          Blocks.instruction_step(
+            n: s.n,
+            text: s.text,
+            commands: s.commands,
+            routes: s.routes,
+            lines: for(line <- s.lines, do: instruction_line(line))
+          )
+        end,
       current: current,
       actions: moves ++ page_actions(page)
     )
   end
+
+  defp instruction_line(%{kind: :route, parts: parts}),
+    do: Blocks.instruction_line(kind: "route", parts: parts)
+
+  defp instruction_line(%{kind: kind, text: text}),
+    do: Blocks.instruction_line(kind: Atom.to_string(kind), text: text)
 
   @doc """
   Why the step `step` (text, from the path) cannot be set by the viewer of `form` on the

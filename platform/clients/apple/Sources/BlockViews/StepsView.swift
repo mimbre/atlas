@@ -51,18 +51,20 @@ struct StepsView: View {
 
     private var muted: Color { Prism.Colors.muted(scheme) }
 
-    /// The current step, open on a light background: its text, its commands.
+    /// The current step, open on a light background: its number, then its lines in the
+    /// order written: text, a command in its block with a copy icon, a route as its parts.
     private func current(_ step: InstructionStepModel) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
                 Text("\(step.n).").bold().monospacedDigit().frame(width: StepRow.number, alignment: .trailing)
-                Text(step.text).bold().textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: Prism.Spacing.s6) {
+                    ForEach(Array(step.lines.enumerated()), id: \.offset) { _, line in
+                        lineView(line)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             VStack(alignment: .leading, spacing: Prism.Spacing.s6) {
-                ForEach(Array(step.commands.enumerated()), id: \.offset) { _, command in
-                    CommandBlock(command: command, copied: copied == command) { copy(command) }
-                }
                 if let all = panel.allCommands, step.commands.count > 1 {
                     Button { copy(all) } label: {
                         Label("Copy all", systemImage: copied == all ? "checkmark" : "doc.on.doc")
@@ -82,6 +84,19 @@ struct StepsView: View {
                     in: RoundedRectangle(cornerRadius: Prism.radius))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Current step \(step.n)")
+    }
+
+    @ViewBuilder
+    private func lineView(_ line: InstructionLineModel) -> some View {
+        switch line.kind {
+        case "command":
+            let command = line.text ?? ""
+            CommandBlock(command: command, copied: copied == command) { copy(command) }
+        case "route":
+            RouteLine(parts: line.parts ?? [])
+        default:
+            Text(line.text ?? "").bold().textSelection(.enabled)
+        }
     }
 
     private func copy(_ text: String) {
@@ -126,6 +141,39 @@ struct StepRow: View {
     }
 
     private var muted: Color { Prism.Colors.muted(scheme) }
+}
+
+/// A route, the way to something in an app: a muted ⌘, then each part as a small label
+/// with a muted › before the next; a long route wraps before a ›. Dark: primarylight on a
+/// faint primary; light: grey1 on white with a grey3 edge, on the current step's tint.
+struct RouteLine: View {
+    let parts: [String]
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        FlowLayout(spacing: Prism.Spacing.s6) {
+            Text("⌘").foregroundStyle(Prism.Colors.muted(scheme))
+            ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
+                HStack(spacing: Prism.Spacing.s6) {
+                    if index > 0 { Text("›").foregroundStyle(Prism.Colors.muted(scheme)) }
+                    label(part)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Go to \(parts.joined(separator: ", then "))")
+    }
+
+    private func label(_ part: String) -> some View {
+        Text(part).prism(Prism.Typography.labelSmall).textSelection(.enabled)
+            .foregroundStyle(scheme == .dark ? Prism.Colors.primaryLight : Prism.Colors.grey1)
+            .padding(.horizontal, Prism.Spacing.s6)
+            .padding(.vertical, 3)
+            .background(scheme == .dark ? Prism.Colors.primary.opacity(0.35) : Prism.Colors.white,
+                        in: RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(scheme == .dark ? Color.clear : Prism.Colors.grey3))
+    }
 }
 
 /// One command in a block that hugs it (grey5 in light, grey1 in dark; no border),

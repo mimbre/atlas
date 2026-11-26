@@ -54,9 +54,11 @@ defmodule AtlasBFFContract.Contract do
   # 0.28.0: a page where its owner decides may show it as a `panel` (to accept, to merge,
   # a decision on stuck work): a heading and title, a byline, the items or checks or box
   # it is judged on, and its answers (a choice when `choose`).
-  # 0.29.0: a panel, steps or single choice names the fact it is about (`key`), so a client
+  # 0.29.0: a step's routes and its lines in order (`instruction_line`: text, command or
+  # route), so a client shows a route's parts and keeps where each line was written.
+  # 0.30.0: a panel, steps or single choice names the fact it is about (`key`), so a client
   # that shows the panel in place of the page's title still shows it.
-  version "0.29.0"
+  version "0.30.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup
