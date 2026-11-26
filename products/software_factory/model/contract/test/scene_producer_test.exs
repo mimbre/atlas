@@ -296,7 +296,7 @@ defmodule Model.SceneProducerTest do
       assert accept(c, "SC-Atlas-31")["links"]["assigned_to"] == ["melle"]
     end
 
-    test "a scene that records no producer: Accept is the decider's, for now", c do
+    test "a scene that records no producer: Accept is the decider's", c do
       scene("SC-Atlas-32", nil)
       assert accept(c, "SC-Atlas-32")["links"]["assigned_to"] == ["bo"]
     end

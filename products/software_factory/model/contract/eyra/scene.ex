@@ -309,7 +309,7 @@ defmodule Model.Scene do
     end
 
     # Its producer accepts it: who put it in (`produced_by`). A scene that records none,
-    # from before producers were recorded, asks the configured decider for now.
+    # from before producers were recorded, asks the configured decider (IS-Atlas-164).
     state :to_accept, label: "Accept" do
       owner(
         via: :assignment,

@@ -2,7 +2,7 @@
 
 What you can do: make a use case or an issue by hand and see that it records its producer, as a scene does. Have a review's follow-ups become issues produced by the build's supervisor. See that nothing makes a scene, use case or issue without a producer (SC-Atlas-09).
 
-Every scene, use case and issue records its producer (`produced_by`). That is the supervisor of the flow that made it, or, for one made by hand, the person who made it. When an agent makes it, that is the person the agent assists, and the history says the agent wrote it on their behalf. Questions about an item go to its producer. It is never empty: a create that would record none is refused and nothing is stored. Only an item from before producers were recorded has none, and its questions go to the configured decider, as before ([uc-atlas-24.md](uc-atlas-24.md)).
+Every scene, use case and issue records its producer (`produced_by`). That is the supervisor of the flow that made it, or, for one made by hand, the person who made it. When an agent makes it, that is the person the agent assists, and the history says the agent wrote it on their behalf. Questions about an item go to its producer. A new one is never without: a create that would record none is refused and nothing is stored. Only an item from before producers were recorded has none. It keeps working, and the configured decider counts as its producer ([Items from before](#items-from-before)).
 
 ## Start
 
@@ -22,6 +22,15 @@ You need a person of test at their own Console (their machine's `tui_user`; `doc
 | An agent that assists nobody | `ATLAS_AS=breaker atlas put issue --in UC-Atlas-NN --title x --env test` (any agent missing from `assists`), and the same for `put scene` and `put use_case` | Refused, and nothing is stored: `breaker is no person and assists nobody, so a new issue would record no producer (produced_by): create it as a person, or as an agent that assists one`. Control refuses it before anything is sent. A client that sends the create to Facts anyway is refused there too: `a new issue records its producer (produced_by): … this create by breaker links nobody`. |
 | Setting it yourself | `--produced_by A`, `--link produced_by=A`, or `atlas set … produced_by=A` | Refused, as for a scene ([uc-atlas-24.md](uc-atlas-24.md#a-scene-records-who-put-it-in)). |
 | A review's follow-ups | A: `atlas do IS-Atlas-MM "Pick up" --env test`, and wait for its review | When the review returns follow-ups, each is a new issue under the issue's use case. Each page shows **Produced by  A**, set by `flow`, cause `For A: proposed by TK-IS-Atlas-MM-2 in the review of IS-Atlas-MM`. Their questions go to A, who supervised the build that found them. |
+
+## Items from before
+
+An item made before producers were recorded is not migrated (IS-Atlas-164, Melle's decision). It keeps working as it is: Facts refuses no write to it, Flow's or a person's, for want of a producer. Wherever its producer is needed, the configured decider (`actors.decider`) counts as its producer: "Answer its questions" and a scene's **Accept** go to them ([uc-atlas-24.md](uc-atlas-24.md)).
+
+| Step | Who, where | What you should see |
+|---|---|---|
+| An old scene | anyone: open a scene from before (its page shows no **Produced by**), edit its title, `ctrl-s` | Stored, as before. Flow's writes to it are stored too. |
+| Its Accept | its use cases all accepted | **Accept** is on the configured decider's **Assigned to you**. |
 
 ## What changed for this
 
