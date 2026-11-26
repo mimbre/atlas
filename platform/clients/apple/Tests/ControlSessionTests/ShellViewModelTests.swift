@@ -265,7 +265,8 @@ final class ShellViewModelTests: XCTestCase {
         // The other tab's groups show while the widgets tab is shown; no count yet.
         var shell = ShellViewModel(h.state)
         XCTAssertEqual(shell.tabs.last?.icon, "inbox")
-        XCTAssertEqual(shell.tabs.last?.groups, [ShellViewModel.Group(label: "Build", count: nil, to: "/_open/issue/build")])
+        XCTAssertEqual(shell.tabs.last?.groups,
+                       [ShellViewModel.Group(label: "Build", count: nil, forYou: false, to: "/_open/issue/build")])
         XCTAssertNil(shell.activeGroup)
 
         // Choosing it selects it at once, kept while its page loads, on its own tab; its

@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.36.0"
+  version "0.37.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -198,12 +198,15 @@ defmodule AtlasBFFContract.Models.Presentation do
   end
 
   # Native shell metadata, independent of page blocks and terminal key bindings. `icon`
-  # is a semantic name a client may draw as it likes (a Mac app: a symbol); `section` is
+  # is a semantic name a client may draw as it likes (a Mac app: a symbol): the model's,
+  # else one Control derives from the page the tab opens (assigned, supervised, open,
+  # workers); `section` is
   # what the tab is for: "work" (what needs someone; the tabs a client cycles through) or
   # "browse" (reference, after them); `key`, a browse tab's own key sequence (as "g s"),
   # which the console projection binds to opening it; `groups` are the groups the tab's
   # page declares (`groups` block), so a client can offer them while another tab is shown;
-  # `count` is the page's All, as its `groups` block says it.
+  # `count` is the page's All, as its `groups` block says it; `for_you`, whether that
+  # count is what waits for the viewer (what is assigned to them), not a plain count.
   defmodel :shell_tab do
     field :id, :string, required: true
     field :label, :string, required: true
@@ -213,14 +216,16 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :icon, :string
     field :groups, {:list, :shell_group}
     field :count, :integer
+    field :for_you, :boolean
   end
 
   # One group of a shell tab: its name, the page that shows only its items, and how many
-  # it has, as the tab's page says (none while it cannot be read).
+  # it has, as the tab's page says (none while it cannot be read); `for_you` as its tab's.
   defmodel :shell_group do
     field :label, :string, required: true
     field :to, :string, required: true
     field :count, :integer
+    field :for_you, :boolean
   end
 
   defmodel :boot_request do
@@ -229,7 +234,8 @@ defmodule AtlasBFFContract.Models.Presentation do
 
   # `greeting`: the words a client greets its viewer with, the viewer's name filled in,
   # for a viewer the start's assigned relation points at, when the model words
-  # one; Control reads the name once at boot, so it is part of the shell's revision.
+  # one; `name`, that viewer's name (none for an agent or a migration). Control reads the
+  # name once at boot, so it is part of the shell's revision.
   defmodel :shell do
     field :title, :string, required: true
     field :env, :string, required: true
@@ -239,6 +245,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :initial_to, :string, required: true
     field :active_tab, :string
     field :greeting, :string
+    field :name, :string
   end
 
   defmodel :boot_error do

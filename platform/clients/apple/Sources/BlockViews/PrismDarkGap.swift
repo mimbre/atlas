@@ -116,6 +116,32 @@ enum PrismDarkGap {
              dark: Color(white: selected ? 0.75 : 0.7))
     }
 
+    /// The sidebar's ground: white, as Next's side panel; the system's background in dark.
+    static func sidebarGround(_ scheme: ColorScheme) -> Color {
+        card(scheme)
+    }
+
+    /// The sidebar's selection pill: a soft grey4; a faint white in dark. Hovered: grey6.
+    static func sidebarPill(_ scheme: ColorScheme, selected: Bool, hovering: Bool) -> Color {
+        if selected { return pick(scheme, light: Prism.Colors.grey4, dark: Color.white.opacity(0.12)) }
+        if hovering { return pick(scheme, light: Prism.Colors.grey6, dark: Color.white.opacity(0.05)) }
+        return .clear
+    }
+
+    /// A sidebar tab's icon: grey2 (a lighter grey in dark); the selected tab's in primary
+    /// (its tint in dark).
+    static func sidebarIcon(_ scheme: ColorScheme, selected: Bool) -> Color {
+        selected
+            ? pick(scheme, light: Prism.Colors.primary, dark: accentText(scheme))
+            : pick(scheme, light: Prism.Colors.grey2, dark: Color(white: 0.6))
+    }
+
+    /// A plain count's badge: grey4 under `text`; a faint white in dark. A count for you is
+    /// primary under white in both.
+    static func plainBadge(_ scheme: ColorScheme) -> Color {
+        pick(scheme, light: Prism.Colors.grey4, dark: Color.white.opacity(0.14))
+    }
+
     /// A Prism button's style in this appearance: Prism's own, but a `plain` one in dark,
     /// whose grey1 label is unreadable on a dark surface: Prism's plain look with the label
     /// in `text` (white). `icon`: the label is a `Label`, its icon before its title (Prism's
