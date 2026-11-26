@@ -69,9 +69,11 @@ defmodule AtlasControl.Model do
 
   @doc """
   What a create (`:create`) or change (`:edit`) form of `kind` asks: `%{ask, defaults,
-  made_from, decides}`, where `made_from` is the field the id is made from (never
-  changed) and `decides` is nil or `%{relation, writes}`: a change that sets a value of
-  `writes` links the client that makes it through `relation`. Nil for no kind.
+  made_from, decides, producer}`, where `made_from` is the field the id is made from (never
+  changed), `decides` is nil or `%{relation, writes}`: a change that sets a value of
+  `writes` links the client that makes it through `relation`, and `producer` is nil or
+  the relation a create links to who puts the fact in (the client, or whom the agent
+  assists; never from the form). Nil for no kind.
   """
   @callback form(kind :: String.t(), :create | :edit) :: nil | map
 

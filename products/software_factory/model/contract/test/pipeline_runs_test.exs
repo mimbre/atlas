@@ -179,7 +179,8 @@ defmodule Model.PipelineRunsTest do
       assert ~w(title description questions answers) -- spec["fields"] == []
       assert spec["instructions"] =~ "write your questions to questions.md and nothing else"
 
-      # Asked: to its producer, the configured decider until a scene records its producer.
+      # Asked: to its producer, the configured decider for a scene that records none (as
+      # here: no run passes a producer).
       asked = %{"key" => "TK-SC-1-1", "outcome" => "completed"}
       {:ok, clarifying} = Run.task_result(run, f, fact("SC-1", values), @now, "asked", asked, [])
       assert at(clarifying) == {"clarifying", "active"}

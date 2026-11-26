@@ -151,7 +151,8 @@ defmodule RelaDSL.Schema do
   it with the configured actor there too, for a state that asks someone else than the
   supervisor. `default: {kind, config: role, producer: relation}` asks the subject's
   producer (SC-Atlas-09): whom the subject links to through `relation` (an item's
-  `produced_by`, which Flow sets when a run makes it), and the configured actor when it
+  `produced_by`, which Flow sets when a run makes it, or a create when who puts it in is
+  its producer, `create(producer:)`), and the configured actor when it
   links to nobody (an item made by hand, or before it was recorded); never the run's
   supervisor. Every subflow names an
   owner, and every state that is not final resolves to exactly one: its own (`owner`

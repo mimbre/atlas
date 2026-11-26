@@ -26,6 +26,29 @@ defmodule AtlasControl.Shop.Widget do
   end
 end
 
+defmodule AtlasControl.Shop.PutInWidget do
+  @moduledoc """
+  A widget that records who put it in (IS-Atlas-70): its create links `put_in_by` to the
+  member who creates it, or whom the agent that creates it assists; nobody sets it by hand.
+  """
+  use RelaDSL
+
+  entity :widget, label: "Widget", plural: "widgets", id_type: :manual, id_prefix: "W-" do
+    field(:title, :string, required: true)
+    primary(:title)
+    create(ask: [:title], id: [prefix: "W-", digits: 2], producer: :put_in_by)
+  end
+
+  relation(:put_in_by,
+    label: "put in by",
+    from: [:widget],
+    to: [:member],
+    max_outgoing: 1,
+    inverse: {:put_in, "put in"},
+    set_by: [:flow]
+  )
+end
+
 defmodule AtlasControl.Shop.DecidedWidget do
   @moduledoc "A widget with a state a member decides, and a subflow that reviews it."
   use RelaDSL
