@@ -394,8 +394,14 @@ func homeReadable(user string, denied, writable []string) ([]string, error) {
 // the Code token and user credentials under user, loopback networking only: the network proxy
 // allows no domain, so external connections fail. Unix-domain sockets bind and connect only
 // inside scratch. Workers may read (and so execute) the inspector even inside a denied path.
+//
+// A read-only folder (ReadOnlyFolder, IS-Atlas-20) reads the folder instead of writing it, so only the
+// scratch is written (its build goes there, MIX_BUILD_ROOT).
 func folderArguments(scope map[string]any, scratch, user, inspector string) ([]string, error) {
 	root, _ := scope["root"].(string)
+	if ReadOnlyFolder(scope) {
+		return workerArguments("atlas_read_only_folder", scope, [][2]string{{root, "read"}}, scratch, user, inspector)
+	}
 	return workerArguments("atlas_folder", scope, [][2]string{{root, "write"}}, scratch, user, inspector)
 }
 

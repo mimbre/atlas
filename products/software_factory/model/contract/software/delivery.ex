@@ -25,10 +25,15 @@ defmodule Model.Delivery do
   green: conflicting, red or running again meanwhile takes it back to `checking`, and its
   supervisor's to-do with it (IS-Atlas-122); red after it was green is fixed saying so
   (`ci_fixing_after_green`). Failed, a fix task
-  works on the latest result with what failed (`ci_fixing`, its `findings:` that field),
-  and Code pushes its result onto the same pull request (`ci_pushing`, `onto: :pr_url`),
-  whose CI is waited for again; at most two such fixes (`ci_fixes`), then its supervisor
-  decides (`ci_failing`). Conflicting with develop, an update task resolves develop merged
+  works on its pull request's head with what failed (`ci_fixing`, its `findings:` that
+  field; its base `update: :pr_url`, as an update's, IS-Atlas-131): the head as GitHub
+  holds it, someone else's commits on it included, with develop merged in only when the
+  head does not hold it yet. Code pushes its result onto the same pull request
+  (`ci_pushing`, `onto: :pr_url`), a fast-forward of its branch, whose CI is waited for
+  again; at most two such fixes (`ci_fixes`), then its supervisor decides (`ci_failing`).
+  A push Code refuses (`refused`, `branch_taken` when the branch moved again during the
+  fix, IS-Atlas-121) is no Stuck: back in the CI gate, the fix is made again from the new
+  head within those two, or its supervisor decides, `ci_push` saying why. Conflicting with develop, an update task resolves develop merged
   into its pull request (`updating`, its base `update: :pr_url`) and Code pushes it onto
   the same pull request (`update_pushing`); one update per conflict (`pr_updates`), then
   its supervisor decides (`update_failing`). A result without changes against develop
@@ -185,7 +190,7 @@ defmodule Model.Delivery do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", result: :latest],
         instructions:
-          "Review the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the change to review is the commit under it (git show HEAD~1). Judge whether it does what the issue asks, and nothing else; its use case and scene, after it, say why. You may run bin/check. Change nothing: what you change is thrown away.",
+          "Review the result of the issue below in the repository you are given: a read-only Git checkout of it. Its last commit only adds the base's dependencies; the change to review is the commit under it (git show HEAD~1). Judge whether it does what the issue asks, and nothing else; its use case and scene, after it, say why. You may run bin/check: its build goes to your scratch. You cannot write in the checkout: the sandbox refuses it.",
         fields: [:title, :description],
         parents: [:title, :description],
         follow_ups: :issue,
@@ -399,8 +404,12 @@ defmodule Model.Delivery do
              when: "entity.pr_mergeable == 'clean' and entity.pr_checks_head == entity.pr_head"
     end
 
-    # A fix of its failing CI, on its latest result (as the review's fix): what failed, the
-    # failing checks with the failing lines of their logs, is what it fixes.
+    # A fix of its failing CI, on its pull request's head (IS-Atlas-131): Code's update of
+    # it with develop (`update: :pr_url`), which is the head itself when it holds develop
+    # already, as it does here (the CI gate updates a conflicting or behind one first). So
+    # its result lands on what the branch holds, whoever pushed it, and Code's push of it
+    # fast-forwards the branch. What failed, the failing checks with the failing lines of
+    # their logs, is what it fixes.
     state :ci_fixing, label: "Fixing its CI" do
       set ci_fixes: :one, retry_step: :ci_fix, task_failure: :none
 
@@ -408,17 +417,17 @@ defmodule Model.Delivery do
         expected: "Fix its CI on the machinery",
         why: "the CI of its pull request failed",
         instructions:
-          "Its supervisor's Runtime runs an agent on its result with what failed in its CI; Code then pushes its fix onto its pull request. Its supervisor's pickup starts the work: nothing is done until then."
+          "Its supervisor's Runtime runs an agent on its pull request's head with what failed in its CI; Code then pushes its fix onto its pull request. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:fix,
         role: :developer,
         profile: :deep_coding,
         cost_class: :standard,
-        input: [repository: "github.com/mimbre/atlas", result: :latest],
+        input: [repository: "github.com/mimbre/atlas", base: "develop", update: :pr_url],
         findings: :pr_checks_failure,
         instructions:
-          "Fix the failing CI of the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the issue's change so far is the commit under it (git show HEAD~1). What failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
+          "Fix the failing CI of the pull request of the issue below in the repository you are given: a Git checkout of the pull request's head as GitHub holds it. Its last commit only adds the base's dependencies; under it (HEAD~1) is the pull request's head, which may hold commits someone else pushed onto it: keep them. When the head did not hold develop yet, HEAD~1 is instead Code's merge of develop into it (its first parent the pull request's head, its second develop); it conflicts nowhere. What failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
         fields: [:title, :description],
         parents: [:title, :description],
         failure: :task_failure,
@@ -443,17 +452,17 @@ defmodule Model.Delivery do
         expected: "Fix its CI on the machinery",
         why: "the CI of its pull request failed after its fix",
         instructions:
-          "Its supervisor's Runtime runs an agent on its result with what failed in its CI, the last time; Code then pushes its fix onto its pull request. Its supervisor's pickup starts the work: nothing is done until then."
+          "Its supervisor's Runtime runs an agent on its pull request's head with what failed in its CI, the last time; Code then pushes its fix onto its pull request. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:fix,
         role: :developer,
         profile: :deep_coding,
         cost_class: :standard,
-        input: [repository: "github.com/mimbre/atlas", result: :latest],
+        input: [repository: "github.com/mimbre/atlas", base: "develop", update: :pr_url],
         findings: :pr_checks_failure,
         instructions:
-          "Fix the failing CI of the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the issue's change so far is the commit under it (git show HEAD~1). What failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
+          "Fix the failing CI of the pull request of the issue below in the repository you are given: a Git checkout of the pull request's head as GitHub holds it. Its last commit only adds the base's dependencies; under it (HEAD~1) is the pull request's head, which may hold commits someone else pushed onto it: keep them. When the head did not hold develop yet, HEAD~1 is instead Code's merge of develop into it (its first parent the pull request's head, its second develop); it conflicts nowhere. What failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
         fields: [:title, :description],
         parents: [:title, :description],
         failure: :task_failure,
@@ -479,17 +488,17 @@ defmodule Model.Delivery do
         expected: "Fix its CI on the machinery",
         why: "its CI turned red after it was green",
         instructions:
-          "Its CI passed and it waited for its supervisor to merge it, but the CI of its pull request's head failed since, so it is no longer theirs to merge. Its supervisor's Runtime runs an agent on its result with what failed in its CI; Code then pushes its fix onto its pull request. Its supervisor's pickup starts the work: nothing is done until then."
+          "Its CI passed and it waited for its supervisor to merge it, but the CI of its pull request's head failed since, so it is no longer theirs to merge. Its supervisor's Runtime runs an agent on its pull request's head with what failed in its CI; Code then pushes its fix onto its pull request. Its supervisor's pickup starts the work: nothing is done until then."
       )
 
       task(:fix,
         role: :developer,
         profile: :deep_coding,
         cost_class: :standard,
-        input: [repository: "github.com/mimbre/atlas", result: :latest],
+        input: [repository: "github.com/mimbre/atlas", base: "develop", update: :pr_url],
         findings: :pr_checks_failure,
         instructions:
-          "Fix the failing CI of the result of the issue below in the repository you are given: a Git checkout of it. Its last commit only adds the base's dependencies; the issue's change so far is the commit under it (git show HEAD~1). Its CI passed before and fails now; what failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
+          "Fix the failing CI of the pull request of the issue below in the repository you are given: a Git checkout of the pull request's head as GitHub holds it. Its last commit only adds the base's dependencies; under it (HEAD~1) is the pull request's head, which may hold commits someone else pushed onto it: keep them. When the head did not hold develop yet, HEAD~1 is instead Code's merge of develop into it (its first parent the pull request's head, its second develop); it conflicts nowhere. Its CI passed before and fails now; what failed, below, names the failing checks with the failing lines of their logs. Make them pass, within the issue, and run bin/check. End your answer with what you fixed and what is left open.",
         fields: [:title, :description],
         parents: [:title, :description],
         failure: :task_failure,
@@ -506,8 +515,13 @@ defmodule Model.Delivery do
       branch to: :pr_closed, when: "entity.pr_state == 'closed'"
     end
 
-    # Code pushes the CI fix's result, on top of the published one, to the branch of its
-    # pull request (`onto: :pr_url`): the same pull request, whose CI is waited for again.
+    # Code pushes the CI fix's result, on top of the pull request's head it was made on, to
+    # the branch of its pull request (`onto: :pr_url`): the same pull request, whose CI is
+    # waited for again. Code refusing it (IS-Atlas-121), say `branch_taken` because the
+    # branch moved again during the fix, goes back to the CI gate, never Stuck: it waits
+    # for the CI of the branch's new head (rela's GitHub sync takes it as `pr_head`), and
+    # red there is fixed again from that head within the two fixes (`ci_fixes`), or goes to
+    # its supervisor (`ci_failing`), `ci_push` saying how the push ended.
     state :ci_pushing, label: "Pushing its CI fix" do
       present(
         expected: "Let Code push its CI fix",
@@ -526,14 +540,20 @@ defmodule Model.Delivery do
         payload: ["title", "description"],
         input: [repository: "github.com/mimbre/atlas", base: "develop", onto: :pr_url],
         outputs: [head: "pr_head"],
-        on: [done: :checking, no_changes: :ci_failing, refused: :stuck]
+        on: [
+          done: :checking,
+          no_changes: :ci_failing,
+          branch_taken: :checking,
+          refused: :checking
+        ]
       )
 
       branch to: :pr_closed, when: "entity.pr_state == 'closed'"
     end
 
-    # Its CI still fails after two fixes: its supervisor decides, with what failed in front
-    # of them. They fix it by hand (passed is merging) or close it; merged is done.
+    # Its CI still fails after two fixes, or a fix changed nothing, or Code could not push
+    # it (`ci_push` says how its last push ended): its supervisor decides, with what failed
+    # in front of them. They fix it by hand (passed is merging) or close it; merged is done.
     state :ci_failing, label: "CI still fails" do
       owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
       set gate_result: :none
@@ -542,7 +562,7 @@ defmodule Model.Delivery do
         expected: "Decide what to do with it",
         why: "the CI of its pull request still fails after two fixes",
         instructions:
-          "Its agents could not make its CI pass. Fix its pull request by hand (once its CI passes it is yours to merge), or close it.",
+          "Its agents could not make its CI pass: their fixes did not, changed nothing, or Code could not push them (its CI fix push says how the last one ended; branch_taken: someone else pushed onto its branch meanwhile). Fix its pull request by hand (once its CI passes it is yours to merge), or close it.",
         section: [field: :pr_checks_failure, label: "What fails"],
         answers: [[key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]]
       )
@@ -634,10 +654,13 @@ defmodule Model.Delivery do
       branch to: :working, when: "entity.gate_result == 'rebuild'"
     end
 
-    # An agent task ended without a result (stuck or abandoned), or Code refused its pull
-    # request or a push onto it: its supervisor is told why, and decides. Retry goes back
+    # An agent task ended without a result (stuck or abandoned), or Code refused to open its
+    # pull request: its supervisor is told why, and decides. A CI fix's refused push is no
+    # Stuck (it goes back to the CI gate); an update's goes to `update_failing`. Retry goes back
     # to the state of the step its last task ran as (`retry_step`), for a fresh task: the
-    # author on a fresh base of develop, any other on the latest result that has one. A run
+    # author on a fresh base of develop, a CI fix on its pull request's head (so a run Stuck
+    # before IS-Atlas-131 on a refused CI push is fixed again from that head), any other on
+    # the latest result that has one. A run
     # whose step is not known (stuck before this state was open) is built again. Merged
     # meanwhile is done.
     state :stuck, label: "Stuck" do
@@ -648,7 +671,7 @@ defmodule Model.Delivery do
         expected: "Decide what to do with it",
         why: "its agent's work ended without a result",
         instructions:
-          "An agent task of its build ended without a result, or Code refused to open or push its pull request (its publication says why; then what failed is none). What failed names the task, how it ended and why. Retry runs that step again with a fresh task: its author on a fresh base of develop, any other on its latest result. Or close it.",
+          "An agent task of its build ended without a result, or Code refused to open its pull request (its publication says why; then what failed is none). What failed names the task, how it ended and why. Retry runs that step again with a fresh task: its author on a fresh base of develop, a fix of its CI on its pull request's head, any other on its latest result. Or close it.",
         section: [field: :task_failure, label: "What failed"],
         answers: [
           [key: "r", label: "Retry", change: %{values: %{gate_result: :retry}}],

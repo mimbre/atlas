@@ -90,8 +90,11 @@ defmodule AtlasFlow.Activities.Task do
   **An update of an open pull.** A fix may name `input: %{"repository",
   "base", "update" => field}`, `field` the subject's field holding the web address of a
   pull the service opened: its base is `refs/atlas/updates/<number>/<base>`, which Code
-  resolves to `base` merged into that pull's head, conflicts marked in the files. Not
-  ready while that field holds no pull's address.
+  resolves to `base` merged into that pull's head, conflicts marked in the files, or that
+  head itself when it already holds `base`. Not ready while that field holds no pull's
+  address. Such a fix whose spec names `findings` ends its instructions with that field's
+  text, as a fix of the latest result does: a CI fix starts so from the pull's head, so its
+  result lands on whatever the pull's branch holds (IS-Atlas-131).
 
   **A proposal (slice 7).** A spec's `creates` (`%{"kind", "file"}`) asks its agent, after
   the instructions, to write what it proposes to that file at the top of the repository: a
@@ -594,7 +597,7 @@ defmodule AtlasFlow.Activities.Task do
     {reference, sections} =
       case input do
         %{"update" => field, "base" => base} ->
-          {update_ref((subject["values"] || %{})[field], base), []}
+          {update_ref((subject["values"] || %{})[field], base), findings_sections(spec, subject)}
 
         %{"base" => reference} ->
           {reference, []}
@@ -635,6 +638,13 @@ defmodule AtlasFlow.Activities.Task do
   end
 
   defp result_sections(%{"kind" => kind}, _tasks, _subject), do: Answers.sections(kind)
+
+  # An update of an open pull fixes what its spec's `findings` field says, when it names one
+  # (a CI fix on the pull's head: what failed in its CI); else it only resolves the merge.
+  defp findings_sections(%{"findings" => _} = spec, subject),
+    do: result_sections(spec, [], subject)
+
+  defp findings_sections(_spec, _subject), do: []
 
   defp repository(spec), do: spec["input"]["repository"]
 

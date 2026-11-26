@@ -231,6 +231,10 @@ func run(args []string) (err error) {
 	var environment []string
 	if folderProfile {
 		recomputed, err := workspace.FolderScope(workspacePath, runtimeHome)
+		// A read-only folder's flag is the Runtime's choice for this turn, not the folder's.
+		if err == nil && ReadOnlyFolder(folderScope) {
+			recomputed["read_only"] = true
+		}
 		if err == nil && !workspace.JSONEqual(recomputed, scope) {
 			err = errors.New("Materialized folder permission scope changed")
 		}
@@ -307,6 +311,15 @@ func run(args []string) (err error) {
 				return err
 			}
 			environment = append(environment, cache[0]+"="+path)
+		}
+		// A read-only folder builds in its scratch: Mix's _build of every project goes there, and so does
+		// the compiler state rebar3 keeps for a dependency it compiles (by default <dependency>/_build).
+		if ReadOnlyFolder(folderScope) {
+			build := filepath.Join(scratch, "_build")
+			if err = os.Mkdir(build, 0700); err != nil {
+				return err
+			}
+			environment = append(environment, "MIX_BUILD_ROOT="+build, "REBAR_BASE_DIR="+filepath.Join(build, "rebar3"))
 		}
 		if backend == "claude" {
 			if err = saveContext(workspacePath, scope, folder, resumeContext); err != nil {

@@ -3180,6 +3180,326 @@
       }
     },
     {
+      "id": "codex.folder-read-only",
+      "fs": [
+        {
+          "path": "{tmp}/dest/app",
+          "type": "dir"
+        },
+        {
+          "content": "#!/bin/sh\nexit 0\n",
+          "mode": "0755",
+          "path": "{tmp}/bin/atlas-runtime",
+          "type": "file"
+        },
+        {
+          "path": "{home}/materializations",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/snapshots/s1",
+          "type": "dir"
+        },
+        {
+          "path": "{home}/turns/t1",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.asdf/shims",
+          "type": "dir"
+        },
+        {
+          "content": "golang 1\n",
+          "path": "{user}/.tool-versions",
+          "type": "file"
+        },
+        {
+          "path": "{user}/.hex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/go/pkg/mod",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.ssh/keys",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.mix",
+          "target": "{user}/.ssh/keys",
+          "type": "symlink"
+        },
+        {
+          "path": "{user}/.config/gh",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.codex",
+          "type": "dir"
+        },
+        {
+          "path": "{user}/.claude",
+          "type": "dir"
+        }
+      ],
+      "env": {
+        "PATH": "{tmp}/bin:{user}/.asdf/shims:{user}/missing/bin:/usr/bin"
+      },
+      "input": {
+        "decision": "agent",
+        "folder": "{home}/turns/t1",
+        "harness": "codex",
+        "inspector": "{tmp}/bin/atlas-runtime",
+        "origin": "client_named",
+        "scope": {
+          "baseline": "{home}/snapshots/s1/baseline.json",
+          "home": "{home}",
+          "profile": "materialized-folder",
+          "read_only": true,
+          "record": "{home}/materializations/m1.json",
+          "repositories": [
+            "."
+          ],
+          "root": "{tmp}/dest",
+          "snapshot_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "version": 1
+        }
+      },
+      "expect": {
+        "rendered": {
+          "codex": [
+            "-c",
+            "default_permissions=\"atlas_read_only_folder\"",
+            "-c",
+            "permissions={atlas_read_only_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"read\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
+            "-c",
+            "features.network_proxy=true",
+            "-c",
+            "web_search=\"disabled\""
+          ]
+        },
+        "spec": {
+          "codex": {
+            "base": ":read-only",
+            "entries": [
+              [
+                "{tmp}/dest",
+                "read"
+              ],
+              [
+                "{home}/scratch/t1",
+                "write"
+              ],
+              [
+                "{user}",
+                "none"
+              ],
+              [
+                "{home}",
+                "none"
+              ],
+              [
+                "{home}/runtime.sock",
+                "none"
+              ],
+              [
+                "{home}/backend.sock",
+                "none"
+              ],
+              [
+                "{home}/materializations/m1.json",
+                "read"
+              ],
+              [
+                "{home}/snapshots/s1/baseline.json",
+                "read"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{tmp}/dest/.git",
+                "none"
+              ],
+              [
+                "{user}/.asdf/shims",
+                "read"
+              ],
+              [
+                "{user}/missing/bin",
+                "read"
+              ],
+              [
+                "{user}/.asdf",
+                "read"
+              ],
+              [
+                "{user}/.tool-versions",
+                "read"
+              ],
+              [
+                "{user}/.hex",
+                "read"
+              ],
+              [
+                "{user}/go/pkg/mod",
+                "read"
+              ],
+              [
+                "{user}/.codex",
+                "none"
+              ],
+              [
+                "{user}/.config/gh",
+                "none"
+              ],
+              [
+                "{user}/.ssh",
+                "none"
+              ],
+              [
+                "{user}/.aws",
+                "none"
+              ],
+              [
+                "{user}/.docker",
+                "none"
+              ],
+              [
+                "{user}/Library/Keychains",
+                "none"
+              ],
+              [
+                "{user}/.git-credentials",
+                "none"
+              ],
+              [
+                "{user}/.config/git",
+                "none"
+              ],
+              [
+                "{user}/.netrc",
+                "none"
+              ],
+              [
+                "{user}/.claude",
+                "none"
+              ],
+              [
+                "{user}/.claude.json",
+                "none"
+              ],
+              [
+                "{user}/.local/state/atlas-runtime",
+                "none"
+              ],
+              [
+                "{user}/.gitconfig",
+                "none"
+              ],
+              [
+                "{user}/.erlang.cookie",
+                "none"
+              ]
+            ],
+            "network": {
+              "domains": [],
+              "local_binding": true,
+              "mode": "loopback",
+              "unix_sockets": [
+                "{home}/scratch/t1"
+              ]
+            },
+            "network_proxy": true,
+            "profile": "atlas_read_only_folder",
+            "web_search": "disabled"
+          },
+          "env": {
+            "mkdirs": [
+              "{home}/scratch/t1/tmp",
+              "{home}/scratch/t1/go-build",
+              "{home}/scratch/t1/go-tmp",
+              "{home}/scratch/t1/cache",
+              "{home}/scratch/t1/npm",
+              "{home}/scratch/t1/_build"
+            ],
+            "prefix_path": "{tmp}/bin",
+            "set": [
+              [
+                "ATLAS_RUNTIME_HOME",
+                "{home}"
+              ],
+              [
+                "ATLAS_RUNTIME_EXECUTABLE",
+                "{tmp}/bin/atlas-runtime"
+              ],
+              [
+                "GIT_CONFIG_GLOBAL",
+                "/dev/null"
+              ],
+              [
+                "GIT_CONFIG_NOSYSTEM",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_COUNT",
+                "1"
+              ],
+              [
+                "GIT_CONFIG_KEY_0",
+                "core.excludesFile"
+              ],
+              [
+                "GIT_CONFIG_VALUE_0",
+                "/dev/null"
+              ],
+              [
+                "TMPDIR",
+                "{home}/scratch/t1/tmp"
+              ],
+              [
+                "GOCACHE",
+                "{home}/scratch/t1/go-build"
+              ],
+              [
+                "GOTMPDIR",
+                "{home}/scratch/t1/go-tmp"
+              ],
+              [
+                "XDG_CACHE_HOME",
+                "{home}/scratch/t1/cache"
+              ],
+              [
+                "npm_config_cache",
+                "{home}/scratch/t1/npm"
+              ],
+              [
+                "MIX_BUILD_ROOT",
+                "{home}/scratch/t1/_build"
+              ],
+              [
+                "REBAR_BASE_DIR",
+                "{home}/scratch/t1/_build/rebar3"
+              ]
+            ],
+            "unset": [
+              "ATLAS_RUNTIME_HOME"
+            ]
+          },
+          "harness": "codex",
+          "runtime_home": "{home}",
+          "scratch": "{home}/scratch/t1",
+          "version": 1,
+          "workspace": {
+            "origin": "client_named",
+            "root": "{tmp}/dest"
+          }
+        }
+      }
+    },
+    {
       "id": "codex.folder-markers",
       "fs": [
         {

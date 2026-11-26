@@ -504,9 +504,18 @@ defmodule AtlasRuntime.Service do
            "profile",
            "cost_class",
            "worker_id",
-           "questions_enabled"
+           "questions_enabled",
+           "read_only"
          ] != [],
        do: raise("Unknown start fields")
+
+    # A read-only materialized folder (IS-Atlas-20): the work core's start of a read-only work
+    # in a Git checkout; the folder is frozen and only the turn's scratch is written.
+    read_only = Map.get(request, "read_only", false)
+
+    if read_only not in [true, false] or
+         (read_only and request["permissions"] != "materialized-folder"),
+       do: raise("read_only is a boolean, only for materialized-folder permissions")
 
     if Map.has_key?(request, "repository") or Map.has_key?(request, "branch"),
       do:
@@ -530,7 +539,8 @@ defmodule AtlasRuntime.Service do
           if Map.has_key?(request, "sandbox"),
             do: raise("Permissions cannot be combined with sandbox")
 
-          {nil, current_scope(profile, cwd, state)}
+          scope = current_scope(profile, cwd, state)
+          {nil, if(read_only, do: Map.put(scope, "read_only", true), else: scope)}
 
         _ ->
           raise("Unknown permission profile")
@@ -595,8 +605,10 @@ defmodule AtlasRuntime.Service do
                 (is_map(scope) and is_nil(sandbox))),
        do: raise("The selected turn has no valid saved working directory and permissions")
 
-    if scope && scope != current_scope(scope["profile"], cwd, state),
-      do: raise("The selected turn's permission scope changed")
+    # A read-only folder's flag is the turn's own (IS-Atlas-20), not the folder's: it stays.
+    if scope &&
+         Map.delete(scope, "read_only") != current_scope(scope["profile"], cwd, state),
+       do: raise("The selected turn's permission scope changed")
 
     context =
       if backend == "claude" do
@@ -743,7 +755,12 @@ defmodule AtlasRuntime.Service do
       do: raise("Backend must be codex or claude")
 
     policy = Policy.load(state.dir)
-    permission = request["permissions"] || Map.get(request, "sandbox", "read-only")
+
+    # A read-only materialized folder asks the policy for read-only workspaces, as its work did.
+    permission =
+      if request["read_only"] == true,
+        do: "read-only",
+        else: request["permissions"] || Map.get(request, "sandbox", "read-only")
 
     selection =
       cond do
