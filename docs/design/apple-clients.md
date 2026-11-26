@@ -225,8 +225,9 @@ The TUI keeps these in `AtlasTui.View` (`@measure`, `@gap`, `@side_least`, `@bes
 
 #### Columns in the TUI (2026-11-26)
 
-On a wide terminal the TUI shows what the Mac shows side by side: the tab's list, the
-page of the row selected in it, and that page's details. The chrome keeps the full width.
+On a wide terminal the TUI shows columns: the tab's list beside the page of the row
+selected in it (as the Mac does), and that page's details beside the page when there is
+room. The chrome keeps the full width.
 
 - From **210** columns: the list (**60**: dot, key, age, title of the tab's list), the page
   (at most **100**) and its details (the rest, at most 100), centred together. From
