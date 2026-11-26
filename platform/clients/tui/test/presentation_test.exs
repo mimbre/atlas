@@ -81,16 +81,25 @@ defmodule AtlasTui.PresentationTest do
           :info,
           :muted,
           {:selected, :muted},
-          :pending_selected,
-          :tone_attention,
-          :tone_active,
-          :tone_waiting,
-          :tone_done
+          :pending_selected
         ] do
       {fg, bg} = Palette.colors(role, theme)
       [low, high] = Enum.sort([luminance(fg), luminance(bg)])
       assert (high + 0.05) / (low + 0.05) >= 4.5, "#{theme} #{inspect(role)}"
     end
+  end
+
+  test "each tone's dot stands out at 3:1 in its own colour in both themes" do
+    for theme <- [:light, :dark],
+        role <- [:tone_attention, :tone_active, :tone_waiting, :tone_done] do
+      {fg, bg} = Palette.colors(role, theme)
+      [low, high] = Enum.sort([luminance(fg), luminance(bg)])
+      assert (high + 0.05) / (low + 0.05) >= 3, "#{theme} #{inspect(role)}"
+    end
+
+    # In dark the dot is the colour itself: waiting reads blue, not near-white.
+    assert {{r, g, b}, _} = Palette.colors(:tone_waiting, :dark)
+    assert b > r + 100 and b > g + 100
   end
 
   test "the header bar is primary in every environment and only prod badges its name" do
@@ -403,7 +412,7 @@ defmodule AtlasTui.PresentationTest do
     end
   end
 
-  defp toned(width) do
+  defp toned(width, selected \\ 1) do
     m = model()
     now = ~U[2026-11-26 12:00:00Z]
     ago = &(now |> DateTime.add(-&1, :second) |> DateTime.to_iso8601())
@@ -449,25 +458,34 @@ defmodule AtlasTui.PresentationTest do
         markup: [],
         console: %{m.console | shell: nil},
         now: now,
-        selected: 1
+        selected: selected
     }
 
     lines = View.render(m, width, 40, 5)
     Map.new(rows, fn row -> {row.id, Enum.find(lines, &(View.plain([&1]) =~ row.id))} end)
   end
 
+  test "a selected row's dot carries the same colours as on the row unselected" do
+    dot = fn lines -> Enum.find(lines["W-1"], &match?({_, "●"}, &1)) |> elem(0) end
+
+    for theme <- [:dark, :light] do
+      assert AtlasTui.Palette.colors(dot.(toned(100, 1)), theme) ==
+               AtlasTui.Palette.colors(dot.(toned(100, 2)), theme)
+    end
+  end
+
   test "each row shows where it stands as a coloured dot, and how long, before its title" do
     lines = toned(100)
     text = Map.new(lines, fn {id, line} -> {id, View.plain([line])} end)
 
-    # The dot comes before the id, in the colour of its meaning; the selection keeps its own
-    # colours, and a row Control says nothing of has none.
+    # The dot comes before the id, in the colour of its meaning on every row, the selected
+    # one too; a row Control says nothing of has none.
     for {id, role} <- [{"W-2", :tone_active}, {"W-3", :tone_waiting}, {"W-4", :tone_done}] do
       assert {role, "●"} in lines[id]
       assert String.split(text[id], "●") |> hd() |> String.trim() == ""
     end
 
-    assert Enum.any?(lines["W-1"], fn {style, text} -> style == :selected and text =~ "● W-1" end)
+    assert {:tone_attention, "●"} in lines["W-1"]
     assert text["W-1"] =~ ~r/›\s*● W-1/
     refute text["W-0"] =~ "●"
 

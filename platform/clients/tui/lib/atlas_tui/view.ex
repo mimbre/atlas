@@ -533,13 +533,12 @@ defmodule AtlasTui.View do
             true -> {style, style, :dim}
           end
 
-        # Inside the selection the dot takes the selection's colours: no tone colour keeps
-        # 4.5:1 on it, and the row's words still say where it stands.
+        # The dot keeps its own cell in its tone's colours on every row, the selected one
+        # included, so the selection bar runs around it and it still says where it stands.
         dot =
           cond do
             dot_room == 0 -> []
             not Map.has_key?(@tone_styles, tone) -> [{label_style, "  "}]
-            style == :selected -> [{label_style, @dot <> " "}]
             true -> [{@tone_styles[tone], @dot}, {label_style, " "}]
           end
 
