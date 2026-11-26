@@ -15,7 +15,7 @@ struct HeaderBlockView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
             if let eyebrow {
-                Text(eyebrow).font(.system(size: 11, weight: .semibold)).tracking(0.8)
+                Text(eyebrow).tracking(0.8).prism(Prism.Typography.labelsmall)
                     .foregroundStyle(PrismDarkGap.accentText(scheme))
                     .textSelection(.enabled)
             }
@@ -325,12 +325,13 @@ struct RouteLine: View {
                 }
             }
         }
+        .prism(Prism.Typography.labelsmall)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Go to \(parts.joined(separator: ", then "))")
     }
 
     private func label(_ part: String) -> some View {
-        Text(part).prism(Prism.Typography.labelsmall).textSelection(.enabled)
+        Text(part).textSelection(.enabled)
             .foregroundStyle(PrismDarkGap.routeText(scheme))
             .padding(.horizontal, Prism.Spacing.px6)
             .padding(.vertical, 3)
@@ -341,9 +342,9 @@ struct RouteLine: View {
 }
 
 /// One command in a light inset that hugs it (grey5 with a thin grey4 edge in light, a
-/// step below the card in dark; no shadow), monospaced and selectable, wrapping at the
-/// card's width, with a copy icon right after it; for a moment after a copy the icon is a
-/// checkmark.
+/// step below the card in dark; no shadow), in Prism's `mono` typography in the system's
+/// monospaced face, selectable, wrapping at the card's width, with a copy icon right after
+/// it; for a moment after a copy the icon is a checkmark.
 struct CommandBlock: View {
     let command: String
     let copied: Bool
@@ -363,7 +364,7 @@ struct CommandBlock: View {
             .help(copied ? "Copied" : "Copy")
             .accessibilityLabel(copied ? "Copied" : "Copy")
         }
-        .prism(Prism.Typography.tablerow)
+        .prism(Prism.Typography.mono)
         .padding(.horizontal, Prism.Spacing.px10)
         .padding(.vertical, Prism.Spacing.px7)
         .background(PrismDarkGap.inset(scheme), in: RoundedRectangle(cornerRadius: Prism.radius))

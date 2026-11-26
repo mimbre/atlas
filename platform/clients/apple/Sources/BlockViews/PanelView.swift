@@ -59,7 +59,7 @@ struct PanelView: View {
             if let pending, pending.kind == .sending {
                 HStack(spacing: Prism.Spacing.px6) {
                     ProgressView().progressViewStyle(.prism(.accent, size: .size20))
-                    Text(pending.text).foregroundStyle(muted)
+                    Text(pending.text).prism(Prism.Typography.caption).foregroundStyle(muted)
                 }
             }
             buttons
@@ -142,10 +142,10 @@ struct PanelHeading: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
-            Text(eyebrow.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.8)
+            Text(eyebrow.uppercased()).tracking(0.8).prism(Prism.Typography.labelsmall)
                 .foregroundStyle(PrismDarkGap.accentText(scheme))
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
-                (Text(title) + Text(key.map { "   " + $0 } ?? "").font(Prism.Typography.label.font.weight(.regular))
+                (Text(title) + Text(key.map { "   " + $0 } ?? "").font(Prism.Typography.label.emphasis(.data).font)
                     .foregroundColor(PrismDarkGap.muted(scheme)))
                     .prism(Prism.Typography.title7)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -177,7 +177,7 @@ struct PanelRow: View {
         Button(action: take) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
                 Text(key).monospaced().foregroundStyle(PrismDarkGap.muted(scheme)).fixedSize()
-                Text(label).bold(marker)
+                Text(label).prism(marker ? Prism.Typography.tablehead : Prism.Typography.tablerow)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .prism(Prism.Typography.tablerow)
@@ -225,13 +225,13 @@ struct PanelChecks: View {
             ForEach(Array(checks.enumerated()), id: \.offset) { _, check in
                 GridRow {
                     let role = Self.role(check.state ?? "")
-                    Text(Panel.glyph(check.state ?? "")).bold()
+                    Text(Panel.glyph(check.state ?? "")).prism(Prism.Typography.tablehead)
                         .foregroundStyle(Prism.Colors.grey1)
                         .frame(width: Prism.Spacing.px18, height: Prism.Spacing.px18)
                         .background(role.tint, in: Circle())
                         .overlay(Circle().strokeBorder(role.color))
                         .accessibilityLabel(check.state ?? "")
-                    Text(check.label ?? "").bold()
+                    Text(check.label ?? "").prism(Prism.Typography.tablehead)
                     Text(check.text ?? "").frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
