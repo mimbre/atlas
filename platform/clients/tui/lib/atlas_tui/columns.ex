@@ -1,8 +1,7 @@
 defmodule AtlasTui.Columns do
   @moduledoc """
-  The TUI's layout (docs/design/apple-clients.md, Layout): the tabs, the list of the tab,
-  the page of the row selected in it, and that page's details, as columns anchored from the
-  left, each right after the one before it; what room is left over stays at the far right.
+  The TUI's layout: layout A of docs/design/clients.md (columns from the left, leftover
+  room at the far right, what gives way first). The TUI's specifics:
 
     * The sidebar: 24 wide, the tabs one under the other with their counts and groups. The
       list: 60 wide. The page: its main blocks, at most 100. The details: the page's
@@ -12,9 +11,6 @@ defmodule AtlasTui.Columns do
       and a row of the active tab's groups.
     * From 144 cells: the list and the page; the details under the page's main blocks.
     * Narrower: one column at a time (the page, its details beside it from 140 cells).
-
-  What gives way first as the terminal narrows: the sidebar (to the tab bar), then the
-  details (under the page), then the list.
 
   The list follows live: moving in it opens the selected row's page at once (its cached
   copy, while Control reads it fresh), as Enter does in one column; back from that page

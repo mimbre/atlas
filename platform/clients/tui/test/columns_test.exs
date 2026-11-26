@@ -1,7 +1,7 @@
 defmodule AtlasTui.ColumnsTest do
   @moduledoc """
   On a wide terminal the TUI shows the tab's list, the page of the row selected in it and
-  that page's details as columns (docs/design/apple-clients.md, Columns in the TUI).
+  that page's details as columns (docs/design/clients.md; AtlasTui.Columns).
   """
   use ExUnit.Case, async: true
 

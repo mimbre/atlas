@@ -159,7 +159,7 @@ defmodule AtlasTui.View do
   How wide the page's body is drawn, from the terminal's left edge: the page and, from
   140 wide, its details as a column beside it (`AtlasTui.Columns.place/3`, the layout rule);
   parts side by side take the full width. The chrome (tabs, title, footer, status) always
-  spans the terminal (docs/design/apple-clients.md, Layout).
+  spans the terminal (docs/design/clients.md, Layout A).
   """
   def body_width(model, width) do
     if width >= @side_by_side and in_parts?(model),
