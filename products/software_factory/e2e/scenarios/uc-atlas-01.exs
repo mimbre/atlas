@@ -75,7 +75,7 @@ scenario "UC-Atlas-01: Manage scenes", fn %{t1: t1, t2: t2, instance: instance} 
 
   step "Losing Control and coming back", fn ->
     AtlasE2E.Instance.stop_core(instance)
-    for t <- [t1, t2], do: see(t, "Not connected to Control. Retrying…")
+    for t <- [t1, t2], do: see(t, ~r/○ not connected · Control (cannot be reached|is down)/)
     for t <- [t1, t2], do: refute_see(t, "Write the first scene")
     AtlasE2E.Instance.start_core(instance)
     for t <- [t1, t2],

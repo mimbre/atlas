@@ -47,6 +47,10 @@ defmodule AtlasTui.Console do
             generation: 0
 
   @history_limit 100
+  # How long after losing Control the TUI tries again (`AtlasTui.App`).
+  @retry_ms 2_000
+
+  def retry_ms, do: @retry_ms
 
   def new, do: %__MODULE__{}
 
@@ -61,12 +65,14 @@ defmodule AtlasTui.Console do
     })
   end
 
-  def disconnected(model) do
+  @doc "No Control content any more; `why` (see `AtlasTui.Model`'s `offline`) when known."
+  def disconnected(model, why \\ nil) do
     model = WorkerConversation.capture(model)
 
     %{
       model
       | connected: false,
+        offline: why || model.offline,
         console: %{
           model.console
           | stale: true,
@@ -95,6 +101,7 @@ defmodule AtlasTui.Console do
       model = %{
         model
         | connected: true,
+          offline: nil,
           closed: false,
           notice: nil,
           control_spec: theirs,
@@ -108,12 +115,8 @@ defmodule AtlasTui.Console do
       {%{
          model
          | connected: false,
-           console: %{
-             model.console
-             | phase: :unsupported,
-               stale: true,
-               error: "Control did not acknowledge a compatible Console surface"
-           }
+           offline: :refused,
+           console: %{model.console | phase: :unsupported, stale: true}
        }, []}
     end
   end

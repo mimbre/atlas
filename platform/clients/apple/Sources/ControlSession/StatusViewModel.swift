@@ -5,6 +5,9 @@ import AtlasControlKit
 /// `open` that failed, and what is being sent (or opened, or asked) and not answered yet.
 public struct StatusViewModel: Sendable, Equatable {
     public var connection: SessionState.Connection
+    /// Why the last connection is gone, while it is tried again.
+    public var lost: SessionState.Lost?
+    public var env: String
     public var position: Int?
     public var lastUpdate: SessionState.Update?
     public var lastHint: SessionState.Update?
@@ -20,6 +23,8 @@ public struct StatusViewModel: Sendable, Equatable {
 
     public init(_ state: SessionState) {
         connection = state.connection
+        lost = state.lost
+        env = state.settings.env
         position = state.pageOnScreen?.position
         lastUpdate = state.lastUpdate
         lastHint = state.lastHint
@@ -33,6 +38,43 @@ public struct StatusViewModel: Sendable, Equatable {
     }
 
     public var isConnected: Bool { connection == .connected }
+
+    /// How the status bar marks the connection.
+    public enum Mark: Sendable, Equatable { case connected, connecting, notConnected }
+
+    public var mark: Mark {
+        switch connection {
+        case .connected: .connected
+        case .ended: .notConnected
+        case .retrying: .notConnected
+        case .idle, .connecting, .handshake: lost == nil ? .connecting : .notConnected
+        }
+    }
+
+    /// The connection in plain words, compact: connected, or not with why and what happens
+    /// next, as the app knows it (the TUI's status line says the same). A contract version
+    /// never ends the session (D-0105): `versionWarning` says a difference.
+    public func text(ownContract: String = Contract.version) -> String {
+        let retries = "retries every \(SessionState.retrySeconds.formatted()) s"
+        switch connection {
+        case .connected:
+            return "connected"
+        case .ended(.bye(let text)):
+            return "not connected · \(text)"
+        case .ended(.incompatible(let welcome)):
+            return "not connected · Control's welcome is for \(welcome.env ?? "another environment") (surface \(welcome.surface ?? "none")); this app is for \(env), surface console"
+        case .ended(.unreadableWelcome(let reason)):
+            return "not connected · Control's welcome could not be read (\(reason)); this app speaks contract \(ownContract)"
+        case .ended(.stopped):
+            return "stopped"
+        case .idle, .connecting, .handshake, .retrying:
+            switch lost {
+            case nil: return "connecting to Control…"
+            case .unreachable: return "not connected · Control cannot be reached; connects by itself once it answers · \(retries)"
+            case .silent: return "not connected · Control is down or restarting; connects once it answers · \(retries)"
+            }
+        }
+    }
 
     /// "prod is newer (0.33 vs 0.32); some parts may look plain" when Control is newer,
     /// "this app is newer than prod (0.33 vs 0.32)" when the app is; nil when they match

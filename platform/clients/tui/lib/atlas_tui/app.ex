@@ -6,8 +6,8 @@ defmodule AtlasTui.App do
   - Every `reconcile_seconds` it asks Control to refresh the page from Facts, so a lost
     hint only delays what the screen shows.
   - A link's key opens its web address in the browser (`AtlasTui.Browser`).
-  - When the connection drops it says so, retries every 2 seconds, and on return opens
-    the page it was on.
+  - When the connection drops it says why, in its status line, retries every 2 seconds,
+    and on return opens the page it was on.
   - Welcomed by a Control on a newer contract, when it can take a newer build
     (`release: :restart`), it ends: `run/3` returns `{:update, page, control spec}`, for
     `AtlasTui.CLI` to hand to bin/atlas (IS-Atlas-76, D-0105).
@@ -23,7 +23,6 @@ defmodule AtlasTui.App do
   # before it counts as Escape: `escape_ms` in the settings. The input is read a byte at
   # a time, so on a busy machine the bytes of one key can come further apart than this.
   @escape_wait 30
-  @reconnect 2_000
   # While it makes a plan the agent says how far it is every 5 s (`AtlasAgent.Steer`);
   # silent this long, it is taken as stopped, so a request never hangs at Planning….
   @agent_silence 30_000
@@ -118,23 +117,23 @@ defmodule AtlasTui.App do
         end
 
       {closed, socket} when closed in [:tcp_closed, :ssl_closed] and socket == state.socket ->
-        Process.send_after(self(), :reconnect, @reconnect)
-        loop(draw(%{state | socket: nil, model: Model.disconnected(state.model)}))
+        Process.send_after(self(), :reconnect, Console.retry_ms())
+        loop(draw(%{state | socket: nil, model: Model.disconnected(state.model, :silent)}))
 
       {error, socket, _reason}
       when error in [:tcp_error, :ssl_error] and socket == state.socket ->
-        loop(draw(connection_timeout(state, "Control transport failed")))
+        loop(draw(connection_lost(state)))
 
       {:boot_timeout, socket, serial} when socket == state.socket ->
         if state.model.console.boot_pending && state.model.console.boot_serial == serial do
-          loop(draw(connection_timeout(state, "Console boot timed out")))
+          loop(draw(connection_lost(state)))
         else
           loop(state)
         end
 
       {:handshake_timeout, socket} when socket == state.socket ->
         if state.model.console.phase in [:welcome, :compatibility] do
-          loop(draw(connection_timeout(state, "Console handshake timed out")))
+          loop(draw(connection_lost(state)))
         else
           loop(state)
         end
@@ -357,20 +356,27 @@ defmodule AtlasTui.App do
             state
 
           {:error, _} ->
-            connection_timeout(state, "Control send failed")
+            connection_lost(state)
         end
 
       {:error, _} ->
-        Process.send_after(self(), :reconnect, @reconnect)
-        %{state | socket: nil, model: Model.disconnected(state.model)}
+        Process.send_after(self(), :reconnect, Console.retry_ms())
+        %{state | socket: nil, model: Model.disconnected(state.model, unreached())}
     end
   end
 
-  defp connection_timeout(state, reason) do
+  # Nothing answers where Control is: on Fly (bin/atlas sets ATLAS_FLY_IN_USE), the
+  # settings' address is this Mac's end of the tunnel; else Control's own address.
+  defp unreached do
+    tunnel = AtlasControlTransport.endpoint() == {:ok, :settings}
+    if tunnel and System.get_env("ATLAS_FLY_IN_USE") == "true", do: :no_tunnel, else: :unreachable
+  end
+
+  # Reached, but Control does not answer (or no longer): it may be restarting.
+  defp connection_lost(state) do
     if state.socket, do: AtlasControlTransport.close(state.socket)
-    Process.send_after(self(), :reconnect, @reconnect)
-    model = Model.disconnected(state.model)
-    %{state | socket: nil, model: %{model | console: %{model.console | error: reason}}}
+    Process.send_after(self(), :reconnect, Console.retry_ms())
+    %{state | socket: nil, model: Model.disconnected(state.model, :silent)}
   end
 
   defp send_line(%{socket: nil}, _message), do: :ok
@@ -458,7 +464,7 @@ defmodule AtlasTui.App do
     }
   end
 
-  defp output_failed(state, reason, delay \\ @reconnect) do
+  defp output_failed(state, reason, delay \\ Console.retry_ms()) do
     target = state.output_target
     state = stop_output(state)
     token = make_ref()

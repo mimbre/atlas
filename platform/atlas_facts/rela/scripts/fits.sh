@@ -17,7 +17,38 @@ for part in entities relations attachments; do
 done
 "$bin/rela" --project "$tmp/check" --quiet validate
 "$bin/rela" --project "$tmp/check" --quiet migrate gc --scan >"$tmp/scan"
-sed -n 's/^  \([A-Za-z0-9_.-]*\)$/\1/p' "$tmp/scan" >"$tmp/orphans"
+sed -n 's/^  \([A-Za-z0-9_.-]*\)$/\1/p' "$tmp/scan" >"$tmp/fields"
+: >"$tmp/orphans"
+# A removed field holding nothing (null, ~, "" or '' in every entity that has it) does
+# not block: after the deploy, deploy.sh has rela's own `migrate gc` remove it. Any real
+# value, or an orphan no entity file shows, still blocks.
+while IFS= read -r orphan; do
+  held=""
+  case "$orphan" in
+    ?*.?*) held="$(find "$tmp/check/entities" -type f -name '*.md' -exec awk -v q="'" \
+      -v kind="${orphan%%.*}" -v field="${orphan#*.}" '
+      function flush() {
+        if (type == kind && found) print (value == "" || value == "null" || value == "~" || value == "\"\"" || value == q q) ? "empty" : "value"
+      }
+      FNR == 1 { flush(); fence = 0; type = ""; found = 0; open = 0 }
+      /^---[[:space:]]*$/ { fence++; next }
+      fence != 1 { next }
+      open && /^[[:space:]]+[^[:space:]]/ { value = "nested" }
+      { open = 0 }
+      /^type:/ { type = $0; sub(/^type:[[:space:]]*/, "", type); sub(/[[:space:]]+$/, "", type); gsub(/["\047]/, "", type) }
+      index($0, field ":") == 1 {
+        found = 1; value = substr($0, length(field) + 2)
+        sub(/^[[:space:]]+/, "", value); sub(/[[:space:]]+$/, "", value)
+        if (value == "" || value == "|" || value == ">") open = 1
+      }
+      END { flush() }' {} + | sort -u | tr '\n' ' ')" ;;
+  esac
+  if [ "$held" = "empty " ]; then
+    echo "$orphan (empty, removed after deploy)" >>"$tmp/empty"
+  else
+    echo "$orphan" >>"$tmp/orphans"
+  fi
+done <"$tmp/fields"
 # The proposed schema is config.py's resolved flat YAML, also used by old images
 # without Python/jq. Native validation/GC handles fields; these checks additionally
 # catch populated kinds and relations which the new schema would not load at all.
@@ -49,5 +80,6 @@ while IFS= read -r file; do
     echo "$name (a relation this build has no more)" >>"$tmp/orphans"
   fi
 done <"$tmp/relation-files"
-if [ -s "$tmp/orphans" ]; then sort -u "$tmp/orphans"; exit 1; fi
+if [ -s "$tmp/orphans" ]; then sort -u "$tmp/orphans"; [ ! -s "$tmp/empty" ] || sort -u "$tmp/empty"; exit 1; fi
 "$bin/rela" --project "$tmp/check" --quiet validate --check=all
+[ ! -s "$tmp/empty" ] || sort -u "$tmp/empty"

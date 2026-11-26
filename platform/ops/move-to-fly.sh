@@ -95,6 +95,8 @@ if ! orphans="$(ATLAS_RELA_DATA="$check_data" ATLAS_RELA_BIN="$bin" "$root/platf
   echo "$orphans" | sed 's/^/  /' >&2
   fail "migrate that data first, on this Mac, then move it"
 fi
+empty="$(echo "$orphans" | sed -n 's/^\([^ ]*\) (empty, removed after deploy)$/\1/p' | tr '\n' ' ')"
+[ -z "$empty" ] || echo "Check: removed fields that hold nothing, removed once moved: $empty"
 echo "Check: this build's description describes all of it"
 
 here="$(ATLAS_RELA_BIN="$bin" "$root/platform/ops/counts.sh" "$check_data")"
@@ -166,6 +168,12 @@ else
   problems=1
 fi
 [ -z "$problems" ] || fail "the earlier data on Fly is in /data/before-move on both apps"
+if [ -n "$empty" ]; then
+  removed="$("$fly" ssh console -q -a "$rela_app" -C "env ATLAS_RELA_DATA=/data/rela ATLAS_RELA_BIN=/app/bin /app/platform/atlas_facts/rela/scripts/description.sh gc $empty" 2>&1 | tr -d '\r')" ||
+    fail "rela's gc did not remove the empty fields $empty: $removed"
+  echo "Removed the empty fields with rela's gc:"
+  echo "$removed" | sed 's/^/  /'
+fi
 
 echo "Moved. The earlier data on Fly is in /data/before-move."
 if [ "${ATLAS_FLY_IN_USE:-true}" = false ]; then

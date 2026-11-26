@@ -80,11 +80,6 @@ struct ShellView: View {
             StatusBar(status: StatusViewModel(session.state), shell: shell,
                       update: updater.status.statusText(installed: updater.installed))
         }
-        .overlay {
-            if case .ended(let ending) = session.state.connection {
-                EndedView(ending: ending, env: session.state.settings.env)
-            }
-        }
         .environment(\.pendingAction, shell.pending)
         .environment(\.panelKeys, keys.panels)
     }
@@ -263,30 +258,6 @@ struct EnvironmentBadge: View {
     }
 }
 
-/// Why the session is over, over the window.
-struct EndedView: View {
-    let ending: SessionState.Ending
-    let env: String
-
-    var body: some View {
-        VStack(spacing: 8) {
-            switch ending {
-            case .bye(let text):
-                Text(text)
-            case .incompatible(let welcome):
-                Text("Control's welcome is for \(welcome.env ?? "another environment") (surface \(welcome.surface ?? "none")); this app is for \(env), surface console.")
-            case .unreadableWelcome(let reason):
-                Text("Control's welcome could not be read (\(reason)); this app implements contract \(Contract.version).")
-            case .stopped:
-                EmptyView()
-            }
-        }
-        .multilineTextAlignment(.center)
-        .padding(24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .frame(maxWidth: 520)
-    }
-}
 
 /// Started without the launcher: how to start it.
 struct NotLaunchedView: View {

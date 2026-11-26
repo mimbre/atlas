@@ -900,8 +900,8 @@ defmodule AtlasTuiTest do
 
     assert screen(m) =~ "… Sent to Facts"
 
-    gone = Model.disconnected(m)
-    assert screen(gone) =~ "Not connected to Control. Retrying…"
+    gone = Model.disconnected(m, :silent)
+    assert screen(gone) =~ "○ not connected · Control is down or restarting"
     refute screen(gone) =~ "First"
   end
 

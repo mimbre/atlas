@@ -79,6 +79,66 @@ final class StatusViewModelTests: XCTestCase {
         XCTAssertFalse(StatusViewModel(h.state).isConnected)
     }
 
+    // Without Control the status bar says why and what happens next in plain words; the
+    // window has no message of its own (the TUI's status line says the same).
+
+    private func text(_ h: Harness) -> String {
+        StatusViewModel(h.state).text()
+    }
+
+    func testConnectingSaysSoUntilSomethingFails() {
+        let h = Harness()
+        h.session.start()
+        XCTAssertEqual(text(h), "connecting to Control…")
+        XCTAssertEqual(StatusViewModel(h.state).mark, .connecting)
+    }
+
+    func testNothingAnswersWhereControlIs() {
+        let h = Harness()
+        h.session.start()
+        h.connection.drop()
+        let said = "not connected · Control cannot be reached; connects by itself once it answers · retries every 2 s"
+        XCTAssertEqual(text(h), said)
+        XCTAssertEqual(StatusViewModel(h.state).mark, .notConnected)
+        // Trying again keeps the why, so the bar does not flicker to "connecting".
+        h.clock.advance(by: SessionState.retrySeconds)
+        XCTAssertEqual(h.state.connection, .connecting)
+        XCTAssertEqual(text(h), said)
+    }
+
+    func testControlStopsAnswering() {
+        let h = Harness()
+        h.connect()
+        h.connection.drop()
+        XCTAssertEqual(text(h), "not connected · Control is down or restarting; connects once it answers · retries every 2 s")
+    }
+
+    func testAnotherEnvironmentOrNoConsole() {
+        let h = Harness()
+        h.session.start()
+        h.connection.ready()
+        h.connection.receive(Lines.welcome(env: "prod"))
+        XCTAssertEqual(text(h), "not connected · Control's welcome is for prod (surface console); this app is for test, surface console")
+    }
+
+    func testClosedByControlSaysItsWords() {
+        let h = Harness()
+        h.connect()
+        h.connection.receive(Lines.bye("This is Control prod; it does not serve \"test\"."))
+        XCTAssertEqual(text(h), "not connected · This is Control prod; it does not serve \"test\".")
+    }
+
+    func testWelcomedAgainTheStateGoes() {
+        let h = Harness()
+        h.connect()
+        h.connection.drop()
+        h.clock.advance(by: SessionState.retrySeconds)
+        h.connect()
+        XCTAssertNil(h.state.lost)
+        XCTAssertEqual(text(h), "connected")
+        XCTAssertEqual(StatusViewModel(h.state).mark, .connected)
+    }
+
     private func welcomed(by spec: String) -> Harness {
         let h = Harness()
         h.session.start()

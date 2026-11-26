@@ -55,7 +55,13 @@ public struct SessionState: Sendable, Equatable {
         case stopped
     }
 
-    /// Why the last boot gave no shell. The last good shell stays, marked stale.
+    /// Why the connection is gone, while it is tried again (the status bar says it).
+    public enum Lost: Sendable, Equatable {
+        /// Nothing answered where Control is.
+        case unreachable
+        /// Control was reached but does not answer, or no longer: it may be restarting.
+        case silent
+    }
     public enum BootFailure: Error, Sendable, Equatable {
         /// Control's boot error, its text.
         case control(String)
@@ -190,6 +196,8 @@ public struct SessionState: Sendable, Equatable {
 
     public let settings: SessionSettings
     public private(set) var connection: Connection = .idle
+    /// Why the last connection is gone; nil once Control welcomes the app again.
+    public private(set) var lost: Lost?
     /// The contract version Control's welcome named; nil before it, or when it named none.
     public private(set) var controlSpec: String?
     /// Control's contract version when it is newer than this app's: the app's update asks
@@ -656,6 +664,7 @@ public struct SessionState: Sendable, Equatable {
             return [.close]
         }
         connection = .connected
+        lost = nil
         controlSpec = welcome.spec
         phase = .compatibility
         notice = nil
@@ -920,6 +929,7 @@ public struct SessionState: Sendable, Equatable {
     /// The connection is gone: say so and try again in 2 s. Pages and the shell stay on
     /// screen, the shell stale, until the connection is back.
     private mutating func disconnect(closing: Bool) -> [Effect] {
+        lost = connection == .connecting ? .unreachable : .silent
         connection = .retrying
         phase = .welcome
         bootPending = false
