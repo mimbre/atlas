@@ -28,6 +28,8 @@ defmodule AtlasTui.Palette do
   `:route` is a part of a route in a to-do's step (where to click in an app): bold, in
   `:info`'s colours, primarylight on dark and grey1 on primarylight in light, where
   primary text on white is under 4.5:1.
+  `:rest_frame` frames a column without the focus (`:frame` frames the one with it): grey2
+  in dark; in light grey1, as grey2 on white stays under 3:1 (2.85:1).
   """
   @tokens %{
     primary: {66, 114, 239},
@@ -69,6 +71,7 @@ defmodule AtlasTui.Palette do
         :border -> if dark, do: {:grey2, :grey1}, else: {:grey2, :white}
         :frame -> if dark, do: {:primary, :grey1}, else: {:primary, :white}
         :error_frame -> if dark, do: {:error, :grey1}, else: {:error, :white}
+        :rest_frame -> if dark, do: {:grey2, :grey1}, else: {:grey1, :white}
         :key -> if dark, do: {:tertiary, :grey1}, else: {:grey1, :warninglight}
         :warning -> if dark, do: {:warning, :grey1}, else: {:grey1, :warninglight}
         :ok -> if dark, do: {:success, :grey1}, else: {:grey1, :successlight}
