@@ -96,7 +96,91 @@ defmodule AtlasAgent.CLITest do
              """
   end
 
-  test "get: a to-do's steps first, every step in full, then its answers", %{control: c} do
+  # A decision's owner gets its choice (single_choice, after the `todo` line) and pages
+  # carry blocks this client does not know; get and set print them, never crash.
+  test "get and set: a decision's choice as its to-do; unknown blocks and fields are left out",
+       %{control: c} do
+    widget = FakeControl.put(c, "widget", %{"title" => "A decision"})
+
+    answer = fn n ->
+      %{"key" => n, "label" => n, "to" => "/k/widget/#{widget}/answer/#{n}"}
+    end
+
+    FakeControl.lead(c, widget, [
+      %{
+        "id" => "todo",
+        "type" => "item",
+        "props" => %{"title" => "What to do: Decide   Answers: 1–2   0 Recommended"}
+      },
+      %{
+        "id" => "choice",
+        "type" => "single_choice",
+        "props" => %{
+          "question" => "How are pages composed?",
+          "options" => [
+            %{
+              "id" => "stack",
+              "text" => "Stacked blocks",
+              "details" => "One job per block.",
+              "effect" => "adopt",
+              "rule" => "",
+              "consequences" => "",
+              "answer" => answer.("1"),
+              "note" => false,
+              "shortcut" => "1",
+              "weight" => %{"unknown" => ["field"]}
+            },
+            %{
+              "id" => "compound",
+              "text" => "Compound blocks",
+              "details" => "Each page its own.",
+              "effect" => "reject",
+              "rule" => "",
+              "consequences" => "",
+              "answer" => answer.("2"),
+              "note" => true,
+              "shortcut" => "2"
+            }
+          ],
+          "recommended" => "stack",
+          "rationale" => "Clients stay small.",
+          "revision" => "6db6808a",
+          "instructions" =>
+            "How are pages composed?\nRecommended: Stacked blocks — Clients stay small.\n0 selects recommended choice 1."
+        }
+      },
+      %{"id" => "panel", "type" => "panel", "props" => %{"part" => nil, "lines" => [[1, 2]]}}
+    ])
+
+    expected = """
+    To do: How are pages composed?
+      Recommended: Stacked blocks — Clients stay small.
+      0 selects recommended choice 1.
+      1 Stacked blocks (recommended)
+          details: One job per block.
+          effect: adopt
+          weight:
+            unknown:
+              - field
+      2 Compound blocks
+          details: Each page its own.
+          effect: reject
+
+    Widget WI-01: A decision
+      Title: A decision
+      Description:\s
+    Parts:
+      (none)
+    """
+
+    assert {0, ^expected, ""} = atlas(["get", widget])
+
+    {0, out, ""} = atlas(["set", widget, "title=A decision"])
+    assert out == expected
+  end
+
+  test "get: a to-do's steps first, every step in full, then its answers; unknown lines left out",
+       %{control: c} do
     widget = FakeControl.put(c, "widget", %{"title" => "Rotate the key"})
     block = &%{"id" => &1, "type" => &2, "props" => &3}
 
@@ -111,10 +195,12 @@ defmodule AtlasAgent.CLITest do
         "n" => 2,
         "lines" => [
           %{"kind" => "text", "text" => "Drop the old tag."},
-          %{"kind" => "route", "parts" => ["Finder", "Home"]},
+          %{"kind" => "route", "parts" => ["Finder", "A > B"]},
+          %{"kind" => "picture", "url" => "x.png"},
           %{"kind" => "command", "text" => "git tag -d v12"}
         ]
       }),
+      block.("step-3", "instruction", %{"n" => 3}),
       block.("answers", "answers", %{
         "answers" => [
           %{"key" => "x", "label" => "Done", "to" => "/k/widget/#{widget}/answer/x"},
@@ -131,15 +217,16 @@ defmodule AtlasAgent.CLITest do
                Why: it leaked.
                1. Make a new key.
                2. Drop the old tag.
-                  > Finder > Home
+                  > Finder > "A > B"
                   $ git tag -d v12
+               3.\s
                x Done   n Won't do
+
+             Widget WI-01: Rotate the key
              """
 
-    refute out =~ "step 1 of"
-
     {0, json, ""} = atlas(["get", widget, "--json"])
-    assert %{"todo" => %{"steps" => [%{"n" => 1}, %{"n" => 2}]}} = JSON.decode!(json)
+    assert %{"todo" => %{"steps" => [%{"n" => 1}, %{"n" => 2}, %{"n" => 3}]}} = JSON.decode!(json)
   end
 
   test "get --json keeps the newlines of a value", %{control: c} do

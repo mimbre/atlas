@@ -22,7 +22,8 @@ defmodule AtlasAgent.FakeControl do
           order: [],
           writes: [],
           refuse: opts[:refuse] || fn _ -> nil end,
-          hold: nil
+          hold: nil,
+          lead: %{}
         }
       end)
 
@@ -79,10 +80,6 @@ defmodule AtlasAgent.FakeControl do
   def delete(control, key),
     do: Agent.update(control.store, &%{&1 | facts: Map.delete(&1.facts, key)})
 
-  @doc "Blocks a fact's page shows before its item, as Control does for its owner's to-do."
-  def lead(control, key, blocks),
-    do: Agent.update(control.store, &put_in(&1.facts[key][:lead], blocks))
-
   def fact(control, key), do: Agent.get(control.store, & &1.facts[key])
 
   @doc "The facts of `kind`, in the order they were made."
@@ -107,6 +104,13 @@ defmodule AtlasAgent.FakeControl do
   end
 
   def release(pid), do: send(pid, :release)
+
+  @doc """
+  Blocks the page of `key` opens with, before its item, as Control sends its owner's
+  to-do (a `todo` item, a `single_choice`, its steps as `instruction` blocks) or anything else a page may hold.
+  """
+  def lead(control, key, blocks),
+    do: Agent.update(control.store, &put_in(&1, [:lead, key], blocks))
 
   # Connections
 
@@ -316,7 +320,7 @@ defmodule AtlasAgent.FakeControl do
           "path" => "/k/#{f.kind}/#{key}",
           "title" => "#{k.title} #{key}",
           "blocks" =>
-            (f[:lead] || []) ++
+            Map.get(s.lead, key, []) ++
               [
                 item("item", %{
                   "title" => "#{k.title} #{key}: #{f.values["title"]}",
