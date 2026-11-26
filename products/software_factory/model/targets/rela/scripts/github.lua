@@ -25,11 +25,20 @@
 -- repository and run), so a reopened pull's state, mergeability and checks are synced
 -- again. The pull of an issue closed in Atlas (gate_result close) is left closed.
 --
--- rela → GitHub: an open pull request of an issue closed in Atlas (gate_result close, an
--- explicit record in this rela's own data) is closed on GitHub with a comment. A pull is
--- never closed because its issue is missing: a test rela reads the same repositories with
--- other data. A close GitHub refuses is logged and written to pr_close_failure; the next
--- run tries again.
+-- rela → GitHub: only what this rela's own data records as to close is closed, each with
+-- a comment saying why (IS-Atlas-130, IS-Atlas-133):
+--
+--   * the open pull request of an issue closed in Atlas (gate_result close); a close
+--     GitHub refuses is written to the issue's pr_close_failure;
+--   * an open pull request fact with a close_reason: the pull an issue left behind when a
+--     run replaced its pr_url (superseded by <the new url>) or when it was removed in
+--     Atlas (issue removed), recorded before the issue went. Its repository need not be
+--     one any remaining issue names. A close GitHub refuses is written to its
+--     close_failure. Once closed it is not read again: reopened by a person, it stays so.
+--
+-- A pull is never closed because of its branch name (an open atlas/TK-… pull with no record
+-- is left alone), nor because its issue is missing: a test rela reads the same
+-- repositories with other data. A refused close is logged; the next run tries again.
 --
 -- Secrets (.rela/secrets.yaml, which rela-run.sh writes on Fly): github_api, GitHub's API
 -- (https://api.github.com); github_token, a token that reads pull requests, checks and job
@@ -391,13 +400,31 @@ for _, issue in ipairs(rela.list_entities("issue")) do
   end
 end
 
+-- Whether a recorded reason to close a pull request is there.
+local function to_close(reason) return type(reason) == "string" and reason ~= "" end
+
 for _, pr in ipairs(rela.list_entities("pull_request")) do
   local p = pr.properties
   local repo, number = slug(p.url)
-  if repo and read(p.state, repo, number) then
-    local pull = json("/repos/" .. repo .. "/pulls/" .. number)
+  local closing = to_close(p.close_reason)
+  -- A recorded pull Atlas closed is final: reopened by a person, it is not closed again.
+  if repo and not (closing and p.state == "closed") and read(p.state, repo, number) then
+    local pull, err = json("/repos/" .. repo .. "/pulls/" .. number)
     if pull then
-      write(pr.id, p, {title = pull.title, state = pull_state(pull), draft = pull.draft == true})
+      local after = {title = pull.title, state = pull_state(pull), draft = pull.draft == true}
+      if closing and after.state == "open" then
+        local failed = close(repo, number, "Closed by Atlas: " .. p.close_reason .. ".")
+        if failed then
+          print("github sync: " .. pr.id .. ": close: " .. failed)
+          after.close_failure = failed
+        else
+          after.state = "closed"
+          after.close_failure = EMPTY
+        end
+      end
+      write(pr.id, p, after)
+    else
+      print("github sync: " .. pr.id .. ": " .. tostring(err))
     end
   end
 end
