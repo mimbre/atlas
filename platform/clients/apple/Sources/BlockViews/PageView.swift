@@ -1,4 +1,5 @@
 import AtlasControlKit
+import Prism
 import SwiftUI
 
 /// A page: its title and its blocks. Its lists' rows are the page's selection: selecting
@@ -60,7 +61,7 @@ public struct PageView: View {
                 case .header:
                     still(PageHeader(title: presentation.title, actions: pageActions, act: act))
                 case .title(let title):
-                    still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.s10))
+                    still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.px10))
                 case .empty(let empty):
                     still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary))
                 case .row(let row):
@@ -121,8 +122,8 @@ public struct PageView: View {
     /// The details, in one recessed card under the page: their title, small, then their
     /// blocks, without cards of their own (no card inside a card).
     private func detailsView(_ details: PagePresentation.Details) -> some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
-            Text(details.title).prism(Prism.Typography.labelSmall)
+        VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
+            Text(details.title).prism(Prism.Typography.labelsmall)
                 .accessibilityAddTraits(.isHeader)
             ForEach(details.groups) { group in
                 switch group {
@@ -216,7 +217,7 @@ public struct PageView: View {
     }
 
     private func blocks(_ section: PagePresentation.Section, inDetails: Bool) -> some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
             ForEach(section.entries) { entryView($0, inDetails: inDetails) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -225,12 +226,12 @@ public struct PageView: View {
     @ViewBuilder private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false) -> some View {
         if section.collapsible {
             DisclosureGroup(isExpanded: expansion(section)) {
-                blocks(section, inDetails: inDetails).padding(.top, Prism.Spacing.s10)
+                blocks(section, inDetails: inDetails).padding(.top, Prism.Spacing.px10)
             } label: {
                 Text(section.title).prism(Prism.Typography.label)
             }
         } else {
-            VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+            VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
                 Text(section.title).prism(Prism.Typography.label)
                     .accessibilityAddTraits(.isHeader)
                 Divider()
@@ -258,10 +259,10 @@ struct ListBlockView: View {
     let act: (ActionModel) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
             if let title = list.title {
                 Text(title).prism(Prism.Typography.title7)
-                    .padding(.bottom, Prism.Spacing.s5)
+                    .padding(.bottom, Prism.Spacing.px5)
             }
             if (list.rows ?? []).isEmpty, let empty = list.empty {
                 Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
@@ -314,8 +315,8 @@ struct RowCard: View {
         content
             // Our own colours on our own card: not the List's selected (white) text.
             .environment(\.backgroundProminence, .standard)
-            .padding(.horizontal, Prism.Spacing.s13)
-            .padding(.vertical, Prism.Spacing.s10)
+            .padding(.horizontal, Prism.Spacing.px13)
+            .padding(.vertical, Prism.Spacing.px10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(PrismDarkGap.listCard(scheme, selected: selected, focused: focused, hovering: hovering),
                         in: shape)
@@ -324,8 +325,8 @@ struct RowCard: View {
             }
             .contentShape(shape)
             .onHover { hovering = $0 }
-            .padding(.vertical, Prism.Spacing.s3)
-            .padding(.horizontal, Prism.Spacing.s10)
+            .padding(.vertical, Prism.Spacing.px3)
+            .padding(.horizontal, Prism.Spacing.px10)
             .background(PrismDarkGap.listGround(scheme))
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? [.isSelected] : [])
@@ -334,27 +335,27 @@ struct RowCard: View {
     private var content: some View {
         let tone = RowTone(row.tone)
         let muted = PrismDarkGap.listMuted(scheme, selected: selected)
-        return VStack(alignment: .leading, spacing: Prism.Spacing.s5) {
-            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s6) {
+        return VStack(alignment: .leading, spacing: Prism.Spacing.px5) {
+            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px6) {
                 if let tone {
                     Circle().fill(RowCard.colour(tone))
-                        .frame(width: Prism.Spacing.s7, height: Prism.Spacing.s7)
+                        .frame(width: Prism.Spacing.px7, height: Prism.Spacing.px7)
                         .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
                         .help(tone.meaning)
                         .accessibilityLabel(tone.meaning)
                 }
-                topLine.prism(Prism.Typography.captionSmall)
-                Spacer(minLength: Prism.Spacing.s6)
+                topLine.prism(Prism.Typography.captionsmall)
+                Spacer(minLength: Prism.Spacing.px6)
                 if let age = RowAge.text(since: row.since, now: Date()) {
-                    Text(age).prism(Prism.Typography.captionSmall).monospacedDigit()
+                    Text(age).prism(Prism.Typography.captionsmall).monospacedDigit()
                 }
             }
             .foregroundStyle(muted)
             .lineLimit(1)
             .truncationMode(.tail)
             Text(row.label ?? "")
-                .prism(Prism.Typography.labelSmall)
-                .lineSpacing(Prism.Spacing.s3)
+                .prism(Prism.Typography.labelsmall)
+                .lineSpacing(Prism.Spacing.px3)
                 .foregroundStyle(tone == .done ? muted : PrismDarkGap.text(scheme))
                 .lineLimit(RowCardText.titleLines)
                 .truncationMode(.tail)
@@ -362,7 +363,7 @@ struct RowCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .help(row.label ?? "")
             if row.pending == true {
-                Text("⋯ being processed").prism(Prism.Typography.captionSmall).foregroundStyle(muted)
+                Text("⋯ being processed").prism(Prism.Typography.captionsmall).foregroundStyle(muted)
             }
         }
     }
@@ -400,19 +401,19 @@ struct ItemBlockView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let content = VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+        let content = VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             if let title = item.title {
-                Text(title).prism(inDetails ? Prism.Typography.labelSmall : Prism.Typography.title7)
+                Text(title).prism(inDetails ? Prism.Typography.labelsmall : Prism.Typography.title7)
             }
             // The actions first: the next step is in reach without scrolling.
             ActionsView(actions: PageActions.ofBlock(item.actions), act: act)
             ForEach(Array((item.fields ?? []).enumerated()), id: \.offset) { _, field in
-                VStack(alignment: .leading, spacing: Prism.Spacing.s3) {
+                VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
                     if let label = field.label, !label.isEmpty {
-                        Text(label).prism(inDetails ? Prism.Typography.captionSmall : Prism.Typography.labelSmall)
+                        Text(label).prism(inDetails ? Prism.Typography.captionsmall : Prism.Typography.labelsmall)
                             .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
-                    Text(field.value ?? "—").prism(inDetails ? Prism.Typography.caption : Prism.Typography.tableRow)
+                    Text(field.value ?? "—").prism(inDetails ? Prism.Typography.caption : Prism.Typography.tablerow)
                         .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.primary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -445,7 +446,7 @@ struct FallbackView: View {
 
     var body: some View {
         if let plain, plain.title != nil || !plain.lines.isEmpty {
-            VStack(alignment: .leading, spacing: Prism.Spacing.s5) {
+            VStack(alignment: .leading, spacing: Prism.Spacing.px5) {
                 if let title = plain.title {
                     Text(title).bold().accessibilityAddTraits(.isHeader)
                 }

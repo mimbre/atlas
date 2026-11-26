@@ -1,5 +1,6 @@
 import AtlasControlKit
 import ControlSession
+import Prism
 import SwiftUI
 
 /// A `header` block, on the page itself (no card): the eyebrow and the key in small caps in
@@ -12,7 +13,7 @@ struct HeaderBlockView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s6) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
             if let eyebrow {
                 Text(eyebrow).font(.system(size: 11, weight: .semibold)).tracking(0.8)
                     .foregroundStyle(PrismDarkGap.accentText(scheme))
@@ -21,8 +22,8 @@ struct HeaderBlockView: View {
             PageHeader(title: block.title ?? "", actions: actions, act: act)
         }
         .accessibilityElement(children: .contain)
-        .padding(.horizontal, Prism.Spacing.s15)
-        .padding(.top, Prism.Spacing.s10)
+        .padding(.horizontal, Prism.Spacing.px15)
+        .padding(.top, Prism.Spacing.px10)
     }
 
     /// The eyebrow and the key, as one line: either alone when the other is not sent.
@@ -33,9 +34,8 @@ struct HeaderBlockView: View {
 }
 
 /// A `text` block, on the page itself, muted: "Why: the old key leaked. · 3h ago"
-/// (`TextLine`), its age kept current. With role `error` (something went wrong), in a
-/// red-tinted recessed card (`RecessedCard`, no shadow): its label as the card's heading
-/// beside a warning sign in Prism's error colour, its text under it in the text's colour.
+/// (`TextLine`), its age kept current. With role `error` (something went wrong), as
+/// Prism's `MessageBar` in its danger tone: its label as a heading, its text under it.
 struct TextBlockView: View {
     let block: TextBlock
     @Environment(\.colorScheme) private var scheme
@@ -43,22 +43,18 @@ struct TextBlockView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             if block.role == "error" {
-                HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(Prism.Colors.error)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: Prism.Spacing.s6) {
+                PrismMessageBar(tone: .danger) {
+                    VStack(spacing: Prism.Spacing.px6) {
                         if let label = block.label {
-                            Text(label).prism(Prism.Typography.labelSmall)
+                            Text(label).prism(Prism.Typography.labelsmall)
                                 .accessibilityAddTraits(.isHeader)
                         }
-                        Text(TextLine.text(block, now: context.date)).prism(Prism.Typography.caption)
+                        Text(TextLine.text(block, now: context.date))
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .textSelection(.enabled)
-                .modifier(RecessedCard(error: true))
+                .padding(.horizontal, Prism.Spacing.px15)
                 .accessibilityElement(children: .contain)
             } else {
                 Text(TextLine.line(block, now: context.date))
@@ -67,7 +63,7 @@ struct TextBlockView: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Prism.Spacing.s15)
+                    .padding(.horizontal, Prism.Spacing.px15)
             }
         }
     }
@@ -85,9 +81,9 @@ struct InstructionView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
+        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
             if let n = block.n { StepNumber(n: n) }
-            VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+            VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
                 ForEach(Array((block.lines ?? []).enumerated()), id: \.offset) { _, line in
                     lineView(line)
                 }
@@ -126,18 +122,12 @@ struct InstructionView: View {
     }
 }
 
-/// A step's or an option's number in a badge: white on primary's shade, round.
+/// A step's or an option's number: Prism's `StepIndicator`, current (white on primary).
 struct StepNumber: View {
     let n: Int
 
-    /// Its size, so what follows starts at the same place on every card.
-    static let size: CGFloat = 24
-
     var body: some View {
-        Text("\(n)").font(.system(size: 13, weight: .semibold)).monospacedDigit()
-            .foregroundStyle(Prism.Colors.white)
-            .frame(width: Self.size, height: Self.size)
-            .background(Prism.Colors.primaryShade, in: Circle())
+        PrismStepIndicator(status: .current) { Text("\(n)") }
             .accessibilityHidden(true)
     }
 }
@@ -150,7 +140,7 @@ struct CardStack: View {
     let act: (ActionModel) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 switch item {
                 case .instruction(let block): InstructionView(block: block, room: false)
@@ -186,18 +176,18 @@ struct OptionView: View {
 
     var body: some View {
         let action = Option.action(block)
-        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
+        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
             if let n = block.n { StepNumber(n: n) }
-            VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
-                HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
+            VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
+                HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
                     Text(block.text ?? "").prism(Prism.Typography.title7)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let badge = block.badge, !badge.isEmpty {
-                        PrismTag(text: badge, tone: Self.tone(block.tone))
+                        PrismTag(tone: Self.tone(block.tone)) { Text(badge) }.fixedSize()
                     }
                 }
                 if let fields = block.fields, !fields.isEmpty {
-                    Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.s13, verticalSpacing: Prism.Spacing.s6) {
+                    Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.px13, verticalSpacing: Prism.Spacing.px6) {
                         ForEach(Array(fields.enumerated()), id: \.offset) { _, field in
                             GridRow {
                                 Text(field.label ?? "").foregroundStyle(PrismDarkGap.muted(scheme))
@@ -209,7 +199,7 @@ struct OptionView: View {
                 }
                 if let answer = block.answer, let action {
                     OptionButton(answer: answer, pending: PageActions.isPending(action, pending)) { act(action) }
-                        .padding(.top, Prism.Spacing.s3)
+                        .padding(.top, Prism.Spacing.px3)
                 }
             }
             .textSelection(.enabled)
@@ -234,8 +224,7 @@ struct OptionView: View {
 
 /// An option's own answer as Prism's button: a yes (Choose) `primary` in success, one that
 /// asks a note (Decline…) `secondary` in warning, which opens the note form. Its key is not
-/// shown (the menu bar lists it, its tooltip names it). Pending, a spinner in place of its
-/// label, as Prism's loading button.
+/// shown (the menu bar lists it, its tooltip names it).
 struct OptionButton: View {
     let answer: PanelAnswerModel
     let pending: Bool
@@ -243,28 +232,31 @@ struct OptionButton: View {
 
     var body: some View {
         let decline = answer.note == true
-        AnswerLabelButton(label: answer.label ?? "", key: answer.key, pending: pending, take: take)
-            .buttonStyle(decline ? PrismButtonStyle(.secondary, tone: .warning) : PrismButtonStyle(.primary, tone: .success))
+        PrismActionButton(label: answer.label ?? "", key: answer.key, pending: pending,
+                          variant: decline ? .secondary : .primary, tone: decline ? .warning : .success,
+                          take: take)
     }
 }
 
-/// A button's label, or a spinner in its place while pending (the label keeps its room);
-/// its key only in its tooltip.
-struct AnswerLabelButton: View {
+/// Prism's button, its key only in its tooltip; pending, Prism's loading button (its
+/// spinner in place of the label). A `plain` one keeps its label legible in dark
+/// appearance (`PrismDarkGap.buttonStyle`).
+struct PrismActionButton: View {
     let label: String
     let key: String?
     let pending: Bool
+    let variant: PrismButtonVariant
+    var tone: PrismButtonTone = .accent
+    var padded = true
     let take: () -> Void
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        Button(action: take) {
-            Text(label)
-                .opacity(pending ? 0 : 1)
-                .overlay { if pending { ProgressView().controlSize(.small) } }
-        }
-        .textSelection(.disabled)
-        .disabled(pending)
-        .help([label, KeyGlyph.glyph(key).map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
+        Button(label, action: take)
+            .buttonStyle(PrismDarkGap.buttonStyle(variant, tone: tone, padded: padded, loading: pending, scheme: scheme))
+            .textSelection(.disabled)
+            .disabled(pending)
+            .help([label, KeyGlyph.glyph(key).map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
     }
 }
 
@@ -280,7 +272,7 @@ struct AnswersView: View {
     @Environment(\.pendingAction) private var pending
 
     var body: some View {
-        FlowLayout(spacing: Prism.Spacing.s10) {
+        FlowLayout(spacing: Prism.Spacing.px10) {
             ForEach(Array((block.answers ?? []).enumerated()), id: \.offset) { offset, answer in
                 let action = Panel.action(answer)
                 AnswerButton(answer: answer, quiet: answer.note != true && (quiet || offset > 0),
@@ -289,8 +281,8 @@ struct AnswersView: View {
         }
         .textSelection(.disabled)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Prism.Spacing.s15)
-        .padding(.bottom, Prism.Spacing.s10)
+        .padding(.horizontal, Prism.Spacing.px15)
+        .padding(.bottom, Prism.Spacing.px10)
     }
 }
 
@@ -303,17 +295,16 @@ struct OtherActionsView: View {
     @Environment(\.pendingAction) private var pending
 
     var body: some View {
-        FlowLayout(spacing: Prism.Spacing.s22) {
+        FlowLayout(spacing: Prism.Spacing.px22) {
             ForEach(Array(PageActions.buttons(block.actions ?? []).enumerated()), id: \.offset) { _, action in
-                AnswerLabelButton(label: action.label ?? "", key: action.key,
-                                  pending: PageActions.isPending(action, pending)) { act(action) }
-                    .buttonStyle(PrismButtonStyle(.plain, padded: false))
+                PrismActionButton(label: action.label ?? "", key: action.key,
+                                  pending: PageActions.isPending(action, pending), variant: .plain,
+                                  padded: false) { act(action) }
             }
         }
-        .font(.system(size: 14))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Prism.Spacing.s15)
-        .padding(.bottom, Prism.Spacing.s10)
+        .padding(.horizontal, Prism.Spacing.px15)
+        .padding(.bottom, Prism.Spacing.px10)
     }
 }
 
@@ -325,10 +316,10 @@ struct RouteLine: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        FlowLayout(spacing: Prism.Spacing.s6) {
+        FlowLayout(spacing: Prism.Spacing.px6) {
             Text("⌘").foregroundStyle(PrismDarkGap.muted(scheme))
             ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
-                HStack(spacing: Prism.Spacing.s6) {
+                HStack(spacing: Prism.Spacing.px6) {
                     if index > 0 { Text("›").foregroundStyle(PrismDarkGap.muted(scheme)) }
                     label(part)
                 }
@@ -339,9 +330,9 @@ struct RouteLine: View {
     }
 
     private func label(_ part: String) -> some View {
-        Text(part).prism(Prism.Typography.labelSmall).textSelection(.enabled)
+        Text(part).prism(Prism.Typography.labelsmall).textSelection(.enabled)
             .foregroundStyle(PrismDarkGap.routeText(scheme))
-            .padding(.horizontal, Prism.Spacing.s6)
+            .padding(.horizontal, Prism.Spacing.px6)
             .padding(.vertical, 3)
             .background(PrismDarkGap.routeFill(scheme), in: RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4)
@@ -360,7 +351,7 @@ struct CommandBlock: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
+        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
             Text(command).monospaced().textSelection(.enabled)
                 .foregroundStyle(PrismDarkGap.text(scheme))
                 .fixedSize(horizontal: false, vertical: true)
@@ -372,9 +363,9 @@ struct CommandBlock: View {
             .help(copied ? "Copied" : "Copy")
             .accessibilityLabel(copied ? "Copied" : "Copy")
         }
-        .prism(Prism.Typography.tableRow)
-        .padding(.horizontal, Prism.Spacing.s10)
-        .padding(.vertical, Prism.Spacing.s7)
+        .prism(Prism.Typography.tablerow)
+        .padding(.horizontal, Prism.Spacing.px10)
+        .padding(.vertical, Prism.Spacing.px7)
         .background(PrismDarkGap.inset(scheme), in: RoundedRectangle(cornerRadius: Prism.radius))
         .overlay(RoundedRectangle(cornerRadius: Prism.radius)
             .strokeBorder(PrismDarkGap.insetEdge(scheme)))

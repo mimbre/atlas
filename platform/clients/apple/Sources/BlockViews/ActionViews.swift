@@ -1,5 +1,6 @@
 import AtlasControlKit
 import ControlSession
+import Prism
 import SwiftUI
 
 extension EnvironmentValues {
@@ -133,7 +134,7 @@ struct ActionsView: View {
 
     var body: some View {
         if !PageActions.buttons(actions).isEmpty {
-            FlowLayout(spacing: Prism.Spacing.s10) {
+            FlowLayout(spacing: Prism.Spacing.px10) {
                 ActionButtons(actions: actions, act: act)
             }
             .textSelection(.disabled)
@@ -170,8 +171,8 @@ public struct ActionButtons: View {
         let pending = PageActions.isPending(action, pending)
         let glyph = KeyGlyph.glyph(action.key)
         return Button { act(action) } label: {
-            HStack(spacing: Prism.Spacing.s6) {
-                if pending { ProgressView().controlSize(.mini) }
+            HStack(spacing: Prism.Spacing.px6) {
+                if pending { ProgressView().progressViewStyle(.prism(.accent, size: .size16)) }
                 Text(action.label ?? "")
             }
         }
@@ -191,17 +192,17 @@ struct PageHeader: View {
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: Prism.Spacing.s13) {
+            HStack(alignment: .center, spacing: Prism.Spacing.px13) {
                 heading.fixedSize()
                 Spacer(minLength: 0)
-                HStack(spacing: Prism.Spacing.s10) {
+                HStack(spacing: Prism.Spacing.px10) {
                     ActionButtons(actions: actions, act: act)
                 }
                 .fixedSize()
             }
-            VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+            VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
                 heading.lineLimit(2)
-                FlowLayout(spacing: Prism.Spacing.s10) {
+                FlowLayout(spacing: Prism.Spacing.px10) {
                     ActionButtons(actions: actions, act: act)
                 }
             }
@@ -306,7 +307,7 @@ public struct ActionPageView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
             if !asks {
                 PageHeader(title: page.title ?? "", actions: PageActions.ofPage(page), act: act)
             }
@@ -322,10 +323,10 @@ public struct ActionPageView: View {
                 entryView(entry)
             }
             if !asks {
-                HStack(spacing: Prism.Spacing.s10) {
+                HStack(spacing: Prism.Spacing.px10) {
                     // The confirm and the form say "Sending…" themselves.
                     if let pending {
-                        ProgressView().controlSize(.small)
+                        ProgressView().progressViewStyle(.prism(.accent, size: .size20))
                         Text(pending.text).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -333,7 +334,7 @@ public struct ActionPageView: View {
                 }
             }
         }
-        .padding(Prism.Spacing.s22)
+        .padding(Prism.Spacing.px22)
         .frame(minWidth: 460, idealWidth: 560, maxWidth: Prism.readableWidth, alignment: .leading)
     }
 
@@ -382,14 +383,14 @@ struct ConfirmView: View {
     let leave: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
             if let title = block.title { Text(title).prism(Prism.Typography.title6) }
             Text(block.text ?? "").prism(Prism.Typography.caption)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
-            HStack(spacing: Prism.Spacing.s10) {
+            HStack(spacing: Prism.Spacing.px10) {
                 if submitting {
-                    ProgressView().controlSize(.small)
+                    ProgressView().progressViewStyle(.prism(.accent, size: .size20))
                     Text("Sending…").foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -417,7 +418,7 @@ struct FormView: View {
     let leave: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
             if let title = block.title { Text(title).prism(Prism.Typography.title6) }
             ForEach(block.errors ?? [], id: \.self) { error in
                 Label(error, systemImage: "exclamationmark.triangle")
@@ -430,9 +431,9 @@ struct FormView: View {
             }
             .formStyle(.grouped)
             .frame(minHeight: 240, idealHeight: 420)
-            HStack(spacing: Prism.Spacing.s10) {
+            HStack(spacing: Prism.Spacing.px10) {
                 if submitting {
-                    ProgressView().controlSize(.small)
+                    ProgressView().progressViewStyle(.prism(.accent, size: .size20))
                     Text("Sending…").foregroundStyle(.secondary)
                 }
                 Spacer()

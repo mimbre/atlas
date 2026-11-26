@@ -1,5 +1,6 @@
 import AtlasControlKit
 import ControlSession
+import Prism
 import SwiftUI
 
 /// A `panel` block, where its owner decides (to accept, to merge), in the calm card the
@@ -34,7 +35,7 @@ struct PanelView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
             PanelHeading(eyebrow: block.heading ?? "", title: block.title ?? "", key: block.key, trailing: block.aside)
             if let byline = block.byline, !byline.isEmpty {
                 // The ages keep current.
@@ -56,8 +57,8 @@ struct PanelView: View {
                 PanelBox(box: box)
             }
             if let pending, pending.kind == .sending {
-                HStack(spacing: Prism.Spacing.s6) {
-                    ProgressView().controlSize(.small)
+                HStack(spacing: Prism.Spacing.px6) {
+                    ProgressView().progressViewStyle(.prism(.accent, size: .size20))
                     Text(pending.text).foregroundStyle(muted)
                 }
             }
@@ -85,7 +86,7 @@ struct PanelView: View {
 
     /// The items, one row each: its key, its label; the selected one set apart.
     private var items: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s2) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px2) {
             ForEach(Array(panel.items.enumerated()), id: \.element.key) { offset, item in
                 PanelRow(marker: offset == panel.selected, key: item.key ?? "", label: item.label ?? "",
                          accessibility: [item.key, item.label].compactMap { $0 }.joined(separator: ": "),
@@ -99,7 +100,7 @@ struct PanelView: View {
     /// At the bottom: the answers as buttons, then the panel's actions and links, and the
     /// page's other actions, each with its key.
     private var buttons: some View {
-        FlowLayout(spacing: Prism.Spacing.s10) {
+        FlowLayout(spacing: Prism.Spacing.px10) {
             ForEach(panel.answers, id: \.key) { answer in
                 AnswerButton(answer: answer, pending: PageActions.isPending(Panel.action(answer), pending)) {
                     apply(panel.answer(answer))
@@ -140,10 +141,10 @@ struct PanelHeading: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s6) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
             Text(eyebrow.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.8)
                 .foregroundStyle(PrismDarkGap.accentText(scheme))
-            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
+            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
                 (Text(title) + Text(key.map { "   " + $0 } ?? "").font(Prism.Typography.label.font.weight(.regular))
                     .foregroundColor(PrismDarkGap.muted(scheme)))
                     .prism(Prism.Typography.title7)
@@ -174,15 +175,15 @@ struct PanelRow: View {
 
     var body: some View {
         Button(action: take) {
-            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s10) {
+            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
                 Text(key).monospaced().foregroundStyle(PrismDarkGap.muted(scheme)).fixedSize()
                 Text(label).bold(marker)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .prism(Prism.Typography.tableRow)
+            .prism(Prism.Typography.tablerow)
             .multilineTextAlignment(.leading)
-            .padding(.horizontal, Prism.Spacing.s10)
-            .padding(.vertical, Prism.Spacing.s7)
+            .padding(.horizontal, Prism.Spacing.px10)
+            .padding(.vertical, Prism.Spacing.px7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
@@ -202,7 +203,7 @@ struct PanelDetails: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.s13, verticalSpacing: Prism.Spacing.s6) {
+        Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.px13, verticalSpacing: Prism.Spacing.px6) {
             ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
                 GridRow {
                     Text(pair.label ?? "").foregroundStyle(PrismDarkGap.muted(scheme))
@@ -220,13 +221,13 @@ struct PanelChecks: View {
     let checks: [CheckModel]
 
     var body: some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Prism.Spacing.s10, verticalSpacing: Prism.Spacing.s6) {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Prism.Spacing.px10, verticalSpacing: Prism.Spacing.px6) {
             ForEach(Array(checks.enumerated()), id: \.offset) { _, check in
                 GridRow {
                     let role = Self.role(check.state ?? "")
                     Text(Panel.glyph(check.state ?? "")).bold()
                         .foregroundStyle(Prism.Colors.grey1)
-                        .frame(width: Prism.Spacing.s18, height: Prism.Spacing.s18)
+                        .frame(width: Prism.Spacing.px18, height: Prism.Spacing.px18)
                         .background(role.tint, in: Circle())
                         .overlay(Circle().strokeBorder(role.color))
                         .accessibilityLabel(check.state ?? "")
@@ -235,14 +236,14 @@ struct PanelChecks: View {
                 }
             }
         }
-        .prism(Prism.Typography.tableRow)
+        .prism(Prism.Typography.tablerow)
     }
 
     private static func role(_ state: String) -> (color: Color, tint: Color) {
         switch state {
-        case "success": (Prism.Colors.success, Prism.Colors.successLight)
-        case "error": (Prism.Colors.error, Prism.Colors.errorLight)
-        case "pending": (Prism.Colors.warning, Prism.Colors.warningLight)
+        case "success": (Prism.Colors.success, Prism.Colors.successlight)
+        case "error": (Prism.Colors.error, Prism.Colors.errorlight)
+        case "pending": (Prism.Colors.warning, Prism.Colors.warninglight)
         default: (Prism.Colors.grey2, Prism.Colors.grey4)
         }
     }
@@ -255,9 +256,9 @@ struct PanelBox: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s5) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px5) {
             if let title = box.title {
-                Text(title).prism(Prism.Typography.labelSmall).foregroundStyle(PrismDarkGap.muted(scheme))
+                Text(title).prism(Prism.Typography.labelsmall).foregroundStyle(PrismDarkGap.muted(scheme))
             }
             Text(box.text ?? "").frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -275,7 +276,7 @@ struct Framed: ViewModifier {
         content
             .prism(Prism.Typography.caption)
             .textSelection(.enabled)
-            .padding(Prism.Spacing.s10)
+            .padding(Prism.Spacing.px10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(PrismDarkGap.framed(scheme), in: RoundedRectangle(cornerRadius: Prism.radius))
             .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(border ?? .clear))
@@ -294,9 +295,9 @@ struct AnswerButton: View {
     var body: some View {
         let no = answer.note == true
         let label = answer.label ?? ""
-        AnswerLabelButton(label: no ? label + " · note" : label, key: answer.key, pending: pending, take: take)
-            .buttonStyle(no ? PrismButtonStyle(.secondary, tone: .warning)
-                : quiet ? PrismButtonStyle(.plain) : PrismButtonStyle(.primary, tone: .success))
+        PrismActionButton(label: no ? label + " · note" : label, key: answer.key, pending: pending,
+                          variant: no ? .secondary : quiet ? .plain : .primary,
+                          tone: no ? .warning : quiet ? .accent : .success, take: take)
     }
 }
 
@@ -307,8 +308,7 @@ struct KeyButton: View {
     let take: () -> Void
 
     var body: some View {
-        AnswerLabelButton(label: label, key: key, pending: false, take: take)
-            .buttonStyle(PrismButtonStyle(.plain))
+        PrismActionButton(label: label, key: key, pending: false, variant: .plain, take: take)
     }
 }
 
