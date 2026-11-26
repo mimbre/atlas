@@ -1,6 +1,6 @@
 defmodule AtlasTui.Columns do
   @moduledoc """
-  The TUI's columns on a wide terminal (docs/design/tui-layout.md, Columns): the list of
+  The TUI's columns on a wide terminal (docs/design/apple-clients.md, Columns in the TUI): the list of
   the tab, the page of the row selected in it, and that page's details.
 
     * From 144 cells: the list (60 wide) beside the page, its details under it.
@@ -21,7 +21,7 @@ defmodule AtlasTui.Columns do
   Pure.
   """
 
-  alias AtlasTui.{Console, ConsoleView, Interactions, Model, PageCache, Selection}
+  alias AtlasTui.{Blocks, Console, ConsoleView, Interactions, Model, PageCache, Selection}
   alias AtlasTui.Blocks.Part
 
   @list 60
@@ -53,7 +53,12 @@ defmodule AtlasTui.Columns do
       :three ->
         details = min(width - @list - @page, @page)
         left = div(width - @list - @page - details, 2)
-        [{:list, left, @list}, {:page, left + @list, @page}, {:details, left + @list + @page, details}]
+
+        [
+          {:list, left, @list},
+          {:page, left + @list, @page},
+          {:details, left + @list + @page, details}
+        ]
     end
   end
 
@@ -82,9 +87,12 @@ defmodule AtlasTui.Columns do
         base = %Model{env: model.env, console: model.console, connected: true, now: model.now}
         list = Model.message(base, Interactions.content(page))
         selected = Selection.after_replace(model.console.selections[path], Model.rows(list))
-        %{list | selected: selected || 0}
+        %{list | selected: selected || 0, columns: %{list.columns | list: path}}
     end
   end
+
+  @doc "Whether `model` is drawn as the list column: the list, beside the page."
+  def list_column?(model), do: nothing_open?(model) and shown?(model)
 
   @doc "Whether no row's page is open beside the list (the list itself is on screen)."
   def nothing_open?(model), do: model.path == model.columns.list
@@ -130,7 +138,12 @@ defmodule AtlasTui.Columns do
 
         found =
           if MapSet.member?(ids, id) == details?,
-            do: for({row, i} <- Enum.with_index(rows), not details? or is_binary(row.to), do: at + i),
+            do:
+              for(
+                {row, i} <- Enum.with_index(rows),
+                not details? or is_binary(row.to),
+                do: at + i
+              ),
             else: []
 
         {found, at + length(rows)}
@@ -206,7 +219,8 @@ defmodule AtlasTui.Columns do
 
   # Page up and down scroll the page or the details from where the last frame showed it
   # (`model.viewports`, by column); the arrows make it follow the selection again.
-  defp take(model, column, key) when column in [:page, :details] and key in [:page_up, :page_down] do
+  defp take(model, column, key)
+       when column in [:page, :details] and key in [:page_up, :page_down] do
     case model.viewports[column] do
       %{start: start, last: last, step: step} ->
         by = if key == :page_up, do: -step, else: step
@@ -226,11 +240,17 @@ defmodule AtlasTui.Columns do
     panel = Model.panel(model)
 
     cond do
-      Model.single_choice(model) != nil -> nil
-      panel != nil and Model.panel_choices(panel) != [] -> nil
+      Model.single_choice(model) != nil ->
+        nil
+
+      panel != nil and Model.panel_choices(panel) != [] ->
+        nil
+
       Interactions.operation(model, key) in ["list_previous", "list_next"] ->
         {choose(model, indexes(model, false), if(key == :up, do: -1, else: 1)), []}
-      true -> nil
+
+      true ->
+        nil
     end
   end
 
@@ -303,12 +323,19 @@ defmodule AtlasTui.Columns do
 
   defp track(%{console: %{shell: %{"tabs" => tabs}, expected: expected}} = model)
        when expected in [nil, model.path] do
-    if model.path != model.columns.list and Enum.any?(tabs, &(&1["to"] == model.path)),
-      do: %{model | columns: %{model.columns | list: model.path, focus: :list, scroll: %{}}},
-      else: model
+    if model.path != model.columns.list and Enum.any?(tabs, &(&1["to"] == model.path)) and
+         list_page?(model),
+       do: %{model | columns: %{model.columns | list: model.path, focus: :list, scroll: %{}}},
+       else: model
   end
 
   defp track(model), do: model
+
+  # A page of lists (and the groups that filter them), not one about a fact.
+  defp list_page?(model) do
+    Enum.any?(model.blocks, &match?(%Blocks.List{}, &1)) and
+      Enum.all?(model.blocks, &(match?(%Blocks.List{}, &1) or match?(%Blocks.Groups{}, &1)))
+  end
 
   # Select row `index` of the list, and open its page beside it.
   defp follow(model, index) do

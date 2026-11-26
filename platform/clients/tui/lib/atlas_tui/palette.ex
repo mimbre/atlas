@@ -25,6 +25,8 @@ defmodule AtlasTui.Palette do
   are too faint on white, the cell is the colour and the dot is drawn on it in white or grey1.
   `:error_frame` frames what went wrong in Prism's error (a line, not text); its heading
   is `:error` text.
+  `:rest_frame` frames a column without the focus (`:frame` frames the one with it): grey2
+  in dark; in light grey1, as grey2 on white stays under 3:1 (2.85:1).
   """
   @tokens %{
     primary: {66, 114, 239},
@@ -66,6 +68,7 @@ defmodule AtlasTui.Palette do
         :border -> if dark, do: {:grey2, :grey1}, else: {:grey2, :white}
         :frame -> if dark, do: {:primary, :grey1}, else: {:primary, :white}
         :error_frame -> if dark, do: {:error, :grey1}, else: {:error, :white}
+        :rest_frame -> if dark, do: {:grey2, :grey1}, else: {:grey1, :white}
         :key -> if dark, do: {:tertiary, :grey1}, else: {:grey1, :warninglight}
         :warning -> if dark, do: {:warning, :grey1}, else: {:grey1, :warninglight}
         :ok -> if dark, do: {:success, :grey1}, else: {:grey1, :successlight}

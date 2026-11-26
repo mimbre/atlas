@@ -46,7 +46,9 @@ defmodule AtlasTui.Keys do
           else: parse(rest, acc)
 
       nil ->
-        if Regex.match?(~r/^[\d;]*$/, rest), do: {Enum.reverse(acc), buffer}, else: parse(rest, acc)
+        if Regex.match?(~r/^[\d;]*$/, rest),
+          do: {Enum.reverse(acc), buffer},
+          else: parse(rest, acc)
     end
   end
 
