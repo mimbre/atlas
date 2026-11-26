@@ -171,7 +171,7 @@ defmodule AtlasBFF.Targets.Client do
     do: struct(fallback, type: nil, reason: "not a block")
 
   @title ~w(title label heading name)
-  # What only says where something goes or how it looks; never words for a person.
+  # What only says where something goes or how it looks; never words for a reader.
   @structural ~w(id to path key kind type tone role style icon endpoint params scope operation keys at)
   @first ~w(text description body summary value)
 

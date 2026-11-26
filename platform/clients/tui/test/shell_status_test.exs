@@ -70,7 +70,6 @@ defmodule AtlasTui.ShellStatusTest do
   end
 
   @retries "retries every #{div(Console.retry_ms(), 1_000)}s"
-  @ours Protocol.version()
 
   test "each shell state says why and what happens next, once, in the status line" do
     gone = Model.disconnected(ready(), nil)

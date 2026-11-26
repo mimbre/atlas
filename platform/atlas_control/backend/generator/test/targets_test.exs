@@ -129,7 +129,7 @@ defmodule AtlasBFF.TargetsTest do
                  }
                })
 
-      assert {nil, []} = Client.plain(%{"id" => "x", "submit_to" => %{"endpoint" => "e"}})
+      assert {nil, []} = Client.plain(%{"id" => "x", "target" => %{"endpoint" => "e"}})
     end
 
     test "a view model: ids, and markup with its props decoded; unknown markup is left out" do
