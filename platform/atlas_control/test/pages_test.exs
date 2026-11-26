@@ -2012,8 +2012,7 @@ defmodule AtlasControl.PagesTest do
     end
   end
 
-  # A to-do shown step by step (`Shop.Stepped`): the widget's notes are its steps, `at` the
-  # one its card's holder is at.
+  # A to-do shown as its steps (`Shop.Stepped`): the widget's notes are its steps.
   @stepped AtlasControl.Model.catalog(Shop.Stepped)
 
   defp stepped_reads(route, values, holder \\ "ada") do
@@ -2047,129 +2046,90 @@ defmodule AtlasControl.PagesTest do
      $ rm old.key
   """
 
-  test "its owner sees the steps, the one they are at open, and the item's details after" do
+  test "its owner sees the to-do as stacked blocks: header, why, every step in full, answers, details" do
     route = {:item, "widget", "W-1"}
-    reads = stepped_reads(route, %{"notes" => @steps, "at" => 2})
+    reads = stepped_reads(route, %{"notes" => @steps})
     page = render_run(route, @stepped, "doing", reads, %{by: "ada"})
 
-    assert ["steps", "list:of_widget", "item"] = Enum.map(page.blocks, & &1["id"])
-    steps = by_id(page)["steps"]
-
-    assert %{
-             "title" => "Rotate the key",
-             "key" => "W-1",
-             "why" => "the old key leaked.",
-             "since" => "2026-11-20T10:00:00Z",
-             "current" => 2,
-             "steps" => [
-               %{"n" => 1, "text" => "Make a new key.", "commands" => []},
-               %{
-                 "n" => 2,
-                 "text" => "Drop the old tags.",
-                 "commands" => ["git tag -d v12", "git tag -d v13"]
-               },
-               %{
-                 "n" => 3,
-                 "text" => "Remove the old file.",
-                 "commands" => ["rm old.key"],
-                 "routes" => [["Finder", "Home", ".keys > old"]],
-                 "lines" => [
-                   %{"kind" => "text", "text" => "Remove the old file."},
-                   %{"kind" => "route", "parts" => ["Finder", "Home", ".keys > old"]},
-                   %{"kind" => "command", "text" => "rm old.key"}
-                 ]
-               }
-             ]
-           } = steps
-
-    # Enter: this step is done; Down and Up move it; then its answers, which ask a note.
-    step = &Pages.call_to({:step, "widget", "W-1", &1})
-
     assert [
-             %{"key" => "Enter", "label" => "Step 2 done", "to" => "/k/widget/W-1/step/3"} =
-               done,
-             %{"key" => "Down", "label" => "Next step", "to" => "/k/widget/W-1/step/3"},
-             %{"key" => "Up", "label" => "Previous step", "to" => "/k/widget/W-1/step/1"} =
-               previous,
-             %{"key" => "x", "label" => "Done", "to" => "/k/widget/W-1/answer/x", "page" => true}
-             | _
-           ] = steps["actions"]
+             {"header", "header"},
+             {"why", "text"},
+             {"step-1", "instruction"},
+             {"step-2", "instruction"},
+             {"step-3", "instruction"},
+             {"answers", "answers"},
+             {"list:of_widget", "list"},
+             {"item", "item"}
+           ] = Enum.map(page.blocks, &{&1["id"], &1["type"]})
 
-    assert done["submit_to"] == step.(3)
-    assert previous["submit_to"] == step.(1)
+    blocks = by_id(page)
 
-    # Then the item's details, in a part of their own: not the notes or the step in it,
-    # and no key to fold them.
+    assert blocks["header"] == %{
+             "eyebrow" => "TO DO FOR YOU",
+             "key" => "W-1",
+             "title" => "Rotate the key"
+           }
+
+    assert blocks["why"] == %{
+             "label" => "Why",
+             "text" => "the old key leaked.",
+             "since" => "2026-11-20T10:00:00Z"
+           }
+
+    # Every step whole, its lines in the order written; none is current or done.
+    assert blocks["step-1"] == %{
+             "n" => 1,
+             "lines" => [%{"kind" => "text", "text" => "Make a new key."}]
+           }
+
+    assert blocks["step-2"]["lines"] == [
+             %{"kind" => "text", "text" => "Drop the old tags."},
+             %{"kind" => "command", "text" => "git tag -d v12"},
+             %{"kind" => "command", "text" => "git tag -d v13"}
+           ]
+
+    assert blocks["step-3"]["lines"] == [
+             %{"kind" => "text", "text" => "Remove the old file."},
+             %{"kind" => "route", "parts" => ["Finder", "Home", ".keys > old"]},
+             %{"kind" => "command", "text" => "rm old.key"}
+           ]
+
+    # Its answers on their keys, Done asking a note; nothing moves a step.
+    assert [%{"key" => "x", "label" => "Done", "to" => "/k/widget/W-1/answer/x", "note" => true}] =
+             Enum.filter(blocks["answers"]["answers"], &(&1["key"] == "x"))
+
+    refute Enum.any?(blocks["answers"]["answers"], &(&1["key"] in ~w(Enter Up Down)))
+    refute Enum.any?(page.blocks, &(&1["type"] == "steps"))
+
+    # Then the item's details, in a part of their own: not the notes, nor the Id, nor
+    # actions of its own (the answers block has them).
     assert %{"kind" => "part", "end" => "item", "props" => props} =
              Enum.find(page.markup, &(&1["start"] == "item"))
 
     assert props == %{"title" => "Details", "role" => "details"}
-    labels = Enum.map(by_id(page)["item"]["fields"], & &1["label"])
-    refute "Notes" in labels or "At" in labels
-    # The panel names the fact: its details leave the Id out.
-    refute "Id" in labels
+    labels = Enum.map(blocks["item"]["fields"], & &1["label"])
+    refute "Notes" in labels or "Id" in labels
+    assert blocks["item"]["actions"] == []
     refute Enum.any?(page.blocks, &(&1["id"] == "todo"))
     refute Map.has_key?(page, :console_actions)
   end
 
-  test "unstructured notes are one step; at the end no step moves forward; none is the first" do
+  test "unstructured notes are one step without a why; anyone else sees no steps; no step page" do
     route = {:item, "widget", "W-1"}
+    reads = stepped_reads(route, %{"notes" => "Tidy it."})
+    page = render_run(route, @stepped, "doing", reads, %{by: "ada"})
 
-    page =
-      render_run(route, @stepped, "doing", stepped_reads(route, %{"notes" => "Tidy it."}), %{
-        by: "ada"
-      })
+    assert ["header", "step-1", "answers" | _] = Enum.map(page.blocks, & &1["id"])
 
-    steps = by_id(page)["steps"]
-    assert %{"current" => 1, "steps" => [%{"n" => 1, "text" => "Tidy it."}]} = steps
-    refute Map.has_key?(steps, "why")
-    assert ["Enter", "Down", "x" | _] = Enum.map(steps["actions"], & &1["key"])
+    assert by_id(page)["step-1"] == %{
+             "n" => 1,
+             "lines" => [%{"kind" => "text", "text" => "Tidy it."}]
+           }
 
-    reads = stepped_reads(route, %{"notes" => "Tidy it.", "at" => 2})
-    steps = by_id(render_run(route, @stepped, "doing", reads, %{by: "ada"}))["steps"]
-    assert %{"current" => 2} = steps
-    assert ["Up", "x" | _] = Enum.map(steps["actions"], & &1["key"])
-
-    # Anyone else sees the widget as before, with no steps.
     page = render_run(route, @stepped, "doing", reads, %{by: "bob"})
-    refute Enum.any?(page.blocks, &(&1["id"] == "steps"))
-  end
+    refute Enum.any?(page.blocks, &(&1["type"] in ~w(header instruction answers)))
 
-  test "a step is set by its owner only, within its steps or one past the last" do
-    route = {:step, "widget", "W-1", "3"}
-    assert Pages.route("/k/widget/W-1/step/3") == route
-    reads = stepped_reads(route, %{"notes" => @steps})
-
-    assert {nil, "at", 3} =
-             Pages.step_problem(@stepped, route, running(reads, route, @stepped, "doing"), %{
-               by: "ada"
-             })
-
-    four = {:step, "widget", "W-1", "4"}
-
-    assert {nil, "at", 4} =
-             Pages.step_problem(@stepped, four, running(reads, four, @stepped, "doing"), %{
-               by: "ada"
-             })
-
-    for bad <- ["0", "5", "x"] do
-      bad = {:step, "widget", "W-1", bad}
-
-      assert {"W-1 has no step " <> _, nil, nil} =
-               Pages.step_problem(@stepped, bad, running(reads, bad, @stepped, "doing"), %{
-                 by: "ada"
-               })
-    end
-
-    assert {"Only its owner" <> _, nil, nil} =
-             Pages.step_problem(@stepped, route, running(reads, route, @stepped, "doing"), %{
-               by: "bob"
-             })
-
-    assert %{blocks: [%{"type" => "confirm", "props" => confirm}]} =
-             render_run(route, @stepped, "doing", reads, %{by: "ada"})
-
-    assert confirm["confirm_to"] == Pages.call_to(route)
+    assert Pages.route("/k/widget/W-1/step/2") == :unknown
   end
 
   # Answers (IS-Atlas-56): approve sets checked_by, a widget association; send back removes

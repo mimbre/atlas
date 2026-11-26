@@ -28,8 +28,6 @@ defmodule AtlasBFFContract.Endpoints do
       defendpoint :link, "/k/:kind/:key/links/:relation", @submit
       defendpoint :accept, "/k/:kind/:key/set/:relation", @submit
       defendpoint :answer, "/k/:kind/:key/answer/:answer", @submit
-      # The step its owner is at, of a to-do shown step by step (a `steps` block's action).
-      defendpoint :step, "/k/:kind/:key/step/:step", @submit
       defendpoint :reopen, "/k/:kind/:key/remove/:relation", @submit
       defendpoint :pick_up, "/k/:kind/:key/pick_up/:run", @submit
       defendpoint :hand_over, "/k/:kind/:key/hand_over/:run", @submit

@@ -37,8 +37,6 @@ defmodule AtlasBFFContract.Pages do
       defpage :links, "/k/:kind/:key/links/:relation"
       defpage :set, "/k/:kind/:key/set/:relation"
       defpage :answer, "/k/:kind/:key/answer/:answer"
-      # Move the step its owner is at, of a to-do shown step by step, to `step`.
-      defpage :step, "/k/:kind/:key/step/:step"
       defpage :remove, "/k/:kind/:key/remove/:relation"
       # Become the supervisor of the run `run` presents on the fact (Pick up), or hand it
       # over to someone else (Hand over…); `run` pins the run the page was made for.

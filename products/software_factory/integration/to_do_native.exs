@@ -211,12 +211,13 @@ try do
     route = {:item, "to_do", key}
     answers = Enum.map(Pages.reads(route, catalog), fn {k, content} -> Talk.read(k, content) end)
     page = Pages.render(route, catalog, answers, %{by: owner, by_kind: owner_kind})
-    steps_block = Enum.find(page.blocks, &(&1["id"] == "steps"))
-    assert steps_block["props"]["why"] == "the account pays the hosting."
-    assert steps_block["props"]["current"] == 1
+    blocks = Map.new(page.blocks, &{&1["id"], &1["props"]})
+    assert blocks["why"]["text"] == "the account pays the hosting."
 
-    assert [%{"commands" => ["open https://example.com"]}, %{"commands" => []}] =
-             steps_block["props"]["steps"]
+    assert [%{"kind" => "text"}, %{"kind" => "command", "text" => "open https://example.com"}] =
+             blocks["step-1"]["lines"]
+
+    assert [%{"kind" => "text"}] = blocks["step-2"]["lines"]
 
     fields =
       for block <- page.blocks, field <- get_in(block, ["props", "fields"]) || [], do: field

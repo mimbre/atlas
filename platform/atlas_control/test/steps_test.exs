@@ -62,14 +62,6 @@ defmodule AtlasControl.StepsTest do
            }
   end
 
-  test "the current step: none is the first; it stays within the steps, or one past the last" do
-    steps = Steps.parse("1. a\n2. b").steps
-    assert Steps.current(nil, steps) == 1
-    assert Steps.current(2, steps) == 2
-    assert Steps.current(0, steps) == 1
-    assert Steps.current(9, steps) == 3
-  end
-
   test "a > line is a route: its parts between the ' > ', in order with the text and commands" do
     text = """
     1. Export the certificate.

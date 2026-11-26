@@ -5,7 +5,8 @@ defmodule AtlasTui.Interactions do
   revision checks to reject captured events after its own state changes. On a page with a
   single choice, ↑/↓ select an option and Enter answers it with the option's own key; on a
   page with a panel, ↑/↓ select its item (Enter opens it) or, in a choice, its answer
-  (Enter answers it with the answer's own key).
+  (Enter answers it with the answer's own key); on a page with instructions, ↑/↓ select a
+  command, `c` copies it and `y` all of them.
   """
   alias AtlasTui.{Blocks, Console, Legend, Model}
   alias AtlasBFFContract.Console, as: Contract
@@ -198,7 +199,7 @@ defmodule AtlasTui.Interactions do
 
         cond do
           choice = choice_key(model, key) || panel_key(model, key) -> choice
-          copy = copy_key(model, key) -> copy
+          command = command_key(model, key) -> command
           prefix?(model, key) -> {put_in(model.console.key_prefix, elem(key, 1)), []}
           true -> direct_key(model, key)
         end
@@ -255,18 +256,23 @@ defmodule AtlasTui.Interactions do
 
   defp panel_key(_model, _key), do: nil
 
-  # A page with a to-do's steps: c copies the current step's first command, C the one
-  # after the one copied last, y all of them; the TUI says so.
-  defp copy_key(model, {:char, char}) when char in ["c", "C", "y"] do
+  # A page with instructions: the arrows move the one selection among their commands, c
+  # copies the selected one, y all of them; the TUI says so.
+  defp command_key(model, key) when key in [:up, :down] do
+    if context(model) == "browse" and Model.commands(model) != [],
+      do: {Model.move_command(model, if(key == :up, do: -1, else: 1)), []}
+  end
+
+  defp command_key(model, {:char, char}) when char in ["c", "y"] do
     with "browse" <- context(model),
-         {model, text} <- Model.copy(model, char) do
+         text when is_binary(text) <- Model.copy(model, char) do
       {%{model | notice: %{tone: "ok", text: "copied"}}, [{:copy, text}]}
     else
       _ -> nil
     end
   end
 
-  defp copy_key(_model, _key), do: nil
+  defp command_key(_model, _key), do: nil
 
   # Whether `key` starts an action's two-key sequence; a single-key action on the
   # same character keeps it.

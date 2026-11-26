@@ -162,8 +162,8 @@ defmodule RelaDSL.Schema do
 
   `present` is what the owner sees in a state: what they are `expected` to do, `why`
   it came to them, `instructions`, the `section` of a field to show (the part under a
-  heading, or the whole field under a label; with `steps:` an integer field of the
-  subject that holds the step its owner is at, so the field is shown step by step), and the
+  heading, or the whole field under a label; with `steps: true` the field is shown as
+  its numbered steps, each in full), and the
   `answers` they can give (a relation set/removal, or a declared change).
   `deadline:` names the state timer whose due time is presented. It goes to the Atlas
   target only; Rela never sees it.
@@ -261,8 +261,8 @@ defmodule RelaDSL.Schema do
       subflow with a span, the state a gate's person verdict leads to lies in a span or
       names its own owner (such as the configured decider), so a fallback is written;
     * a state presents at most once, a final state not at all; `expected` is a text,
-      a section is `[field:, heading:]` or `[field:, label:]` (and optionally `steps:`, an
-      integer field), and each answer has a
+      a section is `[field:, heading:]` or `[field:, label:]` (and optionally `steps:
+      true`), and each answer has a
       key of its own, a
       label, and sets or removes one relation.
 
@@ -497,8 +497,7 @@ defmodule RelaDSL.Schema do
   What the owner sees in the state: `expected:` (what they are to do), `why:` (why it
   came to them), `instructions:`, `section:` (`[field:, heading:]`, the part of a field
   under that heading; or `[field:, label:]`, the whole field under that label; either
-  with `steps:` an integer field of the subject, the step its owner is at, when the
-  field is shown step by step) and
+  with `steps: true` when the field is shown as its numbered steps) and
   `answers:` (each `[key:, label:, set: relation]` or `remove: relation`).
   """
   defmacro present(opts), do: item(:present, [opts])
@@ -1491,9 +1490,9 @@ defmodule RelaDSL.Schema do
       (p.section != nil and
          not (is_atom(p.section[:field]) and p.section[:field] != nil and
                 map_size(Map.delete(p.section, :steps)) == 2 and
-                (p.section[:steps] == nil or is_atom(p.section[:steps])) and
+                p.section[:steps] in [nil, true] and
                 (text?.(p.section[:heading]) or text?.(p.section[:label])))) &&
-        "present's section: must be [field: name, heading: text] or [field: name, label: text], with steps: an integer field or not",
+        "present's section: must be [field: name, heading: text] or [field: name, label: text], with steps: true or not",
       keys != Enum.uniq(keys) &&
         "present gives answer key #{list(Enum.uniq(keys -- Enum.uniq(keys)))} twice"
     ] ++

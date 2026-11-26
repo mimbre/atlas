@@ -617,7 +617,7 @@ defmodule AtlasControl.Shop.SupervisionOnCard do
 end
 
 defmodule AtlasControl.Shop.InstructedWidget do
-  @moduledoc "A widget done step by step: its notes are the steps, `at` the one its holder is at."
+  @moduledoc "A widget done step by step: its notes are the steps."
   use RelaDSL
 
   type(:shade, values: [:light, :dark], labels: [light: "Light", dark: "Dark"])
@@ -627,7 +627,6 @@ defmodule AtlasControl.Shop.InstructedWidget do
     field(:shade, :shade)
     field(:done, :boolean, default: false)
     field(:notes, :string, description: "Free text", multiline: true)
-    field(:at, :integer, description: "The step its holder is at")
     primary(:title)
 
     create(
@@ -646,7 +645,7 @@ defmodule AtlasControl.Shop.InstructedWidget do
       present(
         expected: "Do it",
         why: "it is yours",
-        section: [field: :notes, label: "Notes", steps: :at],
+        section: [field: :notes, label: "Notes", steps: true],
         answers: [[key: "x", label: "Done", note: true, change: %{values: %{done: true}}]]
       )
 
