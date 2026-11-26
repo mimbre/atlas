@@ -682,6 +682,8 @@ defmodule RelaDSL.Control.Model do
          restart_by: Map.new(p["flows"] || [], &{&1["name"], &1["restart_by"] || []}),
          inputs: inputs,
          decision_options: get_in(d, ["entities", p["subject"], "decision_options"]),
+         # Per state of its work, the panel its owner decides in (`panel`), as written.
+         panels: get_in(d, ["entities", p["subject"], "panel"]) || %{},
          words: %{
            title: to_text(words["title"]),
            why: to_text(words["why"]),

@@ -51,7 +51,10 @@ defmodule AtlasBFFContract.Contract do
   # client shows a coloured mark and an age beside the row's own words.
   # 0.27.0: a to-do's instructions step by step (`steps`, with `instruction_step`), and
   # the submit that sets the step its owner is at (`step`).
-  version "0.27.0"
+  # 0.28.0: a page where its owner decides may show it as a `panel` (to accept, to merge,
+  # a decision on stuck work): a heading and title, a byline, the items or checks or box
+  # it is judged on, and its answers (a choice when `choose`).
+  version "0.28.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

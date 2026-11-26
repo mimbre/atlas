@@ -85,3 +85,14 @@ Private native acceptance is `products/software_factory/e2e/decision_choices_nat
 private scratch path and prepared Rela bin directory. It creates only private
 fixture actors/data. Read its current delivery evidence for execution status;
 source code alone is not evidence of a passed terminal/persistence proof.
+
+Some pages where the owner decides also carry a `panel` block, declared per state
+by the kind's `panel(...)` rule; Control fills it and names no kinds. ◆ TO ACCEPT
+(a use case or scene in accepting) lists what is to be built, with What / Done /
+Needs per item. ◆ TO MERGE (an issue in merging) shows CI, the review's verdict and
+GitHub's state, with only the keys the page has (open on GitHub, full review).
+◆ YOUR DECISION (stuck work) shows the task, the failed attempt and how long it has
+been stuck, the recorded failure in a "What went wrong" box, and the page's answers
+as a choice with the first one recommended. Every answer is one of the page's
+existing actions with its own key; Not accepted is `n`, and a no answer opens the
+note form.

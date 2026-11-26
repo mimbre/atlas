@@ -143,6 +143,26 @@ defmodule Model.Scene do
 
     progress(over: :in_scene, own: :status)
     completion(by: :accepted_by)
+
+    # Accept its use cases, as a panel: Design's proposal, the use cases it made, each
+    # with what it does and when it is done.
+    panel(
+      accepting: [
+        heading: "TO ACCEPT",
+        title: "Design for {key} · {title}",
+        records: [proposal: [relation: :task_of, where: [kind: :plan]]],
+        byline: ["Proposed by {proposal}", [age: ""]],
+        items: [
+          relation: :in_scene,
+          count: ["use case", "use cases"],
+          details: [
+            [label: "What", field: :description, before: "Done when:"],
+            [label: "Done", field: :description, after: "Done when:"]
+          ]
+        ],
+        actions: [[key: "i", label: "Full proposal", record: :proposal]]
+      ]
+    )
   end
 
   # A use case has no Accept of its own (D-0099): it is accepted once its issues are done.
@@ -255,7 +275,7 @@ defmodule Model.Scene do
         answers: [
           [key: "a", label: "Accept", change: %{values: %{verdict: :accept}}],
           [
-            key: "f",
+            key: "n",
             label: "Not accepted",
             note: true,
             change: %{values: %{verdict: :reject, note: "$note"}}
@@ -332,7 +352,7 @@ defmodule Model.Scene do
             change: %{self: :accepted_by, values: %{verdict: :accept}}
           ],
           [
-            key: "f",
+            key: "n",
             label: "Not accepted",
             note: true,
             change: %{values: %{verdict: :reject, note: "$note"}}

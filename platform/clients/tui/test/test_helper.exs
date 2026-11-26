@@ -2,3 +2,4 @@
 # (platform/frameworks/test_await; this project does not depend on it).
 ExUnit.start(assert_receive_timeout: 30_000)
 Code.require_file("fixtures/console_projection.exs", __DIR__)
+Code.require_file("fixtures/panels.exs", __DIR__)
