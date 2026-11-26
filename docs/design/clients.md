@@ -126,7 +126,7 @@ blue planned or waiting, green done. An unknown tone is no dot.
 | Running text (a plan's text, a block said in plain words, an error) | `bodysmall`, the body font (Layout A's measure) |
 | Meta lines (why, byline, a step's text, "Sending…", details) | `caption`; a row card's top line and age, the status bar: `captionsmall` |
 | Labels and data (a row card's title, a field's label; a panel's rows, checks) | `labelsmall`; `tablerow`, the selected row and a check's name `tablehead` |
-| Sidebar tabs; the environment in the title bar | `tablerow`; `caption` (production `labelsmall`) |
+| Sidebar tabs and their groups; the sidebar's headings, counts and foot; the environment in the title bar | `label`, groups `labelsmall`; `captionsmall` (a count's strong), the name `labelsmall`; `caption` (production `labelsmall`) |
 | Commands | `mono`, in the system's monospaced face |
 
 Prism gaps, and where Atlas's temporary shims live:
@@ -140,7 +140,7 @@ Prism gaps, and where Atlas's temporary shims live:
 | Plain button's size and dark label | Mac: other actions as unpadded plain buttons, label in `PrismDarkGap.text` in dark (`PrismDarkGap.buttonStyle`) |
 | `mono` names the system (proportional) font | Mac: commands (and a panel row's key, a fallback's type) in the system's monospaced face at Prism's size (`.monospaced()`) |
 | No macOS density: Prism's sizes are iOS's and the web's | Mac: Prism's sizes as they are, until Prism's macOS density |
-| No typography for native controls | Mac: the system's control font on the native controls (sheet and toolbar buttons, form fields, pickers, toggles, disclosure, the sidebar's section headings and counts, window title, menus) |
+| No typography for native controls | Mac: the system's control font on the native controls (sheet and toolbar buttons, form fields, pickers, toggles, disclosure, window title, menus) |
 
 Delete each shim when Prism ships the token.
 

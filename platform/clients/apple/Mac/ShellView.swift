@@ -35,7 +35,8 @@ struct ShellView: View {
     var body: some View {
         let shell = ShellViewModel(session.state)
         NavigationSplitView(columnVisibility: $visibility) {
-            Sidebar(shell: shell, select: session.selectTab, filter: session.filter)
+            Sidebar(shell: shell, connection: StatusViewModel(session.state).mark, select: session.selectTab,
+                    filter: session.filter)
         } content: {
             Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
                    act: session.act)
@@ -110,131 +111,43 @@ extension View {
 }
 
 /// The tabs, in boot's order, each with its icon and count, under its section's heading;
-/// under every tab with groups, its groups with their counts (as a mail app's folders),
-/// folded by the tab's chevron (the fold is kept per tab), so any group can be chosen
-/// from anywhere. It scrolls, so it holds boot's limit of 64.
-///
-/// The rows are one flat list, each the same kind of view: a `DisclosureGroup` per tab
-/// (an outline) drew rows of the old outline over the new one when boot changed the
-/// tabs or their groups (IS-Atlas-75: a group drawn on top of Workers).
+/// under every tab with groups, its groups with their counts, folded by the tab's chevron
+/// (the fold is kept per tab), so any group can be chosen from anywhere; at the bottom,
+/// the person, the environment and the connection (`SidebarView`). It scrolls, so it
+/// holds boot's limit of 64.
 struct Sidebar: View {
     let shell: ShellViewModel
+    let connection: StatusViewModel.Mark
     let select: (String) -> Void
     let filter: (String) -> Void
-
-    /// A tab, by its id, or a group of a tab's page, by its `to`.
-    enum Choice: Hashable {
-        case tab(String)
-        case group(String)
-    }
-
-    /// One row: a tab (with its icon, and its fold when it has groups) or a group under it.
-    struct Row: Identifiable {
-        let id: Choice
-        let label: String
-        let count: Int?
-        let icon: String?
-        /// Whether its groups are shown (a tab with groups); nil for any other row.
-        let open: Bool?
-    }
 
     /// The tabs whose groups are folded, by id, one per line; kept across launches.
     @AppStorage("sidebar.foldedTabs") private var folded = ""
 
-    private var choice: Binding<Choice?> {
-        Binding(
-            get: { shell.activeGroup.map(Choice.group) ?? shell.activeTab.map(Choice.tab) },
-            set: { choice in
+    var body: some View {
+        let foldedIds = Set(folded.split(separator: "\n").map(String.init))
+        SidebarView(
+            work: SidebarItem.rows(shell, section: "work", folded: foldedIds),
+            browse: SidebarItem.rows(shell, section: "browse", folded: foldedIds),
+            selection: shell.activeGroup.map(SidebarItem.ID.group) ?? shell.activeTab.map(SidebarItem.ID.tab),
+            stale: shell.stale, name: shell.name, env: shell.env, production: shell.isProduction,
+            connection: connection,
+            select: { choice in
                 switch choice {
                 case .tab(let id): select(id)
                 case .group(let to): filter(to)
-                case nil: break
                 }
-            })
-    }
-
-    private func rows(_ section: String) -> [Row] {
-        let foldedIds = Set(folded.split(separator: "\n").map(String.init))
-        return shell.tabs.filter { $0.section == section }.flatMap { tab -> [Row] in
-            let open = !foldedIds.contains(tab.id)
-            let row = Row(id: .tab(tab.id), label: tab.label, count: tab.count, icon: Self.symbol(tab.icon),
-                          open: tab.groups.isEmpty ? nil : open)
-            guard open else { return [row] }
-            return [row] + tab.groups.map {
-                Row(id: .group($0.to), label: $0.label, count: $0.count, icon: nil, open: nil)
-            }
-        }
-    }
-
-    /// Stale tabs are dimmed row by row: dimming the sidebar `List` itself drops the tab
-    /// icons (all but the selected row's).
-    var body: some View {
-        List(selection: choice) {
-            Section("Work") {
-                rowViews(rows("work"))
-            }
-            Section("Browse") {
-                rowViews(rows("browse"))
-            }
-        }
-        .listStyle(.sidebar)
+            },
+            fold: fold)
         // The sidebar's fixed width (`WindowLayout.sidebar`): room for the longest work tab's
         // label beside its icon, chevron and count without cutting it.
         .navigationSplitViewColumnWidth(WindowLayout.sidebar)
-    }
-
-    private func rowViews(_ rows: [Row]) -> some View {
-        ForEach(rows) { row in
-            rowView(row)
-                .opacity(shell.stale ? 0.6 : 1)
-                .badge(row.count.map { Text("\($0)") })
-                .tag(row.id)
-        }
-    }
-
-    /// A tab: its fold's chevron (a blank of the same width without groups), icon and
-    /// label; a group: its label, under its tab's.
-    private func rowView(_ row: Row) -> some View {
-        HStack(spacing: 4) {
-            if case .tab(let id) = row.id {
-                Button { fold(id, open: row.open == false) } label: {
-                    Image(systemName: "chevron.right")
-                        .prism(Prism.Typography.captionsmall.emphasis(.strong))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(row.open == true ? 90 : 0))
-                        .frame(width: 12)
-                }
-                .buttonStyle(.plain)
-                .opacity(row.open == nil ? 0 : 1)
-                .disabled(row.open == nil)
-                Label(row.label, systemImage: row.icon ?? "circle")
-            } else {
-                Text(row.label).padding(.leading, 44)
-            }
-        }
-        .prism(Prism.Typography.tablerow)
     }
 
     private func fold(_ id: String, open: Bool) {
         var ids = folded.split(separator: "\n").map(String.init).filter { $0 != id }
         if !open { ids.append(id) }
         folded = ids.joined(separator: "\n")
-    }
-
-    /// The symbol for a tab's icon, a semantic name Control gives; a plain one for a name
-    /// this app does not know.
-    static func symbol(_ icon: String?) -> String {
-        switch icon {
-        case "inbox": "tray"
-        case "watching": "eye"
-        case "machines": "cpu"
-        case "agents": "person.2"
-        case "checklist": "checklist"
-        case "history": "clock.arrow.circlepath"
-        case "mine": "person.crop.circle"
-        case "stack": "rectangle.stack"
-        default: "circle"
-        }
     }
 }
 

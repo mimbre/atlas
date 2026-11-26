@@ -51,7 +51,7 @@ defmodule AtlasControl.ShellTest do
     send_message(
       s,
       Map.merge(
-        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.35.0"),
+        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.37.0"),
         overrides
       )
     )
@@ -60,7 +60,7 @@ defmodule AtlasControl.ShellTest do
   defp connected(port) do
     s = socket(port)
     hello(s)
-    assert %{"op" => "welcome", "spec" => "0.36.0"} = receive_message(s)
+    assert %{"op" => "welcome", "spec" => "0.37.0"} = receive_message(s)
     assert %{"op" => "page"} = receive_message(s)
     s
   end
@@ -111,12 +111,23 @@ defmodule AtlasControl.ShellTest do
     assert {:error, _} = Shell.boot(duplicate, nil)
   end
 
-  test "a member is greeted by its name; an agent, or a model without a greeting, is not" do
+  test "a tab's icon: the model's, else derived from its page; only what is assigned counts for you" do
+    d = description(Shop.ShelledAssigned)
+    assert {:ok, shell} = Shell.boot(d, "member")
+    tabs = Map.new(shell["tabs"], &{&1["to"], &1})
+
+    assert %{"icon" => "assigned", "for_you" => true} = tabs["/"]
+    assert %{"for_you" => false} = tabs["/k/part"]
+    assert Enum.all?(tabs["/"]["groups"] || [], &(&1["for_you"] == true))
+  end
+
+  test "a member is greeted and named by its name; an agent, or a model without a greeting, is not greeted" do
     d = description(Shop.ShelledGreeted)
     assert d.start.assigned.greeting == "Hello, {name}."
 
     assert {:ok, greeted} = Shell.boot(d, "member", nil, nil, "Ada")
     assert greeted["greeting"] == "Hello, Ada."
+    assert greeted["name"] == "Ada"
 
     assert {:reply, %{effect: :complete}} =
              Protocol.classify(:boot, Map.put(greeted, "op", "boot"))
@@ -126,20 +137,24 @@ defmodule AtlasControl.ShellTest do
     assert renamed["greeting"] == "Hello, Ada B."
     refute renamed["revision"] == greeted["revision"]
 
-    # A name of more than one line is greeted on one.
-    assert {:ok, %{"greeting" => "Hello, Ada B."}} = Shell.boot(d, "member", nil, nil, "Ada\nB")
+    # A name of more than one line is greeted and named on one.
+    assert {:ok, %{"greeting" => "Hello, Ada B.", "name" => "Ada B"}} =
+             Shell.boot(d, "member", nil, nil, "Ada\nB")
 
     # An agent or a migration (no fact of a kind the relation points at), or no name.
     for {by_kind, name} <- [{nil, "agent"}, {nil, nil}, {"member", nil}, {"member", " "}] do
       assert {:ok, shell} = Shell.boot(d, by_kind, nil, nil, name)
       refute Map.has_key?(shell, "greeting"), inspect({by_kind, name})
+      refute Map.has_key?(shell, "name"), inspect({by_kind, name})
     end
 
-    # Without the model's words there is none, and the shell is as it was.
+    # Without the model's words there is no greeting; the name is still said.
     plain = description(Shop.ShelledAssigned)
     assert {:ok, shell} = Shell.boot(plain, "member", nil, nil, "Ada")
     refute Map.has_key?(shell, "greeting")
-    assert {:ok, shell} == Shell.boot(plain, "member")
+    assert shell["name"] == "Ada"
+    assert {:ok, unnamed} = Shell.boot(plain, "member")
+    refute Map.has_key?(unnamed, "name")
   end
 
   test "removed indexes and unknown targets fall back; detail links remain" do
@@ -199,7 +214,7 @@ defmodule AtlasControl.ShellTest do
     # D-0105: an older client is welcomed with Control's version.
     old = socket(port)
     hello(old, %{"spec" => "0.1.0"})
-    assert %{"op" => "welcome", "spec" => "0.36.0"} = receive_message(old)
+    assert %{"op" => "welcome", "spec" => "0.37.0"} = receive_message(old)
   end
 
   test "boot separates queued pages and preserves the edit form", %{port: port} do

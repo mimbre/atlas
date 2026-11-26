@@ -39,14 +39,17 @@ defmodule AtlasControl.Shell do
           tab["assigned"] != true or Pages.assigned_start?(m, by_kind)
         end)
         |> Enum.map(fn tab ->
+          route = Pages.route(tab["to"])
+
           Blocks.shell_tab(
             id: tab["id"],
             label: tab["label"],
             to: tab["to"],
             section: tab["section"] || "work",
             key: tab["key"],
-            icon: tab["icon"],
-            groups: groups(m, tab["to"])
+            icon: tab["icon"] || icon(route),
+            groups: groups(m, route),
+            for_you: for_you?(route)
           )
         end)
 
@@ -63,10 +66,11 @@ defmodule AtlasControl.Shell do
 
           env = AtlasBus.environment()
           spec = Blocks.version()
-          greeting = greeting(m, by_kind, name)
+          name = viewer(m, by_kind, name)
+          greeting = greeting(m, name)
 
           # Navigation and request target do not change the revision. Configuration,
-          # actor-visible tab set, environment, contract version and greeting do.
+          # actor-visible tab set, environment, contract version, greeting and name do.
           revision =
             [
               title,
@@ -81,12 +85,14 @@ defmodule AtlasControl.Shell do
                   &1["section"],
                   &1["key"],
                   &1["icon"],
+                  &1["for_you"],
                   &1["groups"]
                 ]
               )
             ]
-            # A shell without a greeting keeps the revision it had before there were any.
+            # A shell without a greeting or name keeps the revision it had before either.
             |> Kernel.++(List.wrap(greeting))
+            |> Kernel.++(List.wrap(name))
             |> JSON.encode!()
             |> then(&:crypto.hash(:sha256, &1))
             |> Base.encode16(case: :lower)
@@ -100,7 +106,8 @@ defmodule AtlasControl.Shell do
              tabs: tabs,
              initial_to: initial,
              active_tab: active && active["id"],
-             greeting: greeting
+             greeting: greeting,
+             name: name
            )}
         end
       end
@@ -110,15 +117,24 @@ defmodule AtlasControl.Shell do
     end
   end
 
-  # The model's greeting with the viewer's name, for a viewer the start's assigned
-  # relation points at; nil without either. The name stays on one line, as a client
-  # draws it (a control character would make it refuse the whole shell).
-  defp greeting(m, by_kind, name) do
-    with %{} = rule <- Pages.assigned_rule(m),
-         words when is_binary(words) <- Map.get(rule, :greeting),
+  # The viewer's name, for a viewer the start's assigned relation points at; nil for any
+  # other (an agent, a migration). It stays on one line, as a client draws it (a control
+  # character would make it refuse the whole shell).
+  defp viewer(m, by_kind, name) do
+    with %{} <- Pages.assigned_rule(m),
          true <- text?(name, 512),
-         name = String.replace(name, ~r/[\x00-\x1f\x7f]+/, " "),
-         true <- Pages.assigned_start?(m, by_kind),
+         true <- Pages.assigned_start?(m, by_kind) do
+      String.replace(name, ~r/[\x00-\x1f\x7f]+/, " ")
+    else
+      _ -> nil
+    end
+  end
+
+  # The model's greeting with the viewer's name; nil without either.
+  defp greeting(_m, nil), do: nil
+
+  defp greeting(m, name) do
+    with words when is_binary(words) <- Map.get(Pages.assigned_rule(m), :greeting),
          text = String.replace(words, "{name}", name),
          true <- text?(text, 1_024) do
       text
@@ -244,11 +260,21 @@ defmodule AtlasControl.Shell do
 
   defp canonical_tab(to), do: to |> Pages.route() |> Pages.path()
 
+  # The icon of a tab whose model names none, from the page it opens.
+  defp icon(:home), do: "assigned"
+  defp icon({:supervised_by_you, _}), do: "supervised"
+  defp icon({:open_for_you, _}), do: "open"
+  defp icon({:worker_page, _, _}), do: "workers"
+  defp icon(_route), do: nil
+
+  # Whether a tab's count is what waits for the viewer: what is assigned to them.
+  defp for_you?(route), do: route == :home
+
   # The groups of the page a tab opens (`Pages.groups/2`), each with the page that shows
   # only its items; nil when it has none.
-  defp groups(m, to) do
+  defp groups(m, route) do
     screen =
-      case Pages.route(to) do
+      case route do
         :home -> :assigned
         {screen, _} when screen in @screens -> screen
         _ -> nil
@@ -260,7 +286,12 @@ defmodule AtlasControl.Shell do
 
       groups ->
         for {key, label} <- groups,
-            do: Blocks.shell_group(label: label, to: Pages.path({:group, screen, key, nil}))
+            do:
+              Blocks.shell_group(
+                label: label,
+                to: Pages.path({:group, screen, key, nil}),
+                for_you: for_you?(route)
+              )
     end
   end
 

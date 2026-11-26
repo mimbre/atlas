@@ -157,40 +157,21 @@ defmodule Model.AtlasEyra do
   @boot_tab :assigned
 
   # Each tab's icon is a semantic name; a client draws it as it likes (the Mac app: a symbol).
+  # The work tabs' icons (assigned, supervised, open) Control derives from the start page.
   @tabs [
-    [
-      id: :assigned,
-      label: "Assigned to you",
-      to: "/",
-      assigned: true,
-      section: :work,
-      icon: :mine
-    ],
-    [
-      id: :supervised_by_you,
-      label: "Supervised by you",
-      to: "/_supervised",
-      section: :work,
-      icon: :watching
-    ],
-    [id: :open_for_you, label: "Open for you", to: "/_open", section: :work, icon: :inbox],
-    [id: :scenes, label: "Scenes", to: "/k/scene", section: :browse, key: "g s", icon: :stack],
+    [id: :assigned, label: "Assigned to you", to: "/", assigned: true, section: :work],
+    [id: :supervised_by_you, label: "Supervised by you", to: "/_supervised", section: :work],
+    [id: :open_for_you, label: "Open for you", to: "/_open", section: :work],
+    [id: :scenes, label: "Scenes", to: "/k/scene", section: :browse, key: "g s", icon: :scenes],
     [id: :agents, label: "Agents", to: "/k/agent", section: :browse, key: "g a", icon: :agents],
-    [
-      id: :to_dos,
-      label: "To-Dos",
-      to: "/k/to_do",
-      section: :browse,
-      key: "g t",
-      icon: :checklist
-    ],
+    [id: :to_dos, label: "To-Dos", to: "/k/to_do", section: :browse, key: "g t", icon: :todos],
     [
       id: :agent_requests,
       label: "What the agent did",
       to: "/k/agent_request",
       section: :browse,
       key: "g d",
-      icon: :history
+      icon: :activity
     ]
   ]
 
