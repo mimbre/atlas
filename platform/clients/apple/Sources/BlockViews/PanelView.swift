@@ -322,7 +322,7 @@ public enum ActionIcon {
         switch name {
         case "edit": "pencil"
         case "delete": "trash"
-        case "hand_over": "person.crop.circle.badge.arrow.right"
+        case "hand_over": "person.and.arrow.left.and.arrow.right"
         case "create": "plus"
         case "open": "arrow.up.right.square"
         default: nil

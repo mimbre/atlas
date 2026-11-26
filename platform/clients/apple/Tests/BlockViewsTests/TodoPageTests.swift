@@ -28,11 +28,11 @@ final class TodoPageTests: XCTestCase {
         step(3, [["kind": "route", "parts": ["Finder", "Home", "old.key > backup"]],
                  ["kind": "command", "text": "rm old.key"]]),
         ["id": "answers", "type": "answers", "props": ["answers": [
-            ["label": "Done", "key": "x", "to": "/k/chore/TD-12/answer/x", "submit_to": doneCall],
-            ["label": "Won't do", "key": "n", "to": "/k/chore/TD-12/answer/n", "note": true],
+            ["label": "Done", "key": "x", "to": "/k/chore/TD-12/answer/x", "submit_to": doneCall, "weight": "main"],
+            ["label": "Won't do", "key": "n", "to": "/k/chore/TD-12/answer/n", "note": true, "weight": "no"],
         ]]],
         ["id": "actions", "type": "actions", "props": ["actions": [
-            ["label": "Update chore", "key": "u", "to": "/k/chore/TD-12/edit"],
+            ["label": "Update chore", "key": "u", "to": "/k/chore/TD-12/edit", "icon": "edit"],
         ]]],
         ["id": "item", "type": "item", "props": ["title": "Chore TD-12", "fields": [["label": "Id", "value": "TD-12"]],
                                                  "actions": []]],
