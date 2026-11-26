@@ -87,7 +87,11 @@ defmodule AtlasTui.Model do
             plan: nil,
             # What the user makes of a proposed plan: the selected step, the steps they
             # dropped, the values they edited (by step number), the step being edited.
-            steps: %{selected: 0, dropped: MapSet.new(), values: %{}, editing: nil}
+            steps: %{selected: 0, dropped: MapSet.new(), values: %{}, editing: nil},
+            # The columns on a wide terminal (`AtlasTui.Columns`): the path of the list the
+            # page follows, the column with the focus, and how far the page and the details
+            # are scrolled by hand (by column; missing: following the selection).
+            columns: %{list: nil, focus: :list, scroll: %{}}
 
   @no_steps %{selected: 0, dropped: MapSet.new(), values: %{}, editing: nil}
 
@@ -405,8 +409,14 @@ defmodule AtlasTui.Model do
 
   def key(model, :ctrl_c), do: {model, [:quit]}
 
+  def key(model, {:click, x, y}), do: {AtlasTui.Columns.click(model, x, y), []}
+
   def key(model, key) do
-    {model, effects} = AtlasTui.Interactions.key(model, key)
+    {model, effects} =
+      AtlasTui.Columns.settle(
+        AtlasTui.Columns.key(model, key) || AtlasTui.Interactions.key(model, key)
+      )
+
     {AtlasTui.WorkerConversation.capture(model), effects}
   end
 
