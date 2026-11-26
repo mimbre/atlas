@@ -19,7 +19,8 @@ defmodule Model.RuntimeUpgrade do
        to resume, mode open with slots to offer, so it accepts work again (`verifying`);
     5. `done`, or `failed` with the step that failed (`failed_step`) and why (`reason`).
 
-  Flow writes every field but `build` (`set_by: [:flow]`). One upgrade at a time per
+  Flow writes every field but `build` (`set_by: [:flow]`), so its create sets no `step`:
+  Flow reads none as `requested`, where its run starts. One upgrade at a time per
   machinery: the composition limits `upgrade_of` to one upgrade that has not ended, so
   a second one is refused when it is made (and the update command's lock refuses a
   second update on the machine itself).
@@ -97,8 +98,7 @@ defmodule Model.RuntimeUpgrade do
 
     create(
       ask: [:build],
-      id: [prefix: "RU-", digits: 2],
-      defaults: [step: :requested]
+      id: [prefix: "RU-", digits: 2]
     )
 
     completion([

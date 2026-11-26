@@ -44,7 +44,7 @@ defmodule RelaDSL.Description do
   fact a task's `creates:` makes, of a kind the relation leads from, to the run's
   supervisor through it, and nobody else sets it: it leads to the supervisor's kind, to
   one at most, and only Flow sets it (`set_by: [:flow]`). It needs `supervision:`, and is
-  given once. A kind put in from outside Atlas (a scene) names it in its `create`
+  given once. A kind put in from outside Atlas names it in its `create`
   (`create producer: :produced_by`, `atlas.json` `create.producer`): its create links
   the fact to who puts it in, in the same write (`RelaDSL.Facts.Writes`).
   `start_page` takes `assigned:`, `open:`, and, with supervision, `open_for_you:` and

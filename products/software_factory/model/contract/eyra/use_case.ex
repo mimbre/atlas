@@ -28,7 +28,9 @@ defmodule Model.UseCase do
       those whose `issue` run did not end `done`: reviewed and merged, or closed with
       nothing to merge). Accepted, it writes `phase: accepted`, which completes the use
       case. With no issue under it, it hands the use case back to a new round of its
-      break-down (`phase: break_down`) and waits for it (`breaking_down`).
+      break-down (`phase: break_down`) and waits for it (`breaking_down`). A use case
+      accepted by hand (`phase: accepted`) ends its run in `accepted` from any open state,
+      as this run's own acceptance does, and its scene counts it accepted.
 
   `phase` says which of the two has a use case (disjoint admissions). A new one starts in
   `break_down`. One from before (no `phase`, among them those whose design flow, now
@@ -320,6 +322,9 @@ defmodule Model.UseCase do
   # history, any other joins `building`, whose count hands one with nothing under it to
   # "Use case → Issues". So do the 32 whose design flow (removed, D-0099) had not ended:
   # their runs are no longer selected.
+  # A use case completed meanwhile (`completed`), its `phase: accepted` written by hand as
+  # this run would: its run goes to `accepted` from any open state, as if it had accepted
+  # it, so its scene counts it accepted (Flows are not magical).
   select(:accept_use_case,
     choices: [],
     projection: @projection,
@@ -329,6 +334,7 @@ defmodule Model.UseCase do
       [when: [phase: [nil]], state: :building]
     ],
     reopen: :explicit,
-    restart_by: [:owner, :decider]
+    restart_by: [:owner, :decider],
+    completed: :accepted
   )
 end
