@@ -79,6 +79,10 @@ defmodule AtlasAgent.FakeControl do
   def delete(control, key),
     do: Agent.update(control.store, &%{&1 | facts: Map.delete(&1.facts, key)})
 
+  @doc "Blocks a fact's page shows before its item, as Control does for its owner's to-do."
+  def lead(control, key, blocks),
+    do: Agent.update(control.store, &put_in(&1.facts[key][:lead], blocks))
+
   def fact(control, key), do: Agent.get(control.store, & &1.facts[key])
 
   @doc "The facts of `kind`, in the order they were made."
@@ -311,13 +315,15 @@ defmodule AtlasAgent.FakeControl do
         page = %{
           "path" => "/k/#{f.kind}/#{key}",
           "title" => "#{k.title} #{key}",
-          "blocks" => [
-            item("item", %{
-              "title" => "#{k.title} #{key}: #{f.values["title"]}",
-              "fields" => fields
-            })
-            | lists
-          ]
+          "blocks" =>
+            (f[:lead] || []) ++
+              [
+                item("item", %{
+                  "title" => "#{k.title} #{key}: #{f.values["title"]}",
+                  "fields" => fields
+                })
+                | lists
+              ]
         }
 
         if f.parent,

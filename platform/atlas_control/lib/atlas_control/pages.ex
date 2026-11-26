@@ -143,9 +143,6 @@ defmodule AtlasControl.Pages do
       {:ok, :answer, p} ->
         {:answer, p.kind, p.key, p.answer}
 
-      {:ok, :step, p} ->
-        {:step, p.kind, p.key, p.step}
-
       {:ok, :faults, _} ->
         {:faults, nil}
 
@@ -293,7 +290,6 @@ defmodule AtlasControl.Pages do
   def submit_route(:link, p), do: {:links, p.kind, p.key, p.relation}
   def submit_route(:accept, p), do: {:set, p.kind, p.key, p.relation}
   def submit_route(:answer, p), do: {:answer, p.kind, p.key, p.answer}
-  def submit_route(:step, p), do: {:step, p.kind, p.key, p.step}
   def submit_route(:reopen, p), do: {:remove, p.kind, p.key, p.relation}
   def submit_route(:fault, p), do: {:fault, p.fault, nil}
   def submit_route(:fact_fault, p), do: {:fault, p.fault, {p.kind, p.key}}
@@ -343,9 +339,6 @@ defmodule AtlasControl.Pages do
   # A route's path, by the contract's page for it.
   def path({:answer, kind, key, answer}),
     do: Blocks.path(:answer, kind: kind, key: key, answer: answer)
-
-  def path({:step, kind, key, step}),
-    do: Blocks.path(:step, kind: kind, key: key, step: to_string(step))
 
   def path(:home), do: Blocks.path(:home)
 
@@ -534,7 +527,6 @@ defmodule AtlasControl.Pages do
 
   # Setting a link that needs the facts under it completed reads them, as the page does.
   def reads({:answer, kind, key, _}, m), do: reads({:item, kind, key}, m)
-  def reads({:step, kind, key, _}, m), do: reads({:item, kind, key}, m)
 
   def reads({:set, kind, key, _relation}, m), do: reads({:item, kind, key}, m)
   # Removing reads as the page does too: an owner's answer may remove what is not set.
@@ -2196,10 +2188,11 @@ defmodule AtlasControl.Pages do
 
         cond do
           deciding and todo.section[:steps] != nil ->
-            # Its instructions step by step, with what it answers and the page's next steps;
-            # what is judged; then the details, without what the steps already show.
-            %{steps: %{field: field, from: from}} = todo.section
-            shown = for f <- k.fields, f.name in [field, from], do: f.label
+            # A to-do with steps, as a stack of simple blocks: its header, why, each step,
+            # its answers and the page's next steps; what is judged; then the details,
+            # without what the steps already show.
+            %{steps: %{from: from}} = todo.section
+            shown = for f <- k.fields, f.name == from, do: f.label
 
             item =
               item
@@ -2210,16 +2203,7 @@ defmodule AtlasControl.Pages do
               |> put_in(["props", "actions"], [])
 
             content =
-              [
-                {"steps",
-                 steps_block(
-                   todo,
-                   kind,
-                   key,
-                   label(k, fact),
-                   next ++ more_action(kind, key, more)
-                 )}
-              ] ++
+              todo_blocks(todo, key, label(k, fact), next ++ more_action(kind, key, more)) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
                 [{"item", item}] ++ lists
 
@@ -2389,32 +2373,6 @@ defmodule AtlasControl.Pages do
 
       %{"error" => _} = failed ->
         unavailable(failed, back)
-    end
-  end
-
-  # Move the step its owner is at (`step_problem/4`); a steps block's action submits it
-  # directly, this page asks first.
-  defp page({:step, kind, key, step} = route, kind, k, m, answers, form) do
-    back = path({:item, kind, key})
-    title = "Step #{step} #{key}"
-
-    case {hd(answers), step_problem(m, route, answers, form)} do
-      {%{"error" => _} = failed, _} ->
-        unavailable(failed, back)
-
-      {%{"fact" => %{} = fact}, {nil, _field, _n}} ->
-        page(title, back, [
-          Blocks.confirm(
-            title: "Go to step #{step}?",
-            text: "#{key}: #{label(k, fact)}",
-            confirm_label: "Go to step #{step}",
-            confirm_to: call_to(route),
-            cancel_to: back
-          )
-        ])
-
-      {_, {problem, _, _}} ->
-        missing(title, problem, back)
     end
   end
 
@@ -3319,51 +3277,44 @@ defmodule AtlasControl.Pages do
     end)
   end
 
-  # A to-do's instructions step by step (`AtlasControl.Steps`): the work's title, the lead
-  # as why, since when it is theirs, the steps and the one they are at; the actions that
-  # move it (Enter: this one is done; Down and Up: the next and the previous one) before
-  # the page's (its answers, More…).
-  defp steps_block(todo, kind, key, title, page) do
+  # A to-do with steps (`AtlasControl.Steps`) as a stack of simple blocks: a header (the
+  # work's title and key), its why since when it is theirs, each step in full, then the
+  # answers: the page's next steps and More… (`actions`), each on its key, those that ask a
+  # note saying so.
+  defp todo_blocks(todo, key, title, actions) do
     %{why: why, steps: steps} = AtlasControl.Steps.parse(todo.section.text)
-    current = AtlasControl.Steps.current(todo.section.steps.at, steps)
-    last = length(steps)
+    notes = for a <- todo.answers, a.note, do: a.key
 
-    move = fn label, k, to ->
-      Blocks.action(
-        label: label,
-        key: k,
-        to: path({:step, kind, key, to}),
-        submit_to: call_to({:step, kind, key, to})
-      )
-    end
-
-    moves =
-      if(current <= last,
-        do: [
-          move.("Step #{current} done", "Enter", current + 1),
-          move.("Next step", "Down", current + 1)
-        ],
+    why =
+      if why,
+        do: [{"why", Blocks.text(label: "Why", text: why, since: todo.why.since)}],
         else: []
-      ) ++ if(current > 1, do: [move.("Previous step", "Up", current - 1)], else: [])
 
-    Blocks.steps(
-      title: title,
-      key: key,
-      why: why,
-      since: todo.why.since,
-      steps:
-        for s <- steps do
-          Blocks.instruction_step(
-            n: s.n,
-            text: s.text,
-            commands: s.commands,
-            routes: s.routes,
-            lines: for(line <- s.lines, do: instruction_line(line))
-          )
-        end,
-      current: current,
-      actions: moves ++ page_actions(page)
-    )
+    [{"header", Blocks.header(eyebrow: "TO DO FOR YOU", key: key, title: title)}] ++
+      why ++
+      for(
+        s <- steps,
+        do:
+          {"step-#{s.n}",
+           Blocks.instruction(n: s.n, lines: for(line <- s.lines, do: instruction_line(line)))}
+      ) ++
+      [
+        {"answers",
+         Blocks.answers(
+           answers:
+             for(
+               a <- actions,
+               do:
+                 Blocks.panel_answer(
+                   label: a["label"],
+                   key: a["key"],
+                   to: a["to"],
+                   submit_to: a["submit_to"],
+                   note: if(a["key"] in notes, do: true)
+                 )
+             )
+         )}
+      ]
   end
 
   defp instruction_line(%{kind: :route, parts: parts}),
@@ -3371,32 +3322,6 @@ defmodule AtlasControl.Pages do
 
   defp instruction_line(%{kind: kind, text: text}),
     do: Blocks.instruction_line(kind: Atom.to_string(kind), text: text)
-
-  @doc """
-  Why the step `step` (text, from the path) cannot be set by the viewer of `form` on the
-  fact `answers` reads: nil when they own its to-do, it is shown step by step and the step
-  is one of its steps or one past the last (all done); else why not. With nil, the field
-  that keeps it and the number: `{nil, field, n}`.
-  """
-  def step_problem(m, {:step, kind, _key, step}, [%{"fact" => %{} = fact} | rest], form) do
-    todo = m.module.todo(kind, fact, parts_by_kind(item_parts(m, kind, rest)), viewer(form))
-
-    case todo do
-      %{answers: [_ | _], section: %{steps: %{field: field}, text: text}} ->
-        last = length(AtlasControl.Steps.parse(text).steps)
-
-        case Integer.parse(step || "") do
-          {n, ""} when n >= 1 and n <= last + 1 -> {nil, field, n}
-          _ -> {"#{fact["key"]} has no step #{step}: it has #{last}.", nil, nil}
-        end
-
-      _ ->
-        {"Only its owner moves its steps, while it is to be done.", nil, nil}
-    end
-  end
-
-  def step_problem(_m, {:step, _kind, key, _step}, _answers, _form),
-    do: {"#{key} does not exist (any more).", nil, nil}
 
   # What its owner is to do (IS-Atlas-54), as the model's `todo/4` gives it: what is
   # expected, why it came to them, the instructions, the section of the fact they name;

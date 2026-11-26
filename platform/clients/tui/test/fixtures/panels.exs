@@ -135,9 +135,10 @@ defmodule AtlasTui.PanelFixture do
   defp ago(hours),
     do: DateTime.utc_now() |> DateTime.add(-hours * 3_600 - 60) |> DateTime.to_iso8601()
 
-  # Control's actions for the answers: the recommended one again on 0, in a choice.
+  # Control's actions for the answers (of a panel or an answers block): the recommended
+  # one again on 0, in a choice.
   def projected(page) do
-    props = hd(page["blocks"])["props"]
+    props = Enum.find_value(page["blocks"], %{}, &(&1["props"]["answers"] && &1["props"]))
     projected = ConsoleProjectionFixture.project(page)
 
     scope = %{

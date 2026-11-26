@@ -14,10 +14,9 @@ defmodule Model.ToDo do
       for every assigned item); a To-Do has none of its own;
     * `open` presents "Do it" to its owner, with its `instructions` (required) shown in
       full under "Instructions", so the page, the TUI and an agent's guidance carry them;
-      step by step: a lead paragraph (`Why: …`), numbered steps (`1.`, `2.` at a line's
-      start) and in a step its commands (lines starting `$ `); text without numbered
-      steps is one step. `step` is the step its owner is at (from 1), which they (or
-      the agent that assists them) move on as they go; none is the first;
+      as its steps, each in full: a lead paragraph (`Why: …`), numbered steps (`1.`, `2.`
+      at a line's start) and in a step its commands (lines starting `$ `) and routes
+      (lines starting `> `); text without numbered steps is one step;
     * only that owner moves it (the role `assignee`, made by the Assignment's
       `assigned_to`): Done with a note on how it was done, or Won't do with a note on why
       not. Facts refuses either without a note (`requires`), and refuses the choice from
@@ -59,10 +58,6 @@ defmodule Model.ToDo do
     )
 
     field(:evidence, :string, description: "Optional: a link, location or reference")
-
-    field(:step, :integer,
-      description: "The step of its instructions its owner is at, from 1; none is the first"
-    )
 
     primary(:title)
     plural_label("To-Dos")
@@ -106,7 +101,7 @@ defmodule Model.ToDo do
         why: "it is assigned to you",
         instructions:
           "Do what its instructions say, then close it: Done with a note on how it was done (and its evidence, if any), or Won't do with a note on why not. Atlas does not check it.",
-        section: [field: :instructions, label: "Instructions", steps: :step],
+        section: [field: :instructions, label: "Instructions", steps: true],
         answers: [
           [
             key: "x",

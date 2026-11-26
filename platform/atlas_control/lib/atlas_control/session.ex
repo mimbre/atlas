@@ -998,24 +998,6 @@ defmodule AtlasControl.Session do
     end
   end
 
-  # The step its owner is at (a to-do shown step by step): read again and checked as the
-  # page checks it, then one change of that field. An agent that assists the owner moves
-  # it as it gives their answers; the change stays the agent's.
-  defp submit({:step, kind, key, _step} = route, _raw, state) do
-    state = %{state | route: route}
-    answers = page_answers(route, state.model)
-
-    case Pages.step_problem(state.model, route, answers, viewer(state)) do
-      {nil, field, n} ->
-        content = %{"op" => "change", "key" => key, "values" => %{field => n}, "version" => nil}
-        cause = state.cause || "Step #{n} by #{state.by}"
-        put_fact(%{state | cause: cause}, kind, content, {:item, kind, key})
-
-      {problem, _, _} ->
-        not_sent(state, route, [problem])
-    end
-  end
-
   # Link the fact to the client itself (Accept), when the page would let it.
   defp submit({:set, kind, key, relation} = route, _raw, state) do
     answers = page_answers(route, state.model)

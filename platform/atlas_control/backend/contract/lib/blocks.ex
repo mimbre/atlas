@@ -41,21 +41,36 @@ defmodule AtlasBFFContract.Blocks do
         field :key, :string
       end
 
-      # What its owner is to do, step by step (a to-do's instructions): `title` the work in
-      # a few words, `key` the fact's key (shown beside it), `why` the lead paragraph
-      # (without its "Why:"), `since` when it came to them (ISO 8601, UTC), the steps in
-      # order and the one they are at (`current`, from 1). A client shows the steps before
-      # `current` as done, that one open with its commands, which it may copy, and the later
-      # ones closed. `actions` move the current step (`submit_to` sets it) and answer the
-      # to-do, each on its key.
-      defblock :steps do
+      # A page's own heading, the first of a stack of simple blocks: what is asked of
+      # the viewer (`eyebrow`: "TO DO FOR YOU"), the fact's `key` and the `title`.
+      defblock :header do
         field :title, :string, required: true
+        field :eyebrow, :string
         field :key, :string
-        field :why, :string
+      end
+
+      # A paragraph: its `text`, after its `label` ("Why"), and with `since` (ISO 8601,
+      # UTC) how long ago that was, which a client shows after the text ("· 3h ago") and
+      # keeps current.
+      defblock :text do
+        field :text, :string, required: true
+        field :label, :string
         field :since, :string
-        field :steps, {:list, :instruction_step}, required: true
-        field :current, :integer, required: true
-        field :actions, {:list, :action}
+      end
+
+      # One numbered step of instructions (a to-do's): its number `n` (from 1) and its
+      # lines in the order written: text, commands (each a line to run as it is, which a
+      # client lets the user copy) and routes. A client shows every step in full, each the
+      # same, one under the other.
+      defblock :instruction do
+        field :n, :integer, required: true
+        field :lines, {:list, :instruction_line}, required: true
+      end
+
+      # What the viewer can answer, in Control's order, each on its key (and the page's
+      # More…); `note`: the answer asks a note.
+      defblock :answers do
+        field :answers, {:list, :panel_answer}, required: true
       end
 
       # Where its owner decides, as a panel: `heading` (what is asked of them: "TO

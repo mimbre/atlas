@@ -274,24 +274,6 @@ defmodule RelaDSL.Description.Subflows do
         ],
         else: []
 
-    steps = p.section && p.section[:steps]
-
-    section =
-      section ++
-        if steps &&
-             get_in(schema, ["entities", kind, "properties", to_string(steps), "type"]) !=
-               "integer",
-           do: [
-             here.(
-               problem(
-                 :section_steps,
-                 [kind, steps],
-                 "keeps the step its owner is at in #{steps}, which is no integer field of #{kind}"
-               )
-             )
-           ],
-           else: []
-
     answers =
       Enum.flat_map(p.answers, fn a ->
         rel = a[:set] || a[:remove] || (a[:change] && a.change[:self])

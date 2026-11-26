@@ -5,23 +5,26 @@ defmodule AtlasTui.View do
   """
 
   alias AtlasTui.Blocks.{
+    Answers,
     Box,
     Confirm,
     Fallback,
     Form,
+    Header,
     Highlight,
     Input,
+    Instruction,
     Item,
     Panel,
     PanelItem,
     Part,
     Plan,
     Section,
-    SingleChoice,
-    Steps
+    SingleChoice
   }
 
   alias AtlasTui.Blocks.List, as: ListBlock
+  alias AtlasTui.Blocks.Text, as: TextBlock
   alias AtlasTui.{Columns, Model, Text}
 
   @label_width 16
@@ -63,7 +66,8 @@ defmodule AtlasTui.View do
   """
   def known,
     do: %{
-      blocks: ~w(list groups item single_choice panel steps form confirm plan console_action),
+      blocks:
+        ~w(list groups item single_choice panel header text instruction answers form confirm plan console_action),
       markup: ~w(part section highlight legend)
     }
 
@@ -895,62 +899,88 @@ defmodule AtlasTui.View do
     decision_frame(keyed(panel.heading, panel.key), panel.title, panel.aside, body, width)
   end
 
-  # A to-do step by step, as a panel like the single choice's: the work in a bar with how
-  # far its owner is, why and since when, the done steps one line each (✓), the current
-  # one framed with its lines in order (text, commands beside a bar, routes), the later
-  # ones one faint line each, and the keys: Control's actions and c/C/y to copy. Every
-  # step has the same mark column (✓, ▸ or blank) and number column, so the numbers and
-  # the texts line up; the current step's frame is in the gutter left of them, which why
-  # and the keys are indented past too.
-  defp block(%Steps{} = block, _at, _model, width, _room) do
-    inner = max(width - 3, 1)
-    content = max(inner - 2, 1)
-    body_width = max(content - 2, 1)
-    total = length(block.steps)
-    numbers = display_width("#{Enum.max([total | Enum.map(block.steps, & &1.n)])}. ")
-    text_width = max(content - 6 - numbers, 1)
+  # A page's header in the bar of a decision: its eyebrow ("TO DO FOR YOU") with the
+  # fact's key, and its title beside them.
+  defp block(%Header{} = header, _at, _model, width, _room) do
+    inner = max(width - 2, 1)
 
-    progress =
-      if block.current > total, do: "all #{total} done", else: "step #{block.current} of #{total}"
+    for line <- decision_bar(keyed(header.eyebrow, header.key), header.title, nil, inner),
+        do: [{:plain, " "}, {:header, cell_pad(line, inner)}]
+  end
 
-    why =
-      case [single_line(block.why), age(block.since)] |> Enum.reject(&(&1 == "")) do
-        [] -> []
-        [why, age] -> [[]] ++ hanging("Why: ", why <> " · " <> age, body_width, :dim, :dim)
-        [text] -> [[]] ++ hanging("Why: ", text, body_width, :dim, :dim)
+  # A paragraph, dim, after its label ("Why: ") and with how long ago its `since` was; its
+  # lines under the first.
+  defp block(%TextBlock{} = text, _at, model, width, _room) do
+    label = if single_line(text.label) == "", do: "", else: single_line(text.label) <> ": "
+    words = String.trim(text.text || "")
+
+    words =
+      case age(text.since, model.now || DateTime.utc_now()) do
+        "" -> words
+        "today" -> words <> " · just now"
+        age -> words <> " · " <> age <> " ago"
       end
 
-    rows =
-      Enum.flat_map(block.steps, fn step ->
-        number = String.pad_trailing("#{step.n}. ", numbers)
+    for line <- hanging(label, words, max(width - 4, 1), :dim, :dim), do: [{:plain, "   "} | line]
+  end
 
-        cond do
-          step.n < block.current ->
-            [[{:plain, "  "}, {:ok, "✓"}, {:dim, " " <> number <> step_head(step)}]]
+  # One numbered step, in full: a mark column (▸ beside the selected command of the page),
+  # a number column as wide as the page's widest number, so every step's number and text
+  # line up, then its lines in the order written, a blank line where the kind changes.
+  # Text is bold; a command is plain behind a bar, the selected one highlighted; a route
+  # is a muted ⌘ and its parts (`route_rows/2`). The same in both themes.
+  defp block(%Instruction{} = step, _at, model, width, _room) do
+    widest = Enum.max([step.n | for(%Instruction{n: n} <- model.blocks, do: n)])
+    numbers = display_width("#{widest}. ")
+    text_width = max(width - 4 - numbers, 1)
+    selected = Model.command(model)
 
-          step.n == block.current ->
-            current_step(step, number, text_width, content)
+    first =
+      length(Model.commands(%{model | blocks: Enum.take_while(model.blocks, &(&1 != step))}))
 
-          true ->
-            [[{:dim, "    " <> number <> step_head(step)}]]
-        end
+    {runs, _} =
+      step.lines
+      |> Enum.chunk_by(& &1.kind)
+      |> Enum.map_reduce(first, fn run, at ->
+        Enum.flat_map_reduce(run, at, fn
+          %{kind: "command", text: command}, at ->
+            {command_rows(command, at == selected, text_width), at + 1}
+
+          line, at ->
+            {for(row <- instruction_rows(line, text_width), do: {false, row}), at}
+        end)
       end)
 
-    keys = steps_keys(block, body_width)
-    indent = fn lines -> Enum.map(lines, &if(&1 == [], do: [], else: [{:plain, "  "} | &1])) end
-    body = indent.(why) ++ [[]] ++ rows ++ if(keys == [], do: [], else: [[]] ++ indent.(keys))
+    rows =
+      case runs |> Enum.intersperse([{false, []}]) |> Enum.concat() do
+        [] -> [{false, []}]
+        rows -> rows
+      end
 
-    framed =
-      for line <- body,
-          do: [{:frame, " │ "} | pad_line(fit(line, content), content)] ++ [{:frame, " │"}]
+    for {{marked, row}, i} <- Enum.with_index(rows) do
+      mark = if marked, do: {:bold, " ▸ "}, else: {:plain, "   "}
+      number = if i == 0, do: "#{step.n}. ", else: ""
+      [mark, {:bold, String.pad_trailing(number, numbers)} | row]
+    end
+  end
 
-    title = "◆ " <> keyed("TO DO FOR YOU", block.key) <> "  " <> single_line(block.title)
-    room = inner - 2 - display_width(progress) - 2
-    bar = " " <> cell_pad(title, max(room, 1)) <> "  " <> progress <> " "
+  # What the viewer can answer, each on its key as far as Control projects it (one given
+  # with a note says so), then the keys of the page's commands: ↑↓, c and y.
+  defp block(%Answers{} = block, _at, model, width, _room) do
+    keys = projected_keys(model)
 
-    [[{:frame, " ┌" <> String.duplicate("─", inner) <> "┐"}]] ++
-      [[{:frame, " │"}, {:header, cell_pad(bar, inner)}, {:frame, "│"}]] ++
-      framed ++ [[{:frame, " └" <> String.duplicate("─", inner) <> "┘"}]]
+    answers =
+      for answer <- block.answers || [], MapSet.member?(keys, answer.key), do: answer_key(answer)
+
+    copies =
+      case Model.commands(model) do
+        [] -> []
+        [_] -> [{"c", "copy"}, {"y", "copy all"}]
+        _ -> [{"↑↓", "command"}, {"c", "copy"}, {"y", "copy all"}]
+      end
+
+    copies = for {key, what} <- copies, do: [{:key, key}, {:dim, " " <> what}]
+    for line <- key_lines(answers ++ copies, max(width - 4, 1)), do: [{:plain, "   "} | line]
   end
 
   # Values keep their line breaks and blank lines; a heading line (`#`) is bold. A value
@@ -1074,48 +1104,21 @@ defmodule AtlasTui.View do
 
   # What a panel asks, with the key of the fact it is about: "TO ACCEPT · UC-03".
   defp keyed(heading, key) when key in [nil, ""], do: heading
+  defp keyed(heading, key) when heading in [nil, ""], do: single_line(key)
   defp keyed(heading, key), do: heading <> " · " <> single_line(key)
 
-  # The current step in a box drawn in the gutter, so its mark (▸) and number stay in the
-  # columns of the other steps: its lines in the order written, a blank line where the kind
-  # changes. Text is bold; a command is plain behind a bar; a route is a muted ⌘ and its
-  # parts (`route_rows/2`). Plain text and no background: the same in both themes.
-  defp current_step(step, number, text_width, width) do
-    blank = String.duplicate(" ", 2 + display_width(number))
+  # A command of an instruction behind a bar, as `{marked, row}`: the first row of the
+  # selected one is marked (▸) and it is highlighted.
+  defp command_rows(command, selected, width) do
+    style = if selected, do: :selected, else: :plain
 
-    rows =
-      step.lines
-      |> Enum.chunk_by(& &1.kind)
-      |> Enum.map(fn run -> Enum.flat_map(run, &step_line_rows(&1, text_width)) end)
-      |> Enum.intersperse([[]])
-      |> Enum.concat()
-      |> case do
-        [] -> [[]]
-        rows -> rows
-      end
-
-    lines =
-      rows
-      |> Enum.with_index()
-      |> Enum.map(fn
-        {row, 0} -> [{:bold, "▸ " <> number} | pad_line(fit(row, text_width), text_width)]
-        {row, _} -> [{:plain, blank} | pad_line(fit(row, text_width), text_width)]
-      end)
-
-    rule = String.duplicate("─", max(width - 2, 0))
-
-    [[{:border, "┌" <> rule <> "┐"}]] ++
-      Enum.map(lines, &([{:border, "│ "} | &1] ++ [{:border, " │"}])) ++
-      [[{:border, "└" <> rule <> "┘"}]]
+    for {line, i} <- Enum.with_index(detail_wrap(command || "", max(width - 2, 1))),
+        do: {selected and i == 0, [{:border, "│ "}, {style, line}]}
   end
 
-  defp step_line_rows(%{kind: "command", text: command}, width),
-    do:
-      for(line <- detail_wrap(command, max(width - 2, 1)), do: [{:border, "│ "}, {:plain, line}])
+  defp instruction_rows(%{kind: "route", parts: parts}, width), do: route_rows(parts || [], width)
 
-  defp step_line_rows(%{kind: "route", parts: parts}, width), do: route_rows(parts || [], width)
-
-  defp step_line_rows(%{text: text}, width),
+  defp instruction_rows(%{text: text}, width),
     do: for(line <- detail_wrap(text || "", width), do: [{:bold, line}])
 
   # A route: a muted ⌘, then its parts bold in `:route`, a muted › between them. A route
@@ -1155,60 +1158,6 @@ defmodule AtlasTui.View do
     Enum.reverse([row | rows])
   end
 
-  # What a closed step shows: its first line (a route's parts with › between them).
-  defp step_head(step) do
-    case step.lines do
-      [%{kind: "route", parts: parts} | _] -> Enum.join(parts || [], " › ")
-      [%{text: text} | _] -> text |> String.split("\n") |> hd() |> single_line()
-      _ -> ""
-    end
-  end
-
-  # Control's actions on their keys, then what c, C and y copy when the step has commands.
-  defp steps_keys(block, width) do
-    copies =
-      case Model.current_step(block) do
-        %{commands: [_ | _]} -> [{"c", "copy"}, {"C", "copy next"}, {"y", "copy all"}]
-        _ -> []
-      end
-
-    shown = %{"Enter" => "Enter", "Down" => "↓", "Up" => "↑"}
-
-    (Enum.map(block.actions || [], &{Map.get(shown, &1.key, &1.key), &1.label}) ++ copies)
-    |> Enum.map(fn {key, what} -> [{:key, key}, {:dim, " " <> what}] end)
-    |> Enum.reduce([], fn item, lines ->
-      used = fn line -> Enum.reduce(line, 0, fn {_, text}, n -> n + display_width(text) end) end
-
-      case lines do
-        [line | done] ->
-          if used.(line) + 3 + used.(item) <= width,
-            do: [line ++ [{:dim, " · "} | item] | done],
-            else: [item, line | done]
-
-        [] ->
-          [item]
-      end
-    end)
-    |> Enum.reverse()
-  end
-
-  # How long ago `since` (ISO 8601) was: "4m", "3h", "2d"; empty without one.
-  defp age(since) do
-    case DateTime.from_iso8601(since || "") do
-      {:ok, at, _} ->
-        seconds = max(DateTime.diff(DateTime.utc_now(), at), 0)
-
-        cond do
-          seconds < 3600 -> "#{div(seconds, 60)}m"
-          seconds < 86_400 -> "#{div(seconds, 3600)}h"
-          true -> "#{div(seconds, 86_400)}d"
-        end
-
-      _ ->
-        ""
-    end
-  end
-
   # List prefixes and part frames can leave fewer than ten columns. Use the
   # actual budget; Text.wrap's reading/editor defaults remain unchanged.
   defp list_wrap(text, width) do
@@ -1224,7 +1173,7 @@ defmodule AtlasTui.View do
   # title, and `aside` at the right of its first line; in a bar too narrow for both, the
   # title (and `aside`) under the heading.
   defp decision_bar(heading, title, aside, inner) do
-    lead = " ◆ " <> single_line(heading) <> "   "
+    lead = if single_line(heading) == "", do: " ◆ ", else: " ◆ " <> single_line(heading) <> "   "
     title = single_line(title)
     aside = single_line(aside)
     aside_room = if aside == "", do: 0, else: display_width(aside) + 2
@@ -1473,11 +1422,7 @@ defmodule AtlasTui.View do
     on = &MapSet.member?(keys, &1)
 
     answers =
-      for answer <- panel.answers || [], not choosing, on.(answer.key) do
-        if answer.note == true,
-          do: [{:key, answer.key}, {:warning, " " <> single_line(answer.label) <> " · note"}],
-          else: [{:key, answer.key}, {:ok, " " <> single_line(answer.label)}]
-      end
+      for answer <- panel.answers || [], not choosing, on.(answer.key), do: answer_key(answer)
 
     opens =
       for open <- (panel.actions || []) ++ (panel.links || []),
@@ -1495,6 +1440,13 @@ defmodule AtlasTui.View do
       |> Enum.map(fn {key, what} -> [{:key, key}, {:dim, " " <> what}] end)
 
     key_lines(if(choosing, do: moves ++ opens, else: answers ++ opens ++ moves), width)
+  end
+
+  # An answer on its key: a yes, or one given with a note, which says so.
+  defp answer_key(answer) do
+    if answer.note == true,
+      do: [{:key, answer.key}, {:warning, " " <> single_line(answer.label) <> " · note"}],
+      else: [{:key, answer.key}, {:ok, " " <> single_line(answer.label)}]
   end
 
   # `label` before the first line of `text`, the rest under it; under the label when

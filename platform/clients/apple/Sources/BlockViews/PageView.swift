@@ -8,7 +8,10 @@ import SwiftUI
 /// Under a block are only its own actions; the page's (`PageActions.ofPage`) are in the
 /// header, the page's title with them, when `header` is set, else where the page's
 /// container puts them (the window's toolbar). A page with a panel (`hasPanel`) has no
-/// header: the panel names what it is about, and its buttons are the page's actions.
+/// header: the panel names what it is about, and its buttons are the page's actions. A page
+/// with a `header` block (`hasHeader`) has that in place of its own: the page's actions
+/// beside its title. Its `text` and `answers` blocks are on the page too, each `instruction`
+/// in a card of its own.
 public struct PageView: View {
     let presentation: PagePresentation
     let pageActions: [ActionModel]
@@ -69,6 +72,8 @@ public struct PageView: View {
                     still(entryView(entry))
                 case .section(let section):
                     still(sectionView(section))
+                case .instructions(let blocks):
+                    still(InstructionsView(blocks: blocks))
                 case .details(let details):
                     still(detailsView(details))
                 }
@@ -78,8 +83,8 @@ public struct PageView: View {
     }
 
     /// A row of the page's list: the page's header, a list block's title, its empty text,
-    /// one of its rows (the page's selection), its actions; or any other block, or a
-    /// section, as one row.
+    /// one of its rows (the page's selection), its actions; steps that follow each other
+    /// (one stack of cards); or any other block, or a section, as one row.
     private struct Line: Identifiable {
         enum Content {
             case header
@@ -88,6 +93,7 @@ public struct PageView: View {
             case row(RowModel)
             case actions([ActionModel])
             case entry(PagePresentation.Entry)
+            case instructions([InstructionBlock])
             case section(PagePresentation.Section)
             case details(PagePresentation.Details)
         }
@@ -118,38 +124,52 @@ public struct PageView: View {
     }
 
     /// The rows of `groups`, top down, each id made of its block's (the header's, which no
-    /// block's id can be, its own).
+    /// block's id can be, its own); steps that follow each other are one row, by the first's.
     private func lines(_ groups: [PagePresentation.Group], header: Bool) -> [Line] {
-        let blocks = groups.flatMap { group -> [Line] in
+        var blocks: [Line] = []
+        for group in groups {
             switch group {
             case .section(let section):
-                return [Line(id: group.id, content: .section(section))]
+                blocks.append(Line(id: group.id, content: .section(section)))
             case .entry(let entry):
-                guard case .list(let list) = entry.item else {
-                    return [Line(id: group.id, content: .entry(entry))]
+                switch entry.item {
+                case .instruction(let step):
+                    if let last = blocks.last, case .instructions(let steps) = last.content {
+                        blocks[blocks.count - 1] = Line(id: last.id, content: .instructions(steps + [step]))
+                    } else {
+                        blocks.append(Line(id: group.id, content: .instructions([step])))
+                    }
+                case .list(let list):
+                    if let title = list.title { blocks.append(Line(id: group.id + "/title", content: .title(title))) }
+                    if list.rows.isEmpty, let empty = list.empty {
+                        blocks.append(Line(id: group.id + "/empty", content: .empty(empty)))
+                    }
+                    for (offset, row) in list.rows.enumerated() {
+                        blocks.append(Line(id: group.id + "/row/\(offset)", content: .row(row)))
+                    }
+                    let actions = PageActions.ofBlock(list.actions)
+                    if !actions.isEmpty {
+                        blocks.append(Line(id: group.id + "/actions", content: .actions(actions)))
+                    }
+                default:
+                    blocks.append(Line(id: group.id, content: .entry(entry)))
                 }
-                var lines: [Line] = []
-                if let title = list.title { lines.append(Line(id: group.id + "/title", content: .title(title))) }
-                if list.rows.isEmpty, let empty = list.empty {
-                    lines.append(Line(id: group.id + "/empty", content: .empty(empty)))
-                }
-                for (offset, row) in list.rows.enumerated() {
-                    lines.append(Line(id: group.id + "/row/\(offset)", content: .row(row)))
-                }
-                let actions = PageActions.ofBlock(list.actions)
-                if !actions.isEmpty {
-                    lines.append(Line(id: group.id + "/actions", content: .actions(actions)))
-                }
-                return lines
             }
         }
-        return header && !presentation.hasPanel ? [Line(id: "\u{0}header", content: .header)] + blocks : blocks
+        let own = header && !presentation.hasPanel && !presentation.hasHeader
+        return own ? [Line(id: "\u{0}header", content: .header)] + blocks : blocks
     }
 
     /// The page's actions a panel shows at its bottom: on a page with a header, which a
-    /// page with a panel leaves out.
+    /// page with a panel leaves out (but for a `header` block, which has them).
     private var panelActions: [ActionModel] {
-        header && presentation.hasPanel ? pageActions : []
+        header && presentation.hasPanel && !presentation.hasHeader ? pageActions : []
+    }
+
+    /// The page's actions a `header` block shows beside its title, in place of the page's
+    /// own header.
+    private var headerActions: [ActionModel] {
+        header ? pageActions : []
     }
 
     /// A row of the page that is not one of its selection.
@@ -172,7 +192,10 @@ public struct PageView: View {
         case .panel(let panel):
             // A view of its own per page: a selection never stays for another page.
             PanelView(block: panel, others: panelActions, open: open, act: act).id(presentation.path)
-        case .steps(let steps): StepsView(block: steps, others: panelActions, act: act)
+        case .header(let block): HeaderBlockView(block: block, actions: headerActions, act: act)
+        case .text(let text): TextBlockView(block: text)
+        case .instruction(let instruction): InstructionView(block: instruction)
+        case .answers(let answers): AnswersView(block: answers, act: act)
         // A page that asks is shown over the window (ActionPageView), not in a column.
         case .form: FallbackView(type: "form", reason: nil)
         case .confirm: FallbackView(type: "confirm", reason: nil)
