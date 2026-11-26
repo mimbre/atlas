@@ -41,8 +41,9 @@ defmodule AtlasFlow.Delivery do
   `ended_at`. A Facts failure there is logged and Delivery starts all the same; the next
   notice on that lease, or the next start, ends it. Delivery stays the only attempt writer.
 
-  **The run.** On an ended result or a refusal, `{:reconcile, kind, key}` is cast
-  to the Engine for the run that holds the task (Delivery never writes a run).
+  **The run.** On an ended result, a refusal or a lease fenced at its expiry (a silent
+  turn), `{:reconcile, kind, key}` is cast to the Engine for the run that holds the task
+  (Delivery never writes a run).
 
   Options of `start_link/1`: `name`, `model`, `clock`, `accept_deadline` (30 s), `engine`
   (default `AtlasFlow.Engine`) and `bases` (its server).
@@ -134,6 +135,10 @@ defmodule AtlasFlow.Delivery do
     with {:ok, _, n} <- Leases.parse(lease_id),
          do: end_attempt(task_key, n, lease_id, cause, now(state))
 
+    # A lease run out unrenewed is a silent turn (`Translate.empty/1`): it decides the run's
+    # next step as a result does (counted and offered again, or the task ends), so its run
+    # is reconciled now, not on its next round. Any other fence brings the run nothing.
+    if cause == "expired", do: reconcile(state, task_key)
     {:noreply, state}
   end
 

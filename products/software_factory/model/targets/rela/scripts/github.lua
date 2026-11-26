@@ -5,21 +5,40 @@
 -- For every issue with a pull request (pr_url) that is not merged yet, it reads the pull,
 -- and while it is open the combined check status of its head and whether it merges into
 -- its base: pr_state, pr_checks (pending, success, failure), when CI failed
--- pr_checks_failure (the failing checks and the failing lines of their logs), and
--- pr_mergeable (clean, behind, conflicting, or unknown while GitHub works it out). For
--- every pull request fact that is not merged yet: its title, state and draft. Only what
--- differs is written.
+-- pr_checks_failure (the failing checks and the failing lines of their logs, IS-Atlas-124), and
+-- pr_mergeable (clean, behind, conflicting, or unknown while GitHub works it out), all
+-- with the head commit they were read for, pr_checks_head, in one write. For every pull
+-- request fact that is not merged yet: its title, state and draft. Only what differs is
+-- written.
+--
+-- The head (IS-Atlas-120, IS-Atlas-122): Flow records the head Code pushed (pr_head), and
+-- its CI gate acts only while pr_checks_head is that head, so what this sync read of an
+-- earlier head, written after Code's push, is never taken for the current one. The sync
+-- takes the pull's head as pr_head itself when none is recorded (a pull opened before Code
+-- answered with its head) or when someone else pushed onto the pull: the recorded head is
+-- among the pull's commits, so the pull's head is ahead of it. A head GitHub answers before
+-- it caught up with Code's push (the recorded head not among the pull's commits yet) is
+-- never taken, nor one whose commits GitHub does not list.
 --
 -- Merged is final. Closed is not: a closed pull can be reopened. A pull recorded closed is
 -- read again when GitHub lists it among its repository's open pulls (one list per
 -- repository and run), so a reopened pull's state, mergeability and checks are synced
 -- again. The pull of an issue closed in Atlas (gate_result close) is left closed.
 --
--- rela → GitHub: an open pull request of an issue closed in Atlas (gate_result close, an
--- explicit record in this rela's own data) is closed on GitHub with a comment. A pull is
--- never closed because its issue is missing: a test rela reads the same repositories with
--- other data. A close GitHub refuses is logged and written to pr_close_failure; the next
--- run tries again.
+-- rela → GitHub: only what this rela's own data records as to close is closed, each with
+-- a comment saying why (IS-Atlas-130, IS-Atlas-133):
+--
+--   * the open pull request of an issue closed in Atlas (gate_result close); a close
+--     GitHub refuses is written to the issue's pr_close_failure;
+--   * an open pull request fact with a close_reason: the pull an issue left behind when a
+--     run replaced its pr_url (superseded by <the new url>) or when it was removed in
+--     Atlas (issue removed), recorded before the issue went. Its repository need not be
+--     one any remaining issue names. A close GitHub refuses is written to its
+--     close_failure. Once closed it is not read again: reopened by a person, it stays so.
+--
+-- A pull is never closed because of its branch name (an open atlas/TK-… pull with no record
+-- is left alone), nor because its issue is missing: a test rela reads the same
+-- repositories with other data. A refused close is logged; the next run tries again.
 --
 -- Secrets (.rela/secrets.yaml, which rela-run.sh writes on Fly): github_api, GitHub's API
 -- (https://api.github.com); github_token, a token that reads pull requests, checks and job
@@ -40,7 +59,7 @@ end
 local FAILED = {failure = true, cancelled = true, timed_out = true, action_required = true,
                 stale = true, startup_failure = true}
 local PASSED = {success = true, neutral = true, skipped = true}
-local EXCERPT_LINES = 60
+local EXCERPT_LINES = 100
 local EXCERPT_CHARS = 12000
 
 local function get(path)
@@ -152,22 +171,81 @@ local function checks(repo, sha)
   return "pending", {}
 end
 
--- How many lines after a line of each kind tell what failed; nil: not a line that does.
-local function after(line)
-  local l = line:lower()
-  if line:match("^%s*%d+%) ") then return 15 end                  -- an ExUnit failure
-  if line:find("%*%* %(") then return 5 end                       -- an Elixir exception
-  if l:match("^%s*error[:%[]") or l:match("^%s*warning:") then return 5 end  -- the compiler
-  if l:find("not ok ", 1, true) or line:find("FAIL", 1, true) or line:find("✖", 1, true) then
-    return 3                                                       -- node, others
-  end
-  return nil
+-- The failing lines of a GitHub Actions job's log (IS-Atlas-124): only what failed, never
+-- the output of tests that passed, whose captured stack traces (`** (RuntimeError) …`,
+-- `FAIL` in a message) look like failures but are none. Kept are:
+--
+--   * each of ExUnit's numbered failures (`  1) test …`) with the lines under it, which
+--     ExUnit indents deeper than its number, up to the next test: the first line that is
+--     not indented deeper (the next failure, a passing test, the summary);
+--   * compiler errors: `error: …` with its diagnostic (`│`, `└─` lines, or lines indented
+--     deeper), and `== Compilation error … ==` with the line after it; warnings only when
+--     they failed the step (`--warnings-as-errors`);
+--   * the end of the step that failed, the lines before `##[error]`: at most 12, and from
+--     ExUnit's summary (`Finished in …`) when it is among them, so what a passing test
+--     printed just before it is not.
+--
+-- Of those, the last EXCERPT_LINES. Logger output (`12:00:00.000 [warning] …`) and blank
+-- lines are left out. GitHub answers the log with a redirect to storage that takes no token.
+local FAILURE_LINES = 40
+local TAIL_LINES = 12
+
+local function indent(line) return #line:match("^%s*") end
+
+local function numbered(line) return line:match("^%s*%d+%) ") ~= nil end
+
+local function diagnostic(line)
+  return line:match("^[%s%d]*│") ~= nil or line:match("^[%s%d]*└") ~= nil
 end
 
--- The failing lines of a GitHub Actions job's log: failures with the lines that explain
--- them, and the end of the step that failed (before `##[error]`); the last EXCERPT_LINES
--- of them. Logger output (`12:00:00.000 [warning] …`) is left out. GitHub answers the log
--- with a redirect to storage that takes no token.
+-- The indices of the failing lines among `lines`, in order.
+local function failing(lines)
+  local strict = false
+  for _, line in ipairs(lines) do
+    if line:find("warnings-as-errors", 1, true) or line:find("due to warnings", 1, true) then
+      strict = true
+      break
+    end
+  end
+  local keep = {}
+  local i = 1
+  while i <= #lines do
+    local line = lines[i]
+    local l = line:lower()
+    local j = i + 1
+    if numbered(line) then
+      -- An ExUnit failure, up to the next test.
+      local base = indent(line)
+      while j <= #lines and j - i <= FAILURE_LINES and not numbered(lines[j]) and
+            indent(lines[j]) > base do
+        j = j + 1
+      end
+      for k = i, j - 1 do keep[k] = true end
+    elseif l:match("^%s*error[:%[]") or (strict and l:match("^%s*warning:")) then
+      -- A compiler error (or a warning that failed the step) and its diagnostic.
+      local base = indent(line)
+      while j <= #lines and j - i <= 12 and
+            (diagnostic(lines[j]) or (indent(lines[j]) > base and not numbered(lines[j]))) do
+        j = j + 1
+      end
+      for k = i, j - 1 do keep[k] = true end
+    elseif line:match("^%s*== Compilation error") then
+      for k = i, math.min(i + 1, #lines) do keep[k] = true end
+      j = math.min(i + 2, #lines + 1)
+    elseif line:find("##[error]", 1, true) then
+      local from = math.max(1, i - TAIL_LINES)
+      for k = i - 1, from, -1 do
+        if lines[k]:match("^%s*Finished in ") then from = k; break end
+      end
+      for k = from, i do keep[k] = true end
+    end
+    i = j
+  end
+  local picked = {}
+  for k = 1, #lines do if keep[k] then table.insert(picked, k) end end
+  return picked
+end
+
 local function excerpt(repo, run)
   if not run.id or not token then return nil end
   local resp = get("/repos/" .. repo .. "/actions/jobs/" .. run.id .. "/logs")
@@ -183,16 +261,8 @@ local function excerpt(repo, run)
       table.insert(lines, line)
     end
   end
-  local keep, picked = {}, {}
-  for i, line in ipairs(lines) do
-    local n = after(line)
-    if n then
-      for j = i, math.min(i + n, #lines) do keep[j] = true end
-    elseif line:find("##[error]", 1, true) then
-      for j = math.max(1, i - 12), i do keep[j] = true end
-    end
-  end
-  for i = 1, #lines do if keep[i] then table.insert(picked, lines[i]) end end
+  local picked = {}
+  for _, k in ipairs(failing(lines)) do table.insert(picked, lines[k]) end
   local from = math.max(1, #picked - EXCERPT_LINES + 1)
   return table.concat(picked, "\n", from)
 end
@@ -211,6 +281,33 @@ local function failure_text(repo, sha, failed)
   local all = table.concat(parts, "\n\n")
   if #all > EXCERPT_CHARS then all = all:sub(1, EXCERPT_CHARS) .. "\n…" end
   return all
+end
+
+-- Whether the commit `recorded` is among the commits of pull `number` (GitHub lists 250 at
+-- most). Pull requests: read is all it takes.
+local function among(repo, number, recorded)
+  local page = 1
+  while true do
+    local path = "/repos/" .. repo .. "/pulls/" .. number .. "/commits?per_page=100&page=" .. page
+    local commits, err = json(path)
+    if not commits then
+      print("github sync: " .. repo .. "#" .. number .. ": commits: " .. tostring(err))
+      return false
+    end
+    for _, commit in ipairs(commits) do
+      if commit.sha == recorded then return true end
+    end
+    if #commits < 100 then return false end
+    page = page + 1
+  end
+end
+
+-- Whether the pull's head `sha` is taken as the issue's head (pr_head): none is recorded, or
+-- the pull's head is ahead of the recorded one. See the head, above.
+local function adopted(repo, number, recorded, sha)
+  if type(recorded) ~= "string" or recorded == "" then return true end
+  if recorded == sha then return false end
+  return among(repo, number, recorded)
 end
 
 local EMPTY = rela.sync and rela.sync.EMPTY or ""
@@ -279,9 +376,12 @@ for _, issue in ipairs(rela.list_entities("issue")) do
         end
       elseif after.pr_state == "open" and pull.head and pull.head.sha then
         local sha = pull.head.sha
-        after.pr_mergeable = mergeable(pull)
         local state, failed = checks(repo, sha)
         if state then
+          -- One write: the status, the mergeability and the head they were read for.
+          after.pr_checks_head = sha
+          after.pr_mergeable = mergeable(pull)
+          if adopted(repo, number, p.pr_head, sha) then after.pr_head = sha end
           after.pr_checks = state
           if state == "failure" then
             -- The log excerpt is read once per head.
@@ -300,13 +400,31 @@ for _, issue in ipairs(rela.list_entities("issue")) do
   end
 end
 
+-- Whether a recorded reason to close a pull request is there.
+local function to_close(reason) return type(reason) == "string" and reason ~= "" end
+
 for _, pr in ipairs(rela.list_entities("pull_request")) do
   local p = pr.properties
   local repo, number = slug(p.url)
-  if repo and read(p.state, repo, number) then
-    local pull = json("/repos/" .. repo .. "/pulls/" .. number)
+  local closing = to_close(p.close_reason)
+  -- A recorded pull Atlas closed is final: reopened by a person, it is not closed again.
+  if repo and not (closing and p.state == "closed") and read(p.state, repo, number) then
+    local pull, err = json("/repos/" .. repo .. "/pulls/" .. number)
     if pull then
-      write(pr.id, p, {title = pull.title, state = pull_state(pull), draft = pull.draft == true})
+      local after = {title = pull.title, state = pull_state(pull), draft = pull.draft == true}
+      if closing and after.state == "open" then
+        local failed = close(repo, number, "Closed by Atlas: " .. p.close_reason .. ".")
+        if failed then
+          print("github sync: " .. pr.id .. ": close: " .. failed)
+          after.close_failure = failed
+        else
+          after.state = "closed"
+          after.close_failure = EMPTY
+        end
+      end
+      write(pr.id, p, after)
+    else
+      print("github sync: " .. pr.id .. ": " .. tostring(err))
     end
   end
 end

@@ -60,6 +60,15 @@ defmodule AtlasFlow.Activities.Task do
   added after the subject's own `fields`, under `## <kind> <key>: <field>`. Facts not
   answering makes no intent this round.
 
+  **What is already under it.** A spec's `children` names fields of the facts under the
+  subject: those of any kind whose parent relation (`ctx.parents`) points at the subject's
+  kind and, through it, at the subject. Which ones they are is rela's: Facts' read of the
+  subject answers what points at it (`"incoming"`, rela's incoming relations of the key),
+  and each is read plainly, as a parent is. They follow the parents, under
+  `## Already under it`, which asks the agent to propose only what is missing, each under
+  `### <kind> <key>: <field>`, in key order. A subject with nothing under it gets no such
+  section; Facts not answering makes no intent this round.
+
   **A subject's review and fix.** A review or fix names `input:
   %{"repository", "result" => "latest"}`: its base is the run's latest result
   (`Translate.latest_result/1`), the commit its author's Runtime pushed to
@@ -81,8 +90,11 @@ defmodule AtlasFlow.Activities.Task do
   **An update of an open pull.** A fix may name `input: %{"repository",
   "base", "update" => field}`, `field` the subject's field holding the web address of a
   pull the service opened: its base is `refs/atlas/updates/<number>/<base>`, which Code
-  resolves to `base` merged into that pull's head, conflicts marked in the files. Not
-  ready while that field holds no pull's address.
+  resolves to `base` merged into that pull's head, conflicts marked in the files, or that
+  head itself when it already holds `base`. Not ready while that field holds no pull's
+  address. Such a fix whose spec names `findings` ends its instructions with that field's
+  text, as a fix of the latest result does: a CI fix starts so from the pull's head, so its
+  result lands on whatever the pull's branch holds (IS-Atlas-131).
 
   **A proposal (slice 7).** A spec's `creates` (`%{"kind", "file"}`) asks its agent, after
   the instructions, to write what it proposes to that file at the top of the repository: a
@@ -162,6 +174,7 @@ defmodule AtlasFlow.Activities.Task do
       spec["ladder"] == nil and input?(spec["kind"], spec["input"]) and
       check?(spec["check"]) and text?(spec["instructions"]) and
       texts?(spec["fields"] || []) and texts?(spec["parents"] || []) and
+      texts?(spec["children"] || []) and
       spec["read_first"] in [nil, true] and note?(spec["note"]) and
       creates?(spec["creates"]) and writes?(spec["writes"]) and
       not (spec["creates"] != nil and spec["writes"] != nil) and
@@ -419,6 +432,8 @@ defmodule AtlasFlow.Activities.Task do
 
     with {:ok, work} <- work(run, spec, subject),
          {:ok, parents} <- parents(spec, run["subject_kind"], subject, ctx[:parents] || %{}),
+         {:ok, children} <-
+           children(spec, run["subject_kind"], subject, ctx[:parents] || %{}),
          {:ok, n} <- ctx.number.() do
       key = key(subject["key"], n)
 
@@ -429,6 +444,7 @@ defmodule AtlasFlow.Activities.Task do
           ["work", "instructions"],
           &(&1 <>
               parents <>
+              children <>
               read_first(spec, subject, ctx) <>
               Enum.join(work.sections) <>
               proposal_format(spec) <> asks_format(spec) <> follow_ups_format(spec))
@@ -469,6 +485,66 @@ defmodule AtlasFlow.Activities.Task do
     do: up(fields, kind, subject, relations, 8, "")
 
   defp parents(_spec, _kind, _subject, _relations), do: {:ok, ""}
+
+  # The spec's `children` fields of each fact under the subject: the kinds whose parent
+  # relation points at the subject's kind, and of those the facts rela says point at the
+  # subject (Facts' read of it answers its `"incoming"`), each read plainly.
+  defp children(%{"children" => [_ | _] = fields}, kind, subject, relations) do
+    under =
+      for {child, links} <- Enum.sort(relations),
+          [relation, ^kind] <- links,
+          do: {relation, child}
+
+    with [_ | _] <- under,
+         %{"fact" => %{}} = answer <- Talk.read(kind, %{"key" => subject["key"]}),
+         {:ok, entries} <- under(fields, under, answer["incoming"] || %{}) do
+      text =
+        if entries == [],
+          do: "",
+          else:
+            "\n\n## Already under it\n\nThese are under it already, and stay: propose only " <>
+              "what is missing, never one of these again." <> Enum.join(entries)
+
+      {:ok, text}
+    else
+      [] -> {:ok, ""}
+      %{"fact" => nil} -> {:ok, ""}
+      _ -> :unavailable
+    end
+  end
+
+  defp children(_spec, _kind, _subject, _relations), do: {:ok, ""}
+
+  # One entry per fact under it, through each relation, in key order: its fields.
+  defp under(fields, under, incoming) do
+    found =
+      for {relation, child} <- under,
+          key <- incoming[relation] |> List.wrap() |> Enum.filter(&is_binary/1) |> Enum.sort(),
+          do: {child, key}
+
+    Enum.reduce_while(found, {:ok, []}, fn {child, key}, {:ok, acc} ->
+      case Talk.read(child, %{"key" => key, "plain" => true}) do
+        %{"fact" => %{} = fact} ->
+          values = fact["values"] || %{}
+
+          sections =
+            for field <- fields,
+                value = values[field],
+                is_binary(value) and String.trim(value) != "",
+                do: "\n\n### #{child} #{key}: #{field}\n\n#{value}"
+
+          entry = if sections == [], do: "\n\n### #{child} #{key}", else: Enum.join(sections)
+          {:cont, {:ok, acc ++ [entry]}}
+
+        # Gone since rela answered: no longer under it.
+        %{"fact" => nil} ->
+          {:cont, {:ok, acc}}
+
+        _ ->
+          {:halt, :unavailable}
+      end
+    end)
+  end
 
   # What the model says is to be read first about the subject (`read_first: true`): the
   # standing decisions and those the subject is based on, as its `read_first` gives them.
@@ -521,7 +597,7 @@ defmodule AtlasFlow.Activities.Task do
     {reference, sections} =
       case input do
         %{"update" => field, "base" => base} ->
-          {update_ref((subject["values"] || %{})[field], base), []}
+          {update_ref((subject["values"] || %{})[field], base), findings_sections(spec, subject)}
 
         %{"base" => reference} ->
           {reference, []}
@@ -562,6 +638,13 @@ defmodule AtlasFlow.Activities.Task do
   end
 
   defp result_sections(%{"kind" => kind}, _tasks, _subject), do: Answers.sections(kind)
+
+  # An update of an open pull fixes what its spec's `findings` field says, when it names one
+  # (a CI fix on the pull's head: what failed in its CI); else it only resolves the merge.
+  defp findings_sections(%{"findings" => _} = spec, subject),
+    do: result_sections(spec, [], subject)
+
+  defp findings_sections(_spec, _subject), do: []
 
   defp repository(spec), do: spec["input"]["repository"]
 

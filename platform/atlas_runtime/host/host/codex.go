@@ -356,9 +356,10 @@ var credentialPaths = []string{".codex", ".config/gh", ".ssh", ".aws", ".docker"
 
 // homeReadNames are the toolchain locations, relative to the user home, that materialized-folder
 // workers may read in their otherwise denied home: asdf (the shims' targets) and its fallback
-// .tool-versions, Mix archives and the Hex package cache, and the Go module cache, which
-// GOMODCACHE does not redirect.
-var homeReadNames = []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod"}
+// .tool-versions, Mix archives and the Hex package cache, the Go module cache, which
+// GOMODCACHE does not redirect, and the tools folder ~/.cache/atlas: the pinned tools a
+// repository's checks need (rela for Atlas), installed once per machine outside the sandbox.
+var homeReadNames = []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod", ".cache/atlas"}
 
 // homeReadable are the paths a materialized-folder worker may read inside the denied user home:
 // each PATH directory and each homeReadNames entry, resolved through symlinks. Paths outside user,
@@ -394,8 +395,14 @@ func homeReadable(user string, denied, writable []string) ([]string, error) {
 // the Code token and user credentials under user, loopback networking only: the network proxy
 // allows no domain, so external connections fail. Unix-domain sockets bind and connect only
 // inside scratch. Workers may read (and so execute) the inspector even inside a denied path.
+//
+// A read-only folder (ReadOnlyFolder, IS-Atlas-20) reads the folder instead of writing it, so only the
+// scratch is written (its build goes there, MIX_BUILD_ROOT).
 func folderArguments(scope map[string]any, scratch, user, inspector string) ([]string, error) {
 	root, _ := scope["root"].(string)
+	if ReadOnlyFolder(scope) {
+		return workerArguments("atlas_read_only_folder", scope, [][2]string{{root, "read"}}, scratch, user, inspector)
+	}
 	return workerArguments("atlas_folder", scope, [][2]string{{root, "write"}}, scratch, user, inspector)
 }
 
@@ -448,7 +455,7 @@ func workerArguments(name string, scope map[string]any, project [][2]string, scr
 		if !ok {
 			return nil, errors.New("Materialized folder scope is incomplete")
 		}
-		entries = append(entries, [2]string{filepath.Join(root, path, ".git"), "none"})
+		entries = append(entries, repositoryGitEntries(root, path)...)
 	}
 	denied, err := deniedEntries(home, user, nil, append(slices.Clone(paths), scratch)...)
 	if err != nil {
@@ -491,6 +498,27 @@ func workerArguments(name string, scope map[string]any, project [][2]string, scr
 	// Native web search is separate from command networking; loopback-only workers
 	// must not be offered it, including when resuming an existing conversation.
 	return append(arguments, "-c", "features.network_proxy=true", "-c", `web_search="disabled"`), nil
+}
+
+// repositoryGitNames are the entries of a repository's own Git directory an agent may read but never
+// write: its configuration and its hooks, which name commands Git runs.
+var repositoryGitNames = []string{"config", "hooks"}
+
+// repositoryGitEntries are a folder worker's entries for the Git directory of its repository at path
+// (relative to root). A repository's own .git is the agent's (IS-Atlas-14): it lies in the writable
+// folder, so the agent may stage and commit there (index, objects, refs), while its configuration and
+// hooks stay read-only. The Runtime takes the result from the folder's files through a Git directory
+// of its own, never this one. A repository that is the folder itself keeps the folder's .git denied.
+func repositoryGitEntries(root, path string) [][2]string {
+	git := filepath.Join(root, path, ".git")
+	if git == filepath.Join(root, ".git") {
+		return [][2]string{{git, "none"}}
+	}
+	var entries [][2]string
+	for _, name := range repositoryGitNames {
+		entries = append(entries, [2]string{filepath.Join(git, name), "read"})
+	}
+	return entries
 }
 
 // setupProfile names the Codex permission profile of a folder preparation.

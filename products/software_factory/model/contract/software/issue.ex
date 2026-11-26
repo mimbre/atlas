@@ -4,11 +4,14 @@ defmodule Model.Issue do
   its `issue` subflow: an agent builds it on its supervisor's Runtime, a second agent
   reviews it, one fix follows changes required, Code opens its pull request (`pr_url`),
   its CI is waited for (`pr_checks` and `pr_checks_failure`, as rela's GitHub sync writes
-  them; red is fixed at most twice, `ci_fixes`), a conflict with develop is updated once
+  them for the head `pr_checks_head`, which must be the head Code pushed, `pr_head`; red is
+  fixed at most twice, `ci_fixes`), a conflict with develop is updated once
   (`pr_mergeable`, as the sync writes it; `pr_updates`), and its supervisor merges it;
-  merged (`pr_state`, as the GitHub connector copies it) is done. Closed or removed in
-  Atlas, rela's GitHub sync closes its open pull request (`pr_close_failure` when GitHub
-  refused).
+  merged (`pr_state`, as the GitHub connector copies it) is done. Closed in Atlas,
+  rela's GitHub sync closes its open pull request (`pr_close_failure` when GitHub
+  refused). A pull it leaves behind (its `pr_url` replaced by a Retry past publishing, or
+  the issue removed in Atlas) is closed only as recorded: a pull request fact with a
+  `close_reason` (IS-Atlas-130, IS-Atlas-133), never by its branch name.
 
   `pass_result`, `gate_result`, `effect_result` and `pr_outcome` stay on the kind with
   what earlier flows wrote; no flow writes them now. The gates stay defined, for when
@@ -120,6 +123,23 @@ defmodule Model.Issue do
       label: "CI"
     )
 
+    # The CI gate's tie (IS-Atlas-120, IS-Atlas-122): the head its status was read for and
+    # the head Code pushed; its branches act only when the two agree, so a status of an
+    # earlier head is never taken for the current one.
+    field(:pr_checks_head, :string,
+      description:
+        "GitHub: the head commit of its pull request that its CI (pr_checks) and mergeability (pr_mergeable) were read for",
+      set_by: :connector,
+      label: "CI head"
+    )
+
+    field(:pr_head, :string,
+      description:
+        "Flow: the head commit Code last pushed to its pull request (publish, CI fix, update), the one its CI gate waits for; rela's GitHub sync takes the pull's head when none is recorded or someone else pushed onto it",
+      set_by: [:flow, :connector],
+      label: "Head"
+    )
+
     field(:pr_checks_failure, :string,
       description:
         "GitHub: its pull request's failing checks, with the failing lines of their logs",
@@ -135,6 +155,15 @@ defmodule Model.Issue do
         "Flow: how many fixes of its pull request's failing CI its run made (none, one, two)",
       set_by: [:flow],
       label: "CI fixes"
+    )
+
+    # Set reaching Merge it, so CI turning red after that is fixed saying so; publishing
+    # (a new pull request) clears it.
+    field(:ci_green, :string,
+      description:
+        "Flow: whether its pull request reached Merge it green and mergeable in this build (none, yes)",
+      set_by: [:flow],
+      label: "Was green"
     )
 
     field(:ci_push, :string,

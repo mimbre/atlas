@@ -666,6 +666,36 @@ func TestExitedLeaderDoesNotExemptLiveDescendants(t *testing.T) {
 	assertDead(t, child)
 }
 
+// A reaped leader's group can hold only a zombie whose parent left the group: macOS answers the
+// group signal with EPERM (killpg skips zombies), yet nothing is left to signal.
+func TestReapedLeaderWithOnlyZombieMembersIsCleanedUp(t *testing.T) {
+	// The leader forks a child that forks an exiting grandchild, then leaves the group (setsid)
+	// without reaping it.
+	command := exec.Command("/usr/bin/perl", "-MPOSIX", "-e",
+		`$| = 1; if (!fork()) { my $c = fork(); exit 0 if !$c; POSIX::setsid(); print "$$ $c\n"; sleep 60 }`)
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	leader := launchGroup(t, command)
+	line, err := bufio.NewReader(stdout).ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parent, zombie int
+	if _, err = fmt.Sscan(line, &parent, &zombie); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { syscall.Kill(parent, syscall.SIGKILL) })
+	waitZombie(t, zombie)
+	if exited, err := leader.wait(5 * time.Second); !exited || err != nil {
+		t.Fatalf("leader not reaped: %v %v", exited, err)
+	}
+	if err := leader.signalGroup(syscall.SIGKILL); err != nil {
+		t.Fatalf("a group of zombies failed cleanup: %v", err)
+	}
+}
+
 func denySignals(t *testing.T) {
 	t.Helper()
 	kill = func(int, syscall.Signal) error { return syscall.EPERM }

@@ -87,7 +87,9 @@ defmodule AtlasCode.Service do
   the repository), which a review then gets as its base, or of an update of an open pull
   (`refs/atlas/updates/<number>/<base>`): `base` merged into the pull's head, a merge commit
   Code makes in its copy (`update/4`), whose conflicting files hold Git's conflict markers
-  and whose message names them; an agent resolves them on it.
+  and whose message names them; an agent resolves them on it. A pull whose head already
+  holds `base` is its head itself, a plain checkout of the pull: a CI fix starts from it,
+  so its result sits on what the pull's branch holds, whoever pushed it (IS-Atlas-131).
   """
   @spec resolve_reference(settings(), term()) :: response()
   def resolve_reference(settings, request) do
@@ -261,7 +263,9 @@ defmodule AtlasCode.Service do
   @doc """
   The cache repository that holds base `base_id` (`code-<hex>`, of snapshot `sha256:<hex>`,
   one repository), with the ref `refs/atlas/bases/<base_id>` on the base's prepared commit: a
-  child of the base's commit that adds its dependencies (`AtlasCode.Dependencies`).
+  child of the base's commit that adds its dependencies (`AtlasCode.Dependencies`). A base
+  that is Code's update merge (`update/4`) has its conflicting lockfiles prepared from the
+  base's side (its second parent, develop), never from the conflicted ones (IS-Atlas-132).
   `{:ok, git_dir}`. Code's Git endpoint (`AtlasCode.Git`) serves it.
   """
   @spec base_repository(settings(), String.t()) :: {:ok, Path.t()}
@@ -271,7 +275,7 @@ defmodule AtlasCode.Service do
 
     {:ok, commit} = revision(settings.home, repository, handle)
     {:ok, dir} = acquire(settings, repository, commit, handle)
-    prepared = AtlasCode.Dependencies.prepared(dir, commit)
+    prepared = AtlasCode.Dependencies.prepared(dir, commit, conflicted(dir, commit))
 
     {_, 0} =
       System.cmd("git", ["--git-dir", dir, "update-ref", "refs/atlas/bases/" <> base_id, prepared])
@@ -493,7 +497,8 @@ defmodule AtlasCode.Service do
   # as `refs/atlas/pulls/<number>`), `base` merged into the head (`git merge-tree`, which
   # leaves conflict markers in the files that conflict) and committed with both parents,
   # Code's fixed identity and date, and the conflicting files named in its message: the
-  # same pull and base always give the same commit. Kept under its reference.
+  # same pull and base always give the same commit. A head that already holds `base` is the
+  # update itself: no merge commit. Kept under its reference.
   defp update(settings, repository, number, base) do
     url = settings.repositories[repository]
     dir = cache(settings.home, repository, url)
@@ -516,28 +521,57 @@ defmodule AtlasCode.Service do
         {onto, 0} = git.(["rev-parse", "--verify", "refs/heads/" <> base <> "^{commit}"], [])
         [head, onto] = [String.trim(head), String.trim(onto)]
 
-        {out, status} =
-          git.(["merge-tree", "--write-tree", "--name-only", "--no-messages", head, onto], [])
+        # `base` is already in the pull's head: nothing to merge, so the update is that head
+        # itself (a plain checkout of the pull, as `git merge` makes no commit then).
+        case git.(["merge-base", "--is-ancestor", onto, head], []) do
+          {_, 0} ->
+            {_, 0} = git.(["update-ref", "refs/atlas/updates/#{number}/#{base}", head], [])
+            {:ok, head}
 
-        true = status in [0, 1]
-        [tree | conflicts] = String.split(out, "\n", trim: true)
-
-        message =
-          "Atlas: merge #{base} into pull ##{number}" <>
-            if(conflicts == [],
-              do: "",
-              else: "\n\nConflicts:\n" <> Enum.map_join(Enum.uniq(conflicts), "\n", &("\t" <> &1))
-            )
-
-        {commit, 0} =
-          git.(["commit-tree", tree, "-p", head, "-p", onto, "-m", message], @update_identity)
-
-        commit = String.trim(commit)
-        {_, 0} = git.(["update-ref", "refs/atlas/updates/#{number}/#{base}", commit], [])
-        {:ok, commit}
+          {_, 1} ->
+            merged(git, number, base, head, onto)
+        end
 
       {_, status} ->
         {:failed, status}
+    end
+  end
+
+  defp merged(git, number, base, head, onto) do
+    {out, status} =
+      git.(["merge-tree", "--write-tree", "--name-only", "--no-messages", head, onto], [])
+
+    true = status in [0, 1]
+    [tree | conflicts] = String.split(out, "\n", trim: true)
+
+    message =
+      "Atlas: merge #{base} into pull ##{number}" <>
+        if(conflicts == [],
+          do: "",
+          else: "\n\nConflicts:\n" <> Enum.map_join(Enum.uniq(conflicts), "\n", &("\t" <> &1))
+        )
+
+    {commit, 0} =
+      git.(["commit-tree", tree, "-p", head, "-p", onto, "-m", message], @update_identity)
+
+    commit = String.trim(commit)
+    {_, 0} = git.(["update-ref", "refs/atlas/updates/#{number}/#{base}", commit], [])
+    {:ok, commit}
+  end
+
+  # The files Code's update merge `commit` (`merged/5`: its message names them) conflicts in,
+  # each to be read from its second parent, the base merged in: `%{path => base}`. Empty for
+  # any other commit.
+  defp conflicted(dir, commit) do
+    {out, 0} = System.cmd("git", ["--git-dir", dir, "log", "-1", "--format=%P%n%B", commit])
+    [parents, message] = String.split(out, "\n", parts: 2)
+
+    with [_head, onto] <- String.split(parents),
+         [_, listed] <-
+           Regex.run(~r/\AAtlas: merge .+ into pull #[0-9]+\n\nConflicts:\n(.*)\z/s, message) do
+      for "\t" <> path <- String.split(listed, "\n", trim: true), into: %{}, do: {path, onto}
+    else
+      _ -> %{}
     end
   end
 
@@ -1901,7 +1935,8 @@ defmodule AtlasCode.Service do
          %{"target" => base, "title" => title, "body" => body} = request
        ) do
     body_file = file <> ".body.tmp"
-    File.write!(body_file, body)
+    # Merging the pull closes nothing else on GitHub (IS-Atlas-136).
+    File.write!(body_file, AtlasCode.ClosingKeywords.defuse(body))
 
     try do
       args = ["pr", "create", "--repo=" <> slug, "--head=" <> location, "--base=" <> base]

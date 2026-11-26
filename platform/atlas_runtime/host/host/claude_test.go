@@ -211,9 +211,17 @@ func TestClaudeSettingsTempByteLimitAndTrustService(t *testing.T) {
 	deny := settings.Sandbox.Filesystem.DenyWrite
 	protected := []string{root + "/.agents", root + "/.codex", root + "/.aws", root + "/.claude", root + "/.git/config", root + "/.git/hooks", "/runtime-home"}
 	protected = append(protected, socketPaths("/runtime-home")...)
-	tmp, _ := resolvePath("/tmp")
-	if len(deny) <= len(protected) || !slices.Equal(deny[len(deny)-len(protected):], protected) ||
-		!slices.Contains(deny, tmp) || !slices.IsSorted(deny[:len(deny)-len(protected)]) {
+	system, err := temporaryDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roots []string
+	for _, path := range []string{system, "/tmp", "/var/tmp"} {
+		if resolved, _ := resolvePath(path); !slices.Contains(roots, resolved) {
+			roots = append(roots, resolved)
+		}
+	}
+	if !slices.Equal(deny, append(roots, protected...)) {
 		t.Fatalf("denyWrite %v", deny)
 	}
 	if !strings.HasPrefix(encoded, `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"excludedCommands":[],"filesystem":{"allowWrite":`) {

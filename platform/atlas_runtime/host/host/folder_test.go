@@ -66,7 +66,7 @@ func homePath(t *testing.T, user, home, dest string) []string {
 	t.Setenv("PATH", strings.Join([]string{filepath.Join(user, ".asdf", "shims"), filepath.Join(user, "linkbin"), "/usr/bin", user,
 		filepath.Join(home, "bin"), filepath.Join(dest, "bin"), filepath.Join(user, ".config"), "bin", filepath.Join(user, ".asdf", "shims")}, ":"))
 	readable := []string{filepath.Join(user, ".asdf", "shims"), filepath.Join(user, "tools", "bin"), filepath.Join(user, ".config")}
-	for _, name := range []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod"} {
+	for _, name := range []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod", ".cache/atlas"} {
 		readable = append(readable, filepath.Join(user, name))
 	}
 	return readable
@@ -95,7 +95,8 @@ func TestFolderProfileArgumentsAreTheEnforcementContract(t *testing.T) {
 		filesystem = append(filesystem, q(path)+`="none"`)
 	}
 	filesystem = append(filesystem, q(scope["record"].(string))+`="read"`, q(scope["baseline"].(string))+`="read"`,
-		q(dest+"/.git")+`="none"`, q(dest+"/repo/.git")+`="none"`)
+		// The repository's own .git lies in the writable folder (stage and commit), its config and hooks read-only.
+		q(dest+"/.git")+`="none"`, q(dest+"/repo/.git/config")+`="read"`, q(dest+"/repo/.git/hooks")+`="read"`)
 	for _, path := range readable {
 		filesystem = append(filesystem, q(path)+`="read"`)
 	}
@@ -392,13 +393,12 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	var roots []string
-	for _, path := range []string{"/tmp", "/var/tmp", system} {
+	for _, path := range []string{system, "/tmp", "/var/tmp"} {
 		resolved, _ := resolvePath(path)
 		if !slices.Contains(roots, resolved) {
 			roots = append(roots, resolved)
 		}
 	}
-	slices.Sort(roots)
 	record, baseline := scope["record"].(string), scope["baseline"].(string)
 	protected := slices.Concat([]string{home}, socketPaths(home), []string{dest + "/.git", token, filepath.Dir(token), user + "/.claude"})
 	for _, name := range credentialPaths {
@@ -416,7 +416,7 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 	want := func(inspector string, marker ...string) string {
 		allowRead := append(append([]string{record, baseline, user + "/.claude/shell-snapshots", user + "/.claude/session-env"}, marker...), dest, temporary)
 		return `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"excludedCommands":[],` +
-			`"filesystem":{"allowWrite":` + q(dest, temporary) + `,"denyWrite":` + q(append(append(roots, protected...), record, baseline)...) +
+			`"filesystem":{"allowWrite":` + q(dest, temporary) + `,"denyWrite":` + q(append(append(roots, protected...), record, baseline, dest+"/repo/.git/config", dest+"/repo/.git/hooks")...) +
 			`,"denyRead":` + q(append([]string{user}, protected...)...) + `,"allowRead":` + q(append(append(allowRead, readable...), inspector)...) +
 			`},"network":{"allowedDomains":[],"strictAllowlist":true,"allowUnixSockets":` + q(temporary) +
 			`,"allowAllUnixSockets":false,"allowLocalBinding":true},"allowPty":true},` +
@@ -446,7 +446,9 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(marker), "journal.json"), []byte(`{"phase":"done"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	rebound := strings.Replace(want(inspector, marker), q(baseline)[1:]+`,"denyRead"`, q(baseline, marker)[1:]+`,"denyRead"`, 1)
+	git := []string{dest + "/repo/.git/config", dest + "/repo/.git/hooks"}
+	rebound := strings.Replace(want(inspector, marker), q(append([]string{baseline}, git...)...)[1:]+`,"denyRead"`,
+		q(append([]string{baseline, marker}, git...)...)[1:]+`,"denyRead"`, 1)
 	if encoded, err = claudeFolderSettings(scope, temporary, user, inspector); err != nil || encoded != rebound {
 		t.Fatalf("done marker grant: %v\ngot  %s\nwant %s", err, encoded, rebound)
 	}
@@ -747,7 +749,8 @@ func TestFolderProfileIsEnforcedByInstalledCodexSandbox(t *testing.T) {
 		{fmt.Sprintf("touch %q", filepath.Join(user, "planted")), false},
 		{fmt.Sprintf("echo x > %q", record), false},
 		{fmt.Sprintf("touch %q", filepath.Join(home, "planted")), false},
-		{"mkdir repo/.git", false},
+		// The folder's own .git stays denied; a repository's own .git is the agent's checkout, probed in
+		// TestWorkFolderProfileIsEnforcedByInstalledCodexSandbox (stage and commit, config and hooks refused).
 		{"mkdir .git", false},
 		// Loopback is open (listen and connect); everything external stays blocked, directly or via the proxy.
 		{"curl -sS -m 5 " + server.URL, true},

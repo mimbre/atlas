@@ -18,8 +18,10 @@
 #
 # model validates the description and draws the diagrams with the rela that
 # platform/atlas_facts/rela/scripts/start-test.sh pins, from
-# ${XDG_CACHE_HOME:-~/.cache}/atlas/rela-<version>, installed there when missing. Never a rela
-# from PATH or ATLAS_RELA_BIN.
+# ${XDG_CACHE_HOME:-~/.cache}/atlas/rela-<version>, installed there when missing; or from
+# the machine's tools folder ~/.cache/atlas/rela-<version> when only that one is there (an agent's
+# sandbox points XDG_CACHE_HOME at its private temp and reads the tools folder). Never a rela from
+# PATH or ATLAS_RELA_BIN.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
@@ -46,6 +48,7 @@ for name in "${names[@]}"; do
     start_test="$root/platform/atlas_facts/rela/scripts/start-test.sh"
     version="$(sed -n 's/^version=//p' "$start_test")"
     rela_bin="${XDG_CACHE_HOME:-$HOME/.cache}/atlas/rela-$version"
+    [ -x "$rela_bin/rela" ] || [ ! -x "$HOME/.cache/atlas/rela-$version/rela" ] || rela_bin="$HOME/.cache/atlas/rela-$version"
     ATLAS_RELA_BIN="$rela_bin" "$start_test" install >&2
     (cd "$root/$(project model)" && ATLAS_RELA_BIN="$rela_bin" mix do deps.get + model.gen)
   else

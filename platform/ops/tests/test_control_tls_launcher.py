@@ -16,7 +16,7 @@ class LauncherTest(unittest.TestCase):
             root = Path(temporary)
             for folder in ['bin/lib','platform/clients/agent','platform/clients/tui','products/software_factory/environments']:
                 (root/folder).mkdir(parents=True)
-            for name in ['bin/atlas','bin/lib/env.sh']:
+            for name in ['bin/atlas','bin/lib/env.sh','bin/lib/update.sh']:
                 (root/name).write_text((ROOT/name).read_text())
             (root/'bin/atlas').chmod(0o755)
             (root/'bin/lib/tunnel.sh').write_text('ensure_tunnel() { echo tunnel >>"$CAPTURE"; }\n')

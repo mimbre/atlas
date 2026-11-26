@@ -230,6 +230,11 @@ defmodule AtlasFlow.FakeFacts do
             read["plain"] == true and fact != nil ->
               %{"fact" => Map.drop(fact, ~w(progress completion))}
 
+            # A full read also answers what points at it, by relation (rela's incoming
+            # relations of the key), as Facts does.
+            fact != nil and read["incoming"] != false ->
+              %{"fact" => fact, "incoming" => incoming(s.facts, key)}
+
             true ->
               %{"fact" => fact}
           end
@@ -328,6 +333,17 @@ defmodule AtlasFlow.FakeFacts do
 
   # Someone's choice (`values`: `run`, `entry`, `roles`, `changed_fields`): its subject
   # changed as it says, and the input recorded applied on the subject's new version.
+  # The keys of the facts that point at `key`, by relation, in key order.
+  defp incoming(facts, key) do
+    pairs =
+      for {{_kind, from}, fact} <- Enum.sort(facts),
+          {relation, keys} <- fact["links"] || %{},
+          key in List.wrap(keys),
+          do: {relation, from}
+
+    Enum.group_by(pairs, &elem(&1, 0), &elem(&1, 1))
+  end
+
   defp submit(e, %{"key" => key, "values" => v}, s) do
     run = cursor(s, v["run"])
     subject_key = {run["values"]["subject_kind"], run["values"]["subject_key"]}

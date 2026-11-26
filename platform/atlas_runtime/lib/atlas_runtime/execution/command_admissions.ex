@@ -126,7 +126,7 @@ defmodule AtlasRuntime.CommandAdmissions do
     allowed =
       case operation do
         "start" ->
-          ~w(command assignment cwd repository branch permissions sandbox backend profile cost_class worker_id questions_enabled)
+          ~w(command assignment cwd repository branch permissions sandbox backend profile cost_class worker_id questions_enabled read_only)
 
         "continue" ->
           ~w(command assignment worker_id turn_id)
@@ -160,6 +160,13 @@ defmodule AtlasRuntime.CommandAdmissions do
       request = Map.put(request, "questions_enabled", questions)
 
       optional!(request, "permissions", &(&1 in ["dedicated-repository", "materialized-folder"]))
+
+      # A read-only materialized folder (IS-Atlas-20): given only as true, and only with those
+      # permissions.
+      optional!(request, "read_only", &(&1 == true))
+
+      if Map.has_key?(request, "read_only") and request["permissions"] != "materialized-folder",
+        do: raise(ArgumentError, "read_only is only for materialized-folder permissions")
 
       cond do
         Map.has_key?(request, "repository") or Map.has_key?(request, "branch") ->
@@ -241,6 +248,8 @@ defmodule AtlasRuntime.CommandAdmissions do
                binding["questions_enabled"] == request["questions_enabled"] and
                binding["sandbox"] == request["sandbox"] and
                request["permissions"] == binding["permissions"]["profile"] and
+               Map.has_key?(request, "read_only") ==
+                 Map.has_key?(binding["permissions"] || %{}, "read_only") and
                Map.has_key?(request, "repository") == is_map(binding["repository"]),
              do: raise("Start binding does not match its request")
 
@@ -270,9 +279,9 @@ defmodule AtlasRuntime.CommandAdmissions do
          "cwd" => cwd,
          "repository" => nil
        }) do
-    Enum.sort(Map.keys(scope)) ==
+    Enum.sort(Map.keys(Map.delete(scope, "read_only"))) ==
       ~w(baseline home profile record repositories root snapshot_id version) and
-      materialized_scope?(scope, cwd)
+      Map.get(scope, "read_only", true) == true and materialized_scope?(scope, cwd)
   end
 
   defp valid_permissions?(%{"permissions" => scope, "sandbox" => nil, "cwd" => cwd})

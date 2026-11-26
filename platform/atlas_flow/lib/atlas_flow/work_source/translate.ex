@@ -11,12 +11,15 @@ defmodule AtlasFlow.WorkSource.Translate do
                     "after_check" => %{"command" => [...]} (only with a check),
                     "input" => %{"base" => %{"base_id", "manifest"},
                                  "permissions" => "workspace-write" | "read-only",
-                                 "result_ref" => "refs/atlas/results/<key>" (a writable task's)}}}
+                                 "result_ref" => "refs/atlas/results/<key>" (a writable task's),
+                                 "checkout" => true (a read-only task on a result: a review's)}}}
 
   Title and instructions are built as `AtlasFlow.Activities.Task.request/3` builds them;
   the base comes from `AtlasFlow.Bases`. A result travels over Git only: a writable task's
   Runtime pushes its result commit to `result_ref`, and a later task starts from that
-  commit as its base; no change set is ever an input. No `slot`, `folder`,
+  commit as its base; no change set is ever an input. A read-only task on a result (a
+  subject's review) asks for a Git checkout of it without a result (`checkout`, IS-Atlas-19):
+  it reads the change with Git and runs the checks, and pushes nothing. No `slot`, `folder`,
   `resume_from`, `repository` or path is ever in it, so none can reach `offered_work/1`.
 
   **Reports.** A report arrives in contract terms (atom keys, atoms, structs or plain
@@ -40,10 +43,14 @@ defmodule AtlasFlow.WorkSource.Translate do
   def intent(spec, subject, key, base, machinery, %DateTime{} = now) do
     request = Task.request(spec, subject, key)
 
+    permissions = permissions(spec)
+
     input = %{
       "base" => %{"base_id" => base.base_id, "manifest" => base.manifest},
-      "permissions" => permissions(spec)
+      "permissions" => permissions
     }
+
+    input = if checkout?(spec, permissions), do: Map.put(input, "checkout", true), else: input
 
     work =
       request
@@ -88,9 +95,10 @@ defmodule AtlasFlow.WorkSource.Translate do
   The intent of task `key` with its result over Git: `input.result_ref`, the ref
   `refs/atlas/results/<key>` the Runtime pushes its result commit to in the base's Code
   repository. Every writable task's: a result travels over Git only, never as a change set.
-  The Runtime makes such a task's folder a Git checkout of its base; a subject's review gets one
-  too, and the result it pushes is never read; a subject's fix too, its result on the author's.
-  A read-only task (`permissions/1`) brings back its answer only.
+  The Runtime makes such a task's folder a Git checkout of its base; a subject's fix too, its
+  result on the author's. A read-only task (`permissions/1`) brings back its answer only and
+  gets no `result_ref`: a subject's review gets its checkout through `checkout` instead, so
+  no `refs/atlas/results/<review task>` is ever pushed.
   """
   def result_ref(intent, key) do
     if get_in(intent, ["work", "input", "permissions"]) == "workspace-write",
@@ -130,16 +138,28 @@ defmodule AtlasFlow.WorkSource.Translate do
   end
 
   @doc """
-  The permissions a task's work runs with: read-only for a review or a diagnose on a
-  base. A subject's review or fix (`input` a repository and the latest result)
-  works in a Git checkout of that result it may build in (bin/check): writable.
+  The permissions a task's work runs with: read-only for a review or a diagnose, on a base
+  or on a result (IS-Atlas-20: a subject's review reads its Git checkout and runs bin/check,
+  whose build goes to a scratch the Runtime gives it, and writes nothing in it). A subject's
+  fix (`input` a repository and the latest result) works in a Git checkout of that result:
+  writable.
   """
+  def permissions(%{"kind" => kind}) when kind in @read_only, do: "read-only"
+
   def permissions(%{"input" => %{"repository" => _, "result" => "latest"}}),
     do: "workspace-write"
 
   def permissions(%{} = spec), do: permissions(spec["kind"])
   def permissions(kind) when kind in @read_only, do: "read-only"
   def permissions(_kind), do: "workspace-write"
+
+  @doc """
+  Whether a task's work asks for a Git checkout without a result (`input.checkout`): a
+  read-only task on a repository's latest result, a subject's review. A writable task gets
+  its checkout from its `result_ref`.
+  """
+  def checkout?(%{"input" => %{"repository" => _, "result" => "latest"}}, "read-only"), do: true
+  def checkout?(_spec, _permissions), do: false
 
   @doc "Whether `intent` is a version-2 intent Dispatch can offer."
   def intent?(%{"version" => 2, "key" => key, "work" => %{} = work} = intent) do
@@ -182,7 +202,8 @@ defmodule AtlasFlow.WorkSource.Translate do
       permissions: input["permissions"]
     }
 
-    if ref = input["result_ref"], do: Map.put(offered, :result_ref, ref), else: offered
+    offered = if ref = input["result_ref"], do: Map.put(offered, :result_ref, ref), else: offered
+    if input["checkout"] == true, do: Map.put(offered, :checkout, true), else: offered
   end
 
   @doc "The lease's input as the task fact keeps it (`input`, JSON): what `get_blob` scopes by."

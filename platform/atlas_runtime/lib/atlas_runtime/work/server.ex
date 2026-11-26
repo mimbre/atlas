@@ -1158,9 +1158,7 @@ defmodule AtlasRuntime.Work.Server do
               source: source,
               change_set: change_set,
               pending: if(is_nil(imported), do: true),
-              git_base:
-                Map.get(work.input, :result_ref) &&
-                  "refs/atlas/bases/" <> work.input.base.base_id
+              git_base: git_base(work.input)
             )
         }
 
@@ -1181,6 +1179,14 @@ defmodule AtlasRuntime.Work.Server do
       {:refused, reason, detail} ->
         {lease_refused(source, lease_id, reason, detail), state}
     end
+  end
+
+  # A lease whose folder is a Git checkout of its base: one that pushes its result there
+  # (`result_ref`), or a read-only one that asks for a checkout without a result (`checkout`,
+  # IS-Atlas-19: a job's review). Its ref in the source's Git cache, or nil.
+  defp git_base(%{base: %{base_id: base_id}} = input) do
+    if is_binary(Map.get(input, :result_ref)) or Map.get(input, :checkout) == true,
+      do: "refs/atlas/bases/" <> base_id
   end
 
   # The offered work (decision §5.1) as a work request: a base, never a slot, a folder, a
@@ -1849,7 +1855,11 @@ defmodule AtlasRuntime.Work.Server do
       home: state.dir,
       work_id: record.work_id,
       attempt: attempt.attempt,
-      read_only: record.request.workspace.permissions == :read_only,
+      # A read-only Git checkout (a job's review) is not sealed: Git writes it as the Runtime
+      # checks it out, and the turn's sandbox keeps the agent from writing it (IS-Atlas-20).
+      read_only:
+        record.request.workspace.permissions == :read_only and
+          not git_checkout?(record),
       timeout_ms: state.prepare_timeout_ms,
       hook: state.prepare_hook
     }
@@ -1886,6 +1896,9 @@ defmodule AtlasRuntime.Work.Server do
 
     %{state | preparers: Map.put(state.preparers, ref, {record.work_id, attempt.attempt})}
   end
+
+  defp git_checkout?(%{imported: %M.Imported{git_base: ref}}), do: is_binary(ref)
+  defp git_checkout?(_record), do: false
 
   defp prepare_pid(state, ref, os_pid, preparer) do
     case state.preparers[ref] do

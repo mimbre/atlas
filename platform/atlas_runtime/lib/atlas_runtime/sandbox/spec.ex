@@ -58,9 +58,9 @@ defmodule AtlasRuntime.Sandbox.Spec do
   ]
 
   # The toolchain locations a folder worker may read in its denied user home: asdf and
-  # .tool-versions, Mix archives, the Hex cache and the Go module cache (homeReadNames,
-  # codex.go:290).
-  @home_read_names [".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod"]
+  # .tool-versions, Mix archives, the Hex cache, the Go module cache and the tools folder
+  # ~/.cache/atlas, the pinned tools a repository's checks need (homeReadNames, codex.go:290).
+  @home_read_names [".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod", ".cache/atlas"]
 
   # A preparation also denies ~/.npmrc (setupArguments, codex.go:460).
   @setup_names [".npmrc"]
@@ -74,6 +74,9 @@ defmodule AtlasRuntime.Sandbox.Spec do
   # Claude 2.1.280 redirects a longer child-temp path to the shared /tmp/claude-<uid>
   # (claudeTemporaryRoots, claude.go:476-479).
   @child_temp_limit 44
+
+  # A folder repository's own Git entries an agent reads but never writes (repositoryGitNames).
+  @repository_git_names ["config", "hooks"]
 
   @claude_repository_denies [".agents", ".codex", ".aws", ".claude", ".git/config", ".git/hooks"]
 
@@ -258,7 +261,13 @@ defmodule AtlasRuntime.Sandbox.Spec do
         Map.put(
           spec,
           "env",
-          folder_env(spec["env"], scope_home, text(request["inspector"]), scratch)
+          folder_env(
+            spec["env"],
+            scope_home,
+            text(request["inspector"]),
+            scratch,
+            read_only?(fields)
+          )
         ),
       else: spec
   end
@@ -310,14 +319,24 @@ defmodule AtlasRuntime.Sandbox.Spec do
     {codex, root, names}
   end
 
-  # folderArguments/workerArguments (codex.go:326-428).
+  # folderArguments/workerArguments (codex.go:326-428). A read-only folder (IS-Atlas-20, the
+  # scope's `read_only`) reads the folder instead of writing it: only the scratch is written.
   defp folder_codex(scope, scratch, request, facts) do
     # permissionArguments asks for the user home first (codex.go:45-48).
     _ = user_home!(facts)
     root = text(scope["root"])
-    entries = worker_entries(scope, [[root, "write"]], scratch, text(request["inspector"]), facts)
-    {codex("atlas_folder", ":read-only", entries, loopback(scratch), true, "disabled"), root, []}
+
+    {name, access} =
+      if read_only?(scope),
+        do: {"atlas_read_only_folder", "read"},
+        else: {"atlas_folder", "write"}
+
+    entries = worker_entries(scope, [[root, access]], scratch, text(request["inspector"]), facts)
+    {codex(name, ":read-only", entries, loopback(scratch), true, "disabled"), root, []}
   end
+
+  # ReadOnlyFolder (claude.go): the Runtime's flag on a materialized-folder scope.
+  defp read_only?(scope), do: scope["read_only"] == true
 
   # workerArguments' entry list (codex.go:347-415): write only the project and scratch, deny
   # the user home except the homeReadable toolchain paths, read only the record, baseline and
@@ -347,7 +366,7 @@ defmodule AtlasRuntime.Sandbox.Spec do
         [[record, "read"], [baseline, "read"], [clean(Path.join(root, ".git")), "none"]]
 
     entries = entries ++ for path <- present_markers(facts, home, root), do: [path, "read"]
-    entries = entries ++ for path <- repositories, do: [repository_git(root, path), "none"]
+    entries = entries ++ Enum.flat_map(repositories, &repository_git_entries(root, &1))
     denied = denied_entries(home, user, [], paths ++ [scratch], facts)
     none = for [path, "none"] <- entries ++ denied, path != user, do: path
     readable = home_readable(user, none, paths ++ [scratch], facts)
@@ -386,11 +405,31 @@ defmodule AtlasRuntime.Sandbox.Spec do
   defp repository_git(root, path) when is_binary(path), do: clean(Path.join([root, path, ".git"]))
   defp repository_git(_root, _path), do: refuse("Materialized folder scope is incomplete")
 
+  # repositoryGitEntries (codex.go): a repository's own .git is the agent's (IS-Atlas-14), in
+  # the writable folder, so it may stage and commit there; its configuration and hooks stay
+  # read-only. A repository that is the folder itself keeps the folder's .git denied.
+  defp repository_git_entries(root, path) do
+    git = repository_git(root, path)
+
+    if git == clean(Path.join(root, ".git")),
+      do: [[git, "none"]],
+      else: for(name <- @repository_git_names, do: [join(git, name), "read"])
+  end
+
   # A folder worker's environment (host.go:287-302): the inspector first on PATH, this home and
   # inspector, Git without user or system configuration or user excludes file, and temp and
-  # caches in the scratch.
-  defp folder_env(env, home, inspector, scratch) do
+  # caches in the scratch; a read-only folder's build too (MIX_BUILD_ROOT, and REBAR_BASE_DIR for
+  # the compiler state rebar3 keeps for a dependency).
+  defp folder_env(env, home, inspector, scratch, read_only) do
     caches = for {name, cache} <- @folder_caches, do: {name, scratch <> "/" <> cache}
+    build = scratch <> "/_build"
+
+    caches =
+      if read_only,
+        do: caches ++ [{"MIX_BUILD_ROOT", build}],
+        else: caches
+
+    rebar = if read_only, do: [["REBAR_BASE_DIR", build <> "/rebar3"]], else: []
 
     %{
       env
@@ -406,7 +445,7 @@ defmodule AtlasRuntime.Sandbox.Spec do
               ["GIT_CONFIG_KEY_0", "core.excludesFile"],
               ["GIT_CONFIG_VALUE_0", "/dev/null"]
             ] ++
-            for({name, path} <- caches, do: [name, path]),
+            for({name, path} <- caches, do: [name, path]) ++ rebar,
         "mkdirs" => env["mkdirs"] ++ for({_name, path} <- caches, do: path)
     }
   end
@@ -654,11 +693,16 @@ defmodule AtlasRuntime.Sandbox.Spec do
           "materialized-folder" ->
             settings = claude_folder_settings(fields, temporary, user, inspector, facts)
 
-            spec = %{
-              spec
-              | "scratch" => @temporary,
-                "env" => folder_env(spec["env"], text(fields["home"]), inspector, @temporary)
-            }
+            env =
+              folder_env(
+                spec["env"],
+                text(fields["home"]),
+                inspector,
+                @temporary,
+                read_only?(fields)
+              )
+
+            spec = %{spec | "scratch" => @temporary, "env" => env}
 
             {spec, settings, root}
 
@@ -740,15 +784,15 @@ defmodule AtlasRuntime.Sandbox.Spec do
   end
 
   # claudeFolderSettings/claudeWorkerSettings (claude.go:306-451) for a materialized folder:
-  # writable is the folder, nothing is frozen, and Bash may open pseudo-terminals.
+  # writable is the folder, nothing is frozen, and Bash may open pseudo-terminals. A read-only
+  # folder (IS-Atlas-20) is frozen instead: nothing of it is writable, only the private temp.
   defp claude_folder_settings(scope, temporary, user, inspector, facts) do
     root = text(scope["root"])
     home = text(scope["home"])
     record = text(scope["record"])
     baseline = text(scope["baseline"])
     repositories = list(scope["repositories"])
-    writable = [root]
-    frozen = []
+    {writable, frozen} = if read_only?(scope), do: {[], [root]}, else: {[root], []}
 
     if root == "" or home == "" or record == "" or baseline == "" or repositories == [] or
          inspector == "",
@@ -764,7 +808,8 @@ defmodule AtlasRuntime.Sandbox.Spec do
     writable_inspector(inspector, writable ++ [temporary])
     sockets = for [path, _] <- socket_entries(home, project ++ [temporary]), do: path
 
-    # A repository's own .git is the agent's (claude.go): only the folder's is protected.
+    # A repository's own .git is the agent's (claude.go): only the folder's is protected; its
+    # configuration and hooks are read-only (git_read_only).
     protected = [home] ++ sockets ++ [clean(Path.join(root, ".git"))]
 
     protected =
@@ -804,7 +849,12 @@ defmodule AtlasRuntime.Sandbox.Spec do
       ] ++
         markers
 
-    read_only = frozen ++ [record, baseline] ++ markers
+    git_read_only =
+      for path <- repositories,
+          [entry, "read"] <- repository_git_entries(root, path),
+          do: entry
+
+    read_only = frozen ++ [record, baseline] ++ markers ++ git_read_only
     readable = home_readable(user, protected, project ++ [temporary], facts)
     allow_read = allow_read ++ project ++ [temporary] ++ readable
 
@@ -841,8 +891,9 @@ defmodule AtlasRuntime.Sandbox.Spec do
     end
   end
 
-  # claudeTemporaryRoots (claude.go:455-481): root outside every system temp root, and the
-  # private temp within Claude's child-temp limit.
+  # claudeTemporaryRoots (claude.go): root outside every system temp root, and the private temp
+  # within Claude's child-temp limit. The roots keep a fixed order (TMPDIR, /tmp, /var/tmp,
+  # duplicates dropped) that does not depend on where they resolve.
   defp claude_temporary_roots(root, temporary, subject, facts) do
     system =
       case facts["system_temp"] do
@@ -850,10 +901,7 @@ defmodule AtlasRuntime.Sandbox.Spec do
         fact -> resolution!(fact)
       end
 
-    roots =
-      [resolved!(facts, "/tmp"), resolved!(facts, "/var/tmp"), system]
-      |> Enum.uniq()
-      |> Enum.sort()
+    roots = Enum.uniq([system, resolved!(facts, "/tmp"), resolved!(facts, "/var/tmp")])
 
     for path <- roots,
         root == path or String.starts_with?(root, String.replace_suffix(path, "/", "") <> "/"),

@@ -3,8 +3,8 @@ defmodule Model.IssueRunsTest do
   The issue subflow on Flow's durable runs (slice 6): its author, who reads the issue and
   why it is to be done (its use case and scene), has its result reviewed
   by a second task before Code opens its pull request. The review's base is the author's
-  result, which Code serves like a branch (`refs/atlas/results/<task>`); it works in a Git
-  checkout of it. A review that asks for changes leads to one fix on that result, with its
+  result, which Code serves like a branch (`refs/atlas/results/<task>`); it reads a Git
+  checkout of it, read-only, and pushes no result of its own (IS-Atlas-20). A review that asks for changes leads to one fix on that result, with its
   findings; the fix's result is published, with the review and the fix's answer. Run by
   `AtlasFlow.Runs.Store` with `AtlasFlow.FakeFacts`, the work source's processes on
   `AtlasFlow.FakeCode` and a manual clock. Structure, not wording.
@@ -104,13 +104,14 @@ defmodule Model.IssueRunsTest do
     assert intent["work"]["input"]["base"]["base_id"] == base.base_id
     assert FakeFacts.get("task", @review)["values"]["kind"] == "review"
 
-    # A Git checkout it may build in; what it pushes back is never read. The next round
-    # offers it.
+    # A read-only Git checkout (IS-Atlas-20): it reads the change and runs bin/check, and
+    # pushes no result (IS-Atlas-19: no result ref). The next round offers it.
     assert reconcile(c)["state"] == "reviewing"
     {_, work} = leased = lease!()
     assert work.profile == "independent_review"
-    assert work.input.permissions == "workspace-write"
-    assert work.input.result_ref == "refs/atlas/results/" <> @review
+    assert work.input.permissions == "read-only"
+    assert work.input.checkout == true
+    refute Map.get(work.input, :result_ref)
     assert work.instructions =~ ~s("verdict")
     assert work.instructions =~ ~s("follow_ups")
 
@@ -185,21 +186,33 @@ defmodule Model.IssueRunsTest do
   end
 
   @url "https://github.com/mimbre/atlas/pull/9"
+  # Code's update of pull 9 with develop: its head itself when it holds develop already.
+  @update "refs/atlas/updates/9/develop"
   @red "unit: test/readme_test.exs:3\n    Assertion with == failed: the typo is back"
 
   test "red CI leads to a fix of what failed, pushed onto the same pull request; green is merging",
        c do
     publishing = published(c)
     assert publishing["state"] == "checking"
-    assert FakeFacts.get("issue", @key)["values"]["pr_url"] == @url
-    assert FakeFacts.get("issue", @key)["values"]["pr_checks"] == "pending"
+    values = FakeFacts.get("issue", @key)["values"]
+    assert values["pr_url"] == @url
+
+    # Code answered with the head it pushed: the CI gate waits for that head's checks.
+    published = head("refs/atlas/results/" <> @author)
+    assert values["pr_head"] == published
 
     # rela's GitHub sync: the checks of its head failed.
     sync(%{"pr_checks" => "failure", "pr_checks_failure" => @red})
     assert intent(c)["state"] == "ci_fixing"
 
-    # The fix works on the latest result with what failed, not the review's findings.
+    # The fix works on its pull request's head (IS-Atlas-131) with what failed, not the
+    # review's findings.
+    {:ok, base} = Bases.cached(@repository, @update)
+    assert FakeFacts.get("task", @fix)["values"]["kind"] == "fix"
     {_, work} = leased = lease!()
+    assert work.input.base.base_id == base.base_id
+    assert work.input.result_ref == "refs/atlas/results/" <> @fix
+    assert work.instructions =~ "a Git checkout of the pull request's head"
     assert work.instructions =~ "## What to fix\n\n" <> @red
     refute work.instructions =~ "Name it better."
     finish(lease: leased, answer: "Fixed the README test.")
@@ -212,20 +225,80 @@ defmodule Model.IssueRunsTest do
     assert input["pull"] == @url
     assert input["result"] == "refs/atlas/results/TK-IS-Atlas-01-3"
 
-    # Entering it again fences the red of the head before the push.
-    assert FakeFacts.get("issue", @key)["values"]["pr_checks"] == "pending"
-    assert FakeFacts.get("issue", @key)["values"]["pr_url"] == @url
+    # Its head is now the fix Code pushed, on the same pull request.
+    values = FakeFacts.get("issue", @key)["values"]
+    assert values["pr_head"] == head("refs/atlas/results/" <> @fix)
+    assert values["pr_url"] == @url
 
-    # Green, but GitHub has not said yet whether it merges: not its supervisor's yet.
-    sync(%{"pr_checks" => "success"})
+    # IS-Atlas-120: rela's sync read the head before the push (red) and wrote it after: that
+    # red is not this head's, so it waits in the CI gate and no CI fix starts; nor does a
+    # green of that head make it its supervisor's.
+    sync_for(published, %{"pr_checks" => "failure", "pr_checks_failure" => @red})
+    waiting = settle(c)
+    assert {waiting["state"], waiting["pending"]["task"]} == {"checking", nil}
+    assert FakeFacts.get("task", "TK-IS-Atlas-01-4") == nil
+
+    sync_for(published, %{"pr_checks" => "success", "pr_mergeable" => "clean"})
     assert settle(c)["state"] == "checking"
 
+    # Green, but GitHub has not said yet whether its head merges: not its supervisor's yet.
+    sync(%{"pr_checks" => "success", "pr_mergeable" => "unknown"})
+    assert settle(c)["state"] == "checking"
+
+    # Green and mergeable on its head: its supervisor's to merge.
     sync(%{"pr_checks" => "success", "pr_mergeable" => "clean"})
     assert until(c, "merging")["state"] == "merging"
+    assert FakeFacts.get("task", "TK-IS-Atlas-01-4") == nil
+  end
 
-    # Red at Merge it (a rerun, a push) takes it back to the CI gate.
+  # IS-Atlas-122: once at Merge it, its CI turning red on its head (a rerun, a push) takes it
+  # back to the CI gate, its supervisor's to-do withdrawn, and one fix says why.
+  test "red on its head at Merge it: back to the CI gate, one fix saying it was green, its supervisor's to-do withdrawn",
+       c do
+    published(c)
+    sync(%{"pr_checks" => "success", "pr_mergeable" => "clean"})
+    assert until(c, "merging")["state"] == "merging"
+    assert {:ok, _} = AtlasFlow.Runs.Projection.project(c.runner, "issue", @key)
+    to_do = FakeFacts.get("assignment", "AS-" <> @key)["values"]
+
+    assert {to_do["flow_state"], to_do["expected"]} ==
+             {"merging", "Review and merge its pull request"}
+
+    # A red of another head (one GitHub had before) leaves it with its supervisor.
+    sync_for(String.duplicate("0", 40), %{"pr_checks" => "failure", "pr_checks_failure" => @red})
+    assert settle(c)["state"] == "merging"
+
+    # Red on its head: the CI gate takes it, and fixes it as usual, once.
+    flow = c.runner.flows["issue"]
     sync(%{"pr_checks" => "failure", "pr_checks_failure" => @red})
+    values = FakeFacts.get("issue", @key)["values"]
+    assert flow.next("merging", values, nil) == {:to, "checking"}
+
+    fixing = intent(c)
+    assert {fixing["state"], fixing["pending"]["task"]["key"]} == {"ci_fixing_after_green", @fix}
+    assert FakeFacts.get("task", "TK-IS-Atlas-01-4") == nil
+    assert FakeFacts.get("issue", @key)["values"]["ci_fixes"] == "one"
+
+    # The Merge it to-do is withdrawn, and the item says why.
+    assert {:ok, _} = AtlasFlow.Runs.Projection.project(c.runner, "issue", @key)
+    to_do = FakeFacts.get("assignment", "AS-" <> @key)["values"]
+    assert to_do["flow_state"] == "ci_fixing_after_green"
+    refute to_do["expected"] == "Review and merge its pull request"
+
+    assert flow.present("ci_fixing_after_green", values)["why"] ==
+             "its CI turned red after it was green"
+
+    {_, work} = leased = lease!()
+    assert work.instructions =~ "## What to fix\n\n" <> @red
+    finish(lease: leased, answer: "Fixed the README test.")
     assert until(c, "checking")["state"] == "checking"
+
+    assert FakeFacts.get("issue", @key)["values"]["pr_head"] ==
+             head("refs/atlas/results/" <> @fix)
+
+    # Its fix green and mergeable: its supervisor's to merge again.
+    sync(%{"pr_checks" => "success", "pr_mergeable" => "clean"})
+    assert until(c, "merging")["state"] == "merging"
   end
 
   test "conflicting with develop: an update resolves develop merged into it, pushed onto the same pull request; once only",
@@ -255,17 +328,20 @@ defmodule Model.IssueRunsTest do
     assert intent(c)["state"] == "updating"
     update.(@fix)
 
+    # Its head is the update Code pushed: the conflict GitHub read for the head before it
+    # is not this one's.
     values = FakeFacts.get("issue", @key)["values"]
-    assert values["pr_mergeable"] == "unknown"
+    assert values["pr_head"] == head("refs/atlas/results/" <> @fix)
+    assert values["pr_checks_head"] != values["pr_head"]
     assert values["pr_updates"] == "one"
+    assert settle(c)["state"] == "checking"
 
     sync(%{"pr_checks" => "success", "pr_mergeable" => "clean"})
     assert until(c, "merging")["state"] == "merging"
     assert FakeFacts.get("issue", @key)["values"]["pr_updates"] == "none"
 
-    # develop moved on: conflicting at Merge it takes it away, for a new update.
-    sync(%{"pr_mergeable" => "conflicting"})
-    assert until(c, "checking")["state"] == "checking"
+    # develop moved on: conflicting at Merge it takes it back through the CI gate, for a
+    # new update.
     sync(%{"pr_mergeable" => "conflicting"})
     assert intent(c)["state"] == "updating"
     update.("TK-IS-Atlas-01-4")
@@ -280,9 +356,8 @@ defmodule Model.IssueRunsTest do
              "config" => "decider"
            }
 
-    # Updated by hand: mergeable and green goes to its supervisor to merge.
-    sync(%{"pr_mergeable" => "clean", "pr_checks" => "success"})
-    assert until(c, "checking")["state"] == "checking"
+    # Updated by hand: mergeable and green on its head goes back through the CI gate to its
+    # supervisor to merge.
     sync(%{"pr_mergeable" => "clean", "pr_checks" => "success"})
     assert until(c, "merging")["state"] == "merging"
   end
@@ -315,6 +390,68 @@ defmodule Model.IssueRunsTest do
     # Fixed by hand: green goes to its supervisor to merge.
     sync(%{"pr_checks" => "success", "pr_mergeable" => "clean"})
     assert until(c, "merging")["state"] == "merging"
+  end
+
+  # IS-Atlas-131, IS-Atlas-121: someone else pushed onto its pull request. Its CI fix starts
+  # from the pull's head as GitHub holds it (Code's update of it with develop), so its result
+  # lands on that head; a push Code still refuses (the branch moved again during the fix)
+  # goes back to the CI gate, never Stuck: fixed again from the new head within its two
+  # fixes, then its supervisor decides, told how the push ended.
+  test "a foreign push onto its pull request: the CI fix starts from the pull's head; a refused push goes back to the CI gate, then to its supervisor, never Stuck",
+       c do
+    published(c, 2)
+
+    # Someone pushed onto its branch: rela's sync takes the pull's head as pr_head, red.
+    theirs = String.duplicate("f", 40)
+    pull_head(c, "rev_theirs", "# Atlas\n\nChanged.\n\nTheirs.\n")
+
+    sync_for(theirs, %{"pr_head" => theirs, "pr_checks" => "failure", "pr_checks_failure" => @red})
+
+    fixing = intent(c)
+    assert {fixing["state"], fixing["pending"]["task"]["key"]} == {"ci_fixing", @fix}
+
+    # Its base is the pull's head as Code serves it, not the run's latest result.
+    {:ok, head_base} = Bases.cached(@repository, @update)
+    assert fixing["pending"]["task"]["work"]["input"]["base"]["base_id"] == head_base.base_id
+    assert fixing["pending"]["task"]["work"]["instructions"] =~ "## What to fix\n\n" <> @red
+
+    # The branch moves again while it fixes: rela's sync takes that head, red too.
+    moved = String.duplicate("e", 40)
+    pull_head(c, "rev_moved", "# Atlas\n\nChanged.\n\nTheirs again.\n")
+    sync_for(moved, %{"pr_head" => moved, "pr_checks" => "failure", "pr_checks_failure" => @red})
+    finish(answer: "Fixed the README test.")
+
+    # Code refuses its push (branch_taken): no Stuck, but back through the CI gate, which
+    # fixes it again from the branch's new head, the second and last time.
+    again = intent(c)
+
+    assert {again["state"], again["pending"]["task"]["key"]} ==
+             {"ci_fixing_again", "TK-IS-Atlas-01-4"}
+
+    assert_received {:published, %{"name" => "push", "input" => %{"pull" => @url}}}
+    values = FakeFacts.get("issue", @key)["values"]
+
+    assert {values["ci_push"], values["ci_fixes"], values["pr_head"]} ==
+             {"branch_taken", "two", moved}
+
+    {:ok, moved_base} = Bases.cached(@repository, @update)
+    assert again["pending"]["task"]["work"]["input"]["base"]["base_id"] == moved_base.base_id
+    refute moved_base.base_id == head_base.base_id
+    finish(answer: "Fixed it again.")
+
+    # Refused again, after its two fixes: its supervisor's, who is told how its last push
+    # ended; never Stuck.
+    failing = until(c, "ci_failing")
+    assert failing["pending"]["task"] == nil
+    assert FakeFacts.get("issue", @key)["values"]["ci_push"] == "branch_taken"
+
+    assert c.runner.flows["issue"].present("ci_failing", %{})["todo"]["instructions"] =~
+             "branch_taken"
+
+    # A refusal for any other reason goes back to the CI gate too.
+    flow = c.runner.flows["issue"]
+    assert flow.next("ci_pushing", %{"ci_push" => "refused"}, :result) == {:to, "checking"}
+    assert flow.next("ci_pushing", %{"ci_push" => "branch_taken"}, :result) == {:to, "checking"}
   end
 
   # No item gets stuck (IS-Atlas-60): an agent task that ends without a result keeps the
@@ -620,7 +757,7 @@ defmodule Model.IssueRunsTest do
 
   # Its pull request closed on GitHub without merging (IS-Atlas-11, IS-Atlas-119): its
   # supervisor decides, with Build it again and Close it.
-  @waiting ~w(checking ci_fixing ci_fixing_again ci_pushing ci_failing updating update_pushing update_failing merging)
+  @waiting ~w(checking ci_fixing ci_fixing_again ci_fixing_after_green ci_pushing ci_failing updating update_pushing update_failing merging)
 
   test "closed while waiting for its CI: its supervisor decides; Build it again opens a new pull request",
        c do
@@ -691,8 +828,13 @@ defmodule Model.IssueRunsTest do
     sync(%{"pr_state" => "closed"})
     assert until(c, "pr_closed")["state"] == "pr_closed"
 
-    sync(%{"pr_state" => "open"})
+    # Reopened while its CI runs again: the CI gate waits for it.
+    sync(%{"pr_state" => "open", "pr_checks" => "pending"})
     assert until(c, "checking")["state"] == "checking"
+
+    # Green and mergeable on its head: its supervisor's to merge again.
+    sync(%{"pr_checks" => "success"})
+    assert until(c, "merging")["state"] == "merging"
   end
 
   # Every state that waits on its pull request, as Flow moves it: a task's state by its
@@ -926,6 +1068,8 @@ defmodule Model.IssueRunsTest do
           "reason" => "no_changes",
           "details" => %{"base" => "develop"}
         })
+
+        send(test, :answered)
     end
 
     refuse(test)
@@ -1006,9 +1150,12 @@ defmodule Model.IssueRunsTest do
   end
 
   # The issue built, its review approving it, and Code's pull request opened (Code
-  # answering every publication done, on @url): the run as it waits for CI.
-  defp published(c) do
-    code_answers()
+  # answering every publication done, on @url, but the first `refused_pushes` pushes of a
+  # CI fix, refused branch_taken): the run as it waits for CI. Code serves the pull's head
+  # as its update with develop (it holds develop already), a CI fix's base.
+  defp published(c, refused_pushes \\ 0) do
+    code_answers(refused_pushes)
+    pull_head(c, "rev_published", "# Atlas\n\nChanged.\n")
     FakeFacts.put("person", %{"key" => "someone"})
     issue()
     reconcile(c)
@@ -1026,10 +1173,19 @@ defmodule Model.IssueRunsTest do
     until(c, "checking")
   end
 
-  # rela's GitHub sync writing the issue's pull request fields.
+  # rela's GitHub sync writing the issue's pull request fields, read for the head Code
+  # pushed last (`pr_head`): its current head.
   defp sync(values) do
     fact = FakeFacts.get("issue", @key)
+    put(fact, Map.put_new(values, "pr_checks_head", fact["values"]["pr_head"]))
+  end
 
+  # rela's GitHub sync writing what it read for the head `head` (an earlier one, read before
+  # Code's push and written after it).
+  defp sync_for(head, values),
+    do: put(FakeFacts.get("issue", @key), Map.put(values, "pr_checks_head", head))
+
+  defp put(fact, values) do
     FakeFacts.put(
       "issue",
       Map.merge(fact, %{
@@ -1039,40 +1195,70 @@ defmodule Model.IssueRunsTest do
     )
   end
 
-  # Code's effect receiver on the Bus: every request done, on @url; each one sent to the test.
-  defp code_answers do
+  # The head Code answers a push of `result` with: the commit it pushed.
+  defp head(result), do: :crypto.hash(:sha, result) |> Base.encode16(case: :lower)
+
+  # Code serving the pull request's head (`revision`, holding `readme`) as its update with
+  # develop: the base a CI fix starts from. A base resolved before is fresh for 10 s only.
+  defp pull_head(c, revision, readme) do
+    ManualClock.advance(elem(c.clock, 1), 60_000)
+    FakeCode.put(c.code, @repository, @update, revision, %{"README.md" => readme})
+  end
+
+  # Code's effect receiver on the Bus: every request done, on @url, but the first `refused`
+  # pushes of a CI fix, refused branch_taken (its branch moved); each one sent to the test.
+  defp code_answers(refused \\ 0) do
     test = self()
 
     spawn_link(fn ->
       :ok = AtlasBus.attach("code/effects")
       send(test, :attached)
-      answer(test)
+      answer(test, refused)
     end)
 
     assert_receive :attached
   end
 
-  defp answer(test) do
+  defp answer(test, refused) do
     receive do
       {:atlas_bus, %AtlasBus.Envelope{class: "request"} = e, %{"request" => r} = body} ->
         send(test, {:published, r})
+        refuse? = r["name"] == "push" and refused > 0
 
-        AtlasBus.send(AtlasBus.Envelope.reply(e, "answer"), %{
-          "version" => 1,
-          "id" => r["id"],
-          "digest" => body["digest"],
-          "fingerprint" => r["fingerprint"],
-          "status" => "done",
-          "reference" => @url,
-          "outputs" => %{"url" => @url}
-        })
+        outcome =
+          if refuse?,
+            do: %{
+              "status" => "refused",
+              "reason" => "branch_taken",
+              "details" => %{"branch" => "atlas/" <> @author}
+            },
+            else: %{
+              "status" => "done",
+              "reference" => @url,
+              "outputs" => %{"url" => @url, "head" => head(r["input"]["result"])}
+            }
+
+        AtlasBus.send(
+          AtlasBus.Envelope.reply(e, "answer"),
+          Map.merge(
+            %{
+              "version" => 1,
+              "id" => r["id"],
+              "digest" => body["digest"],
+              "fingerprint" => r["fingerprint"]
+            },
+            outcome
+          )
+        )
+
+        # In Flow's effect inbox: the Bus handed it over before `send/2` returned.
+        send(test, :answered)
+        answer(test, if(refuse?, do: refused - 1, else: refused))
     end
-
-    answer(test)
   end
 
   # Reconciles until the run holds a task's intent, and returns it; between tries it waits
-  # for Flow's next reconcile request, as Code's answers and Facts' writes arrive.
+  # for Flow's next reconcile request or Code's next answer.
   defp intent(c, rounds \\ 50) do
     run = reconcile(c)
 
@@ -1094,10 +1280,13 @@ defmodule Model.IssueRunsTest do
     end
   end
 
+  # A reconcile request (Delivery's cast, Bases' notify), or Code's answer to an effect: Flow
+  # asks for no reconcile on an answer (its Engine's round takes it), the test does.
   defp next_reconcile do
     receive do
       {:reconcile, "issue", @key} -> true
       {:"$gen_cast", {:reconcile, "issue", @key}} -> true
+      :answered -> true
     after
       30_000 -> flunk("no reconcile of #{@key}")
     end

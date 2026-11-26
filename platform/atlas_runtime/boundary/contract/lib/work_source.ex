@@ -32,6 +32,11 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   `put_blob`: `recorded.missing` is always empty, and a source reads no `ended.change_set`
   (a Runtime before 0.5.0 may still send one). A source offers no `change_set` input.
 
+  Checkout (0.6.0, IS-Atlas-19): a work's input may ask for a Git checkout of its base
+  without a result (`checkout`): the Runtime makes its folder a Git checkout as for a
+  `result_ref`, and pushes nothing; its result is its answer. A read-only work (a review)
+  asks for one so it can read the change with Git and run the checks.
+
   The request offered has no `slot`, `folder`, `resume_from` or `repository`: those are
   for the local source only, which adds them through the Runtime CLI, not through this
   contract. No path on the Runtime's machine crosses it.
@@ -49,7 +54,9 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   # calls it only for the blobs recorded names as missing, and a 0.5.0 source names none.
   # Also a supervised upgrade (IS-Atlas-26): polled may carry an upgrade order, and a poll
   # may report the upgrade's progress (both optional, so 0.4.0 peers are not affected).
-  version("0.5.0")
+  # 0.6.0: a work's input may ask for a Git checkout without a result push (checkout,
+  # IS-Atlas-19); optional, so a 0.5.0 Runtime reads such a lease as a plain base.
+  version("0.6.0")
 
   # The Runtime's own enumerations (as in the work contract, which this one does not name).
   @attempt_states [
@@ -188,11 +195,15 @@ defmodule AtlasRuntimeBoundary.WorkSource do
   # the source's Code under this ref, and its ended report carries no change set.
   # change_set: a frozen change set on top (from_work across machines), which no source
   # offers since 0.5.0; kept so the Runtime's import still reads an older lease.
+  # checkout: when true, the Runtime makes the folder a Git checkout of the base (as for a
+  # result_ref) and pushes no result: a read-only work that reads Git, such as a review.
+  # A result_ref implies a checkout; checkout without one pushes nothing.
   defmodel :work_input do
     field(:base, :base_ref, required: true)
     field(:change_set, :change_set_ref)
     field(:permissions, {:enum, @permissions}, required: true)
     field(:result_ref, :string)
+    field(:checkout, :boolean)
   end
 
   # manifest: the sha256 of the blob that holds the base's entries in the change-set

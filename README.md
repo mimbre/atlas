@@ -40,6 +40,7 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 | `bin/atlas-ops` | The `atlas-ops` command: operating an environment (status, logs, restart, the tunnel, data moves, install). |
 | `bin/atlas-dev` | Development and test tooling, run from the checkout and never installed. |
 | `bin/generate` | Writes every generated target from its contract, with the pinned toolchain. |
+| `bin/check` | Runs what CI's Linux jobs run (`.github/workflows/ci.yml`), tests included, offline: green here is green in CI. |
 | `skills/` | Instructions for the agent roles that work on Atlas. |
 | `docs/` | Architecture, guides, contracts and decisions. |
 
@@ -47,7 +48,9 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 
 You need Erlang and Elixir at the versions in `.tool-versions`, and Go for the Runtime CLI. The end-to-end test also needs tmux, `python3` and `curl`.
 
-Generated targets (the model's Rela project and diagrams, Control's `blocks.json` and Swift package, the Runtime's and Code's JSON) are build output: they are not kept in git and nothing compares them. `bin/generate` writes them all from this checkout's contracts, `bin/generate model atlas` only those; run it after a fresh clone and after changing a contract or the model. The model's needs the pinned rela, which it installs into `${XDG_CACHE_HOME:-~/.cache}/atlas/rela-<version>` when missing. A deploy, `atlas-ops restart` and `bin/atlas-dev` run it themselves.
+Generated targets (the model's Rela project and diagrams, Control's `blocks.json` and Swift package, the Runtime's and Code's JSON) are build output: they are not kept in git and nothing compares them. `bin/generate` writes them all from this checkout's contracts, `bin/generate model atlas` only those; run it after a fresh clone and after changing a contract or the model. The model's needs the pinned rela, which it installs into `${XDG_CACHE_HOME:-~/.cache}/atlas/rela-<version>` when missing. A deploy, `atlas-ops restart`, `bin/atlas-dev` and `bin/check` run it themselves.
+
+`bin/check` runs every Linux job of CI here, in about 7 minutes on the Mac mini, offline: run it before handing work over (`bin/check beam` for one job, `bin/check --fast` for the static checks only). It needs what an agent's sandbox cannot install: the pinned rela in `~/.cache/atlas`, `rg`, and the Python packages of `platform/atlas_facts/rela/scripts/requirements.txt`; it says which is missing.
 
 ```sh
 bin/generate                                               # every generated target

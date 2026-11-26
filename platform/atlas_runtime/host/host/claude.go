@@ -303,9 +303,25 @@ func claudeRepositorySettings(scope any, temporary, home string) (string, error)
 // sandbox's denyRead, which is listed explicitly for the Bash sandbox as well. Bash may
 // read (and so execute) the inspector even inside a denied path. Bash may open pseudo-terminals,
 // so tmux panes (the e2e TUIs) run in the worker.
+//
+// A read-only folder (ReadOnlyFolder, IS-Atlas-20: a job's review) is the same policy with the
+// folder frozen: Bash reads it, Git included, but writes only the private temp, where its build
+// goes (MIX_BUILD_ROOT, folderEnvironment); a write in the folder is refused by the sandbox.
 func claudeFolderSettings(scope map[string]any, temporary, user, inspector string) (string, error) {
 	root, _ := scope["root"].(string)
+	if ReadOnlyFolder(scope) {
+		return claudeWorkerSettings(scope, temporary, user, inspector, nil, []string{root}, true)
+	}
 	return claudeWorkerSettings(scope, temporary, user, inspector, []string{root}, nil, true)
+}
+
+// ReadOnlyFolder reports whether a materialized-folder scope is read-only (`read_only`: true): the
+// worker reads the folder and writes only its scratch. The Runtime sets it on a read-only work whose
+// folder is a Git checkout (a job's review); it is not part of the folder's own scope
+// (workspace.FolderScope), which the host recomputes without it.
+func ReadOnlyFolder(scope map[string]any) bool {
+	readOnly, _ := scope["read_only"].(bool)
+	return readOnly
 }
 
 // runtimeWorkName is the name of a Runtime-chosen folder below <home>/workers: "work-" and a
@@ -402,8 +418,9 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 			protect(entry[0])
 		}
 	}
-	// A repository's own .git is the agent's: a job's folder is a Git checkout it may use (the Runtime
-	// commits the result from its own Git directory, never from this one).
+	// A repository's own .git is the agent's: a job's folder is a Git checkout it may stage and commit in
+	// (the Runtime commits the result from its own Git directory, never from this one); its configuration
+	// and hooks are read-only below.
 	protected = append(protected, filepath.Join(root, ".git"))
 	token, err := codeToken(home)
 	if err != nil {
@@ -490,6 +507,19 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 			return "", err
 		}
 	}
+	// A repository's own .git is writable with the folder, its configuration and hooks are not
+	// (repositoryGitEntries).
+	for _, repository := range repositories {
+		path, ok := repository.(string)
+		if !ok {
+			return "", errors.New("Materialized folder scope is incomplete")
+		}
+		for _, entry := range repositoryGitEntries(root, path) {
+			if entry[1] == "read" {
+				readOnly = append(readOnly, entry[0])
+			}
+		}
+	}
 	// The home is denied to the Bash sandbox only: a Read rule or denyWrite on it would also deny the
 	// folder below it. The file tools stay confined to the folder by --restricted. A protected path
 	// inside a re-allowed one stays denied: the sandbox re-applies a nested deny after its allows.
@@ -517,7 +547,8 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 	return encodeSettings(settings)
 }
 
-// claudeTemporaryRoots are the sorted system temp roots whose writes Claude's sandbox denies;
+// claudeTemporaryRoots are the system temp roots whose writes Claude's sandbox denies, in a fixed
+// order (TMPDIR, /tmp, /var/tmp, duplicates dropped) that does not depend on where they resolve;
 // root must lie outside them and the private temp must fit Claude's child-temp limit.
 func claudeTemporaryRoots(root, temporary, subject string) ([]string, error) {
 	system, err := temporaryDirectory()
@@ -525,7 +556,7 @@ func claudeTemporaryRoots(root, temporary, subject string) ([]string, error) {
 		return nil, err
 	}
 	var roots []string
-	for _, path := range []string{"/tmp", "/var/tmp", system} {
+	for _, path := range []string{system, "/tmp", "/var/tmp"} {
 		resolved, err := resolvePath(path)
 		if err != nil {
 			return nil, err
@@ -534,7 +565,6 @@ func claudeTemporaryRoots(root, temporary, subject string) ([]string, error) {
 			roots = append(roots, resolved)
 		}
 	}
-	slices.Sort(roots)
 	for _, path := range roots {
 		if root == path || strings.HasPrefix(root, strings.TrimSuffix(path, "/")+"/") {
 			return nil, errors.New(subject + " must be outside system temporary directories")

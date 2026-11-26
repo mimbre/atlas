@@ -119,9 +119,12 @@ defmodule AtlasRuntime.Agent.Native do
 
       # MIX_HOME, MIX_ARCHIVES and HEX_HOME locate the toolchain's Hex: a version manager sets them
       # beside PATH (asdf's exec-env), and without them Mix finds no Hex and tries to download it.
+      # GIT_CONFIG_GLOBAL and GIT_CONFIG_NOSYSTEM keep the caller's choice of which Git
+      # configuration the host's own Git reads: in an agent's sandbox, which denies ~/.gitconfig,
+      # Git would otherwise fail on reading it.
       kept =
         ~w(HOME USER LOGNAME PATH TMPDIR LANG LC_ALL LC_CTYPE CODEX_HOME CLAUDE_CONFIG_DIR
-           MIX_HOME MIX_ARCHIVES HEX_HOME)
+           MIX_HOME MIX_ARCHIVES HEX_HOME GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM)
 
       unset =
         for {key, _} <- System.get_env(), key not in kept, do: {String.to_charlist(key), false}

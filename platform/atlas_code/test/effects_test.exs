@@ -126,6 +126,9 @@ defmodule AtlasCode.EffectsTest do
 
     assert url == "https://github.com/o/r/pull/8"
 
+    # The head it pushed, which the pull's CI is waited for on (IS-Atlas-120).
+    assert first["outputs"]["head"] == result
+
     assert %{"head" => ^result, "base" => "main", "title" => "Fix the README"} =
              pull = FakeGitHub.get_pull(c.gh, 8)
 
@@ -190,6 +193,67 @@ defmodule AtlasCode.EffectsTest do
     refute body =~ "**Fix.**"
   end
 
+  # GitHub's closing references, as GitHub reads them: a keyword, an optional colon, white
+  # space, then `#n` or `owner/repo#n`.
+  @github_closes ~r/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+(?:[\w.-]+\/[\w.-]+)?#\d+/i
+
+  test "a published pull's body closes nothing else on GitHub on merge (IS-Atlas-136)", c do
+    result = FakeGitHub.sha("closing")
+    ref = "refs/atlas/results/TK-JB-1-4"
+
+    results = fn
+      "github.com/o/r", ^ref -> {:ok, %{"dir" => "/cache.git", "commit" => result}}
+      _, _ -> :error
+    end
+
+    s =
+      Effects.new(
+        dir: c.dir,
+        github: {FakeGitHub, FakeGitHub.config(c.gh)},
+        repositories: ["o/r"],
+        results: results
+      )
+
+    description = "This fixes #12. Closes owner/repo#3; closed #512/#514 earlier. See #12."
+
+    r =
+      request(nil, %{
+        "id" => String.duplicate("8", 64),
+        "name" => "publish",
+        "subject" => "JB-1",
+        "operation" => "publish",
+        "fingerprint_definition" => %{"fields" => ["title"], "relations" => []},
+        "payload" => %{"title" => "Fix the README", "description" => description},
+        "input" => %{
+          "repository" => "github.com/o/r",
+          "base" => "main",
+          "result" => ref,
+          "review" => %{
+            "task" => "TK-JB-1-2",
+            "verdict" => "approved",
+            "findings" => ["Resolves: #7 too."]
+          },
+          "fix" => %{"task" => "TK-JB-1-3", "answer" => "FIXED #9"}
+        }
+      })
+      |> Map.drop(["target", "approved"])
+
+    assert Regex.match?(@github_closes, description)
+    assert %{"status" => "done", "outputs" => %{"url" => url}} = call(s, "submit", r)
+    number = url |> String.split("/") |> List.last() |> String.to_integer()
+    body = FakeGitHub.get_pull(c.gh, number)["body"]
+
+    refute Regex.match?(@github_closes, body), body
+    # A reader still sees every reference; one without a keyword is untouched.
+    for reference <- ["#12", "owner/repo#3", "#512/#514", "#7", "#9"],
+        do: assert(body =~ reference)
+
+    assert body =~ "fixes (#12)"
+    assert body =~ "Closes (owner/repo#3)"
+    assert body =~ "closed (#512/#514)"
+    assert body =~ "See #12."
+  end
+
   test "a result onto an open pull is pushed to its branch, never forced; done with its address",
        c do
     # The pull Code opened from the author's result; the CI fix's result sits on it. Code's
@@ -248,6 +312,7 @@ defmodule AtlasCode.EffectsTest do
              first = call(s, "submit", r)
 
     assert FakeGitHub.get_pull(c.gh, 9)["head"] == fixed
+    assert first["outputs"]["head"] == fixed
     assert call(s, "lookup", r) == first
     File.rm!(Path.join([c.dir, "effects", r["id"] <> ".json"]))
     assert call(s, "submit", r) == first
@@ -264,8 +329,228 @@ defmodule AtlasCode.EffectsTest do
     assert FakeGitHub.get_pull(c.gh, 9)["head"] == fixed
   end
 
+  test "a CI fix pushed onto a pull adds its answer to the pull's body, after its review and fix; once per fix (IS-Atlas-123)",
+       c do
+    # The author's result, the review's fix on it (published as the pull), then two CI fixes.
+    {git_dir, commit} = copy(c.dir)
+    base = commit.("base", nil, %{"README.md" => "base\n"})
+    fixed = commit.("review fix", base, %{"README.md" => "fixed\n"})
+    ci1 = commit.("ci fix 1", fixed, %{"README.md" => "ci 1\n"})
+    ci2 = commit.("ci fix 2", ci1, %{"README.md" => "ci 2\n"})
+    ci3 = commit.("ci fix 3", ci2, %{"README.md" => "ci 3\n"})
+
+    for {sha, parents} <- [
+          {base, []},
+          {fixed, [base]},
+          {ci1, [fixed]},
+          {ci2, [ci1]},
+          {ci3, [ci2]}
+        ],
+        do: FakeGitHub.commit(c.gh, sha, parents)
+
+    commits = %{"TK-JB-1-3" => fixed, "TK-JB-1-5" => ci1, "TK-JB-1-7" => ci2, "TK-JB-1-9" => ci3}
+
+    s =
+      Effects.new(
+        dir: c.dir,
+        github: {FakeGitHub, FakeGitHub.config(c.gh)},
+        repositories: ["o/r"],
+        results: fn "github.com/o/r", "refs/atlas/results/" <> task ->
+          {:ok, %{"dir" => git_dir, "commit" => Map.fetch!(commits, task)}}
+        end
+      )
+
+    publish = fn id, name, task, input ->
+      request(nil, %{
+        "id" => String.duplicate(id, 64),
+        "name" => name,
+        "subject" => "JB-1",
+        "operation" => "publish",
+        "fingerprint_definition" => %{"fields" => ["title"], "relations" => []},
+        "payload" => %{"title" => "Fix the README", "description" => "One typo."},
+        "input" =>
+          Map.merge(
+            %{
+              "repository" => "github.com/o/r",
+              "base" => "main",
+              "result" => "refs/atlas/results/" <> task
+            },
+            input
+          )
+      })
+      |> Map.drop(["target", "approved"])
+    end
+
+    first =
+      publish.("b", "publish", "TK-JB-1-3", %{
+        "review" => %{
+          "task" => "TK-JB-1-2",
+          "verdict" => "changes_required",
+          "findings" => ["README has a second typo."]
+        },
+        "fix" => %{"task" => "TK-JB-1-3", "answer" => "Fixed the second typo."}
+      })
+
+    assert %{"status" => "done", "outputs" => %{"url" => url}} = call(s, "submit", first)
+    number = url |> String.split("/") |> List.last() |> String.to_integer()
+    published = FakeGitHub.get_pull(c.gh, number)["body"]
+
+    # The CI fix, as Flow's push hands it over: onto the pull, with its fix's answer.
+    ci_fix =
+      publish.("c", "push", "TK-JB-1-5", %{
+        "pull" => url,
+        "fix" => %{
+          "task" => "TK-JB-1-5",
+          "answer" => "Fixed the failing README test; it fixes #12.\nLeft open: nothing."
+        }
+      })
+
+    assert %{"status" => "done", "outputs" => %{"url" => ^url, "head" => ^ci1}} =
+             done = call(s, "submit", ci_fix)
+
+    body = FakeGitHub.get_pull(c.gh, number)["body"]
+
+    # The earlier sections stay; the CI fix's answer is added after them, before the line
+    # that says what merging it does.
+    assert String.starts_with?(body, "One typo.")
+    assert body =~ "**Review.** An independent agent review (task TK-JB-1-2) asks for changes."
+    assert body =~ "> Fixed the second typo."
+
+    assert body =~
+             "**CI fix 1.** An agent fixed its failing CI (task TK-JB-1-5); Code pushed its result onto this pull. Its answer:\n\n" <>
+               "> Fixed the failing README test; it fixes (#12).\n> Left open: nothing."
+
+    [earlier, later] = String.split(body, "**CI fix 1.**")
+    assert earlier =~ "**Fix.**"
+    assert later =~ "Atlas JB-1, task TK-JB-1-3: merging this finishes it."
+    refute Regex.match?(@github_closes, body), body
+
+    # Nothing else of the body changed.
+    section =
+      "**CI fix 1.** An agent fixed its failing CI (task TK-JB-1-5); Code pushed its result onto this pull. Its answer:\n\n" <>
+        "> Fixed the failing README test; it fixes (#12).\n> Left open: nothing."
+
+    assert String.replace(body, "\n\n" <> section, "") == published
+
+    # A repeat, after a lost answer, adds nothing: the body names its task already.
+    File.rm!(Path.join([c.dir, "effects", ci_fix["id"] <> ".json"]))
+    assert call(s, "submit", ci_fix) == done
+    assert FakeGitHub.get_pull(c.gh, number)["body"] == body
+    assert length(for {:edit_pull, ^number} <- FakeGitHub.writes(c.gh), do: :edit) == 1
+
+    # The second CI fix is numbered after the first, which stays.
+    again =
+      publish.("d", "push", "TK-JB-1-7", %{
+        "pull" => url,
+        "fix" => %{"task" => "TK-JB-1-7", "answer" => "Fixed the flaky test."}
+      })
+
+    assert %{"status" => "done"} = call(s, "submit", again)
+    body2 = FakeGitHub.get_pull(c.gh, number)["body"]
+    assert body2 =~ "**CI fix 1.**"
+    assert body2 =~ "**CI fix 2.** An agent fixed its failing CI (task TK-JB-1-7)"
+    assert body2 =~ ~r/\*\*CI fix 1\.\*\*.*\*\*CI fix 2\.\*\*.*merging this finishes it/s
+
+    # GitHub refusing the edit leaves the body as it was; the fix is still pushed.
+    FakeGitHub.fail(c.gh, :edit_pull, {:refused, "edit_refused"})
+
+    refused =
+      publish.("e", "push", "TK-JB-1-9", %{
+        "pull" => url,
+        "fix" => %{"task" => "TK-JB-1-9", "answer" => "Fixed it again."}
+      })
+
+    assert %{"status" => "done", "outputs" => %{"head" => ^ci3}} = call(s, "submit", refused)
+    assert FakeGitHub.get_pull(c.gh, number)["body"] == body2
+  end
+
+  test "a result on an update's merge without conflicts folds into one merge that says its agent's changes are on it",
+       c do
+    {git_dir, commit} = copy(c.dir)
+    base = commit.("base", nil, %{"README.md" => "base\n"})
+    head = commit.("pull", base, %{"README.md" => "base\n", "PULL.md" => "pull\n"})
+    main = commit.("main moved", base, %{"README.md" => "base\n", "MAIN.md" => "main\n"})
+
+    run = fn args ->
+      identity =
+        [{"GIT_AUTHOR_NAME", "t"}, {"GIT_AUTHOR_EMAIL", "t@t"}] ++
+          [{"GIT_COMMITTER_NAME", "t"}, {"GIT_COMMITTER_EMAIL", "t@t"}]
+
+      {out, 0} = System.cmd("git", ["--git-dir", git_dir | args], env: identity)
+      String.trim(out)
+    end
+
+    # Code's update: main merged into the pull's head, nothing conflicting.
+    both =
+      commit.("both", head, %{
+        "README.md" => "base\n",
+        "PULL.md" => "pull\n",
+        "MAIN.md" => "main\n"
+      })
+
+    tree = run.(["rev-parse", both <> "^{tree}"])
+
+    merge =
+      run.(["commit-tree", tree, "-p", head, "-p", main, "-m", "Atlas: merge main into pull #9"])
+
+    fixed =
+      commit.("ci fix", merge, %{
+        "README.md" => "fixed\n",
+        "PULL.md" => "pull\n",
+        "MAIN.md" => "main\n"
+      })
+
+    ref = "refs/atlas/results/TK-JB-1-7"
+    run.(["update-ref", ref, fixed])
+
+    folded = Effects.fold(git_dir, fixed, ref)
+    assert run.(["rev-parse", folded <> "^@"]) == head <> "\n" <> main
+
+    assert run.(["log", "-1", "--format=%B", folded]) ==
+             "Merge main into pull #9\n\nWith its agent's changes on it."
+
+    assert run.(["show", folded <> ":README.md"]) == "fixed"
+
+    # Pushed onto the pull, its body says what the update changed (IS-Atlas-123).
+    for {sha, parents} <- [{base, []}, {head, [base]}, {main, [base]}, {folded, [head, main]}],
+        do: FakeGitHub.commit(c.gh, sha, parents)
+
+    FakeGitHub.branch(c.gh, "atlas/TK-JB-1-1", head)
+
+    FakeGitHub.put_pull(c.gh, 9, %{
+      "head" => head,
+      "head_ref" => "atlas/TK-JB-1-1",
+      "body" => "A pull.\n\nAtlas JB-3, task TK-JB-3-1: merging this finishes it."
+    })
+
+    s =
+      Effects.new(
+        dir: c.dir,
+        github: {FakeGitHub, FakeGitHub.config(c.gh)},
+        repositories: ["o/r"],
+        results: fn "github.com/o/r", ^ref -> {:ok, %{"dir" => git_dir, "commit" => fixed}} end
+      )
+
+    r =
+      publication(String.duplicate("9", 64), %{
+        "base" => "main",
+        "result" => ref,
+        "pull" => "https://github.com/o/r/pull/9",
+        "fix" => %{"task" => "TK-JB-1-7", "answer" => "Kept both READMEs."}
+      })
+
+    assert %{"status" => "done", "outputs" => %{"head" => ^folded}} = call(s, "submit", r)
+
+    assert FakeGitHub.get_pull(c.gh, 9)["body"] ==
+             "A pull.\n\n**Update 1.** An agent updated it with main (task TK-JB-1-7); Code pushed its result onto this pull. Its answer:\n\n" <>
+               "> Kept both READMEs.\n\nAtlas JB-3, task TK-JB-3-1: merging this finishes it."
+  end
+
   test "a result without changes against its base opens no pull", c do
-    repo = Path.join(c.dir, "repo")
+    # In the temp folder, not the project's tmp/: an agent's sandbox refuses writes to a .git/config
+    # under its checkout, and `git init` writes one.
+    repo = Path.join(System.tmp_dir!(), "no-changes-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(repo) end)
     git = fn args -> System.cmd("git", ["-C", repo | args]) |> elem(0) |> String.trim() end
     File.mkdir_p!(repo)
     git.(["init", "-q", "-b", "main"])
