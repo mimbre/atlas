@@ -21,8 +21,8 @@ defmodule AtlasTui.Palette do
   faint as text on white, both are dark text on warninglight.
   The `:tone_*` roles draw a list row's dot (where its work stands): red when it needs the
   viewer, orange when under way, blue when planned or waiting, green when done. In dark the
-  dot is the colour on the surface; in light, where those colours are too faint as text on
-  white, the cell is the colour and the dot is drawn on it in white or grey1 (each ≥4.5:1).
+  dot is the colour on the surface (≥3:1, a dot is no text); in light, where those colours
+  are too faint on white, the cell is the colour and the dot is drawn on it in white or grey1.
   `:error_frame` frames what went wrong in Prism's error (a line, not text); its heading
   is `:error` text.
   """
@@ -72,7 +72,7 @@ defmodule AtlasTui.Palette do
         :pending -> if dark, do: {:tertiary, :grey1}, else: {:grey1, :warninglight}
         :tone_attention -> if dark, do: {:secondary, :grey1}, else: {:white, :error}
         :tone_active -> if dark, do: {:warning, :grey1}, else: {:grey1, :warning}
-        :tone_waiting -> if dark, do: {:primarylight, :grey1}, else: {:white, :primaryshade}
+        :tone_waiting -> if dark, do: {:primary, :grey1}, else: {:white, :primaryshade}
         :tone_done -> if dark, do: {:success, :grey1}, else: {:grey1, :success}
         :pending_selected -> {:grey1, :tertiary}
         :error -> if dark, do: {:secondary, :grey1}, else: {:error, :white}

@@ -81,16 +81,25 @@ defmodule AtlasTui.PresentationTest do
           :info,
           :muted,
           {:selected, :muted},
-          :pending_selected,
-          :tone_attention,
-          :tone_active,
-          :tone_waiting,
-          :tone_done
+          :pending_selected
         ] do
       {fg, bg} = Palette.colors(role, theme)
       [low, high] = Enum.sort([luminance(fg), luminance(bg)])
       assert (high + 0.05) / (low + 0.05) >= 4.5, "#{theme} #{inspect(role)}"
     end
+  end
+
+  test "each tone's dot stands out at 3:1 in its own colour in both themes" do
+    for theme <- [:light, :dark],
+        role <- [:tone_attention, :tone_active, :tone_waiting, :tone_done] do
+      {fg, bg} = Palette.colors(role, theme)
+      [low, high] = Enum.sort([luminance(fg), luminance(bg)])
+      assert (high + 0.05) / (low + 0.05) >= 3, "#{theme} #{inspect(role)}"
+    end
+
+    # In dark the dot is the colour itself: waiting reads blue, not near-white.
+    assert {{r, g, b}, _} = Palette.colors(:tone_waiting, :dark)
+    assert b > r + 100 and b > g + 100
   end
 
   test "the header bar is primary in every environment and only prod badges its name" do
