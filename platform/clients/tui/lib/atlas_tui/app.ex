@@ -65,7 +65,9 @@ defmodule AtlasTui.App do
       escape_wait: settings["escape_ms"] || @escape_wait,
       agent: nil,
       agent_buffer: "",
-      agent_heard: nil
+      agent_heard: nil,
+      # Whether the terminal reports mouse clicks: while the screen shows columns.
+      mouse: false
     }
 
     state = connect(state)
@@ -73,7 +75,7 @@ defmodule AtlasTui.App do
     try do
       loop(draw(state))
     after
-      IO.write("\e[0m\e[?25h\e[?1049l")
+      IO.write("\e[?1000l\e[?1006l\e[0m\e[?25h\e[?1049l")
     end
   end
 
@@ -149,8 +151,12 @@ defmodule AtlasTui.App do
       {closed, _old_socket} when closed in [:tcp_closed, :ssl_closed] ->
         loop(state)
 
+      # A wider or narrower screen may show the columns, and with them the list's row open.
       :resized ->
-        loop(draw(state))
+        {width, height} = size()
+        model = AtlasTui.Legend.resize(state.model, width, height)
+        {model, outgoing} = AtlasTui.Columns.settle(model)
+        loop(draw(effects(%{state | model: model}, outgoing)))
 
       {:worker_output_connection, pid, :ready} when pid == state.output ->
         {model, outgoing} = WorkerConversation.output_connected(state.model)
@@ -390,7 +396,18 @@ defmodule AtlasTui.App do
     {rows, model} = View.frame(state.model, width, height, state.reconcile)
     rows |> View.to_ansi(theme) |> IO.write()
 
-    sync_output(%{state | model: model})
+    sync_output(%{state | model: model} |> mouse())
+  end
+
+  # A click focuses a column (`AtlasTui.Columns`); the terminal reports clicks only while
+  # there are columns, so elsewhere text selects with the mouse as in any terminal.
+  defp mouse(state) do
+    wanted = AtlasTui.Columns.shown?(state.model)
+
+    if wanted != state.mouse,
+      do: IO.write(if(wanted, do: "\e[?1000h\e[?1006h", else: "\e[?1000l\e[?1006l"))
+
+    %{state | mouse: wanted}
   end
 
   defp sync_output(state) do

@@ -222,6 +222,37 @@ The TUI keeps these in `AtlasTui.View` (`@measure`, `@gap`, `@side_least`, `@bes
 `Typography.bodySmall`, and `readableWidth`), applied by `PageView`. Behaviour tests:
 `AtlasTuiTest` (markup) and `PresentationTest` in the TUI, `ReadableWidthTests` on the Mac.
 
+#### Columns in the TUI (2026-11-26)
+
+On a wide terminal the TUI shows columns: the tab's list beside the page of the row
+selected in it (as the Mac does), and that page's details beside the page when there is
+room. The chrome keeps the full width.
+
+- From **210** columns: the list (**60**: dot, key, age, title of the tab's list), the page
+  (at most **100**) and its details (the rest, at most 100), centred together. From
+  **144**: the list and the page, the details under the page. Narrower: one column at a
+  time, as before (the Page width rule above).
+- The list follows live: moving in it opens the selected row's page and details at once
+  (no Enter), through Control as opening a page does; its cached copy shows while Control
+  reads it fresh. The list column is the newest page Control sent for the tab's path, kept
+  current by its hints. Back in one column returns to the list.
+- One column has the focus: its frame in primary, its title bold and marked ▸; the
+  others' frames grey (grey2 in dark, grey1 in light, where grey2 stays under 3:1). → moves
+  it right (list → page → details), ← left; Enter in the list is →; Esc always returns it to
+  the list; a mouse click in a column moves it there (the terminal reports clicks only
+  while there are columns). Tab and Shift-Tab still switch the work tabs.
+- The details take the focus only when they hold related items (rows that open a page:
+  the lists in a part of role `details` or `related`); ↑/↓ choose one, → or Enter opens it
+  in the page.
+- ↑/↓ act in the column with the focus only: the list's rows; in the page what they do in
+  one column (a panel's items or answers, a choice, the steps' moves Control binds, its own
+  rows); the related items. Every other key — the open item's actions (x, n, c, digits, m,
+  o, r, …) — acts on the open item, whichever column has the focus.
+- The key line under the columns names the keys of the column with the focus.
+
+The TUI keeps these in `AtlasTui.Columns` (layout, focus, keys, following the list) and
+`AtlasTui.View` (drawing). Behaviour tests: `AtlasTui.ColumnsTest`.
+
 ### The shell (approved, 2026-11-13)
 
 This is the plan for the macOS shell and for slice S1. iPhone and iPad follow it as the

@@ -22,7 +22,7 @@ defmodule AtlasTui.View do
   }
 
   alias AtlasTui.Blocks.List, as: ListBlock
-  alias AtlasTui.{Model, Text}
+  alias AtlasTui.{Columns, Model, Text}
 
   @label_width 16
   # Beside the label of a row Control marks pending (docs/design/page-freshness.md §2.3).
@@ -41,6 +41,7 @@ defmodule AtlasTui.View do
   }
   # A title keeps at least this many cells (or all of its own) before the age column goes.
   @title_floor 40
+  @column_title_floor 20
   # A multi-line input that does not have the focus shows at most this many rows.
   @resting_rows 8
   # A focused one never shows fewer than this, however small the screen.
@@ -76,17 +77,23 @@ defmodule AtlasTui.View do
   def frame(%Model{} = model, width, height, reconcile_seconds) do
     width = max(width, 1)
     height = max(height, 1)
+    model = put_in(model.console.viewport, {width, height})
     header = AtlasTui.ConsoleView.header(model, width)
     help = footer_help(model)
     room = max(height - length(header) - 3 - length(help), 1)
-    measure = body_width(model, width)
-    margin = String.duplicate(" ", div(width - measure, 2))
-    {lines, _long, viewports} = laid_out(model, measure, room)
-    {body, viewport} = window(lines, model, room)
-    body = if margin == "", do: body, else: Enum.map(body, &[{:plain, margin} | &1])
-    viewports = if viewport, do: Map.put(viewports, nil, viewport), else: viewports
 
-    body = body ++ Elixir.List.duplicate([], room - length(body))
+    {body, viewports} =
+      if Columns.shown?(model) do
+        in_columns(model, width, room)
+      else
+        measure = body_width(model, width)
+        margin = String.duplicate(" ", div(width - measure, 2))
+        {lines, _long, viewports} = laid_out(model, measure, room)
+        {body, viewport} = window(lines, model, room)
+        body = if margin == "", do: body, else: Enum.map(body, &[{:plain, margin} | &1])
+        viewports = if viewport, do: Map.put(viewports, nil, viewport), else: viewports
+        {body ++ Elixir.List.duplicate([], room - length(body)), viewports}
+      end
 
     footer =
       help ++
@@ -380,8 +387,28 @@ defmodule AtlasTui.View do
       end
 
     inner = width - 4
-    lines = part_lines(node, model, width)
-    room = max(height - 2, 1)
+    {body, cut, viewport} = scrolled(part_lines(node, model, width), scrolled, max(height - 2, 1))
+
+    style = if focused, do: :bold, else: :dim
+    label = if title, do: "─ " <> title <> " ", else: ""
+    top = " ┌" <> label <> String.duplicate("─", max(inner - String.length(label), 0)) <> "┐"
+
+    framed =
+      for line <- body do
+        line = fit(line, inner)
+        [{style, " │"} | pad_line(line, inner)] ++ [{style, "│"}]
+      end
+
+    lines =
+      ([[{style, top}]] ++ framed ++ [[{style, " └" <> String.duplicate("─", inner) <> "┘"}]])
+      |> Enum.take(height)
+
+    {lines, cut, viewport}
+  end
+
+  # `room` lines of `lines`, from where they are scrolled to (by hand, or to keep the
+  # selected row in sight); when they are more than fit, the last says how many more.
+  defp scrolled(lines, scrolled, room) do
     total = length(lines)
     cut = total > room
     shown = if cut, do: room - 1, else: room
@@ -411,22 +438,126 @@ defmodule AtlasTui.View do
         if(cut, do: [[{:dim, "   " <> Enum.join(more, " · ")}]], else: []) ++
         List.duplicate([], max(room - length(visible) - if(cut, do: 1, else: 0), 0))
 
-    style = if focused, do: :bold, else: :dim
-    label = if title, do: "─ " <> title <> " ", else: ""
-    top = " ┌" <> label <> String.duplicate("─", max(inner - String.length(label), 0)) <> "┐"
+    {body, cut, %{start: start, last: last, step: max(shown - 1, 1)}}
+  end
 
-    framed =
-      for line <- body do
-        line = fit(line, inner)
-        [{style, " │"} | pad_line(line, inner)] ++ [{style, "│"}]
+  # Columns (`AtlasTui.Columns`): the list, the page of its selected row and that page's
+  # details, each framed and scrolled on its own; the frame of the column with the focus
+  # in primary, its title bold and marked ▸, the others grey.
+  defp in_columns(model, width, room) do
+    focus = Columns.focus(model)
+    geometry = Columns.geometry(width)
+    beside? = Enum.any?(geometry, &match?({:details, _, _}, &1))
+    {main, details} = page_nodes(model)
+
+    drawn =
+      for {column, _x, w} <- geometry do
+        inner = w - 4
+
+        {lines, title} =
+          case column do
+            :list ->
+              list = Columns.list_model(model)
+              {nodes(content(list), list, inner, :all), list_title(model, list)}
+
+            :page ->
+              {page_lines(model, main, if(beside?, do: [], else: details), inner, room),
+               if(Columns.nothing_open?(model), do: "Page", else: model.title)}
+
+            :details when details == [] ->
+              {[[], [{:dim, " No details beside this page."}]], "Details"}
+
+            :details ->
+              {nodes(Enum.flat_map(details, &inside/1), model, inner, :all),
+               details_title(details)}
+          end
+
+        # The list follows its selection; the page opens at its top as in one column (a
+        # page about one fact, `model.scroll`) until the arrows move in it.
+        scroll =
+          case column do
+            :list -> nil
+            :page -> model.columns.scroll[:page] || model.scroll
+            :details -> model.columns.scroll[:details]
+          end
+
+        {body, _cut, viewport} = scrolled(lines, scroll, max(room - 2, 1))
+        {column, w, framed(body, title, column == focus, w), viewport}
       end
 
-    lines =
-      ([[{style, top}]] ++ framed ++ [[{style, " └" <> String.duplicate("─", inner) <> "┘"}]])
-      |> Enum.take(height)
+    [{_, left, _} | _] = geometry
+    margin = [{:plain, String.duplicate(" ", left)}]
 
-    {lines, cut, %{start: start, last: last, step: max(shown - 1, 1)}}
+    lines =
+      for row <- 0..(room - 1) do
+        margin ++
+          Enum.flat_map(drawn, fn {_, w, lines, _} -> pad_line(Enum.at(lines, row) || [], w) end)
+      end
+
+    {lines, Map.new(drawn, fn {column, _, _, viewport} -> {column, viewport} end)}
   end
+
+  defp framed(body, title, focused, width) do
+    inner = width - 4
+    style = if focused, do: :frame, else: :rest_frame
+    title = String.slice(if(focused, do: "▸ " <> title, else: title), 0, max(width - 6, 0))
+    label = {if(focused, do: :bold, else: :dim), " " <> title <> " "}
+    rule = String.duplicate("─", max(width - 5 - String.length(title), 0))
+
+    [[{style, "┌─"}, label, {style, rule <> "┐"}]] ++
+      Enum.map(body, &([{style, "│ "}] ++ pad_line(fit(&1, inner), inner) ++ [{style, " │"}])) ++
+      [[{style, "└" <> String.duplicate("─", max(width - 2, 0)) <> "┘"}]]
+  end
+
+  defp list_title(model, list) do
+    tabs = (model.console.shell || %{})["tabs"] || []
+
+    case Enum.find(tabs, &(&1["to"] == list.path)) do
+      %{"label" => label} -> label
+      nil -> list.title
+    end
+  end
+
+  defp details_title([{:markup, %{"value" => %Part{title: title}}, _} | _]), do: title
+  defp details_title(_details), do: "Details"
+
+  # The page column: the page open beside the list, the details under it when they do not
+  # stand beside it; while one is on its way, as a page on its way shows.
+  defp page_lines(model, main, details, width, room) do
+    cond do
+      Columns.nothing_open?(model) and model.console.expected in [nil, model.path] ->
+        [[], [{:dim, " Nothing open: the list has no row to show."}]]
+
+      page_shown?(model) ->
+        nodes(main ++ details, model, width, :all)
+
+      true ->
+        body(model, width, room)
+    end
+  end
+
+  # The page's top-level nodes as the columns draw them: its details (parts of role
+  # details or related) apart; its other parts unframed, under their titles.
+  defp page_nodes(model) do
+    if page_shown?(model) and not Columns.nothing_open?(model) do
+      {details, main} = Enum.split_with(content(model), &related?/1)
+      {Enum.map(main, &unframed/1), Enum.map(details, &unframed/1)}
+    else
+      {[], []}
+    end
+  end
+
+  defp related?({:markup, %{"value" => %Part{role: role}}, _}), do: role in ["details", "related"]
+  defp related?(_node), do: false
+
+  defp unframed({:markup, %{"value" => %Part{title: title}} = entry, children}),
+    do: {:markup, %{entry | "value" => %Section{title: title}}, children}
+
+  defp unframed(node), do: node
+
+  # What the details column holds: the details without their own heading (its title).
+  defp inside({:markup, %{"value" => %Section{}}, children}), do: children
+  defp inside(node), do: [node]
 
   defp count(n, noun), do: "#{n} #{noun}#{if n == 1, do: "", else: "s"}"
 
@@ -561,13 +692,15 @@ defmodule AtlasTui.View do
 
     available = available - pending_room
     # How long each row has been where it stands, right-aligned before the title; a narrow
-    # list drops it before it cuts a title (below `@title_floor`).
+    # list drops it before it cuts a title (below `@title_floor`). The list column keeps it
+    # (dot, key, age, title), its titles cut sooner (`@column_title_floor`).
     age_width = ages |> Enum.map(&String.length/1) |> Enum.max(fn -> 0 end)
+    floor = if Columns.list_column?(model), do: @column_title_floor, else: @title_floor
 
     age_room =
       with true <- age_width > 0,
            {_, _, title_room} = columns(available - age_width - 2, titles, summaries),
-           true <- title_room >= min(titles, @title_floor) do
+           true <- title_room >= min(titles, floor) do
         age_width + 2
       else
         _ -> 0
@@ -1580,7 +1713,26 @@ defmodule AtlasTui.View do
   defp footer_help(%Model{ask: text}) when is_binary(text),
     do: [[{:bold, " Request "}, {:plain, text}, {:cursor, " "}]]
 
-  defp footer_help(model), do: AtlasTui.LegendView.affordance(model)
+  # In columns, the keys of the column with the focus, and the legend's own key.
+  defp footer_help(model) do
+    if Columns.shown?(model) and AtlasTui.Interactions.content_context(model) == "browse" do
+      legend =
+        case AtlasTui.Legend.opener(model) do
+          nil -> []
+          action -> [{Enum.join(action["props"]["keys"], ", "), action["props"]["label"]}]
+        end
+
+      keys =
+        (Columns.keys(model) ++ legend)
+        |> Enum.map(fn {key, label} -> [{:key, key}, {:dim, " " <> label}] end)
+        |> Enum.intersperse([{:dim, " · "}])
+        |> Enum.concat()
+
+      [[{:dim, " "} | keys]]
+    else
+      AtlasTui.LegendView.affordance(model)
+    end
+  end
 
   # A pending row as {label, mark, detail}: the selection still wins, muted inside it; the
   # mark stays the pending colour; the detail is muted either way.

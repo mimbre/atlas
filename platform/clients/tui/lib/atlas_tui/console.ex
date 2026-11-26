@@ -80,7 +80,8 @@ defmodule AtlasTui.Console do
     }
   end
 
-  def receive(model, %{"op" => "page"} = message), do: page(cache(model, message), message)
+  def receive(model, %{"op" => "page"} = message),
+    do: AtlasTui.Columns.settle(page(cache(model, message), message))
 
   def receive(model, %{"op" => "welcome"} = message) do
     if model.console.phase == :welcome and message["surface"] == "console" and
@@ -392,6 +393,23 @@ defmodule AtlasTui.Console do
        else: navigate(model, target)
   end
 
+  @doc """
+  Opens `target`, the row selected in the list at `list` (`AtlasTui.Columns`), in place of
+  the page open beside it: back then returns to the list, with that row (`selection`)
+  selected. Its cached page shows at once while the open brings it fresh.
+  """
+  def follow(model, list, selection, target) do
+    entry =
+      if model.path == list,
+        do: entry(model),
+        else: %{path: list, selection: selection, scroll: nil, scrolls: %{}, part: nil}
+
+    {model, effects} =
+      navigate(%{model | console: %{model.console | history: [entry], returning: nil}}, target)
+
+    reopen(model, effects, target, nil, %{})
+  end
+
   @doc "Back to the page the user came from, in their own history; at its root, nothing."
   def back(%{console: %{history: [entry | rest]} = console} = model) do
     {model, effects} =
@@ -437,13 +455,7 @@ defmodule AtlasTui.Console do
 
   # The page left, newest first. Leaving it again (from the same page) replaces it.
   defp remember(model) do
-    entry = %{
-      path: model.path,
-      selection: Selection.of(Model.rows(model), model.selected),
-      scroll: model.scroll,
-      scrolls: model.scrolls,
-      part: model.part
-    }
+    entry = entry(model)
 
     history =
       case model.console.history do
@@ -453,6 +465,15 @@ defmodule AtlasTui.Console do
 
     %{model | console: %{model.console | history: Enum.take(history, @history_limit)}}
   end
+
+  defp entry(model),
+    do: %{
+      path: model.path,
+      selection: Selection.of(Model.rows(model), model.selected),
+      scroll: model.scroll,
+      scrolls: model.scrolls,
+      part: model.part
+    }
 
   # A page at a new path: the one back/1 returns to, or the newest page left (a form's
   # cancel or a stored change returns there), as it was left; else as its tab was left.
@@ -477,15 +498,19 @@ defmodule AtlasTui.Console do
   defp sync_active(%{console: %{shell: nil}} = model), do: model
   defp sync_active(%{console: %{expected: target}} = model) when target != nil, do: model
 
-  # The tab whose page, a page under it, or one of its groups (boot's `groups`) is shown.
+  # The tab whose page, a page under it, or one of its groups (boot's `groups`) is shown;
+  # beside the list of a tab (`AtlasTui.Columns`), that tab.
   defp sync_active(model) do
+    tabs = model.console.shell["tabs"]
+    list = AtlasTui.Columns.shown?(model) && model.columns.list
+
     active =
-      Enum.find(model.console.shell["tabs"], fn tab ->
-        model.path == tab["to"] or
+      Enum.find(tabs, &(&1["to"] == model.path)) || (list && Enum.find(tabs, &(&1["to"] == list))) ||
+        Enum.find(tabs, fn tab ->
           (tab["to"] != "/" and is_binary(model.path) and
              String.starts_with?(model.path, tab["to"] <> "/")) or
-          Enum.any?(tab["groups"] || [], &(&1["to"] == model.path))
-      end)
+            Enum.any?(tab["groups"] || [], &(&1["to"] == model.path))
+        end)
 
     %{model | console: %{model.console | active: active && active["id"]}}
   end
