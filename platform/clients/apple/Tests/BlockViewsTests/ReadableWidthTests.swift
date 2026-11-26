@@ -44,13 +44,17 @@ final class ReadableWidthTests: XCTestCase {
         XCTAssertEqual(presentation.details?.title, "Details")
         XCTAssertEqual(presentation.details?.groups.map(\.id), ["block:item"])
 
-        // Wide: two columns, centred together; the details grow with the room, up to 100 characters.
-        for (column, side) in [(2000.0, Prism.readableWidth), (Prism.besideWidth + 50, Prism.besideWidth + 50 - Prism.readableWidth - Prism.detailsGap)] {
+        // Wide: two columns, centred together; the main column first up to its measure, the
+        // details the rest up to the same. A usual wide window's page column (900 pt) has both.
+        let gap = Prism.detailsGap, least = Prism.detailsLeast, measure = Prism.readableWidth
+        for (column, main, side) in [(2000.0, measure, measure),
+                                     (900.0, 900 - gap - least, least),
+                                     (Prism.besideWidth, Prism.besideWidth - gap - least, least)] {
             let lists = Self.lists(page, column)
             XCTAssertEqual(lists.count, 2, "column \(column)")
-            XCTAssertEqual(lists[0].width, Prism.readableWidth, accuracy: 1)
+            XCTAssertEqual(lists[0].width, main, accuracy: 1)
             XCTAssertEqual(lists[1].width, side, accuracy: 1)
-            XCTAssertEqual(lists[1].minX - lists[0].maxX, Prism.detailsGap, accuracy: 1)
+            XCTAssertEqual(lists[1].minX - lists[0].maxX, gap, accuracy: 1)
             XCTAssertEqual((lists[0].minX + lists[1].maxX) / 2, column / 2, accuracy: 1)
         }
         // Narrower: one column, the details in it.

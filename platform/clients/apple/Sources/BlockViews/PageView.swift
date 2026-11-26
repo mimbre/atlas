@@ -31,17 +31,19 @@ public struct PageView: View {
     }
 
     /// The page in the room its column gives it: what is decided at most
-    /// `Prism.readableWidth` wide, centred; its details beside it when the column has room
-    /// for both (`Prism.besideWidth`), growing with the room up to the same width, else under it.
+    /// `Prism.readableWidth` wide, centred; its details in a column of their own to its
+    /// right whenever the page's column has room for both (`Prism.besideWidth`): the main
+    /// column first (up to its measure), the details the rest (up to the same), else under it.
     public var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             if let details = presentation.details, width >= Prism.besideWidth {
+                let main = min(Prism.readableWidth, width - Prism.detailsGap - Prism.detailsLeast)
                 HStack(alignment: .top, spacing: Prism.detailsGap) {
                     list(lines(presentation.groups, header: header))
-                        .frame(width: Prism.readableWidth)
+                        .frame(width: main)
                     list(lines(details))
-                        .frame(width: min(Prism.readableWidth, width - Prism.readableWidth - Prism.detailsGap))
+                        .frame(width: min(Prism.readableWidth, width - main - Prism.detailsGap))
                 }
                 .frame(maxWidth: .infinity)
             } else {

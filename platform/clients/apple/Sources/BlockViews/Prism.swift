@@ -49,11 +49,13 @@ enum Prism {
     static let characterWidth: CGFloat = 7.2
     /// What is decided on a page, centred, at most 100 characters wide.
     static let readableWidth = 100 * characterWidth
-    /// The page's details beside it: 4 characters apart, at least 40 wide; so from 144
-    /// characters of the page's column on. Chrome (toolbar, sidebar, list, status) is not
-    /// the page's and keeps its own width.
+    /// The page's details in a column of their own to its right: 4 characters apart, at
+    /// least 40 wide, while the main column keeps at least 60; so from 104 characters of
+    /// the page's column on, a usual wide window. Chrome (toolbar, sidebar, list, status)
+    /// is not the page's and keeps its own width.
     static let detailsGap = 4 * characterWidth
-    static let besideWidth = readableWidth + detailsGap + 40 * characterWidth
+    static let detailsLeast = 40 * characterWidth
+    static let besideWidth = 60 * characterWidth + detailsGap + detailsLeast
 
     /// Prism's spacing scale, in points, by its step names.
     enum Spacing {
