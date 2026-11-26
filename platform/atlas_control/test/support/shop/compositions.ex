@@ -435,6 +435,13 @@ defmodule Shop.ShelledKeepers do
   )
 end
 
+defmodule Shop.PutIn do
+  @moduledoc "A widget's create links who puts it in (`Shop.PutInWidget`)."
+  use Shop.Composition,
+    name: "shop-put-in",
+    concepts: [Shop.PutInWidget, Shop.Part, Shop.Tag, Shop.Member, Shop.Links]
+end
+
 defmodule Shop.Supervised do
   @moduledoc """
   Members supervise the work on widgets (`Shop.Supervision`): the two supervision screens
