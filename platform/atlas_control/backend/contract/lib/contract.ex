@@ -70,7 +70,9 @@ defmodule AtlasBFFContract.Contract do
   # 0.34.0: a fact's page shows everything it offers besides the flow's next step directly,
   # in an `actions` block below its answers; no More… action. The `more` page is
   # deprecated: Control links to it no more.
-  version "0.34.0"
+  # 0.35.0: a list row names the kind of what it opens in plain words (`kind`, "Decision"),
+  # so a client can say what each row is.
+  version "0.35.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

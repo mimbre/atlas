@@ -923,6 +923,7 @@ defmodule AtlasControl.Pages do
     Blocks.row(
       id: fact["key"],
       label: label(kind(m, from), fact),
+      kind: singular(m, from),
       detail: detail,
       to: path({:item, from, fact["key"]}),
       tone: tone,
@@ -1876,6 +1877,7 @@ defmodule AtlasControl.Pages do
     Blocks.row(
       id: fact["key"],
       label: label(kind(m, kind), fact),
+      kind: singular(m, kind),
       detail: detail,
       to: path({:item, kind, fact["key"]}),
       tone: tone,
@@ -2815,6 +2817,7 @@ defmodule AtlasControl.Pages do
               id: fact["key"],
               label: label(k, fact),
               detail: join_detail(detail(k, fact), counted.(fact["key"])),
+              kind: k && k.label,
               to: path({:item, kind, fact["key"]}),
               links: links(k, fact),
               tone: tone,
@@ -2881,7 +2884,7 @@ defmodule AtlasControl.Pages do
   defp untitled(block, _title), do: unshared(block)
 
   # A list's rows (two or more) that all have the same detail do not each say it: the list
-  # says it (every to-do "To do"). Where they differ, each row keeps its own.
+  # says it (every to-do "Open"). Where they differ, each row keeps its own.
   defp unshared(%{"type" => "list", "props" => %{"rows" => [_, _ | _] = rows} = props} = block) do
     case Enum.uniq_by(rows, & &1["detail"]) do
       [%{"detail" => detail}] when detail not in [nil, ""] ->
@@ -3175,6 +3178,7 @@ defmodule AtlasControl.Pages do
               id: fact["key"],
               label: if(judged, do: about(from_k, fact), else: label(from_k, fact)),
               detail: detail(from_k, fact),
+              kind: from_k && from_k.label,
               to: path({:item, from, fact["key"]}),
               links: links(from_k, fact),
               tone: tone,
@@ -3226,6 +3230,7 @@ defmodule AtlasControl.Pages do
             id: fact["key"],
             label: label(from_k, fact),
             detail: detail(from_k, fact),
+            kind: from_k && from_k.label,
             to: path({:item, from, fact["key"]}),
             tone: tone,
             since: since
