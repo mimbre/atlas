@@ -329,6 +329,54 @@ defmodule AtlasCode.EffectsTest do
     assert FakeGitHub.get_pull(c.gh, 9)["head"] == fixed
   end
 
+  test "a result on an update's merge without conflicts folds into one merge that says its agent's changes are on it",
+       c do
+    {git_dir, commit} = copy(c.dir)
+    base = commit.("base", nil, %{"README.md" => "base\n"})
+    head = commit.("pull", base, %{"README.md" => "base\n", "PULL.md" => "pull\n"})
+    main = commit.("main moved", base, %{"README.md" => "base\n", "MAIN.md" => "main\n"})
+
+    run = fn args ->
+      identity =
+        [{"GIT_AUTHOR_NAME", "t"}, {"GIT_AUTHOR_EMAIL", "t@t"}] ++
+          [{"GIT_COMMITTER_NAME", "t"}, {"GIT_COMMITTER_EMAIL", "t@t"}]
+
+      {out, 0} = System.cmd("git", ["--git-dir", git_dir | args], env: identity)
+      String.trim(out)
+    end
+
+    # Code's update: main merged into the pull's head, nothing conflicting.
+    both =
+      commit.("both", head, %{
+        "README.md" => "base\n",
+        "PULL.md" => "pull\n",
+        "MAIN.md" => "main\n"
+      })
+
+    tree = run.(["rev-parse", both <> "^{tree}"])
+
+    merge =
+      run.(["commit-tree", tree, "-p", head, "-p", main, "-m", "Atlas: merge main into pull #9"])
+
+    fixed =
+      commit.("ci fix", merge, %{
+        "README.md" => "fixed\n",
+        "PULL.md" => "pull\n",
+        "MAIN.md" => "main\n"
+      })
+
+    ref = "refs/atlas/results/TK-JB-1-7"
+    run.(["update-ref", ref, fixed])
+
+    folded = Effects.fold(git_dir, fixed, ref)
+    assert run.(["rev-parse", folded <> "^@"]) == head <> "\n" <> main
+
+    assert run.(["log", "-1", "--format=%B", folded]) ==
+             "Merge main into pull #9\n\nWith its agent's changes on it."
+
+    assert run.(["show", folded <> ":README.md"]) == "fixed"
+  end
+
   test "a result without changes against its base opens no pull", c do
     repo = Path.join(c.dir, "repo")
     git = fn args -> System.cmd("git", ["-C", repo | args]) |> elem(0) |> String.trim() end

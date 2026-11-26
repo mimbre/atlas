@@ -188,6 +188,134 @@ defmodule AtlasCode.GitTest do
     assert AtlasCode.Effects.fold(code, result, ref) == folded
   end
 
+  test "a CI fix of a pull someone else pushed onto starts from its head, and Code pushes it as a fast-forward (IS-Atlas-131)",
+       %{url: url, dir: dir} do
+    # The pull Code opened from the published result, and on it a commit someone else
+    # pushed; develop has not moved, so the pull's head holds it.
+    source = Path.join(dir, "app-source")
+    remote = Path.join(dir, "app.git")
+    commit = ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam"]
+    app = source |> git(["rev-parse", "develop"]) |> String.trim()
+    git(source, ["checkout", "-q", "-b", "feature"])
+    File.write!(Path.join(source, "README.md"), "published\n")
+    git(source, commit ++ ["published"])
+    published = source |> git(["rev-parse", "HEAD"]) |> String.trim()
+    File.write!(Path.join(source, "lib/app.ex"), "defmodule App, do: :theirs\n")
+    git(source, commit ++ ["theirs"])
+    theirs = source |> git(["rev-parse", "HEAD"]) |> String.trim()
+    git(source, ["push", "-q", remote, "feature:refs/pull/7/head"])
+
+    # The CI fix's base: the pull's head itself, no merge (it holds develop already), with
+    # the base's dependencies on it.
+    update = "refs/atlas/updates/7/develop"
+    base_id = "code-" <> snapshot(update)
+    base = "refs/atlas/bases/" <> base_id
+    cache = Path.join(dir, "runtime.git")
+    git(dir, ["init", "-q", "--bare", cache])
+    fetch = ["--git-dir", cache, "fetch", "-q", "#{url}/bases/#{base_id}", "+#{base}:#{base}"]
+    {_, 0} = System.cmd("git", fetch, env: header(@token), stderr_to_stdout: true)
+    assert git_in(cache, ["rev-parse", base <> "^"], "") == theirs <> "\n"
+    assert git_in(cache, ["show", base <> "^:lib/app.ex"], "") =~ ":theirs"
+
+    # Its agent fixes the README on it; the Runtime pushes its result on the pull's head.
+    fix = fn on, task ->
+      blob = cache |> git_in(["hash-object", "-w", "--stdin"], "fixed\n") |> String.trim()
+      index = [{"GIT_INDEX_FILE", Path.join(dir, "index-" <> task)}]
+      git_in(cache, ["read-tree", on], "", index)
+
+      git_in(
+        cache,
+        ["update-index", "--add", "--cacheinfo", "100644,#{blob},README.md"],
+        "",
+        index
+      )
+
+      tree = cache |> git_in(["write-tree"], "", index) |> String.trim()
+      result = cache |> git_in(["commit-tree", tree, "-p", on, "-m", task], "") |> String.trim()
+      push = ["--git-dir", cache, "push", "-q", "#{url}/bases/#{base_id}"]
+
+      {_, 0} =
+        System.cmd("git", push ++ ["#{result}:refs/atlas/results/#{task}"], env: header(@token))
+
+      result
+    end
+
+    fixed = fix.(theirs, "TK-3")
+
+    # GitHub holds the pull's branch at their commit.
+    gh = start_supervised!(AtlasCode.FakeGitHub)
+
+    for {sha, parents} <- [
+          {app, []},
+          {published, [app]},
+          {theirs, [published]},
+          {fixed, [theirs]}
+        ],
+        do: AtlasCode.FakeGitHub.commit(gh, sha, parents)
+
+    AtlasCode.FakeGitHub.branch(gh, "develop", app)
+    AtlasCode.FakeGitHub.branch(gh, "atlas/TK-1", theirs)
+
+    AtlasCode.FakeGitHub.put_pull(gh, 7, %{
+      "head" => theirs,
+      "head_ref" => "atlas/TK-1",
+      "base" => "develop"
+    })
+
+    effects =
+      AtlasCode.Effects.new(
+        dir: Path.join(dir, "effects"),
+        github: {AtlasCode.FakeGitHub, AtlasCode.FakeGitHub.config(gh)},
+        repositories: ["test/app"]
+      )
+
+    push = fn id, task ->
+      r = %{
+        "version" => 1,
+        "id" => String.duplicate(id, 64),
+        "run" => "run-1",
+        "entry" => 9,
+        "name" => "push",
+        "subject" => "IS-1",
+        "service" => "code",
+        "operation" => "publish",
+        "fingerprint_definition" => %{"fields" => ["title"], "relations" => []},
+        "fingerprint" => "f",
+        "payload" => %{"title" => "Fix the README"},
+        "input" => %{
+          "repository" => "github.com/test/app",
+          "base" => "develop",
+          "result" => "refs/atlas/results/" <> task,
+          "pull" => "https://github.com/test/app/pull/7"
+        }
+      }
+
+      AtlasCode.Effects.handle(effects, %{
+        "operation" => "submit",
+        "request" => r,
+        "digest" => AtlasBus.Digest.of_term(r)
+      })
+    end
+
+    # Pushed as it is, a fast-forward of the branch: no branch_taken, their commit kept.
+    assert %{"status" => "done", "outputs" => %{"head" => ^fixed}} = push.("a", "TK-3")
+    assert AtlasCode.FakeGitHub.get_pull(gh, 7)["head"] == fixed
+    assert [{:push, "atlas/TK-1", ^fixed}] = AtlasCode.FakeGitHub.writes(gh)
+    assert git_in(remote, ["rev-parse", "refs/pull/7/head"], "") == theirs <> "\n"
+
+    # A fix made on the run's latest result instead (the published one, under their commit)
+    # is what Code refused before (IS-Atlas-121): never forced onto the branch.
+    {_, 0} =
+      System.cmd("git", ["--git-dir", cache, "fetch", "-q", remote, published],
+        stderr_to_stdout: true
+      )
+
+    stale = fix.(published, "TK-4")
+    AtlasCode.FakeGitHub.commit(gh, stale, [published])
+    assert %{"status" => "refused", "reason" => "branch_taken"} = push.("b", "TK-4")
+    assert AtlasCode.FakeGitHub.get_pull(gh, 7)["head"] == fixed
+  end
+
   defp git_in(git_dir, args, input, env \\ []) do
     file = Path.join(System.tmp_dir!(), "git-in-#{System.unique_integer([:positive])}")
     File.write!(file, input)
