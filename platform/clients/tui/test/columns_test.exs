@@ -144,7 +144,7 @@ defmodule AtlasTui.ColumnsTest do
     refute two =~ "┌─ Details"
 
     assert two =~
-             ~r/││  Decide on widget W-1 +│\n(.*\n)+.*││  Details ─+  │\n(.*\n)+.*││  › P-1  Part P-1 /u
+             ~r/││  Decide on widget W-1 +│\n(.*\n)+.*││ +Details +│\n(.*\n)+.*││ +› P-1  Part P-1 /u
 
     {one, []} = start(143)
     assert one.path == "/"

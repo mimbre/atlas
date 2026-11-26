@@ -1021,27 +1021,30 @@ defmodule AtlasTuiTest do
         assert View.body_width(m, width) == body
         lines = m |> View.render(width, 30, 5) |> View.plain() |> String.split("\n")
         left = div(width - body, 2)
-        details = Enum.find(lines, &(&1 =~ "Details ─"))
+        details = Enum.find_index(lines, &(&1 =~ ~r/  Details( |$)/))
+        top = Enum.at(lines, details - 1)
         wheel = Enum.find(lines, &(&1 =~ "› Wheel"))
 
-        # On the same rows: the main column at the left margin, the details 104 further.
-        [before | _] = String.split(details, " Details")
+        # On the same rows: the main column at the left margin, the details' card 104
+        # further, its rounded top on the first row, its heading under it.
+        [before | _] = String.split(Enum.at(lines, details), "  Details")
         assert String.length(before) == left + 104
-        # A heading's rule ends one cell short of its column's edge.
-        assert String.length(details) == left + 104 + side - 1
+        # A card fills its column after a cell of margin.
+        assert String.length(top) == left + 104 + side
+        assert top =~ ~r/▗▄+▖$/u
         assert String.starts_with?(wheel, String.duplicate(" ", left) <> " › Wheel")
-        assert details == wheel
+        assert top == wheel
       end
 
       # One column below 144: max 100 and centred, the details under the page.
       for {width, left} <- [{143, 21}, {100, 0}, {60, 0}] do
         lines = m |> View.render(width, 30, 5) |> View.plain() |> String.split("\n")
         wheel = Enum.find_index(lines, &(&1 =~ "› Wheel"))
-        details = Enum.find_index(lines, &(&1 =~ "Details ─"))
+        details = Enum.find_index(lines, &(&1 =~ ~r/  Details$/))
         assert wheel < details
 
         assert Enum.at(lines, details)
-               |> String.starts_with?(String.duplicate(" ", left) <> " Details")
+               |> String.starts_with?(String.duplicate(" ", left) <> "  Details")
       end
     end
   end

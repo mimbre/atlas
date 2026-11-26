@@ -13,9 +13,12 @@ defmodule AtlasTui.PanelTest do
 
   test "a panel to accept shows its heading, title, count, byline and the selected item" do
     screen = screen(PanelFixture.model(:accept))
-    bar = line(screen, "TO ACCEPT")
+    heading = line(screen, "TO ACCEPT")
+    lines = String.split(screen, "\n")
+    under = Enum.at(lines, Enum.find_index(lines, &(&1 == heading)) + 1)
 
-    assert bar =~ "◆ TO ACCEPT" and bar =~ "Plan for UC-Atlas-23" and bar =~ "3 widgets"
+    assert heading =~ "◆ TO ACCEPT" and heading =~ "3 widgets"
+    assert under =~ ~r/^ Plan for UC-Atlas-23/
     assert screen =~ "Proposed by planner · waiting 3h"
     assert line(screen, "IS-Atlas-162") =~ "▸"
     refute line(screen, "IS-Atlas-163  Show") =~ "▸"
@@ -25,7 +28,7 @@ defmodule AtlasTui.PanelTest do
     assert screen =~ "i Full proposal" and screen =~ "↑↓ choose"
   end
 
-  test "the bar carries the key of the fact the panel is about" do
+  test "the heading carries the key of the fact the panel is about" do
     screen = screen(PanelFixture.model(:accept, %{"key" => "UC-Atlas-23"}))
     assert line(screen, "TO ACCEPT") =~ "◆ TO ACCEPT · UC-Atlas-23"
   end
@@ -36,7 +39,7 @@ defmodule AtlasTui.PanelTest do
     screen =
       screen(PanelFixture.model(:accept, %{"byline" => [%{"text" => "", "since" => since}]}))
 
-    assert line(screen, "│ 1d ")
+    assert line(screen, ~r/^  1d( |$)/)
   end
 
   test "the arrows move the selected item and the details shown with it" do

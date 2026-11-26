@@ -49,6 +49,7 @@ defmodule AtlasTui.App do
 
     model = %{Model.new(env) | release: opts[:release]}
     model = put_in(model.console.start_to, opts[:to])
+    model = put_in(model.console.truecolor, System.get_env("COLORTERM") in ["truecolor", "24bit"])
 
     state = %{
       model: model,

@@ -37,6 +37,9 @@ defmodule AtlasTui.Console do
             projection: nil,
             legend: nil,
             viewport: {100, 30},
+            # Whether the terminal reports truecolor (`COLORTERM`): cards are filled
+            # surfaces; without it, a left bar (`AtlasTui.View`, cards).
+            truecolor: true,
             action_error: nil,
             key_buffer: "",
             # The first key of a two-key sequence ("g" of "g s") waiting for its second.
