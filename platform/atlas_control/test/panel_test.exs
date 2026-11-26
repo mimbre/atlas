@@ -67,6 +67,7 @@ defmodule AtlasControl.PanelTest do
       ])
 
     on_exit(fn -> :gen_tcp.close(s) end)
+
     put(s, %{
       "op" => "hello",
       "env" => "test",
@@ -74,6 +75,7 @@ defmodule AtlasControl.PanelTest do
       "surface" => "console",
       "spec" => AtlasControl.Blocks.version()
     })
+
     next(s, "page")
     put(s, %{"op" => "open", "to" => path})
     {s, next(s, "page")}
@@ -156,7 +158,11 @@ defmodule AtlasControl.PanelTest do
 
     refute Map.has_key?(yes, "note")
     refute Map.has_key?(no, "submit_to")
-    assert p["actions"] == [%{"label" => "Full proposal", "key" => "i", "to" => "/k/inspection/I-2"}]
+
+    assert p["actions"] == [
+             %{"label" => "Full proposal", "key" => "i", "to" => "/k/inspection/I-2"}
+           ]
+
     assert ["a"] in keys(page) and ["n"] in keys(page) and ["i"] in keys(page)
 
     # The panel lists the parts: no list of them besides it.
@@ -174,9 +180,16 @@ defmodule AtlasControl.PanelTest do
     form = Enum.find(next(s, "page")["blocks"], &(&1["type"] == "form"))
     assert Enum.any?(form["props"]["inputs"], &(&1["name"] == "note"))
 
-    put(s, %{"op" => "submit", "to" => "/k/widget/W-1/answer/n", "values" => %{"note" => "Too dim"}})
+    put(s, %{
+      "op" => "submit",
+      "to" => "/k/widget/W-1/answer/n",
+      "values" => %{"note" => "Too dim"}
+    })
+
     assert %{"reason" => "stored"} = next(s, "page")
-    assert %{"cause" => "Too dim", "values" => %{"state" => "dropped"}} = List.last(FakeStore.sent())
+
+    assert %{"cause" => "Too dim", "values" => %{"state" => "dropped"}} =
+             List.last(FakeStore.sent())
   end
 
   test "to ship: its checks from the fact and its latest inspection, its link and record", %{
@@ -213,15 +226,26 @@ defmodule AtlasControl.PanelTest do
            ]
 
     assert p["answers"] == []
-    assert p["links"] == [%{"label" => "Open its site", "key" => "o", "url" => "https://example.invalid/w/605"}]
-    assert p["actions"] == [%{"label" => "Full inspection", "key" => "r", "to" => "/k/inspection/I-1"}]
+
+    assert p["links"] == [
+             %{"label" => "Open its site", "key" => "o", "url" => "https://example.invalid/w/605"}
+           ]
+
+    assert p["actions"] == [
+             %{"label" => "Full inspection", "key" => "r", "to" => "/k/inspection/I-1"}
+           ]
 
     # One o on the page: the panel's.
     assert Enum.count(keys(page), &(&1 == ["o"])) == 1
 
     FakeStore.put(
       "I-2",
-      %{"title" => "I-2", "kind" => "inspect", "verdict" => "faulty", "answer" => "\n  It flickers.\nMore."},
+      %{
+        "title" => "I-2",
+        "kind" => "inspect",
+        "verdict" => "faulty",
+        "answer" => "\n  It flickers.\nMore."
+      },
       "inspection",
       %{"inspection_of" => ["W-1"]}
     )
@@ -242,9 +266,14 @@ defmodule AtlasControl.PanelTest do
       %{"card" => ["C-W-1"]}
     )
 
-    FakeStore.put("I-1", %{"title" => "I-1", "kind" => "inspect", "attempt" => "2"}, "inspection", %{
-      "inspection_of" => ["W-1"]
-    })
+    FakeStore.put(
+      "I-1",
+      %{"title" => "I-1", "kind" => "inspect", "attempt" => "2"},
+      "inspection",
+      %{
+        "inspection_of" => ["W-1"]
+      }
+    )
 
     in_state("stuck")
     {_s, page} = open(port, "/k/widget/W-1")
@@ -259,20 +288,37 @@ defmodule AtlasControl.PanelTest do
              %{"text" => "stuck", "since" => @since}
            ]
 
-    assert p["box"] == %{"title" => "What went wrong", "text" => "The bulb did not fit.", "tone" => "error"}
+    assert p["box"] == %{
+             "title" => "What went wrong",
+             "text" => "The bulb did not fit.",
+             "tone" => "error"
+           }
+
     assert p["choose"] == true
 
     assert [
-             %{"key" => "r", "label" => "Retry", "recommended" => true, "detail" => "Inspects it again."},
+             %{
+               "key" => "r",
+               "label" => "Retry",
+               "recommended" => true,
+               "detail" => "Inspects it again."
+             },
              %{"key" => "c", "label" => "Close it", "detail" => "Ends it."} = close
            ] = p["answers"]
 
     refute Map.has_key?(close, "recommended")
-    assert p["actions"] == [%{"label" => "Inspector's log", "key" => "l", "to" => "/k/inspection/I-1"}]
+
+    assert p["actions"] == [
+             %{"label" => "Inspector's log", "key" => "l", "to" => "/k/inspection/I-1"}
+           ]
+
     assert ["r"] in keys(page) and ["c"] in keys(page) and ["l"] in keys(page)
 
     # Nothing recorded of what went wrong: it says so.
-    FakeStore.put("W-1", %{"title" => "Lamp", "failure" => "none"}, "widget", %{"card" => ["C-W-1"]})
+    FakeStore.put("W-1", %{"title" => "Lamp", "failure" => "none"}, "widget", %{
+      "card" => ["C-W-1"]
+    })
+
     {_s, page} = open(port, "/k/widget/W-1")
     assert panel(page)["box"]["text"] == "—"
   end

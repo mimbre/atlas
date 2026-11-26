@@ -3309,7 +3309,8 @@ defmodule AtlasControl.Pages do
         label: a.label,
         key: a.key,
         to: to,
-        submit_to: if(a.change and a[:name] && !a.note, do: call_to({:answer, kind, key, name})),
+        submit_to:
+          if((a.change and a[:name]) && !a.note, do: call_to({:answer, kind, key, name})),
         note: if(a.note, do: true),
         recommended: if(choose and i == 0, do: true),
         detail: details[a.key] || Map.get(a, :details)
@@ -3319,7 +3320,11 @@ defmodule AtlasControl.Pages do
 
   defp panel_actions(scope, actions) do
     for a <- actions, {record_k, fact} <- [scope.records[a["record"]]] do
-      Blocks.action(label: a["label"], key: a["key"], to: path({:item, record_k.name, fact["key"]}))
+      Blocks.action(
+        label: a["label"],
+        key: a["key"],
+        to: path({:item, record_k.name, fact["key"]})
+      )
     end
   end
 

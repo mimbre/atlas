@@ -246,7 +246,12 @@ defmodule Model.Issue do
           [
             label: "CI",
             text: "{pr_checks}",
-            state: [field: :pr_checks, success: [:success], error: [:failure], pending: [:pending]]
+            state: [
+              field: :pr_checks,
+              success: [:success],
+              error: [:failure],
+              pending: [:pending]
+            ]
           ],
           [
             label: "Review",

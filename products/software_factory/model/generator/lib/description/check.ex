@@ -506,12 +506,18 @@ defmodule RelaDSL.Description.Check do
           do: [],
           else: p(at, :panel, [kind], "#{kind}.panel.#{state}: expected its heading and title")
         ) ++
-        Enum.flat_map(panel["records"] || %{}, &keys(elem(&1, 1), ~w(relation where), at ++ ["records"])) ++
+        Enum.flat_map(
+          panel["records"] || %{},
+          &keys(elem(&1, 1), ~w(relation where), at ++ ["records"])
+        ) ++
         if(panel["items"],
           do: keys(panel["items"], ~w(relation order count details), at ++ ["items"]),
           else: []
         ) ++
-        Enum.flat_map(List.wrap(panel["checks"]), &keys(&1, ~w(label text state), at ++ ["checks"])) ++
+        Enum.flat_map(
+          List.wrap(panel["checks"]),
+          &keys(&1, ~w(label text state), at ++ ["checks"])
+        ) ++
         if(panel["box"],
           do:
             keys(panel["box"], ~w(title field tone empty), at ++ ["box"]) ++
