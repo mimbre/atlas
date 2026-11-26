@@ -205,7 +205,7 @@ TUI; the page's column (after tabs and the tab's list) on the Mac. The chrome (t
 tab bars, toolbar, sidebars, status and footer lines) is not the page's and keeps the
 full width.
 
-- What is decided (lists, groups, panels, steps, item pages, forms) is one column of at
+- What is decided (lists, groups, panels, a to-do's steps, item pages, forms) is one column of at
   most **100** characters, centred; narrower, it takes the room it has. Text wraps at the
   column's width.
 - A page whose markup has a `part` of role `details` (the item's facts where its owner
@@ -245,7 +245,7 @@ room. The chrome keeps the full width.
   the lists in a part of role `details` or `related`); ↑/↓ choose one, → or Enter opens it
   in the page.
 - ↑/↓ act in the column with the focus only: the list's rows; in the page what they do in
-  one column (a panel's items or answers, a choice, the steps' moves Control binds, its own
+  one column (a panel's items or answers, a choice, the selected command across a to-do's steps, its own
   rows); the related items. Every other key — the open item's actions (x, n, c, digits, m,
   o, r, …) — acts on the open item, whichever column has the focus.
 - The key line under the columns names the keys of the column with the focus.

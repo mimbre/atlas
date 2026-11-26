@@ -150,13 +150,18 @@ struct PrismCard: ViewModifier {
 /// rounded, with a soft shadow a little stronger than `PrismCard`'s, cast by the card alone
 /// (not by what is on it). While the panel has the keys' focus (`PanelKeys`), a thin ring
 /// in the accent's text colour marks it (≥ 3:1 on the card); a click in it gives it the focus.
+/// Not `focusable` (a step's card), it takes no keys: no ring, and a click gives it nothing.
+/// Without `room`, whatever stacks it gives the room for its shadow (`ShadowRoom`).
 struct PanelCard: ViewModifier {
+    var focusable = true
+    var room = true
     @Environment(\.colorScheme) private var scheme
     @Environment(\.panelKeys) private var panelKeys
 
+    @ViewBuilder
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: Prism.radius * 2)
-        content
+        let card = content
             .padding(Prism.Spacing.s18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
@@ -165,13 +170,21 @@ struct PanelCard: ViewModifier {
                     .prismShadow(Prism.Shadow(color: .black.opacity(scheme == .dark ? 0.4 : 0.14), radius: 12, y: 5))
             }
             .overlay {
-                if panelKeys?.focus == .panel {
+                if focusable, panelKeys?.focus == .panel {
                     shape.strokeBorder(Prism.Colors.accentText(scheme), lineWidth: 1.5)
                 }
             }
             .contentShape(shape)
-            .simultaneousGesture(TapGesture().onEnded { panelKeys?.focusPanel() })
-            // Room for the shadow on every side, so no column, list row or scroll edge cuts it off.
+            .simultaneousGesture(TapGesture().onEnded { if focusable { panelKeys?.focusPanel() } })
+        if room { card.modifier(ShadowRoom()) } else { card }
+    }
+}
+
+/// Room for a `PanelCard`'s shadow on every side, so no column, list row or scroll edge
+/// cuts it off.
+struct ShadowRoom: ViewModifier {
+    func body(content: Content) -> some View {
+        content
             .padding(.horizontal, Prism.Spacing.s15)
             .padding(.top, Prism.Spacing.s10)
             .padding(.bottom, Prism.Spacing.s22)

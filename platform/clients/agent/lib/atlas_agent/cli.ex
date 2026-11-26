@@ -428,20 +428,13 @@ defmodule AtlasAgent.CLI do
   # What to do, for its owner, before the rest (IS-Atlas-54).
   defp todo_text(nil), do: []
 
-  # Instructions step by step: why, then each step (✓ done, ▸ the one it is at) with its
-  # lines in order as written: text, commands (`$ `, as they are run) and routes (`> `).
-  defp todo_text(%{"steps" => steps, "current" => current} = todo) do
+  # Instructions as steps: why, then each step in full with its lines in order as
+  # written: text, commands (`$ `, as they are run) and routes (`> `); then the answers.
+  defp todo_text(%{"steps" => steps} = todo) do
     why = if todo["why"], do: ["  Why: #{todo["why"]}"], else: []
 
     lines =
       Enum.flat_map(steps, fn step ->
-        mark =
-          cond do
-            step["n"] < current -> "✓"
-            step["n"] == current -> "▸"
-            true -> " "
-          end
-
         written =
           Enum.flat_map(step["lines"] || [], fn
             %{"kind" => "command", "text" => command} ->
@@ -459,13 +452,12 @@ defmodule AtlasAgent.CLI do
           end)
 
         [first | rest] = if written == [], do: [""], else: written
-        ["  #{mark} #{step["n"]}. #{first}"] ++ Enum.map(rest, &"       #{&1}")
+        ["  #{step["n"]}. #{first}"] ++ Enum.map(rest, &"     #{&1}")
       end)
 
-    keys = Enum.map_join(todo["actions"] || [], "   ", &"#{&1["key"]} #{&1["label"]}")
+    keys = Enum.map_join(todo["answers"] || [], "   ", &"#{&1["key"]} #{&1["label"]}")
 
-    ["To do: #{todo["title"]} (step #{min(current, length(steps))} of #{length(steps)})" | why] ++
-      lines ++ ["  #{keys}", ""]
+    ["To do: #{todo["title"]}" | why] ++ lines ++ ["  #{keys}", ""]
   end
 
   # A choice (a decision's single_choice): the question, the instructions as Control words

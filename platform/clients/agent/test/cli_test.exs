@@ -179,46 +179,54 @@ defmodule AtlasAgent.CLITest do
     assert out == expected
   end
 
-  test "get: steps keep the lines they know; a line of an unknown kind is left out",
+  test "get: a to-do's steps first, every step in full, then its answers; unknown lines left out",
        %{control: c} do
-    widget = FakeControl.put(c, "widget", %{"title" => "A to-do"})
+    widget = FakeControl.put(c, "widget", %{"title" => "Rotate the key"})
+    block = &%{"id" => &1, "type" => &2, "props" => &3}
 
     FakeControl.lead(c, widget, [
-      %{
-        "id" => "steps",
-        "type" => "steps",
-        "props" => %{
-          "title" => "Rotate the key",
-          "current" => 1,
-          "steps" => [
-            %{
-              "n" => 1,
-              "lines" => [
-                %{"kind" => "text", "text" => "Open it."},
-                %{"kind" => "route", "parts" => ["Settings", "A > B"]},
-                %{"kind" => "picture", "url" => "x.png"},
-                %{"kind" => "command", "text" => "make key"}
-              ]
-            },
-            %{"n" => 2}
-          ],
-          "actions" => [%{"key" => "x", "label" => "Done"}]
-        }
-      }
+      block.("header", "header", %{"eyebrow" => "TO DO FOR YOU", "title" => "Rotate the key"}),
+      block.("why", "text", %{"label" => "Why", "text" => "it leaked."}),
+      block.("step-1", "instruction", %{
+        "n" => 1,
+        "lines" => [%{"kind" => "text", "text" => "Make a new key."}]
+      }),
+      block.("step-2", "instruction", %{
+        "n" => 2,
+        "lines" => [
+          %{"kind" => "text", "text" => "Drop the old tag."},
+          %{"kind" => "route", "parts" => ["Finder", "A > B"]},
+          %{"kind" => "picture", "url" => "x.png"},
+          %{"kind" => "command", "text" => "git tag -d v12"}
+        ]
+      }),
+      block.("step-3", "instruction", %{"n" => 3}),
+      block.("answers", "answers", %{
+        "answers" => [
+          %{"key" => "x", "label" => "Done", "to" => "/k/widget/#{widget}/answer/x"},
+          %{"key" => "n", "label" => "Won't do", "to" => "/k/widget/#{widget}/answer/n"}
+        ]
+      })
     ])
 
     {0, out, ""} = atlas(["get", widget])
 
-    assert out =~ """
-           To do: Rotate the key (step 1 of 2)
-             ▸ 1. Open it.
-                  > Settings > "A > B"
-                  $ make key
-               2.\s
-             x Done
+    assert out =~
+             """
+             To do: Rotate the key
+               Why: it leaked.
+               1. Make a new key.
+               2. Drop the old tag.
+                  > Finder > "A > B"
+                  $ git tag -d v12
+               3.\s
+               x Done   n Won't do
 
-           Widget WI-01: A to-do
-           """
+             Widget WI-01: Rotate the key
+             """
+
+    {0, json, ""} = atlas(["get", widget, "--json"])
+    assert %{"todo" => %{"steps" => [%{"n" => 1}, %{"n" => 2}, %{"n" => 3}]}} = JSON.decode!(json)
   end
 
   test "get --json keeps the newlines of a value", %{control: c} do

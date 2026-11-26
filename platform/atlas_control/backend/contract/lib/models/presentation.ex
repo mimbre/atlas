@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.30.0"
+  version "0.31.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -31,22 +31,10 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :shortcut, :string
   end
 
-  # One step of a `steps` block: its number (from 1), its text (the lines that are no
-  # command or route, kept with their breaks), its commands, each a line to run as it is
-  # (the instructions' `$ ` taken off), its routes, each the parts of the way to something
-  # in an app (`> Keychain Access > login`), and all of them in the order written (`lines`),
-  # which a client shows.
-  defmodel :instruction_step do
-    field :n, :integer, required: true
-    field :text, :string, required: true
-    field :commands, {:list, :string}, required: true
-    field :routes, {:list, {:list, :string}}, required: true
-    field :lines, {:list, :instruction_line}, required: true
-  end
-
-  # A line of a step, in order: `kind` `text` (its `text`, the lines between two commands
-  # or routes), `command` (its `text`, without the `$ `) or `route` (its `parts`, without
-  # the ` > ` between them).
+  # A line of an `instruction` block, in order: `kind` `text` (its `text`, the lines
+  # between two commands or routes, kept with their breaks), `command` (its `text`, a line
+  # to run as it is, the instructions' `$ ` taken off) or `route` (its `parts`, the way to
+  # something in an app, `> Keychain Access > login`, without the ` > ` between them).
   defmodel :instruction_line do
     field :kind, :string, required: true
     field :text, :string
@@ -85,9 +73,10 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :tone, :string
   end
 
-  # One answer of a panel, as its page's action of the same key gives it: opening `to`,
-  # or `submit_to` at once. `note`: given with a note saying why (a no), as `to`'s form
-  # asks it; else a yes. `recommended` and `detail` (what it does) for a choice.
+  # One answer of a panel (as its page's action of the same key gives it) or of an
+  # `answers` block (the page's action itself, on its key): opening `to`, or `submit_to`
+  # at once. `note`: given with a note saying why, as `to`'s form asks it; else a yes.
+  # `recommended` and `detail` (what it does) for a choice.
   defmodel :panel_answer do
     field :label, :string, required: true
     field :key, :string, required: true

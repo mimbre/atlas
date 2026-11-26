@@ -1,6 +1,6 @@
 defmodule AtlasControl.Steps do
   @moduledoc """
-  Instructions as steps (a to-do's, shown step by step): an optional lead paragraph (its
+  Instructions as steps (a to-do's, each step shown in full): an optional lead paragraph (its
   "Why:" taken off), then the numbered steps, each from a line that starts with a number
   and a dot (`1.`, `2.`) to the next. Within a step a line is one of three kinds: a line
   that starts with `$ ` is a command (shown and copied without the `$ `); a line that
@@ -54,10 +54,6 @@ defmodule AtlasControl.Steps do
         %{why: if(why != "", do: why), steps: steps}
     end
   end
-
-  @doc "The step one is at, from 1: `at` (nil is the first) within 1 and one past the last (all done)."
-  def current(at, steps) when is_integer(at), do: at |> max(1) |> min(length(steps) + 1)
-  def current(_at, _steps), do: 1
 
   defp step(n, lines) do
     lines =

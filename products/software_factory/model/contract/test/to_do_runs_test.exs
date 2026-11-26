@@ -266,20 +266,14 @@ defmodule Model.ToDoRunsTest do
     assert Enum.map(answers, & &1.key) == ~w(x n)
 
     # Its own instructions, whole, are what to do: the page, the TUI and the agent's
-    # guidance all show this section, step by step, at the step its owner keeps in `step`
-    # (none yet: the first).
+    # guidance all show this section, as its steps, each in full; nothing keeps a step.
     assert %{section: %{heading: heading, text: text, steps: steps}} =
              Model.AtlasEyra.todo(@name, to_do, %{"assignment" => assignment}, viewer)
 
     assert is_binary(heading) and heading != ""
     assert text == to_do["values"]["instructions"]
-    assert steps == %{field: "step", from: "instructions", at: nil}
+    assert steps == %{from: "instructions"}
     assert Enum.all?(answers, & &1.note)
-
-    at_two = put_in(to_do, ["values", "step"], 2)
-
-    assert %{section: %{steps: %{at: 2}}} =
-             Model.AtlasEyra.todo(@name, at_two, %{"assignment" => assignment}, viewer)
 
     # Its owner by default, while nobody is assigned: the configured decider, a person.
     {:ok, actors} = AtlasBus.Actors.resolve(Model.AtlasEyra.actors(), %{"decider" => "ada"})

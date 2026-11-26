@@ -26,7 +26,7 @@ defmodule AtlasTui.Palette do
   are too faint on white, the cell is the colour and the dot is drawn on it in white or grey1.
   `:error_frame` frames what went wrong in Prism's error (a line, not text); its heading
   is `:error` text.
-  `:route` is a part of a route in a to-do's step (where to click in an app): bold, in
+  `:route` is a part of a route in an instruction (where to click in an app): bold, in
   `:info`'s colours, primarylight on dark and grey1 on primarylight in light, where
   primary text on white is under 4.5:1.
   `:rest_frame` frames a column without the focus (`:frame` frames the one with it): grey2

@@ -13,7 +13,7 @@ atlas put pull_request --url https://github.com/mimbre/atlas/pull/14 --in IS-Atl
 
 `--in <code>` names the parent, `--<field>-file <path>` or `--<field> -` (stdin) reads text of several lines, and `atlas get <code>` and `atlas list <kind> [--in <code>]` read.
 
-For its owner, `atlas get` (and `set`, which prints the item after) first prints what there is to do: a decision's choice (its question, the recommendation and each option by its key), instructions step by step, or the to-do's own fields. Blocks, fields and step lines this client does not know yet are left out, never fatal; `--json` keeps them as Control sent them.
+For its owner, `atlas get` (and `set`, which prints the item after) first prints what there is to do: a decision's choice (its question, the recommendation and each option by its key), a to-do's steps (its why, every step in full, then its answers on their keys), or the to-do's own fields. Blocks, fields and step lines this client does not know yet are left out, never fatal; `--json` keeps them as Control sent them.
 
 Control connections optionally accept
 `ATLAS_CONTROL_ENDPOINT=tls://<full-node-name>.tail8263c4.ts.net:<port>`. This selection

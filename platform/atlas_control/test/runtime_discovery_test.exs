@@ -58,7 +58,7 @@ defmodule AtlasControl.RuntimeDiscoveryTest do
     send_message(
       s,
       Map.merge(
-        %{"op" => "hello", "env" => "test", "spec" => "0.30.0", "client" => "agent"},
+        %{"op" => "hello", "env" => "test", "spec" => "0.31.0", "client" => "agent"},
         extra
       )
     )

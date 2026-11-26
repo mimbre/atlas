@@ -58,7 +58,9 @@ defmodule AtlasBFFContract.Contract do
   # route), so a client shows a route's parts and keeps where each line was written.
   # 0.30.0: a panel, steps or single choice names the fact it is about (`key`), so a client
   # that shows the panel in place of the page's title still shows it.
-  version "0.30.0"
+  # 0.31.0: a to-do's page as a stack of simple blocks (`header`, `text`, `instruction`,
+  # `answers`) in place of `steps` and `instruction_step`; no `step` page or submit.
+  version "0.31.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

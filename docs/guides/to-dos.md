@@ -18,8 +18,9 @@ restarting requires an explicit restart. A To-Do can link to the decisions it is
 on, and counts as work in their follow-through tally.
 
 The model declares the whole-field instructions section with
-`section: [field: :instructions, label: "Instructions", steps: :step]`; `steps:` names
-the integer field that keeps the current step. This is generic DSL support;
+`section: [field: :instructions, label: "Instructions", steps: true]`; `steps: true`
+shows the field as its numbered steps. Nothing keeps which step is done. This is
+generic DSL support;
 clients do not name the To-Do kind. An answer can use `"$note"` as a field value to keep
 the trimmed answer note, just as `"$now"` keeps the answer time. Facts reads a component
 for a choice role only when that role grants update access on the subject's kind.
@@ -27,10 +28,10 @@ Stored component links determine that role; a submitted owner link grants no rol
 The compiled Facts input mapping carries component definitions, because Rela's public
 schema does not include those model rules.
 
-## Step by step
+## Steps
 
-The owner sees the instructions as a panel of steps, in the TUI, the Mac app and
-`atlas get`. Write the instructions in this form:
+The owner sees the instructions as their steps, every step in full, in the TUI, the
+Mac app and `atlas get`. Write the instructions in this form:
 
 ```text
 Why: the hosting bill goes to this account.
@@ -42,8 +43,8 @@ $ open https://example.com/billing
 $ cp ~/Downloads/receipt.pdf ~/Shared/
 ```
 
-- An optional `Why:` paragraph comes first. The panel shows it with how long the
-  To-Do has been the owner's.
+- An optional `Why:` paragraph comes first. It is shown with how long the To-Do has
+  been the owner's.
 - Numbered lines (`1.`, `2.`, …) start the steps. Text without numbered steps is
   one step.
 
@@ -59,27 +60,33 @@ A step has three kinds of line, shown in the order they are written:
   between them, and wraps a long route at a `›`. The Mac app shows each part as a small
   label with `›` between them. A route is never copied.
 
-The panel shows the done steps with ✓, the current step open with its lines, and
-the later steps faint. Every step's mark and number are in the same columns. The To-Do's `step` field keeps where the owner is:
+Control sends the page as a stack of simple blocks, each client stacking them as it
+likes: a `header` (TO DO FOR YOU, the key and the title), a `text` (the why and its
+age), one `instruction` per step (its number and its lines), the `answers` (Done and
+Won't do, each with a note, and More…), then the details. The same blocks serve other
+pages.
+
+In the TUI every step is open, one under the other, their numbers in one column. ↑ and
+↓ move a selection (▸) from command to command across all steps:
 
 | Key | Does |
 | --- | --- |
-| Enter | marks the current step done |
-| ↓ / ↑ | goes to the next or previous step |
-| `c` | copies the current step's first command |
-| `C` | copies its next command |
-| `y` | copies all of its commands, one per line |
+| ↓ / ↑ | selects the next or previous command |
+| `c` | copies the selected command |
+| `y` | copies all commands of the To-Do, one per line |
 | `x` / `n` | Done / Won't do, with a note |
 
-Beside the panel in a wide terminal (under it when narrower, and always under it in the
-Mac app) are the To-Do's details: its key, status, for whom and from whom since when,
-what it is about or based on, and its note, evidence and deadline once filled. Its full
-text is `atlas get <key>`.
+The Mac app shows the header on the page, then each step as a card of its own, each
+command with a copy icon right after it, then the answers as buttons.
 
-The Mac app has a Copy button beside each command. The TUI copies with `pbcopy` when
-it runs on the Mac itself, and otherwise with OSC 52, which the terminal must allow.
-Inside tmux, OSC 52 also needs `set -g set-clipboard on` or
-`set -g allow-passthrough on`.
+Beside the steps in a wide terminal (under them when narrower, and always under them
+in the Mac app, as a recessed card) are the To-Do's details: its key, status, for whom
+and from whom since when, what it is about or based on, and its note, evidence and
+deadline once filled. Its full text is `atlas get <key>`.
+
+The TUI copies with `pbcopy` when it runs on the Mac itself, and otherwise with OSC 52,
+which the terminal must allow. Inside tmux, OSC 52 also needs `set -g set-clipboard on`
+or `set -g allow-passthrough on`.
 
 ## Isolated verification
 

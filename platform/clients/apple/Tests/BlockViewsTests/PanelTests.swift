@@ -173,4 +173,61 @@ final class PanelTests: XCTestCase {
     func testEachCheckStateHasItsGlyph() {
         XCTAssertEqual(["success", "error", "pending", "none", "other"].map(Panel.glyph), ["✓", "✗", "…", "—", "—"])
     }
+
+    func testThePanelOnScreenTakesTheKeysUntilItIsGone() {
+        let keys = PanelKeys()
+        var taken: [String] = []
+        XCTAssertFalse(keys.press(.down, isRepeat: false))
+        keys.claim("a") { key, _ in taken.append("a\(key)"); return true }
+        keys.claim("b") { key, _ in taken.append("b\(key)"); return true }
+        keys.focusPanel()
+        XCTAssertTrue(keys.press(.down, isRepeat: false))
+        keys.release("b")
+        XCTAssertTrue(keys.press(.up, isRepeat: false))
+        XCTAssertEqual(taken, ["bdown", "aup"])
+        keys.release("a")
+        XCTAssertEqual(keys.focus, .list, "without a panel the list has the focus")
+    }
+
+    func testTheArrowsGoToTheFocusedColumnAndRightAndLeftMoveTheFocus() {
+        let keys = PanelKeys()
+        var taken: [PanelKey] = []
+        var moves: [KeyColumn] = []
+        keys.moved = { moves.append($0) }
+        XCTAssertFalse(keys.press(column: .panel, isRepeat: false), "→ without a panel is the list's")
+
+        // A page with a panel opens from a move in the list: the list keeps the arrows.
+        keys.claim("panel") { key, _ in taken.append(key); return true }
+        XCTAssertEqual(keys.focus, .list)
+        XCTAssertFalse(keys.press(.down, isRepeat: false))
+        XCTAssertFalse(keys.press(.enter, isRepeat: false))
+        XCTAssertFalse(keys.press(column: .list, isRepeat: false), "← in the list is the list's")
+
+        // → gives the panel the focus, once also when held; then the arrows are the panel's.
+        XCTAssertTrue(keys.press(column: .panel, isRepeat: false))
+        XCTAssertFalse(keys.press(column: .panel, isRepeat: true), "held, → moves it no further")
+        XCTAssertEqual(keys.focus, .panel)
+        XCTAssertTrue(keys.press(.down, isRepeat: false))
+        XCTAssertTrue(keys.press(.up, isRepeat: true))
+
+        // ← gives it back to the list.
+        XCTAssertTrue(keys.press(column: .list, isRepeat: false))
+        XCTAssertFalse(keys.press(.down, isRepeat: false))
+        XCTAssertEqual(taken, [.down, .up])
+
+        // A click in the panel gives it the focus; its page re-claiming keeps it; the next
+        // row's page (another panel) leaves it to the list.
+        keys.focusPanel()
+        keys.claim("panel") { key, _ in taken.append(key); return true }
+        XCTAssertEqual(keys.focus, .panel)
+        keys.claim("next") { _, _ in true }
+        XCTAssertEqual(keys.focus, .list)
+        XCTAssertEqual(moves, [.panel, .list, .panel, .list])
+    }
+
+    func testLeftAndRightComeFromTheirKeyCodes() {
+        XCTAssertEqual(KeyColumn(keyCode: 123), .list)
+        XCTAssertEqual(KeyColumn(keyCode: 124), .panel)
+        XCTAssertNil(KeyColumn(keyCode: 126))
+    }
 }

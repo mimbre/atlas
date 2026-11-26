@@ -311,12 +311,17 @@ struct PanelBox: View {
 }
 
 /// An answer as a button: its key as a keycap on its left, its label, with "· note" for
-/// one given with a note. A yes on the success tint, a no on the warning tint; grey1 text
-/// either way. Pending, a spinner in place of its key.
+/// one given with a note. A yes in success, a no in warning, a `quiet` one (More…) in grey.
+/// Light: on the tone's light tint with grey1 text, the quiet one on grey5 with a grey edge
+/// (3.7:1 on white). Dark: a faint wash of the tone with white text (over 10:1) and the
+/// tone as its edge (over 5:1 on the dark surface), the quiet one's edge grey2. Pending, a
+/// spinner in place of its key.
 struct AnswerButton: View {
     let answer: PanelAnswerModel
+    var quiet = false
     let pending: Bool
     let take: () -> Void
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let no = answer.note == true
@@ -329,18 +334,29 @@ struct AnswerButton: View {
                 }
                 Text(no ? answer.label + " · note" : answer.label).prism(Prism.Typography.labelSmall)
             }
-            .foregroundStyle(Prism.Colors.grey1)
+            .foregroundStyle(scheme == .dark ? Prism.Colors.white : Prism.Colors.grey1)
             .padding(.horizontal, Prism.Spacing.s10)
             .padding(.vertical, Prism.Spacing.s6)
-            .background(no ? Prism.Colors.warningLight : Prism.Colors.successLight,
-                        in: RoundedRectangle(cornerRadius: Prism.radius))
-            .overlay(RoundedRectangle(cornerRadius: Prism.radius)
-                .strokeBorder(no ? Prism.Colors.warning : Prism.Colors.success, lineWidth: 1))
+            .background(fill(no: no), in: RoundedRectangle(cornerRadius: Prism.radius))
+            .overlay(RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(edge(no: no), lineWidth: 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(pending)
         .help("\(answer.label) (\(answer.key))")
+    }
+
+    private func fill(no: Bool) -> Color {
+        let dark = scheme == .dark
+        if no { return dark ? Prism.Colors.warning.opacity(0.18) : Prism.Colors.warningLight }
+        if quiet { return dark ? Prism.Colors.white.opacity(0.06) : Prism.Colors.grey5 }
+        return dark ? Prism.Colors.success.opacity(0.18) : Prism.Colors.successLight
+    }
+
+    private func edge(no: Bool) -> Color {
+        if no { return Prism.Colors.warning }
+        if quiet { return scheme == .dark ? Prism.Colors.grey2 : Prism.Colors.grey1.opacity(0.55) }
+        return Prism.Colors.success
     }
 }
 

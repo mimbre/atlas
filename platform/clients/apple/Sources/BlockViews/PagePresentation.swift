@@ -19,8 +19,14 @@ public struct PagePresentation: Sendable, Equatable {
         case singleChoice(SingleChoiceBlock)
         /// A panel where its owner decides: its items, checks, box and answers.
         case panel(PanelBlock)
-        /// Instructions step by step: the current step open, its commands to copy.
-        case steps(StepsBlock)
+        /// A page's header: its eyebrow and key over its title.
+        case header(HeaderBlock)
+        /// A line of text, with its label and how long ago, when it has them ("Why: …").
+        case text(TextBlock)
+        /// One numbered step of instructions, all its lines.
+        case instruction(InstructionBlock)
+        /// The page's answers, each on its key: the page's actions (`PageActions.all`).
+        case answers(AnswersBlock)
         /// A form: its inputs, edited and submitted to its call.
         case form(FormBlock)
         /// A confirm: its text, and Confirm (its call) or Cancel.
@@ -76,15 +82,20 @@ public struct PagePresentation: Sendable, Equatable {
         public var groups: [Group]
     }
 
-    /// The page shows a panel where its owner acts (`steps`, `panel`, `single_choice`):
-    /// it leads the page in place of its title.
+    /// The page shows a panel where its owner acts (`panel`, `single_choice`): it leads
+    /// the page in place of its title.
     public var hasPanel: Bool {
         entries.contains {
             switch $0.item {
-            case .steps, .panel, .singleChoice: true
+            case .panel, .singleChoice: true
             default: false
             }
         }
+    }
+
+    /// The page has a `header` block: it names the page in place of its title.
+    public var hasHeader: Bool {
+        entries.contains { if case .header = $0.item { true } else { false } }
     }
 
     public init(_ page: PageMessage) {
@@ -98,7 +109,10 @@ public struct PagePresentation: Sendable, Equatable {
             case .item(let detail): item = .item(detail)
             case .singleChoice(let choice): item = .singleChoice(choice)
             case .panel(let panel): item = .panel(panel)
-            case .steps(let steps): item = .steps(steps)
+            case .header(let header): item = .header(header)
+            case .text(let text): item = .text(text)
+            case .instruction(let instruction): item = .instruction(instruction)
+            case .answers(let answers): item = .answers(answers)
             case .form(let form): item = .form(form)
             case .confirm(let confirm): item = .confirm(confirm)
             case .fallback(let fallback): item = .fallback(fallback)

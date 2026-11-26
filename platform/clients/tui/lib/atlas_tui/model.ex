@@ -18,13 +18,13 @@ defmodule AtlasTui.Model do
     Confirm,
     Form,
     Input,
+    Instruction,
     Item,
     Panel,
     Part,
     Plan,
     Section,
-    SingleChoice,
-    Steps
+    SingleChoice
   }
 
   alias AtlasTui.Blocks.List, as: ListBlock
@@ -49,9 +49,9 @@ defmodule AtlasTui.Model do
             # arrows select in its panel (an item or an answer), by key; nil (or one the page
             # no longer has) is the recommended one, else the first.
             choice: nil,
-            # The command of the page's current step copied last, by its place in the
-            # step (`%{step, index}`), so C copies the one after it; nil: none yet.
-            copied: nil,
+            # The command ↑/↓ select on a page with instructions, by its place among the
+            # page's commands (`commands/1`); what `c` copies.
+            command: 0,
             # A page longer than the screen: nil follows the selected row or the focus;
             # a number of lines is scrolled to by page up and page down.
             scroll: nil,
@@ -133,7 +133,7 @@ defmodule AtlasTui.Model do
       | selected: Selection.after_replace(before, rows(model)) || 0,
         focus: if(same, do: model.focus, else: 0),
         choice: if(same, do: model.choice, else: nil),
-        copied: if(same, do: model.copied, else: nil),
+        command: if(same, do: model.command, else: 0),
         cursor: if(same, do: model.cursor, else: nil),
         scroll: if(same, do: model.scroll, else: first_scroll(blocks)),
         part: if(same, do: model.part, else: nil),
@@ -233,34 +233,29 @@ defmodule AtlasTui.Model do
       Enum.find_index(choices, &(Map.get(&1, :recommended) == true)) || 0
   end
 
-  def steps_block(model), do: Enum.find(model.blocks, &match?(%Steps{}, &1))
+  @doc "The commands of the page's instructions, in page order: one selection."
+  def commands(model) do
+    for %Instruction{lines: lines} <- model.blocks,
+        %{kind: "command", text: text} <- lines || [],
+        do: text || ""
+  end
 
-  @doc "The step of `steps` its owner is at; nil once every step is done."
-  def current_step(%Steps{steps: steps, current: current}),
-    do: Enum.find(steps, &(&1.n == current))
+  @doc "Where among `commands/1` the selected command is, kept within them."
+  def command(model), do: model.command |> min(length(commands(model)) - 1) |> max(0)
+
+  @doc "The selected command moved by `by` (±1), stopping at the first and the last."
+  def move_command(model, by),
+    do: %{model | command: (command(model) + by) |> min(length(commands(model)) - 1) |> max(0)}
 
   @doc """
-  What `key` copies of the page's current step (`c` its first command, `C` the one after
-  the one copied last, `y` all of them, one per line): `{model, text}`, or nil when the
-  page has no steps, the key is none of those, or the step has no such command.
+  What `key` copies on a page with instructions (`c` the selected command, `y` all of
+  them, one per line), or nil when the page has no commands or the key is neither.
   """
-  def copy(model, key) when key in ["c", "C", "y"] do
-    with %Steps{} = block <- steps_block(model),
-         %{commands: [_ | _] = commands, n: n} <- current_step(block) do
-      last = if match?(%{step: ^n}, model.copied), do: model.copied.index, else: 0
-
-      index =
-        case key do
-          "c" -> 0
-          "C" -> min(last + 1, length(commands) - 1)
-          "y" -> nil
-        end
-
-      if index == nil,
-        do: {model, Enum.join(commands, "\n")},
-        else: {%{model | copied: %{step: n, index: index}}, Enum.at(commands, index)}
-    else
-      _ -> nil
+  def copy(model, key) when key in ["c", "y"] do
+    case commands(model) do
+      [] -> nil
+      commands when key == "c" -> Enum.at(commands, command(model))
+      commands -> Enum.join(commands, "\n")
     end
   end
 

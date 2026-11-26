@@ -18,25 +18,30 @@ extension EnvironmentValues {
 /// An action Control marks `page` is the page's (what is done with its subject) and shows
 /// with the page's title; any other is its block's and shows under the block.
 public enum PageActions {
-    /// Every action of the page's `item`, `list` and `steps` blocks, and of its panels (their
-    /// answers as actions, then their own; `Panel.actions`), in block order.
+    /// Every action of the page's `item` and `list` blocks, of its panels (their answers
+    /// as actions, then their own; `Panel.actions`) and of its `answers` blocks (each answer
+    /// as the page's action of its key, `Panel.action`), in block order.
     public static func all(_ page: PageMessage) -> [ActionModel] {
         page.blocks.flatMap { block -> [ActionModel] in
             switch block.content {
             case .item(let item): item.actions ?? []
             case .list(let list): list.actions ?? []
             case .panel(let panel): Panel.actions(panel)
-            case .steps(let steps): steps.actions ?? []
+            case .answers(let answers): answers.answers.map(Panel.action)
             default: []
             }
         }
     }
 
-    /// The page's own actions (`page`), in block order; not those a panel of the page
-    /// shows (by key, or doing what one does).
+    /// The page's own actions (`page`), in block order; not those a panel or an `answers`
+    /// block of the page shows (by key, or doing what one does).
     public static func ofPage(_ page: PageMessage) -> [ActionModel] {
         let shown = page.blocks.flatMap { block -> [ActionModel] in
-            if case .panel(let panel) = block.content { Panel.actions(panel) } else { [] }
+            switch block.content {
+            case .panel(let panel): Panel.actions(panel)
+            case .answers(let answers): answers.answers.map(Panel.action)
+            default: []
+            }
         }
         return all(page).filter { action in
             action.page == true
@@ -362,8 +367,14 @@ public struct ActionPageView: View {
             SingleChoiceView(block: choice, submit: submit)
         case .panel(let panel):
             PanelView(block: panel, open: { _ in }, act: act)
-        case .steps(let steps):
-            StepsView(block: steps, act: act)
+        case .header(let header):
+            HeaderBlockView(block: header, act: act)
+        case .text(let text):
+            TextBlockView(block: text)
+        case .instruction(let instruction):
+            InstructionView(block: instruction)
+        case .answers(let answers):
+            AnswersView(block: answers, act: act)
         case .notShown(let type): FallbackView(type: type, reason: nil)
         case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
         }
