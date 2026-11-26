@@ -98,12 +98,12 @@ end
 offline = { 'HEX_OFFLINE' => '1', 'HEX_HOME' => hex_home }
 
 # The lines of a failing step's output worth reading first: each ExUnit, Go or unittest failure
-# with the lines under it, then the output's last lines.
+# and each compiler warning or error, with the lines under it, then the output's last lines.
 failures = lambda do |out|
   lines = out.lines.map(&:rstrip)
   picked = []
   lines.each_with_index do |line, i|
-    next unless line.match?(/\A\s+\d+\) test |\A--- FAIL|\A(FAIL|ERROR): |::error::|\A\*\* \(Mix\)/)
+    next unless line.match?(/\A\s+\d+\) test |\A--- FAIL|\A(FAIL|ERROR): |::error::|\A\*\* \(Mix\)|(\A|\s)(warning|error): |\A\S+\.go:\d+:\d+: /)
 
     block = [line]
     lines[(i + 1)..(i + 30)].to_a.each do |more|
