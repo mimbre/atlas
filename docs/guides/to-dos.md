@@ -8,25 +8,61 @@ Hand it to a person or agent through its Assignment. Set the optional deadline t
 the To-Do has no separate deadline. The deadline marks assigned work late and does not
 close it. Until it is handed on, the configured decider owns it.
 
-The owner sees the complete instructions in the page's What to do section, including
-Console detail and the agent's item guidance. The owner can choose Done with a note on
-how it was done, or Won't do with a note on why. Other actors cannot close it. Neither
-answer is accepted without a note. Atlas records the note on the To-Do and as the
-change's cause. Optional evidence can hold a link or reference. There is no gate or
-review: Atlas cannot verify this work.
+The owner can choose Done with a note on how it was done, or Won't do with a note on
+why. Other actors cannot close it. Neither answer is accepted without a note. Atlas
+records the note on the To-Do and as the change's cause. Optional evidence can hold a
+link or reference. There is no gate or review: Atlas cannot verify this work.
 
 `done` and `wont_do` end the run. Putting the status back does not start another run;
 restarting requires an explicit restart. A To-Do can link to the decisions it is based
 on, and counts as work in their follow-through tally.
 
 The model declares the whole-field instructions section with
-`section: [field: :instructions, label: "Instructions"]`. This is generic DSL support;
+`section: [field: :instructions, label: "Instructions", steps: :step]`; `steps:` names
+the integer field that keeps the current step. This is generic DSL support;
 clients do not name the To-Do kind. An answer can use `"$note"` as a field value to keep
 the trimmed answer note, just as `"$now"` keeps the answer time. Facts reads a component
 for a choice role only when that role grants update access on the subject's kind.
 Stored component links determine that role; a submitted owner link grants no role.
 The compiled Facts input mapping carries component definitions, because Rela's public
 schema does not include those model rules.
+
+## Step by step
+
+The owner sees the instructions as a panel of steps, in the TUI, the Mac app and
+`atlas get`. Write the instructions in this form:
+
+```text
+Why: the hosting bill goes to this account.
+1. Open the account.
+$ open https://example.com/billing
+2. Save the receipt in the shared folder.
+$ cp ~/Downloads/receipt.pdf ~/Shared/
+```
+
+- An optional `Why:` paragraph comes first. The panel shows it with how long the
+  To-Do has been the owner's.
+- Numbered lines (`1.`, `2.`, …) start the steps. Text without numbered steps is
+  one step.
+- A line starting with `$ ` is a command of the step above it, shown without the `$ `.
+
+The panel shows the done steps with ✓, the current step open with its commands, and
+the later steps faint. The To-Do's `step` field keeps where the owner is:
+
+| Key | Does |
+| --- | --- |
+| Enter | marks the current step done |
+| ↓ / ↑ | goes to the next or previous step |
+| `c` | copies the current step's first command |
+| `C` | copies its next command |
+| `y` | copies all of its commands, one per line |
+| `x` / `n` | Done / Won't do, with a note |
+| `i` | folds Item details open: the To-Do in full |
+
+The Mac app has a Copy button beside each command. The TUI copies with `pbcopy` when
+it runs on the Mac itself, and otherwise with OSC 52, which the terminal must allow.
+Inside tmux, OSC 52 also needs `set -g set-clipboard on` or
+`set -g allow-passthrough on`.
 
 ## Isolated verification
 
