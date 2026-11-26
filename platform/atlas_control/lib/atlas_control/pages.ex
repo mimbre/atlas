@@ -568,10 +568,17 @@ defmodule AtlasControl.Pages do
   def read_roles(route, m) do
     lookups =
       case route do
-        {:assigned, _} -> owner_reads(m)
-        {:list, kind} when is_binary(kind) -> if open_work?(m, kind), do: owner_reads(m), else: 0
-        {screen, _} when screen in [:open_for_you, :supervised_by_you] -> span_lookups(m)
-        _ -> 0
+        {:assigned, _} ->
+          owner_reads(m)
+
+        {:list, kind} when is_binary(kind) ->
+          if open_work?(m, kind), do: owner_reads(m), else: length(status_reads(m, kind))
+
+        {screen, _} when screen in [:open_for_you, :supervised_by_you] ->
+          span_lookups(m)
+
+        _ ->
+          0
       end
 
     n = length(reads(route, m))
@@ -588,11 +595,28 @@ defmodule AtlasControl.Pages do
   end
 
   # A kind whose rows count what points at it (`counts`) also reads, plainly, every fact of
-  # each kind those relations start at.
+  # each kind those relations start at; then the components its work is presented on
+  # (`status_reads/2`), lookups that say where each row stands.
   defp list_reads(kind, m),
-    do: [
-      {kind, %{}} | for(c <- counts(m, kind), do: {c.from, %{"linked" => %{}, "plain" => true}})
-    ]
+    do:
+      [
+        {kind, presented(m, kind, %{})}
+        | for(c <- counts(m, kind), do: {c.from, %{"linked" => %{}, "plain" => true}})
+      ] ++ status_reads(m, kind)
+
+  # The components of a fact of `kind` whose work Facts presents, every fact of each,
+  # plainly, with that presentation: where a list row of the kind stands (`status/4`).
+  defp status_reads(m, kind) do
+    for {_relation, part_kind, _component} <- presented_components(m, kind),
+        do: {part_kind, %{"linked" => %{}, "plain" => true, "presentation" => true}}
+  end
+
+  # The component relations of `kind` (as `components/2`) whose kind's work Facts presents.
+  defp presented_components(m, kind) do
+    for {_relation, part_kind, _component} = c <- components(m, kind),
+        match?(%{presented: true}, kind(m, part_kind)),
+        do: c
+  end
 
   # What a list row of `kind` counts: `[%{relation, from, text}]`, one per kind the
   # relation starts at.
@@ -805,7 +829,7 @@ defmodule AtlasControl.Pages do
     list =
       Blocks.list(
         title: rule.title || "",
-        rows: for(item <- items, do: calm_row(m, rule.relation, item)),
+        rows: for(item <- items, do: calm_row(m, rule.relation, item, by)),
         empty: rule.empty,
         actions: start_actions(m)
       )
@@ -878,8 +902,9 @@ defmodule AtlasControl.Pages do
   # One calm row of what is assigned: the fact's key, the fact, who it is with (`owner?`, on
   # Open work), why it is to be reviewed (the rule's label), what is to be done (its
   # state's short name, `Merge it`; on Open work the flow its work is in; never the long
-  # sentence of what is expected), whether it is blocked, and its deadline (late first).
-  defp calm_row(m, relation, {from, fact, link}, owner? \\ false) do
+  # sentence of what is expected), whether it is blocked, and its deadline (late first);
+  # where it stands for the viewer `by`, since when (`status/4`).
+  defp calm_row(m, relation, {from, fact, link}, by, owner? \\ false) do
     link_k = kind(m, link_kind(m, relation))
 
     detail =
@@ -893,12 +918,85 @@ defmodule AtlasControl.Pages do
       |> Enum.reject(&(&1 in [nil, "", false]))
       |> Enum.join(" · ")
 
+    {tone, since} =
+      status(fact, [link, fact], by,
+        owners: owners(link, relation),
+        since: get_in(link, ["origins", relation, "since"])
+      )
+
     Blocks.row(
       id: fact["key"],
       label: label(kind(m, from), fact),
       detail: detail,
-      to: path({:item, from, fact["key"]})
+      to: path({:item, from, fact["key"]}),
+      tone: tone,
+      since: since
     )
+  end
+
+  # Where a row's work stands for the viewer `by`, with one meaning on every list (a row's
+  # `tone` and `since`, platform/atlas_control/backend/README.md): `{tone, since}`, both nil
+  # where nothing says. Facts' presentation of the work decides it, on the first of
+  # `written` (the component it is presented on, then the fact) that has one, with who it
+  # is assigned to (`owners:`) where nothing presents it:
+  #
+  #   * "done": the fact is completed and no run is still at it (active or blocked), or its
+  #     run ended (and it is not reopened);
+  #   * "attention": the next step is the viewer's (or it was handed to them by hand), or
+  #     its run is blocked and the viewer owns or supervises it;
+  #   * "waiting": it was reopened, waits for another fact, is blocked on someone else, or
+  #     its next step is nobody's or someone's whose flow nobody drives (no supervisor);
+  #   * "active": under way: the viewer's running work is on it (`doing:`), its next step
+  #     is someone else's in a flow someone supervises, or Flow is at it.
+  #
+  # `since` is when the presenting run entered its state, else (`since:`) when it was
+  # assigned; for a completed fact, when it was completed.
+  defp status(fact, written, by, opts \\ []) do
+    shown =
+      Enum.find_value(written, %{}, fn w ->
+        is_map(w) and is_map(w["presentation"]) and w["presentation"]
+      end)
+
+    mine? = by != nil and by in (shown["owner"] || opts[:owners] || [])
+    supervisor = shown["supervisor"] || []
+    since = shown["since"] || opts[:since]
+
+    cond do
+      completed?(fact) and shown["status"] not in ["active", "blocked"] ->
+        {"done", completed_since(fact) || shown["since"]}
+
+      shown["status"] == "completed" and shown["reopened"] != true ->
+        {"done", shown["since"]}
+
+      shown["status"] == "blocked" ->
+        {if(mine? or (by != nil and by in supervisor), do: "attention", else: "waiting"), since}
+
+      shown["reopened"] == true or is_binary(shown["waiting_for"]) ->
+        {"waiting", since}
+
+      mine? and (shown["actionable"] != false or shown["manual"] == true) ->
+        {"attention", since}
+
+      opts[:doing] != nil ->
+        {"active", since}
+
+      shown["actionable"] == true ->
+        {if(supervisor != [], do: "active", else: "waiting"), since}
+
+      shown["status"] == "active" ->
+        {"active", since}
+
+      true ->
+        {nil, nil}
+    end
+  end
+
+  # When a completed fact was completed: the fact that set the link that completes it.
+  defp completed_since(fact) do
+    case fact["completion"] do
+      %{"by" => relation} -> get_in(fact, ["origins", relation, "since"])
+      _ -> nil
+    end
   end
 
   # What Facts' presentation of the work says of `name`: on the component it is presented
@@ -932,7 +1030,7 @@ defmodule AtlasControl.Pages do
 
   # Open work: the list of a kind the start's relation starts at, for everyone; calm by
   # default as what is assigned (`assigned/4`), each row with who it is with.
-  defp open_work(m, kind, answers, marked) do
+  defp open_work(m, kind, answers, marked, by) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
         rule = open_rule(m)
@@ -943,7 +1041,7 @@ defmodule AtlasControl.Pages do
         list =
           Blocks.list(
             title: rule.title || kind(m, kind).plural,
-            rows: for(item <- items, do: calm_row(m, relation, item, true)),
+            rows: for(item <- items, do: calm_row(m, relation, item, by, true)),
             empty: rule.empty,
             actions: []
           )
@@ -1600,7 +1698,7 @@ defmodule AtlasControl.Pages do
 
   # Open for you, calm: its groups and one list per span, titled with the span's flow; on a
   # group's page (`active`, `{subflow, span}`) only that span's list.
-  defp open_for_you(m, answers, active) do
+  defp open_for_you(m, by, answers, active) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
         rule = open_for_you_rule(m)
@@ -1613,7 +1711,8 @@ defmodule AtlasControl.Pages do
             {"list:#{s.subflow}:#{s.span}",
              Blocks.list(
                title: span_title(m, s),
-               rows: for({kind, fact, work} <- facts, do: screen_row(m, kind, fact, work, false)),
+               rows:
+                 for({kind, fact, work} <- facts, do: screen_row(m, kind, fact, work, by, false)),
                empty: rule.empty
              )}
           end
@@ -1722,7 +1821,7 @@ defmodule AtlasControl.Pages do
             rows:
               for(
                 {kind, fact, work} <- items,
-                do: screen_row(m, kind, fact, work, active == nil, doing[fact["key"]])
+                do: screen_row(m, kind, fact, work, by, active == nil, doing[fact["key"]])
               ),
             empty: rule.empty
           )
@@ -1744,8 +1843,9 @@ defmodule AtlasControl.Pages do
   # of unpicked work is not news), whether it is blocked; the rest is on its page. Where a
   # heading or group says the flow, the row says what it belongs under (its parents' keys)
   # instead. While the client's running work is on it (`doing`, `{kind, fact}`), the row
-  # says that work (its kind and detail) in place of the flow: an agent is at it.
-  defp screen_row(m, kind, fact, work, flow?, doing \\ nil) do
+  # says that work (its kind and detail) in place of the flow: an agent is at it. Where it
+  # stands for the viewer `by`, since when: `status/4`.
+  defp screen_row(m, kind, fact, work, by, flow?, doing \\ nil) do
     parents = if flow?, do: [], else: Map.values(parent_values(m, kind, fact))
     p = work["presentation"] || %{}
 
@@ -1775,11 +1875,15 @@ defmodule AtlasControl.Pages do
       |> Enum.reject(&(&1 in [nil, "", false]))
       |> Enum.join(" · ")
 
+    {tone, since} = status(fact, [work, fact], by, doing: doing)
+
     Blocks.row(
       id: fact["key"],
       label: label(kind(m, kind), fact),
       detail: detail,
-      to: path({:item, kind, fact["key"]})
+      to: path({:item, kind, fact["key"]}),
+      tone: tone,
+      since: since
     )
   end
 
@@ -1800,7 +1904,7 @@ defmodule AtlasControl.Pages do
   def render({screen, by}, m, answers, form) when screen in [:open_for_you, :supervised_by_you] do
     case {screen, screen_rule(m, screen)} do
       {_, nil} -> render(:unknown, m, answers, form)
-      {:open_for_you, _} -> open_for_you(m, answers, nil)
+      {:open_for_you, _} -> open_for_you(m, by || form[:by], answers, nil)
       {:supervised_by_you, _} -> supervised_by_you(m, by, answers, nil)
     end
   end
@@ -1809,7 +1913,7 @@ defmodule AtlasControl.Pages do
     case {resolve(route, m), screen} do
       {:unknown, _} -> render(:unknown, m, answers, form)
       {_, :assigned} -> assigned(m, by, answers, marked(form), key)
-      {_, :open_for_you} -> open_for_you(m, answers, key)
+      {_, :open_for_you} -> open_for_you(m, by || form[:by], answers, key)
       {_, :supervised_by_you} -> supervised_by_you(m, by, answers, key)
     end
   end
@@ -1950,7 +2054,7 @@ defmodule AtlasControl.Pages do
 
   defp page({:list, kind}, kind, k, m, answers, form) do
     if open_work?(m, kind),
-      do: open_work(m, kind, answers, marked(form)),
+      do: open_work(m, kind, answers, marked(form), form[:by]),
       else: list_page(kind, k, m, answers, form)
   end
 
@@ -2015,7 +2119,7 @@ defmodule AtlasControl.Pages do
 
             {judged,
              {list_id(relation, from, r),
-              child_list(m, {relation, from, r}, child_answer, judged)}}
+              child_list(m, {relation, from, r}, child_answer, judged, form[:by])}}
           end)
           |> Enum.split_with(&elem(&1, 0))
 
@@ -2027,7 +2131,7 @@ defmodule AtlasControl.Pages do
         # section that carries its title. A client lays the parts out as it sees fit.
         references =
           Enum.map(lists, &elem(&1, 1)) ++
-            cause_lists(m, key, cause_answers) ++
+            cause_lists(m, key, cause_answers, form[:by]) ++
             parent_lists(m, kind, fact) ++
             Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
               parent_lists(m, part_kind, part)
@@ -2599,26 +2703,32 @@ defmodule AtlasControl.Pages do
   defp page(_route, _kind, _k, _m, _answers, _form),
     do: missing("Nothing here", "This page does not exist.", "/")
 
-  defp list_page(kind, k, m, [answer | count_answers], form) do
+  defp list_page(kind, k, m, [answer | rest], form) do
     # The only top kind's list is the start page; there is nothing to go back to.
     start? = top_kinds(m) == [kind]
     # With a start page of assignments, the plan is one key away from it, and back.
     first? = start? and not assigned_start?(m, form[:by_kind])
+    {count_answers, status_answers} = Enum.split(rest, length(counts(m, kind)))
 
     case answer do
       %{"facts" => facts} ->
         counted = counted(m, kind, count_answers)
+        written = presented_parts(m, kind, status_answers)
 
         rows =
           facts
           |> sort_facts(k)
           |> Enum.map(fn fact ->
+            {tone, since} = status(fact, written.(fact) ++ [fact], form[:by])
+
             Blocks.row(
               id: fact["key"],
               label: label(k, fact),
               detail: join_detail(detail(k, fact), counted.(fact["key"])),
               to: path({:item, kind, fact["key"]}),
-              links: links(k, fact)
+              links: links(k, fact),
+              tone: tone,
+              since: since
             )
           end)
 
@@ -2641,6 +2751,24 @@ defmodule AtlasControl.Pages do
 
       %{"error" => _} = failed ->
         unavailable(failed, "/")
+    end
+  end
+
+  # For a fact of `kind`, its components whose work Facts presents, from the answers to
+  # `status_reads/2` (in its order): `fact -> [component fact]`. A failed read is left out:
+  # its rows then say nothing of where they stand.
+  defp presented_parts(m, kind, answers) do
+    found =
+      for {{relation, _, _}, %{"facts" => facts}} <-
+            Enum.zip(presented_components(m, kind), answers),
+          do: {relation, Map.new(facts, &{&1["key"], &1})}
+
+    fn fact ->
+      for {relation, by_key} <- found,
+          key <- get_in(fact, ["links", relation]) || [],
+          part = by_key[key],
+          part != nil,
+          do: part
     end
   end
 
@@ -2925,8 +3053,9 @@ defmodule AtlasControl.Pages do
   end
 
   # A judged list (its owner decides on what is under it) says what each fact is about:
-  # its label, then the first line of its first text of several lines.
-  defp child_list(m, {_relation, from, r}, answer, judged) do
+  # its label, then the first line of its first text of several lines. Each row says where
+  # it stands for the viewer `by` as far as the fact itself says (`status/4`).
+  defp child_list(m, {_relation, from, r}, answer, judged, by) do
     from_k = kind(m, from) || unknown_kind(from)
     title = String.capitalize(r.inverse_label || from_k.plural)
 
@@ -2938,15 +3067,19 @@ defmodule AtlasControl.Pages do
         %{"facts" => facts} ->
           facts
           |> sort_facts(from_k)
-          |> Enum.map(
-            &Blocks.row(
-              id: &1["key"],
-              label: if(judged, do: about(from_k, &1), else: label(from_k, &1)),
-              detail: detail(from_k, &1),
-              to: path({:item, from, &1["key"]}),
-              links: links(from_k, &1)
+          |> Enum.map(fn fact ->
+            {tone, since} = status(fact, [fact], by)
+
+            Blocks.row(
+              id: fact["key"],
+              label: if(judged, do: about(from_k, fact), else: label(from_k, fact)),
+              detail: detail(from_k, fact),
+              to: path({:item, from, fact["key"]}),
+              links: links(from_k, fact),
+              tone: tone,
+              since: since
             )
-          )
+          end)
 
         _ ->
           []
@@ -2978,21 +3111,25 @@ defmodule AtlasControl.Pages do
 
   # The facts whose cause field holds this fact's key, one list per such field; only those
   # with rows. They follow the related lists in the references part.
-  defp cause_lists(m, key, answers) do
+  defp cause_lists(m, key, answers, by) do
     for {{from, name, title}, %{"facts" => facts}} <- Enum.zip(cause_fields(m), answers),
         naming = Enum.filter(facts, &(to_text(&1["values"][name]) == key)),
         naming != [] do
       from_k = kind(m, from)
 
       rows =
-        for fact <- sort_facts(naming, from_k),
-            do:
-              Blocks.row(
-                id: fact["key"],
-                label: label(from_k, fact),
-                detail: detail(from_k, fact),
-                to: path({:item, from, fact["key"]})
-              )
+        for fact <- sort_facts(naming, from_k) do
+          {tone, since} = status(fact, [fact], by)
+
+          Blocks.row(
+            id: fact["key"],
+            label: label(from_k, fact),
+            detail: detail(from_k, fact),
+            to: path({:item, from, fact["key"]}),
+            tone: tone,
+            since: since
+          )
+        end
 
       {"cause:#{from}:#{name}", {title, Blocks.list(rows: rows)}}
     end

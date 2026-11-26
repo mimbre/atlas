@@ -55,6 +55,8 @@ defmodule AtlasTui.Model do
             values: %{},
             notice: nil,
             updated: nil,
+            # The time a list's ages are measured against (a row's `since`); nil: the clock.
+            now: nil,
             last_hint: nil,
             waiting: false,
             closed: false,

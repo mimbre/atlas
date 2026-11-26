@@ -12,7 +12,8 @@ defmodule AtlasFacts.Presentation do
   The presentation, for a fact `target` the work is written on:
 
     * `subject` (`%{"kind", "key"}`), `flow` (who presents it), and the run that does:
-      `run`, `generation`, `status`;
+      `run`, `generation`, `status`, and `since`: when that run entered the state it is in
+      (its `entered_at`, ISO 8601), nil when no run presents anything or it does not say;
     * `state`: the state presented: the active (or blocked) run's own; nil when no run
       presents anything;
     * `expected`, `why`, `todo` (the state's `instructions`, `section`, `answers`) and
@@ -39,9 +40,9 @@ defmodule AtlasFacts.Presentation do
   @doc """
   The presentation of `target` by `presenter`, for `subject` (`%{"key", "values"}`, the
   fact the work is on; `target` itself when the presenter writes on the subject) with
-  `runs` (decoded, of its subject: `flow`, `generation`, `status`, `state`, `key`, and
-  `supervisor`, the keys its supervision relation links, with `supervisor_origin`, the
-  fact that set that link).
+  `runs` (decoded, of its subject: `flow`, `generation`, `status`, `state`, `since` (its
+  `entered_at`), `key`, and `supervisor`, the keys its supervision relation links, with
+  `supervisor_origin`, the fact that set that link).
   `completed?` says whether the subject is completed (asked only for reopened work).
   """
   def view(presenter, target, subject, runs, completed?) do
@@ -55,6 +56,7 @@ defmodule AtlasFacts.Presentation do
       "run" => nil,
       "generation" => nil,
       "status" => nil,
+      "since" => nil,
       "state" => nil,
       "supervisor" => [],
       "supervisor_origin" => nil,
@@ -121,6 +123,7 @@ defmodule AtlasFacts.Presentation do
       "run" => run["key"],
       "generation" => run["generation"],
       "status" => run["status"],
+      "since" => run["since"],
       "supervisor" => run["supervisor"] || [],
       "supervisor_origin" => run["supervisor_origin"]
     }

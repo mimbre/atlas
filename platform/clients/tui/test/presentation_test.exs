@@ -81,7 +81,11 @@ defmodule AtlasTui.PresentationTest do
           :info,
           :muted,
           {:selected, :muted},
-          :pending_selected
+          :pending_selected,
+          :tone_attention,
+          :tone_active,
+          :tone_waiting,
+          :tone_done
         ] do
       {fg, bg} = Palette.colors(role, theme)
       [low, high] = Enum.sort([luminance(fg), luminance(bg)])
@@ -397,6 +401,105 @@ defmodule AtlasTui.PresentationTest do
         assert cells <= width
       end
     end
+  end
+
+  defp toned(width) do
+    m = model()
+    now = ~U[2026-11-26 12:00:00Z]
+    ago = &(now |> DateTime.add(-&1, :second) |> DateTime.to_iso8601())
+
+    rows = [
+      %AtlasTui.Blocks.Row{id: "W-0", label: "Nothing said", to: "/k/widget/W-0"},
+      %AtlasTui.Blocks.Row{
+        id: "W-1",
+        label: "Pay the supplier invoice",
+        detail: "Decide",
+        to: "/k/widget/W-1",
+        tone: "attention",
+        since: ago.(15 * 86_400 + 600)
+      },
+      %AtlasTui.Blocks.Row{
+        id: "W-2",
+        label: "Build the release",
+        detail: "Implement",
+        to: "/k/widget/W-2",
+        tone: "active",
+        since: ago.(6 * 3_600 + 60)
+      },
+      %AtlasTui.Blocks.Row{
+        id: "W-3",
+        label: "Review the copy",
+        to: "/k/widget/W-3",
+        tone: "waiting",
+        since: ago.(46 * 60)
+      },
+      %AtlasTui.Blocks.Row{
+        id: "W-4",
+        label: "Ship it",
+        to: "/k/widget/W-4",
+        tone: "done",
+        since: ago.(5)
+      }
+    ]
+
+    m = %{
+      m
+      | blocks: [%AtlasTui.Blocks.List{title: "Widgets", rows: rows}],
+        ids: ["list"],
+        markup: [],
+        console: %{m.console | shell: nil},
+        now: now,
+        selected: 1
+    }
+
+    lines = View.render(m, width, 40, 5)
+    Map.new(rows, fn row -> {row.id, Enum.find(lines, &(View.plain([&1]) =~ row.id))} end)
+  end
+
+  test "each row shows where it stands as a coloured dot, and how long, before its title" do
+    lines = toned(100)
+    text = Map.new(lines, fn {id, line} -> {id, View.plain([line])} end)
+
+    # The dot comes before the id, in the colour of its meaning; the selection keeps its own
+    # colours, and a row Control says nothing of has none.
+    for {id, role} <- [{"W-2", :tone_active}, {"W-3", :tone_waiting}, {"W-4", :tone_done}] do
+      assert {role, "●"} in lines[id]
+      assert String.split(text[id], "●") |> hd() |> String.trim() == ""
+    end
+
+    assert Enum.any?(lines["W-1"], fn {style, text} -> style == :selected and text =~ "● W-1" end)
+    assert text["W-1"] =~ ~r/›\s*● W-1/
+    refute text["W-0"] =~ "●"
+
+    # The age, compact and right-aligned, between the id and the title.
+    ends =
+      for {id, age, title} <- [
+            {"W-1", "15d", "Pay the supplier invoice"},
+            {"W-2", "6h", "Build the release"},
+            {"W-3", "46m", "Review the copy"},
+            {"W-4", "today", "Ship it"}
+          ] do
+        assert text[id] =~ ~r/#{id}\s+#{age}  #{title}/
+        [before | _] = String.split(text[id], age <> "  " <> title)
+        String.length(before) + String.length(age)
+      end
+
+    assert length(Enum.uniq(ends)) == 1
+
+    # A done row is muted; the others are not.
+    assert Enum.any?(lines["W-4"], fn {style, text} -> style == :muted and text =~ "Ship it" end)
+    refute Enum.any?(lines["W-2"], &match?({:muted, _}, &1))
+  end
+
+  test "a narrow list drops the age before it cuts a title" do
+    widths = for width <- 20..100, do: {width, View.plain([toned(width)["W-1"]])}
+
+    for {_width, line} <- widths, line =~ "…", do: refute(line =~ "15d")
+    assert Enum.any?(widths, fn {_, line} -> line =~ "15d" end)
+
+    assert Enum.any?(widths, fn {_, line} ->
+             line =~ "Pay the supplier invoice" and not (line =~ "15d")
+           end)
   end
 
   test "embedded whitespace in item labels and metadata cannot create extra terminal rows" do
