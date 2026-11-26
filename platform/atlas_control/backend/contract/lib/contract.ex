@@ -47,10 +47,14 @@ defmodule AtlasBFFContract.Contract do
   # client cycles through the work tabs only. Older clients refuse sequence keys.
   # 0.24.0: an action may be the page's rather than its block's (`page`): a client shows it
   # with the page's title (the window's toolbar, an item page's header), not under the block.
-  # 0.26.0: a page where its owner decides may show it as a `panel` (to accept, to merge,
+  # 0.25.0: a list row may say where its work stands (`tone`) and since when (`since`); a
+  # client shows a coloured mark and an age beside the row's own words.
+  # 0.27.0: a to-do's instructions step by step (`steps`, with `instruction_step`), and
+  # the submit that sets the step its owner is at (`step`).
+  # 0.28.0: a page where its owner decides may show it as a `panel` (to accept, to merge,
   # a decision on stuck work): a heading and title, a byline, the items or checks or box
   # it is judged on, and its answers (a choice when `choose`).
-  version "0.26.0"
+  version "0.28.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

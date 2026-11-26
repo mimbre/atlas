@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.26.0"
+  version "0.28.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -29,6 +29,15 @@ defmodule AtlasBFFContract.Models.Presentation do
     # The answer is given with a note saying why (a decline), as a form asks it.
     field :note, :boolean
     field :shortcut, :string
+  end
+
+  # One step of a `steps` block: its number (from 1), its text (the lines that are no
+  # command, kept with their breaks) and its commands, each a line to run as it is (the
+  # instructions' `$ ` taken off).
+  defmodel :instruction_step do
+    field :n, :integer, required: true
+    field :text, :string, required: true
+    field :commands, {:list, :string}, required: true
   end
 
   # One part of a panel's byline (`panel`): `text`, and with `since` (ISO 8601, UTC) how

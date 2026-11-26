@@ -1983,6 +1983,152 @@ defmodule AtlasControl.PagesTest do
     end
   end
 
+  # A to-do shown step by step (`Shop.Stepped`): the widget's notes are its steps, `at` the
+  # one its card's holder is at.
+  @stepped AtlasControl.Model.catalog(Shop.Stepped)
+
+  defp stepped_reads(route, values, holder \\ "ada") do
+    widget =
+      fact("W-1", Map.merge(%{"title" => "Rotate the key", "done" => false}, values))
+      |> Map.put("links", %{"card" => ["C-W-1"]})
+
+    card =
+      fact("C-W-1", %{"of" => "W-1", "todo" => "Do it", "step" => "doing"})
+      |> Map.put("links", %{"held_by" => [holder]})
+      |> Map.put("origins", %{"held_by" => %{"since" => "2026-11-20T10:00:00Z", "by" => "flow"}})
+
+    for read <- Pages.reads(route, @stepped) do
+      case read do
+        {"widget", _} -> %{"fact" => widget}
+        {"card", _} -> %{"fact" => card}
+        _ -> %{"facts" => []}
+      end
+    end
+  end
+
+  @steps """
+  Why: the old key leaked.
+
+  1. Make a new key.
+  2. Drop the old tags.
+     $ git tag -d v12
+     $ git tag -d v13
+  3. Remove the old file.
+     $ rm old.key
+  """
+
+  test "its owner sees the steps, the one they are at open, and the rest behind Item details" do
+    route = {:item, "widget", "W-1"}
+    reads = stepped_reads(route, %{"notes" => @steps, "at" => 2})
+    page = render_run(route, @stepped, "doing", reads, %{by: "ada"})
+
+    assert ["steps", "item" | _] = Enum.map(page.blocks, & &1["id"])
+    steps = by_id(page)["steps"]
+
+    assert %{
+             "title" => "Rotate the key",
+             "why" => "the old key leaked.",
+             "since" => "2026-11-20T10:00:00Z",
+             "current" => 2,
+             "steps" => [
+               %{"n" => 1, "text" => "Make a new key.", "commands" => []},
+               %{
+                 "n" => 2,
+                 "text" => "Drop the old tags.",
+                 "commands" => ["git tag -d v12", "git tag -d v13"]
+               },
+               %{"n" => 3, "text" => "Remove the old file.", "commands" => ["rm old.key"]}
+             ]
+           } = steps
+
+    # Enter: this step is done; Down and Up move it; then its answers, which ask a note.
+    step = &Pages.call_to({:step, "widget", "W-1", &1})
+
+    assert [
+             %{"key" => "Enter", "label" => "Step 2 done", "to" => "/k/widget/W-1/step/3"} =
+               done,
+             %{"key" => "Down", "label" => "Next step", "to" => "/k/widget/W-1/step/3"},
+             %{"key" => "Up", "label" => "Previous step", "to" => "/k/widget/W-1/step/1"} =
+               previous,
+             %{"key" => "x", "label" => "Done", "to" => "/k/widget/W-1/answer/x", "page" => true}
+             | _
+           ] = steps["actions"]
+
+    assert done["submit_to"] == step.(3)
+    assert previous["submit_to"] == step.(1)
+
+    # Everything else is the item, folded: no field list or instructions on the page, and
+    # not the notes or the step in it.
+    assert %{"kind" => "section", "start" => "item", "props" => props} =
+             Enum.find(page.markup, &(&1["start"] == "item"))
+
+    assert props == %{"title" => "Item details", "collapsible" => true}
+    labels = Enum.map(by_id(page)["item"]["fields"], & &1["label"])
+    refute "Notes" in labels or "At" in labels
+    refute Enum.any?(page.blocks, &(&1["id"] == "todo"))
+    assert [%{label: "Item details", keys: ["i"]}] = page.console_actions
+  end
+
+  test "unstructured notes are one step; at the end no step moves forward; none is the first" do
+    route = {:item, "widget", "W-1"}
+
+    page =
+      render_run(route, @stepped, "doing", stepped_reads(route, %{"notes" => "Tidy it."}), %{
+        by: "ada"
+      })
+
+    steps = by_id(page)["steps"]
+    assert %{"current" => 1, "steps" => [%{"n" => 1, "text" => "Tidy it."}]} = steps
+    refute Map.has_key?(steps, "why")
+    assert ["Enter", "Down", "x" | _] = Enum.map(steps["actions"], & &1["key"])
+
+    reads = stepped_reads(route, %{"notes" => "Tidy it.", "at" => 2})
+    steps = by_id(render_run(route, @stepped, "doing", reads, %{by: "ada"}))["steps"]
+    assert %{"current" => 2} = steps
+    assert ["Up", "x" | _] = Enum.map(steps["actions"], & &1["key"])
+
+    # Anyone else sees the widget as before, with no steps.
+    page = render_run(route, @stepped, "doing", reads, %{by: "bob"})
+    refute Enum.any?(page.blocks, &(&1["id"] == "steps"))
+  end
+
+  test "a step is set by its owner only, within its steps or one past the last" do
+    route = {:step, "widget", "W-1", "3"}
+    assert Pages.route("/k/widget/W-1/step/3") == route
+    reads = stepped_reads(route, %{"notes" => @steps})
+
+    assert {nil, "at", 3} =
+             Pages.step_problem(@stepped, route, running(reads, route, @stepped, "doing"), %{
+               by: "ada"
+             })
+
+    four = {:step, "widget", "W-1", "4"}
+
+    assert {nil, "at", 4} =
+             Pages.step_problem(@stepped, four, running(reads, four, @stepped, "doing"), %{
+               by: "ada"
+             })
+
+    for bad <- ["0", "5", "x"] do
+      bad = {:step, "widget", "W-1", bad}
+
+      assert {"W-1 has no step " <> _, nil, nil} =
+               Pages.step_problem(@stepped, bad, running(reads, bad, @stepped, "doing"), %{
+                 by: "ada"
+               })
+    end
+
+    assert {"Only its owner" <> _, nil, nil} =
+             Pages.step_problem(@stepped, route, running(reads, route, @stepped, "doing"), %{
+               by: "bob"
+             })
+
+    assert %{blocks: [%{"type" => "confirm", "props" => confirm}]} =
+             render_run(route, @stepped, "doing", reads, %{by: "ada"})
+
+    assert confirm["confirm_to"] == Pages.call_to(route)
+  end
+
   # Answers (IS-Atlas-56): approve sets checked_by, a widget association; send back removes
   # it, also when it is not set.
   @answering AtlasControl.Model.catalog(Shop.Answering)

@@ -492,3 +492,21 @@ defmodule Shop.SupervisedOnCard do
 
   supervised_work(kind: :job, of: :job_of, for: :job_for, ended: :outcome)
 end
+
+defmodule Shop.Stepped do
+  @moduledoc "A widget's notes shown step by step to its card's holder (`Shop.InstructedWidget`)."
+  use Shop.Composition,
+    name: "shop-stepped",
+    concepts: [
+      Shop.InstructedWidget,
+      Shop.Part,
+      Shop.Tag,
+      Shop.Member,
+      Shop.Links,
+      Shop.Card,
+      Shop.Runs
+    ],
+    subflows: [AtlasControl.Shop.InstructedWidget]
+
+  todo_words(title: "Your move", why: "Because", instructions: "How", answers: "Keys")
+end

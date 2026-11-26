@@ -39,6 +39,21 @@ defmodule AtlasBFFContract.Blocks do
         field :instructions, :string
       end
 
+      # What its owner is to do, step by step (a to-do's instructions): `title` the work in
+      # a few words, `why` the lead paragraph (without its "Why:"), `since` when it came
+      # to them (ISO 8601, UTC), the steps in order and the one they are at (`current`,
+      # from 1). A client shows the steps before `current` as done, that one open with its
+      # commands, which it may copy, and the later ones closed. `actions` move the current
+      # step (`submit_to` sets it) and answer the to-do, each on its key.
+      defblock :steps do
+        field :title, :string, required: true
+        field :why, :string
+        field :since, :string
+        field :steps, {:list, :instruction_step}, required: true
+        field :current, :integer, required: true
+        field :actions, {:list, :action}
+      end
+
       # Where its owner decides, as a panel: `heading` (what is asked of them: "TO
       # ACCEPT"), `title`, `aside` (beside the title: "3 items"), the `byline`; what it is
       # judged on: `items` (a client selects one and shows its details), `checks`, a `box`;

@@ -137,6 +137,7 @@ public struct PageView: View {
         case .panel(let panel):
             // A view of its own per page: a selection never stays for another page.
             PanelView(block: panel, open: open, act: act).id(presentation.path)
+        case .steps(let steps): StepsView(block: steps, act: act)
         // A page that asks is shown over the window (ActionPageView), not in a column.
         case .form: FallbackView(type: "form", reason: nil)
         case .confirm: FallbackView(type: "confirm", reason: nil)

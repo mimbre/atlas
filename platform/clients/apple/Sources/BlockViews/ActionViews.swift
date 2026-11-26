@@ -16,7 +16,7 @@ extension EnvironmentValues {
 /// An action Control marks `page` is the page's (what is done with its subject) and shows
 /// with the page's title; any other is its block's and shows under the block.
 public enum PageActions {
-    /// Every action of the page's `item` and `list` blocks, and of its panels (their
+    /// Every action of the page's `item`, `list` and `steps` blocks, and of its panels (their
     /// answers as actions, then their own; `Panel.actions`), in block order.
     public static func all(_ page: PageMessage) -> [ActionModel] {
         page.blocks.flatMap { block -> [ActionModel] in
@@ -24,6 +24,7 @@ public enum PageActions {
             case .item(let item): item.actions ?? []
             case .list(let list): list.actions ?? []
             case .panel(let panel): Panel.actions(panel)
+            case .steps(let steps): steps.actions ?? []
             default: []
             }
         }
@@ -357,6 +358,8 @@ public struct ActionPageView: View {
             SingleChoiceView(block: choice, submit: submit)
         case .panel(let panel):
             PanelView(block: panel, open: { _ in }, act: act)
+        case .steps(let steps):
+            StepsView(block: steps, act: act)
         case .notShown(let type): FallbackView(type: type, reason: nil)
         case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
         }
