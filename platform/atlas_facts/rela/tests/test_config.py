@@ -110,6 +110,44 @@ class NativeSchemaTest(unittest.TestCase):
             self.assertIn('removed_link', result.stdout + result.stderr)
             self.assertEqual(before, {str(p.relative_to(data)): p.read_bytes() for p in data.rglob('*') if p.is_file()})
 
+    def test_removed_empty_field_passes_and_rela_gc_removes_it_after_deploy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / 'data'
+            config.package(PROJECT, data)
+            (data / 'entities/people').mkdir(parents=True)
+            # As Facts clears a field: the key stays, holding null (or nothing).
+            (data / 'entities/people/a.md').write_text('---\nid: a\ntype: person\nname: A\nstep: null\n---\n')
+            (data / 'entities/people/b.md').write_text('---\nid: b\ntype: person\nname: B\nstep: ""\n---\n')
+            result = fits(PROJECT, data, str(self.binary))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('person.step (empty, removed after deploy)', result.stdout)
+            env = dict(os.environ, ATLAS_RELA_DATA=str(data), ATLAS_RELA_BIN=str(self.binary.parent))
+            gc = subprocess.run(['bash', str(ROOT / 'scripts/description.sh'), 'gc', 'person.step'],
+                                env=env, capture_output=True, text=True)
+            self.assertEqual(gc.returncode, 0, gc.stdout + gc.stderr)
+            self.assertIn('deleted person.step', gc.stdout)
+            for name in ('a', 'b'):
+                text = (data / f'entities/people/{name}.md').read_text()
+                self.assertNotIn('step', text)
+                self.assertIn('name: ', text)
+
+    def test_removed_field_with_a_value_still_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / 'data'
+            config.package(PROJECT, data)
+            (data / 'entities/people').mkdir(parents=True)
+            (data / 'entities/people/a.md').write_text('---\nid: a\ntype: person\nname: A\nstep: null\n---\n')
+            (data / 'entities/people/b.md').write_text('---\nid: b\ntype: person\nname: B\nstep: review\n---\n')
+            result = fits(PROJECT, data, str(self.binary))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('person.step\n', result.stdout)
+            self.assertNotIn('empty, removed after deploy', result.stdout)
+            env = dict(os.environ, ATLAS_RELA_DATA=str(data), ATLAS_RELA_BIN=str(self.binary.parent))
+            gc = subprocess.run(['bash', str(ROOT / 'scripts/description.sh'), 'gc'],
+                                env=env, capture_output=True, text=True)
+            self.assertNotEqual(gc.returncode, 0)
+            self.assertIn('step: review', (data / 'entities/people/b.md').read_text())
+
     def test_flat_fly_preflight_on_previous_image(self):
         import os, subprocess
         with tempfile.TemporaryDirectory() as tmp:
