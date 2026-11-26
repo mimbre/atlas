@@ -393,13 +393,12 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	var roots []string
-	for _, path := range []string{"/tmp", "/var/tmp", system} {
+	for _, path := range []string{system, "/tmp", "/var/tmp"} {
 		resolved, _ := resolvePath(path)
 		if !slices.Contains(roots, resolved) {
 			roots = append(roots, resolved)
 		}
 	}
-	slices.Sort(roots)
 	record, baseline := scope["record"].(string), scope["baseline"].(string)
 	protected := slices.Concat([]string{home}, socketPaths(home), []string{dest + "/.git", token, filepath.Dir(token), user + "/.claude"})
 	for _, name := range credentialPaths {

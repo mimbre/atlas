@@ -342,18 +342,30 @@ func TestPreparationWithoutAnOutcomeStaysUncertain(t *testing.T) {
 
 func TestPreparationTimeoutKillsItsWholeGroup(t *testing.T) {
 	_, home, dest := preparationFolder(t, packageFiles())
-	pidFile := filepath.Join(t.TempDir(), "pid")
-	preparationTools(t, "mkdir node_modules\nsleep 60 &\necho $! > "+pidFile+"\nwait\n")
-	previous := prepareTimeout
-	prepareTimeout = 500 * time.Millisecond
-	defer func() { prepareTimeout = previous }()
-	started := time.Now()
+	// The stand-in reports its background descendant through a FIFO, and the preparation times out
+	// only once that pid arrived: the descendant is in the group when the group is killed.
+	fifo := filepath.Join(t.TempDir(), "pid")
+	if err := syscall.Mkfifo(fifo, 0600); err != nil {
+		t.Fatal(err)
+	}
+	preparationTools(t, "mkdir node_modules\nsleep 60 &\necho $! > "+fifo+"\nwait\n")
+	pids := make(chan string, 1)
+	defer func(previous func() <-chan time.Time) { prepareExpiry = previous }(prepareExpiry)
+	prepareExpiry = func() <-chan time.Time {
+		expired := make(chan time.Time)
+		go func() {
+			data, _ := os.ReadFile(fifo)
+			pids <- string(data)
+			close(expired)
+		}()
+		return expired
+	}
 	_, err := Prepare(home, dest, "repo/app")
-	if result := notReady(t, err, "failed"); result["reason"] != "timeout" || time.Since(started) > 10*time.Second {
-		t.Fatalf("got %v after %s", result, time.Since(started))
+	if result := notReady(t, err, "failed"); result["reason"] != "timeout" {
+		t.Fatalf("got %v", result)
 	}
 	var pid int
-	if _, err = fmt.Sscan(readText(t, pidFile), &pid); err != nil {
+	if _, err = fmt.Sscan(<-pids, &pid); err != nil {
 		t.Fatal(err)
 	}
 	for deadline := time.Now().Add(3 * time.Second); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {

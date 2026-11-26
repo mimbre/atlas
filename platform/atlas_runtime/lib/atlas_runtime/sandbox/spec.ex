@@ -861,8 +861,9 @@ defmodule AtlasRuntime.Sandbox.Spec do
     end
   end
 
-  # claudeTemporaryRoots (claude.go:455-481): root outside every system temp root, and the
-  # private temp within Claude's child-temp limit.
+  # claudeTemporaryRoots (claude.go): root outside every system temp root, and the private temp
+  # within Claude's child-temp limit. The roots keep a fixed order (TMPDIR, /tmp, /var/tmp,
+  # duplicates dropped) that does not depend on where they resolve.
   defp claude_temporary_roots(root, temporary, subject, facts) do
     system =
       case facts["system_temp"] do
@@ -870,10 +871,7 @@ defmodule AtlasRuntime.Sandbox.Spec do
         fact -> resolution!(fact)
       end
 
-    roots =
-      [resolved!(facts, "/tmp"), resolved!(facts, "/var/tmp"), system]
-      |> Enum.uniq()
-      |> Enum.sort()
+    roots = Enum.uniq([system, resolved!(facts, "/tmp"), resolved!(facts, "/var/tmp")])
 
     for path <- roots,
         root == path or String.starts_with?(root, String.replace_suffix(path, "/", "") <> "/"),

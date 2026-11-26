@@ -22,8 +22,11 @@ import (
 const prepareLogLimit = 1 << 20
 
 // prepareTimeout bounds one preparation, after which its process group is killed and the
-// preparation fails. It is fixed; tests shorten it. Nothing is ever retried.
-var prepareTimeout = 10 * time.Minute
+// preparation fails. It is fixed. Nothing is ever retried.
+const prepareTimeout = 10 * time.Minute
+
+// prepareExpiry starts one preparation's timeout; a test replaces it to expire on an event.
+var prepareExpiry = func() <-chan time.Time { return time.After(prepareTimeout) }
 
 // npmArguments are the only preparation command: a clean install of the tracked lockfile without
 // lifecycle scripts, so no repository or package code runs while the registry is reachable.
@@ -347,7 +350,7 @@ func runPreparation(command []string, directory string, environment []string, di
 	if body, err := json.Marshal(map[string]any{"pid": leader.pid, "command": command, "directory": directory}); err == nil {
 		os.WriteFile(filepath.Join(diagnostics, "process.json"), append(body, '\n'), 0600)
 	}
-	deadline := time.Now().Add(prepareTimeout)
+	expiry := prepareExpiry()
 	for {
 		exited, err := leader.wait(100 * time.Millisecond)
 		if err != nil {
@@ -360,8 +363,12 @@ func runPreparation(command []string, directory string, environment []string, di
 			run.reason, run.err = "interrupted", errors.New("the preparation was interrupted")
 		default:
 		}
-		if run.reason == "" && time.Now().After(deadline) {
-			run.reason, run.err = "timeout", fmt.Errorf("the preparation did not finish within %s", prepareTimeout)
+		if run.reason == "" {
+			select {
+			case <-expiry:
+				run.reason, run.err = "timeout", fmt.Errorf("the preparation did not finish within %s", prepareTimeout)
+			default:
+			}
 		}
 		if run.reason != "" {
 			if err := leader.signalGroup(syscall.SIGKILL); err != nil {

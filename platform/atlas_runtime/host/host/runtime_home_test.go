@@ -239,12 +239,11 @@ func TestClaudeRepositoryAndReadOnlySettingsDenyTheRuntimeHome(t *testing.T) {
 	t.Cleanup(func() { platform = previous })
 	home, token := runtimeHomeWithToken(t, user)
 	var roots []string
-	for _, path := range []string{"/tmp", "/var/tmp", os.Getenv("TMPDIR")} {
+	for _, path := range []string{os.Getenv("TMPDIR"), "/tmp", "/var/tmp"} {
 		if resolved, _ := resolvePath(path); !slices.Contains(roots, resolved) {
 			roots = append(roots, resolved)
 		}
 	}
-	slices.Sort(roots)
 	temporary := "/u/.ac-12345678"
 	q := func(values ...string) string { body, _ := json.Marshal(values); return string(body) }
 	settings := func(root string, denyWrite, allowRead, rules []string) string {
