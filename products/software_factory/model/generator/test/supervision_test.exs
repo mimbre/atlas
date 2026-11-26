@@ -481,28 +481,6 @@ defmodule RelaDSL.SupervisionTest do
     problems = &work_problems(decl: @made_by <> &1)
     assert problems.("producer(relation: :made_by)") == []
 
-    # Flow and the migration that backfills it (UC-Atlas-23); no one else.
-    backfilled =
-      String.replace(
-        @made_by,
-        "max_outgoing: 1, set_by: [:flow]\n",
-        "max_outgoing: 1, set_by: [:flow, :migration]\n",
-        global: false
-      )
-
-    assert work_problems(decl: backfilled <> "producer(relation: :made_by)") == []
-
-    connector =
-      String.replace(
-        @made_by,
-        "max_outgoing: 1, set_by: [:flow]\n",
-        "max_outgoing: 1, set_by: [:flow, :connector]\n",
-        global: false
-      )
-
-    assert [{:producer_relation, ["made_by"]}] ==
-             work_problems(decl: connector <> "producer(relation: :made_by)")
-
     for relation <- [:made_by_many, :made_by_hand, :made_by_run, :ghost] do
       assert [{:producer_relation, [to_string(relation)]}] ==
                problems.("producer(relation: #{inspect(relation)})"),
@@ -522,14 +500,19 @@ defmodule RelaDSL.SupervisionTest do
            )
   end
 
-  test "a state's owner may ask the subject's producer, and nobody else" do
-    owner = "default: {:clerk, producer: :made_by}"
+  test "a state's owner may ask the subject's producer, the configured actor when none" do
+    owner = "default: {:clerk, config: :decider, producer: :made_by}"
     comp = model(concept: @made_by, case_owner: owner)
     [flow | _] = comp.__flows__()
-    assert flow.owner.default == %{kind: :clerk, producer: :made_by}
+    assert flow.owner.default == %{kind: :clerk, config: :decider, producer: :made_by}
 
     owned = Atlas.definitions(comp.__flows__(), comp.__rela__(:gates))["case"]["owner"]
-    assert owned["default"] == %{"kind" => "clerk", "producer" => "made_by"}
+
+    assert owned["default"] == %{
+             "kind" => "clerk",
+             "config" => "decider",
+             "producer" => "made_by"
+           }
 
     # The relation leads from the subject to one of the default's kind.
     for {relation, why} <- [
@@ -540,7 +523,7 @@ defmodule RelaDSL.SupervisionTest do
       model_refused(
         [
           concept: @made_by,
-          case_owner: "default: {:clerk, producer: #{inspect(relation)}}"
+          case_owner: "default: {:clerk, config: :decider, producer: #{inspect(relation)}}"
         ],
         why
       )

@@ -20,7 +20,8 @@ defmodule Model.UseCase do
       "Answer its questions" (`clarifying`) goes to its producer: the person who
       supervised the Design run that made it (`produced_by`), or who made it by hand (the
       person at the TUI, or whom the agent that creates it assists; `create(producer:)`,
-      UC-Atlas-23); every use case records one. They
+      UC-Atlas-23), or the configured decider for one from before producers were
+      recorded. They
       may rewrite the use case and answer with a note (`answers`); a fresh pass of its
       agent then reads the questions, the answers and the use case as they are now. The
       run keeps its supervisor.
@@ -206,14 +207,14 @@ defmodule Model.UseCase do
     # Its agent found it too vague to break down and asked (UC-Atlas-24): its producer, the
     # person who supervised the Design run that made it (`produced_by`), answers, after
     # rewriting it by hand if they like; a fresh pass of its agent then reads the
-    # questions, the answers and the use case. One made by hand asks who made it; every
-    # use case records its producer (UC-Atlas-23). The run keeps its supervisor, though
-    # this state is its producer's, never the supervisor's.
+    # questions, the answers and the use case. A use case that records no producer (made
+    # by hand, or before producers were recorded) asks the configured decider. The run
+    # keeps its supervisor, though this state is its producer's, never the supervisor's.
     state :clarifying, label: "Answer its questions" do
       owner(
         via: :assignment,
         relation: :assigned_to,
-        default: {:person, producer: :produced_by}
+        default: {:person, config: :decider, producer: :produced_by}
       )
 
       set(verdict: :none)

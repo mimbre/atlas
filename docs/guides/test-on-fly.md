@@ -148,7 +148,7 @@ It first refuses, changing nothing, when either app already has a hold or a pend
 
 ## A migration
 
-A migration command (today `atlas migrate-done-owner` and `atlas migrate-producer`) reads rela on the Mac, so `atlas` refuses it for an environment on Fly. A migration runs on a copy, on the Mac, as it always has, and the migrated copy goes back:
+A migration command (today `atlas migrate-done-owner`) reads rela on the Mac, so `atlas` refuses it for an environment on Fly. A migration runs on a copy, on the Mac, as it always has, and the migrated copy goes back:
 
 1. **Hold and copy.** `atlas-ops fetch-from-fly --env test --to <folder> --hold`. Test on Fly now serves nothing, so nothing writes to it during the migration. The TUI says Control does not answer.
 2. **Migrate the copy on a private instance.**

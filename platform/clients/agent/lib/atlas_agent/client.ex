@@ -76,13 +76,8 @@ defmodule AtlasAgent.Client do
     AtlasAgent.Protocol.message(:hello, :hello, props)
   end
 
-  @doc """
-  Facts' exact data of `kind` (every fact, with `key` nil) or of one fact. With `history:
-  true` and a key, also the history Facts keeps of its links (`"history"`).
-  """
-  def facts(client, kind, key, opts \\ []) do
-    fields = [kind: kind, key: key] ++ if(opts[:history] && key, do: [history: true], else: [])
-    request = AtlasAgent.Protocol.request(:facts_read, fields)
+  def facts(client, kind, key) do
+    request = AtlasAgent.Protocol.request(:facts_read, kind: kind, key: key)
 
     with {:ok, reply} <- exchange(client, :facts_read, request, @page_wait),
          do: {:ok, reply["data"]}

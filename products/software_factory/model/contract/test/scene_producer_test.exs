@@ -6,8 +6,7 @@ defmodule Model.SceneProducerTest do
   client is, never from the form, and Facts takes it on that create only (the scene's
   `create.producer`, data in the extension). Its origin is truthful: by the person, or
   by the agent on behalf of its person. "Accept the scene" then goes to that producer;
-  never to the configured decider in its place (every scene records one since the
-  UC-Atlas-23 migration). Three cases: a person who
+  a scene that records none goes to the configured decider. Three cases: a person who
   is not the decider, an assisting agent, and a form or write that sets it itself.
   """
   use ExUnit.Case, async: false
@@ -58,8 +57,7 @@ defmodule Model.SceneProducerTest do
 
   test "a scene's create names produced_by as data; the relation stays Flow's otherwise" do
     assert get_in(extension(), ["entities", "scene", "create", "producer"]) == "produced_by"
-    # Flow's, and the UC-Atlas-23 migration's that backfilled those from before.
-    assert get_in(extension(), ["relations", "produced_by", "set_by"]) == ["flow", "migration"]
+    assert get_in(extension(), ["relations", "produced_by", "set_by"]) == ["flow"]
 
     # A use case or issue made by hand records it the same way (UC-Atlas-23,
     # item_producer_test.exs); what Design and Plan make gets it from Flow.
@@ -72,14 +70,12 @@ defmodule Model.SceneProducerTest do
     assert AtlasEyra.form("scene", :edit).producer == nil
   end
 
-  test "Accept the scene asks its producer, and never the decider" do
+  test "Accept the scene asks its producer, the decider when it records none" do
     for env <- [:prod, :test] do
       accept = Enum.find(AtlasEyra.subflows(env), &(&1.name() == "accept_scene"))
 
-      assert accept.owner("to_accept")["default"] == %{
-               "kind" => "person",
-               "producer" => "produced_by"
-             }
+      assert %{"kind" => "person", "config" => "decider", "producer" => "produced_by"} =
+               accept.owner("to_accept")["default"]
 
       # Not the run's supervisor: the scene's producer, as Design's questions are.
       refute AtlasFlow.Model.supervisable?(accept.owner("to_accept")["default"])
@@ -300,13 +296,9 @@ defmodule Model.SceneProducerTest do
       assert accept(c, "SC-Atlas-31")["links"]["assigned_to"] == ["melle"]
     end
 
-    # Facts refuses such a scene now (UC-Atlas-23); should one be there anyway, its
-    # Accept is nobody's rather than someone's who did not put it in.
-    test "a scene that records no producer: Accept is nobody's, never the decider's", c do
+    test "a scene that records no producer: Accept is the decider's", c do
       scene("SC-Atlas-32", nil)
-      assignment = accept(c, "SC-Atlas-32")
-      assert assignment["values"]["flow_state"] == "to_accept"
-      assert List.wrap(assignment["links"]["assigned_to"]) == []
+      assert accept(c, "SC-Atlas-32")["links"]["assigned_to"] == ["bo"]
     end
   end
 end

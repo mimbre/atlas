@@ -110,17 +110,6 @@ defmodule RelaDSL.Description.ChecksTest do
     end
   end
 
-  # UC-Atlas-23: a requires rule may name links, each a relation from its kind.
-  test "a requires rule's links are relations from the kind" do
-    assert checked(concept(entity: ~s(requires links: [:kept_by], error: "kept"))) == []
-
-    assert checked(concept(entity: ~s(requires links: [:nowhere], error: "kept"))) ==
-             [{:unknown_relation, ["nowhere"]}]
-
-    assert checked(concept(entity: ~s(requires colour: [:kept_by]))) ==
-             [{:unknown_keys, ["colour"]}]
-  end
-
   test "a name a rule gives must resolve to a field, relation or value" do
     assert checked(concept(entity: "create ask: [:colour]")) ==
              [{:unknown_field, ["thing", "colour"]}]

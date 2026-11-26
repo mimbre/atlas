@@ -247,10 +247,8 @@ defmodule AtlasE2E.AtlasCommandTest do
       assert out =~ "atlas-ops tunnel close --env test"
     end
 
-    for migration <- ["migrate-done-owner", "migrate-producer"] do
-      assert {out, 1} = atlas([migration, "--dry-run", "--env", "test"], on_fly)
-      assert out =~ "the migration reads rela on this Mac"
-    end
+    assert {out, 1} = atlas(["migrate-done-owner", "--dry-run", "--env", "test"], on_fly)
+    assert out =~ "the migration reads rela on this Mac"
   end
 
   test "the tunnel on Fly is shown and closed by atlas-ops; a local environment has none" do

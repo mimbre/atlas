@@ -8,8 +8,8 @@ defmodule Model.SentBackRunsTest do
   (UC-Atlas-24): its agent asks, Flow puts the questions on the scene, "Answer its
   questions" goes to its producer, whose answer starts a fresh pass that reads them. So does
   a use case too vague to break down: Plan asks its producer, the person who supervised the
-  Design run that made it (`produced_by`, which Flow links on what a proposal makes); never
-  the configured decider in its place. Run by `AtlasFlow.Runs.Store` with `AtlasFlow.FakeFacts`, the work source's
+  Design run that made it (`produced_by`, which Flow links on what a proposal makes), or the
+  configured decider for one that records none. Run by `AtlasFlow.Runs.Store` with `AtlasFlow.FakeFacts`, the work source's
   processes on `AtlasFlow.FakeCode` and a manual clock, as `Model.IssueRunsTest` is.
   """
   use ExUnit.Case, async: false
@@ -212,8 +212,7 @@ defmodule Model.SentBackRunsTest do
 
   test "Design asks its producer instead of guessing, and continues once they answer", c do
     p = @design
-    # bo put it in; ada supervises its Design.
-    subject(p, produced_by: "bo")
+    subject(p)
     assert reconcile(c, p)["state"] == "break_down"
     supervise(c, p)
 
@@ -237,10 +236,11 @@ defmodule Model.SentBackRunsTest do
     assert {write["by"], write["cause"]} == {"flow", "For ada: asked by #{first}"}
     assert FakeFacts.get("use_case", "UC-Atlas-01") == nil
 
-    # Its producer bo, not its supervisor ada, has the to-do, with the questions and
-    # Answered, once the Engine projects it.
+    # Its producer (the configured decider, here bo), not its supervisor ada, has the
+    # to-do, with the questions and Answered, once the Engine projects it.
     FakeFacts.put("person", %{"key" => "bo"})
-    assert {:ok, %{waits: nil}} = AtlasFlow.Runs.Projection.project(c.runner, p.kind, p.key)
+    producer = AtlasFlow.Model.load(Model.AtlasEyra, :test, %{"decider" => "bo"})
+    assert {:ok, %{waits: nil}} = AtlasFlow.Runs.Projection.project(producer, p.kind, p.key)
     assignment = FakeFacts.get("assignment", "AS-" <> p.key)
     assert assignment["links"]["assigned_to"] == ["bo"]
     assert assignment["values"]["flow_state"] == "clarifying"
@@ -379,10 +379,9 @@ defmodule Model.SentBackRunsTest do
     assert FakeFacts.get("assignment", "AS-" <> p.key)["links"]["assigned_to"] == ["ada"]
   end
 
-  # Every use case records its producer (UC-Atlas-23: Facts refuses one without, and the
-  # migration backfilled those from before). Should one record none anyway, its questions
-  # go to nobody: never the configured decider in its producer's place.
-  test "Plan asks nobody, never the decider, when the use case records no producer", c do
+  # A use case that records no producer (made by hand, or before producers were recorded)
+  # asks the configured decider.
+  test "Plan asks the decider when the use case records no producer", c do
     p = @plan
     subject(p)
     FakeFacts.put("person", %{"key" => "bo"})
@@ -397,9 +396,7 @@ defmodule Model.SentBackRunsTest do
     assert until(c, p, "clarifying")["supervised_by"] == "ada"
 
     assert {:ok, %{waits: nil}} = AtlasFlow.Runs.Projection.project(decider, p.kind, p.key)
-    assignment = FakeFacts.get("assignment", "AS-" <> p.key)
-    assert assignment["values"]["flow_state"] == "clarifying"
-    assert List.wrap(assignment["links"]["assigned_to"]) == []
+    assert FakeFacts.get("assignment", "AS-" <> p.key)["links"]["assigned_to"] == ["bo"]
   end
 
   defp sent_back(c, p) do
@@ -479,12 +476,7 @@ defmodule Model.SentBackRunsTest do
     assignment(p)
   end
 
-  defp subject(%{kind: "scene"} = p, opts) do
-    links = %{"assignment" => ["AS-" <> p.key]}
-
-    links =
-      if opts[:produced_by], do: Map.put(links, "produced_by", [opts[:produced_by]]), else: links
-
+  defp subject(%{kind: "scene"} = p, _opts) do
     FakeFacts.put("scene", %{
       "key" => p.key,
       "values" => %{
@@ -492,7 +484,7 @@ defmodule Model.SentBackRunsTest do
         "description" => "They read.",
         "phase" => "break_down"
       },
-      "links" => links
+      "links" => %{"assignment" => ["AS-" <> p.key]}
     })
 
     assignment(p)

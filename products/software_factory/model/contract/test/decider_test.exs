@@ -96,7 +96,7 @@ defmodule Model.DeciderTest do
 
   # The model names the role, never the person (slice 7): each environment's settings say
   # who the decider is, and Flow writes that one as the owner.
-  test "a person's decision goes to the configured decider; accepting a scene never does" do
+  test "a person's decision, and accepting a scene with no producer, go to the configured decider" do
     assert Model.AtlasEyra.actors() == [decider: "person"]
     # Whoever this environment's settings name; the model never does.
     configured = %{"decider" => "someone-configured"}
@@ -108,17 +108,11 @@ defmodule Model.DeciderTest do
       assert AtlasFlow.Model.owner(decide(env).owner(state)["default"], actors) == decider
     end
 
-    # The scene's producer accepts it (who put it in, IS-Atlas-70; Model.SceneProducerTest),
-    # never the decider in its place: a scene that records none, as here (no run, no
-    # producer), has no owner there (UC-Atlas-23: Facts refuses such a scene).
+    # The scene's producer accepts it (who put it in, IS-Atlas-70; Model.SceneProducerTest):
+    # a scene that records none, as here (no run, no producer), goes to the decider.
     for env <- [:prod, :test] do
       accept = Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == "accept_scene"))
-      assert AtlasFlow.Model.owner(accept.owner("to_accept")["default"], actors) == nil
-
-      producer = %{"producer" => person("adrienne")}
-
-      assert AtlasFlow.Model.owner(accept.owner("to_accept")["default"], actors, producer) ==
-               person("adrienne")
+      assert AtlasFlow.Model.owner(accept.owner("to_accept")["default"], actors) == decider
 
       # While its use cases are not all accepted, it waits assigned to nobody, not its
       # producer nor the coordinator: nothing is built on it, and it gives nobody a to-do.
@@ -462,7 +456,4 @@ defmodule Model.DeciderTest do
                (actor == "person" or (fresh and outcome in ["agent", "agent_unverified"]))
     end
   end
-
-  # A person as an owner is written (`%{"kind", "key"}`): a test's, never the model's.
-  defp person(key), do: Map.put(%{"kind" => "person"}, "key", key)
 end

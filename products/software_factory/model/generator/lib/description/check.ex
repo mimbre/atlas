@@ -476,13 +476,9 @@ defmodule RelaDSL.Description.Check do
           values(ctx, kind, a["when"], at.("actions"))
       end) ++
       Enum.flat_map(List.wrap(spec["requires"]), fn r ->
-        keys(r, ~w(when fields links error), at.("requires")) ++
+        keys(r, ~w(when fields error), at.("requires")) ++
           values(ctx, kind, r["when"], at.("requires")) ++
-          Enum.flat_map(List.wrap(r["fields"]), &field(ctx, kind, &1, at.("requires"))) ++
-          Enum.flat_map(
-            List.wrap(r["links"]),
-            &relation(ctx, &1, kind, "from", at.("requires"))
-          )
+          Enum.flat_map(List.wrap(r["fields"]), &field(ctx, kind, &1, at.("requires")))
       end) ++
       decision_options(ctx, kind, spec["decision_options"], at.("decision_options")) ++
       authority(ctx, kind, spec["authority"], at.("authority")) ++

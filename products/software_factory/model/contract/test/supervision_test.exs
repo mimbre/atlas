@@ -89,13 +89,12 @@ defmodule Model.SupervisionTest do
 
   # SC-Atlas-09: every item records its producer, the human supervisor of the run that
   # made it; Flow links it on what a proposal makes, and declares it beside the supervision.
-  # The migration backfilled those from before (UC-Atlas-23).
-  test "an item has at most one producer, a person, whom only Flow and the migration set" do
+  test "an item has at most one producer, a person, whom only Flow sets" do
     assert %{"from" => from, "to" => ["person"], "max_outgoing" => 1} =
              schema()["relations"]["produced_by"]
 
     assert Enum.sort(from) == ~w(issue scene use_case)
-    assert get_in(extension(), ["relations", "produced_by", "set_by"]) == ["flow", "migration"]
+    assert get_in(extension(), ["relations", "produced_by", "set_by"]) == ["flow"]
 
     supervision = AtlasEyra.supervision()
     assert supervision["producer"] == "produced_by"
@@ -105,14 +104,12 @@ defmodule Model.SupervisionTest do
     refute Map.has_key?(Model.Profiles.Foundation.supervision(), "producer")
   end
 
-  test "Plan's and Design's questions go to the producer, and never the decider" do
+  test "Plan's and Design's questions go to the producer, the decider when there is none" do
     for flow <- ~w(break_down_scene break_down_use_case) do
       subflow = Enum.find(AtlasEyra.subflows(:prod), &(&1.name() == flow))
 
-      assert subflow.owner("clarifying")["default"] == %{
-               "kind" => "person",
-               "producer" => "produced_by"
-             }
+      assert %{"kind" => "person", "config" => "decider", "producer" => "produced_by"} =
+               subflow.owner("clarifying")["default"]
 
       # Never the run's supervisor, though the state lies in the span.
       refute AtlasFlow.Model.supervisable?(subflow.owner("clarifying")["default"])
@@ -121,57 +118,15 @@ defmodule Model.SupervisionTest do
     end
   end
 
-  test "Flow sets and clears a run's supervisor and a task's done_for, and sets an item's producer" do
+  test "Flow sets and clears a run's supervisor and a task's done_for" do
     for {kind, key, relation} <- @links do
       assert check(kind, create_with(key, relation), @flow) == :ok, relation
-    end
-
-    for {kind, key, relation} <- Enum.take(@links, 2) do
       assert check_stored(kind, key, relation, clear(key, relation), @flow) == :ok, relation
     end
   end
 
-  # UC-Atlas-23: an item's producer is never empty, whoever writes it (`requires`).
-  test "nobody clears an item's producer, Flow and the migration neither" do
-    for {kind, key, relation} <- Enum.drop(@links, 2),
-        env <- [@flow, %{"by" => "migration", "writer" => "migration", "sender" => "migration"}] do
-      assert {:refuse, [why]} = check_stored(kind, key, relation, clear(key, relation), env)
-      assert why =~ "records its producer (produced_by)", "#{kind} #{env["by"]}"
-    end
-  end
-
-  # UC-Atlas-23: the one-off migration links the producer of an item from before.
-  test "the migration links the producer of an item that records none" do
-    migration = %{"by" => "migration", "writer" => "migration", "sender" => "migration"}
-
-    for {kind, key, relation} <- Enum.drop(@links, 2) do
-      stored = %{"key" => key, "values" => %{}, "links" => %{}}
-
-      change = %{
-        "op" => "change",
-        "key" => key,
-        "values" => %{},
-        "links" => %{relation => ["melle"]}
-      }
-
-      assert AtlasEyra.check(kind, change, migration, %{lookup() | "current" => fn -> stored end}) ==
-               :ok,
-             kind
-
-      # Any other change to it is refused while it has none: Facts holds every item to it.
-      other = %{"op" => "change", "key" => key, "values" => %{"title" => "x"}, "links" => %{}}
-
-      assert {:refuse, [why]} =
-               AtlasEyra.check(kind, other, @someone, %{lookup() | "current" => fn -> stored end})
-
-      assert why =~ "records its producer (produced_by)", kind
-    end
-  end
-
   test "only Flow sets a run's supervisor, a task's done_for or an item's producer: Facts refuses anyone else" do
-    for {kind, key, relation} <- @links,
-        env <- @not_flow,
-        not (relation == "produced_by" and env["by"] == "migration") do
+    for {kind, key, relation} <- @links, env <- @not_flow do
       assert {:refuse, [why]} = check(kind, create_with(key, relation), env), relation
       assert why =~ relation
 

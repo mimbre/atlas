@@ -8,6 +8,8 @@ defmodule Model.ItemProducerTest do
   activities/proposal_test.exs`) links the run's supervisor. A create that would record
   none, such as one by an agent that assists nobody, is refused with a reason that says
   so, by Control before anything is sent and by Facts whoever sends it; nothing is stored.
+  An item from before producers were recorded keeps working without one (IS-Atlas-164):
+  writes to it are not refused, and the configured decider counts as its producer.
 
   On the real path: Control's create (`Pages.put_in_by/4`), the real Facts on its
   in-memory rela, and the item's page as Control reads and renders it.
@@ -50,7 +52,7 @@ defmodule Model.ItemProducerTest do
     start_supervised!({AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, model: @model})
     :ok = AtlasBus.attach("control/session-producer-#{System.unique_integer([:positive])}")
 
-    %{m: AtlasControl.Model.catalog(@model)}
+    %{m: AtlasControl.Model.catalog(@model), rela: rela}
   end
 
   # A create as Control's session sends it (`session.ex` `create/5`): what was asked, the
@@ -267,6 +269,57 @@ defmodule Model.ItemProducerTest do
 
       assert why =~ "records its producer (produced_by)"
       assert why =~ "by flow links nobody"
+    end
+  end
+
+  # -- An item from before producers were recorded: no migration (IS-Atlas-164) -------------
+
+  # It keeps working: Facts refuses no write to it, Flow's or a person's, and wherever its
+  # producer is needed (who answers its questions, who accepts it) the configured decider
+  # counts as its producer. Only a create must link one.
+  test "an item that records no producer takes Flow's write, and its producer is the decider",
+       c do
+    flow = %{"by" => "flow", "writer" => "flow", "sender" => "flow", "assists" => nil}
+
+    for {kind, values} <- [
+          {"scene", %{"questions" => "Which README?"}},
+          {"use_case", %{"questions" => "Which README?"}},
+          {"issue", %{"pr_state" => "open"}}
+        ] do
+      before = %{"key" => "X-1", "values" => %{"title" => "x"}, "links" => %{}}
+      change = %{"op" => "change", "key" => "X-1", "values" => values, "links" => %{}}
+
+      assert AtlasEyra.check(kind, change, flow, %{lookup() | "current" => fn -> before end}) ==
+               :ok,
+             kind
+    end
+
+    # On the real Facts: a scene stored without one takes a person's change.
+    {:ok, _} = FakeRela.create(c.rela, "scenes", "SC-Atlas-09", %{"title" => "Old"}, %{})
+    assert fact("scene", "SC-Atlas-09")["links"]["produced_by"] in [nil, []]
+
+    assert {"stored", _} =
+             write("scene", %{
+               "op" => "change",
+               "key" => "SC-Atlas-09",
+               "values" => %{"title" => "Older"},
+               "links" => %{},
+               "by" => "adrienne"
+             })
+
+    # Its producer, where one is needed, is the configured decider.
+    {:ok, actors} = AtlasBus.Actors.resolve(AtlasEyra.actors(), %{"decider" => "melle"})
+    assert actors["decider"]["key"] == "melle"
+
+    for {flow_name, state} <- [
+          {"accept_scene", "to_accept"},
+          {"break_down_scene", "clarifying"},
+          {"break_down_use_case", "clarifying"}
+        ] do
+      subflow = Enum.find(AtlasEyra.subflows(:prod), &(&1.name() == flow_name))
+      owner = subflow.owner(state)["default"]
+      assert AtlasFlow.Model.owner(owner, actors, %{"producer" => nil}) == actors["decider"]
+      assert AtlasFlow.Model.owner(owner, actors) == actors["decider"], flow_name
     end
   end
 end

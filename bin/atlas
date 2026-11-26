@@ -36,8 +36,6 @@
 #                      Control's registry (ATLAS_RUNTIME_READ_TOKEN)
 #   atlas migrate-done-owner [--dry-run]     IS-Atlas-88: a done fact has no owner: removes the owner a
 #                      migration gave a fact Flow expects nothing of; never one set by hand or Flow
-#   atlas migrate-producer [--dry-run]       UC-Atlas-23: links every scene, use case and issue
-#                      without a producer to whom its history names (else the decider)
 #
 # Everything else is another command:
 #   atlas-ops          operating an environment: its processes, logs, tunnel, data moves, and
@@ -105,7 +103,7 @@ cmd=tui
 case "${1:-}" in -*|"") ;; *) cmd="$1"; shift ;; esac
 # A word that is not a command here (operating is atlas-ops) shows the usage and runs nothing.
 case "$cmd" in
-  tui|turn|put|set|get|facts|list|delete|actions|do|tools|plan|steer|help|migrate-done-owner|migrate-producer|discover) ;;
+  tui|turn|put|set|get|facts|list|delete|actions|do|tools|plan|steer|help|migrate-done-owner|discover) ;;
   *) usage ;;
 esac
 take_env "$@"
@@ -184,7 +182,7 @@ if [ -n "$fly_app" ]; then
   if [ "$env" = prod ]; then branch=master; else branch=develop; fi
   on_fly="$env runs on Fly ($fly_app and $fly_rela_app); a merge to $branch deploys it"
   case "$cmd" in
-    migrate-done-owner|migrate-producer) echo "atlas: the migration reads rela on this Mac; $on_fly. Migrate a copy: docs/guides/test-on-fly.md, \"A migration\"" >&2; exit 1 ;;
+    migrate-done-owner) echo "atlas: the migration reads rela on this Mac; $on_fly. Migrate a copy: docs/guides/test-on-fly.md, \"A migration\"" >&2; exit 1 ;;
     turn|put|set|get|facts|list|delete|actions|do|tools|plan|steer|help) [ -n "$control_selected" ] || ensure_tunnel ;;
   esac
 fi
@@ -242,11 +240,6 @@ case "$cmd" in
     cd "$root/platform/ops/plan"
     mix compile >&2
     ATLAS_CALLER_CWD="$caller" exec mix atlas.migrate_done_owner --env "$env" ${args[@]+"${args[@]}"}
-    ;;
-  migrate-producer)
-    cd "$root/platform/ops/plan"
-    mix compile >&2
-    ATLAS_CALLER_CWD="$caller" exec mix atlas.migrate_producer --env "$env" ${args[@]+"${args[@]}"}
     ;;
   *) usage ;;
 esac
