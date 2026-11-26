@@ -77,8 +77,8 @@ defmodule AtlasBFFContract.Contract do
   # edit, delete, hand_over, create, open), which a client may show as an icon.
   # 0.37.0: a shell tab and group say whether their count waits for the viewer (`for_you`);
   # a tab whose model names no icon gets one from the page it opens (assigned, supervised,
-  # open, workers); the shell names its viewer (`name`), a person the start's assigned
-  # relation points at.
+  # open, workers); the shell names its viewer (`name`), one the start's assigned relation
+  # points at.
   version "0.37.0"
 
   use AtlasBFFContract.Blocks
