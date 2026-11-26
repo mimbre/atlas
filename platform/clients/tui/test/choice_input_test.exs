@@ -215,8 +215,8 @@ defmodule AtlasTui.ChoiceInputTest do
       "props" => %{
         "title" => "Related",
         "rows" => [
-          %{"id" => "IS-1", "label" => "An issue", "to" => "/k/issue/IS-1"},
-          %{"id" => "IS-2", "label" => "Another", "to" => "/k/issue/IS-2"}
+          %{"id" => "W-01", "label" => "A widget", "to" => "/k/widget/W-01"},
+          %{"id" => "W-02", "label" => "Another", "to" => "/k/widget/W-02"}
         ]
       }
     }
