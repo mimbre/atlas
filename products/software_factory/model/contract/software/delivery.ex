@@ -339,7 +339,7 @@ defmodule Model.Delivery do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop", update: :pr_url],
         instructions:
-          "Update the pull request of the issue below with develop, in the repository you are given: a Git checkout of develop merged into its pull request. Its last commit only adds the base's dependencies; under it (HEAD~1) is the merge: its first parent is the pull request's head, its second develop, and its message lists the files that conflict, which hold Git's conflict markers. Resolve every conflict keeping the pull request's intent and develop's changes alike; leave no conflict marker. Run bin/check. End your answer with what you resolved and what is left open.",
+          "Update the pull request of the issue below with develop, in the repository you are given: a Git checkout of develop merged into its pull request. Its last commit only adds the base's dependencies; under it (HEAD~1) is the merge: its first parent is the pull request's head, its second develop, and its message lists the files that conflict, which hold Git's conflict markers. Resolve every conflict keeping the pull request's intent and develop's changes alike; leave no conflict marker. A lockfile that conflicts (mix.lock, package-lock.json) is not merged by hand: resolve the files it is made from (mix.exs, package.json), then regenerate it (mix deps.get, npm install); the base's dependencies were prepared from develop's version of it. Run bin/check. End your answer with what you resolved and what is left open.",
         fields: [:title, :description],
         parents: [:title, :description],
         records: [kind: "task", relation: "task_of"],

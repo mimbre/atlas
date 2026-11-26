@@ -8,6 +8,12 @@ defmodule AtlasCode.Dependencies do
   - `mix.lock`: `mix deps.get` (the sources under `deps/`);
   - `package-lock.json`: `npm ci --ignore-scripts` (`node_modules/`, nothing built).
 
+  A lockfile named in `from` (`%{path => commit}`) is prepared from that commit's version of
+  it instead: Code's update merge passes the lockfiles it conflicts in with develop, whose
+  conflict markers no `mix deps.get` or `npm ci` takes, so they are prepared from develop's
+  (IS-Atlas-132). The base keeps the conflicted one; its agent regenerates it. A lockfile the
+  other commit does not have is not prepared.
+
   The `mix.lock` preparations share a Hex home of their own, outside the copy of the base, so
   its registry cache holds exactly the Hex registry entries of the base's locked packages. It
   is added as `.atlas/hex/cache.ets` (`hex_registry/0`): an agent's `bin/check` resolves Hex
@@ -40,15 +46,17 @@ defmodule AtlasCode.Dependencies do
   @doc "Where a prepared base carries the Hex registry entries of its locked packages."
   def hex_registry, do: ".atlas/hex/cache.ets"
 
-  @doc "The commit on `commit` (in the Git directory `dir`) that adds the base's dependencies."
-  @spec prepared(Path.t(), String.t()) :: String.t()
-  def prepared(dir, commit) do
-    {listing, 0} = System.cmd("git", ["--git-dir", dir, "ls-tree", "-r", "--full-tree", commit])
-
+  @doc """
+  The commit on `commit` (in the Git directory `dir`) that adds the base's dependencies, its
+  lockfiles named in `from` prepared from the commit `from` gives them.
+  """
+  @spec prepared(Path.t(), String.t(), %{String.t() => String.t()}) :: String.t()
+  def prepared(dir, commit, from \\ %{}) do
     lockfiles =
-      for line <- String.split(listing, "\n", trim: true),
-          [_meta, path] = String.split(line, "\t", parts: 2),
+      for {line, path} <- listing(dir, commit),
           Path.basename(path) in @lockfiles,
+          {line, _} <-
+            if(other = from[path], do: listing(dir, other, path), else: [{line, path}]),
           do: {line, path}
 
     key =
@@ -60,7 +68,7 @@ defmodule AtlasCode.Dependencies do
     dependencies =
       case System.cmd("git", ["--git-dir", dir, "rev-parse", "--verify", "-q", ref]) do
         {oid, 0} -> String.trim(oid)
-        _ -> prepare(dir, commit, Enum.map(lockfiles, &elem(&1, 1)), ref)
+        _ -> prepare(dir, commit, lockfiles, ref)
       end
 
     git(dir, nil, fn git ->
@@ -71,8 +79,20 @@ defmodule AtlasCode.Dependencies do
     end)
   end
 
-  # The lockfiles' preparation in a copy of the base; the files it added become the tree of a
-  # commit under `ref`.
+  # `ls-tree` lines of `commit` (of `path` only, when given), each with its path.
+  defp listing(dir, commit, path \\ nil) do
+    paths = if path, do: ["--", path], else: []
+    args = ["--git-dir", dir, "ls-tree", "-r", "--full-tree", commit | paths]
+    {listing, 0} = System.cmd("git", args, env: [{"GIT_LITERAL_PATHSPECS", "1"}])
+
+    for line <- String.split(listing, "\n", trim: true),
+        [_meta, path] = String.split(line, "\t", parts: 2),
+        do: {line, path}
+  end
+
+  # The lockfiles' preparation in a copy of the base, each lockfile as its `ls-tree` line has
+  # it (another commit's version, from `prepared/3`'s `from`); the files it added become the
+  # tree of a commit under `ref`.
   defp prepare(dir, commit, lockfiles, ref) do
     unique = System.unique_integer([:positive])
     work = Path.join(System.tmp_dir!(), "atlas-dependencies-#{unique}")
@@ -84,7 +104,11 @@ defmodule AtlasCode.Dependencies do
       script = ~s(git --git-dir "$1" archive "$2" | tar -x -C "$3")
       {_, 0} = System.cmd("sh", ["-c", script, "sh", dir, commit, work], stderr_to_stdout: true)
 
-      for path <- lockfiles do
+      for {line, path} <- lockfiles do
+        [_mode, "blob", blob | _] = String.split(line, [" ", "\t"])
+        {bytes, 0} = System.cmd("git", ["--git-dir", dir, "cat-file", "blob", blob])
+        File.write!(Path.join(work, path), bytes)
+
         {command, args} =
           case Path.basename(path) do
             "mix.lock" -> {"mix", ["deps.get"]}

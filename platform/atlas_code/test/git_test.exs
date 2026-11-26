@@ -188,6 +188,79 @@ defmodule AtlasCode.GitTest do
     assert AtlasCode.Effects.fold(code, result, ref) == folded
   end
 
+  test "an update that conflicts in mix.lock prepares its dependencies from develop's mix.lock (IS-Atlas-132)",
+       %{url: url, dir: dir} do
+    # `mix` is a stand-in on PATH: like `mix deps.get` it refuses a lockfile with conflict
+    # markers; otherwise it fetches a dependency that records the lockfile it was given.
+    bin = Path.join(dir, "bin")
+    File.mkdir_p!(bin)
+
+    File.write!(Path.join(bin, "mix"), """
+    #!/bin/sh
+    [ "$1" = deps.get ] || exit 2
+    grep -q '^<<<<<<<' mix.lock && exit 1
+    mkdir -p deps/pkg && cp mix.lock deps/pkg/locked
+    """)
+
+    File.chmod!(Path.join(bin, "mix"), 0o755)
+    path = System.get_env("PATH")
+    System.put_env("PATH", bin <> ":" <> path)
+    on_exit(fn -> System.put_env("PATH", path) end)
+
+    # The pull's head and develop each lock another version of the package.
+    source = Path.join(dir, "app-source")
+    remote = Path.join(dir, "app.git")
+    commit = ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm"]
+
+    lock = fn version ->
+      File.write!(Path.join(source, "mix.lock"), ~s(%{\n  "pkg" => #{version},\n}\n))
+      git(source, ["add", "mix.lock"])
+    end
+
+    lock.("1")
+    git(source, commit ++ ["locked"])
+    git(source, ["checkout", "-q", "-b", "feature"])
+    lock.("2")
+    git(source, commit ++ ["pull"])
+    git(source, ["checkout", "-q", "develop"])
+    lock.("3")
+    git(source, commit ++ ["develop"])
+    git(source, ["push", "-q", remote, "develop", "feature:refs/pull/7/head"])
+    head = source |> git(["rev-parse", "feature"]) |> String.trim()
+    develop = source |> git(["rev-parse", "develop"]) |> String.trim()
+
+    update = "refs/atlas/updates/7/develop"
+    base_id = "code-" <> snapshot(update)
+    base = "refs/atlas/bases/" <> base_id
+    cache = Path.join(dir, "runtime.git")
+    git(dir, ["init", "-q", "--bare", cache])
+    fetch = ["--git-dir", cache, "fetch", "-q", "#{url}/bases/#{base_id}", "+#{base}:#{base}"]
+    {_, 0} = System.cmd("git", fetch, env: header(@token), stderr_to_stdout: true)
+
+    # The update task's checkout: the merge, its mix.lock conflict marked and listed ...
+    merge = cache |> git_in(["rev-parse", base <> "^"], "") |> String.trim()
+    assert git_in(cache, ["rev-parse", merge <> "^@"], "") == head <> "\n" <> develop <> "\n"
+    assert git_in(cache, ["show", merge <> ":mix.lock"], "") =~ ~r/^<<<<<<< /m
+
+    assert git_in(cache, ["log", "-1", "--format=%B", merge], "") =~
+             ~r/\AAtlas: merge develop into pull #7\n\nConflicts:\n\tmix.lock\n/
+
+    # ... and on it the dependencies, prepared from develop's mix.lock; the conflicted one
+    # stays for its agent to regenerate.
+    assert git_in(cache, ["show", base <> ":deps/pkg/locked"], "") =~ ~s("pkg" => 3)
+    assert git_in(cache, ["show", base <> ":mix.lock"], "") =~ ~r/^<<<<<<< /m
+
+    # Exactly the dependencies develop itself gets, from the same kept tree.
+    {:ok, code} = AtlasCode.Service.base_repository(AtlasCode.settings(), base_id)
+    prepared = AtlasCode.Dependencies.prepared(code, develop)
+
+    assert git_in(code, ["diff", "--name-only", develop, prepared], "") ==
+             git_in(cache, ["diff", "--name-only", merge, base], "")
+
+    assert git_in(code, ["rev-parse", prepared <> ":deps"], "") ==
+             git_in(cache, ["rev-parse", base <> ":deps"], "")
+  end
+
   test "a CI fix of a pull someone else pushed onto starts from its head, and Code pushes it as a fast-forward (IS-Atlas-131)",
        %{url: url, dir: dir} do
     # The pull Code opened from the published result, and on it a commit someone else
