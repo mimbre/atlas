@@ -15,6 +15,9 @@ public struct ShellViewModel: Sendable, Equatable {
         public var shortcut: Int?
         /// How many items its page has (its All group's count), as boot or a page said last.
         public var count: Int?
+        /// Whether its count is what waits for the user (what is assigned to them), not a
+        /// plain count.
+        public var forYou: Bool
         /// The groups of its page, under it in the sidebar whichever tab is shown.
         public var groups: [Group]
     }
@@ -25,6 +28,8 @@ public struct ShellViewModel: Sendable, Equatable {
         public var id: String { to }
         public var label: String
         public var count: Int?
+        /// Whether its count is what waits for the user, as its tab's.
+        public var forYou: Bool
         public var to: String
     }
 
@@ -33,6 +38,8 @@ public struct ShellViewModel: Sendable, Equatable {
     /// The shell's greeting of the viewer by name, in the model's words (Control sends it
     /// only to a person); nil when the shell has none.
     public var greeting: String?
+    /// The viewer's name, as Control sent it (only to a person); nil when none.
+    public var name: String?
     /// The environment: the shell's, else the one the app was started for.
     public var env: String
     /// Production wears the inverted badge, as in the TUI.
@@ -77,6 +84,7 @@ public struct ShellViewModel: Sendable, Equatable {
         let shell = state.shell
         title = shell?.title
         greeting = shell?.greeting.flatMap { $0.isEmpty ? nil : $0 }
+        name = shell?.name.flatMap { $0.isEmpty ? nil : $0 }
         env = shell?.env ?? state.settings.env
         isProduction = env == "prod"
         // A tab without a page to go to cannot be shown.
@@ -85,8 +93,12 @@ public struct ShellViewModel: Sendable, Equatable {
             let to = tab.to ?? ""
             return Tab(id: tab.id ?? to, label: tab.label ?? to, to: to, section: tab.section ?? "browse",
                        icon: tab.icon, shortcut: offset < 9 ? offset + 1 : nil, count: state.groupCounts[to],
+                       forYou: tab.forYou ?? false,
                        groups: (tab.groups ?? []).compactMap { group in
-                           group.to.map { Group(label: group.label ?? $0, count: state.groupCounts[$0], to: $0) }
+                           group.to.map {
+                               Group(label: group.label ?? $0, count: state.groupCounts[$0],
+                                     forYou: group.forYou ?? false, to: $0)
+                           }
                        })
         }
         activeTab = state.activeTab

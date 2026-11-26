@@ -75,7 +75,11 @@ defmodule AtlasBFFContract.Contract do
   # 0.36.0: an answer says its weight (`panel_answer`'s `weight`: main, no or other), which
   # a client styles it by instead of by its note; an action names what it does (`icon`:
   # edit, delete, hand_over, create, open), which a client may show as an icon.
-  version "0.36.0"
+  # 0.37.0: a shell tab and group say whether their count waits for the viewer (`for_you`);
+  # a tab whose model names no icon gets one from the page it opens (assigned, supervised,
+  # open, workers); the shell names its viewer (`name`), a person the start's assigned
+  # relation points at.
+  version "0.37.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

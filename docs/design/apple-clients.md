@@ -228,7 +228,7 @@ Above the columns is the title bar; below them is the status bar.
 
 | Part | Source in the BFF | macOS |
 |---|---|---|
-| Tabs | `boot`: `tabs`, `active_tab`, `initial_to` | Sidebar items, with the count in the sidebar section's header. `⌘1`–`⌘9` switches. Scales to the 64-tab limit. |
+| Tabs | `boot`: `tabs` (`icon`, `count`, `for_you`, `groups`), `active_tab`, `initial_to`, `name` | Sidebar items in Next's style (`SidebarViews`): bold labels, a grey icon per tab (the selected one primary; an unknown icon name, none), a soft grey pill for the selection, counts as round badges (primary when `for_you`, grey otherwise, none at 0), groups indented under their tab one size smaller; at the bottom the person's `name`, the environment and the connection. Up and down move the selection; `⌘1`–`⌘9` switches. Scales to the 64-tab limit. |
 | Title and env | `boot`: `title`, `env` | Title bar. The prod badge is the same inverted badge as in the TUI. |
 | Index page of a tab | the tab's `to` (a list page) | Middle column. A pending row shows `⋯ being processed`, muted. |
 | Opened page | `open` on a row | Right column. Back and Forward (`⌘[` / `⌘]`, Esc) use the app's own history, as in the TUI. |
