@@ -229,6 +229,76 @@ defmodule Model.Issue do
     )
 
     create(ask: [:title, :description])
+
+    # Where its supervisor decides, as panels (Model.Delivery's states): Merge it, with
+    # what Atlas records of its pull request and its latest review; and work that ended
+    # without a result, with what went wrong and what can be done.
+    panel(
+      merging: [
+        heading: "TO MERGE",
+        title: "\#{pr_url|number} {title}",
+        records: [
+          review: [relation: :task_of, where: [kind: :review]],
+          author: [relation: :task_of, where: [kind: :author]]
+        ],
+        byline: ["{key}", "{in_use_case}", "by {author}", [age: "waiting"]],
+        checks: [
+          [
+            label: "CI",
+            text: "{pr_checks}",
+            state: [field: :pr_checks, success: [:success], error: [:failure], pending: [:pending]]
+          ],
+          [
+            label: "Review",
+            text: "{review.verdict} · {review.answer|line}",
+            state: [
+              field: "review.verdict",
+              success: [:approved],
+              error: [:changes_required]
+            ]
+          ],
+          [
+            label: "GitHub",
+            text: "{pr_state} · {pr_mergeable}",
+            state: [
+              field: :pr_mergeable,
+              success: [:clean],
+              error: [:conflicting],
+              pending: [:behind, :unknown]
+            ]
+          ]
+        ],
+        links: [[key: "o", label: "Open on GitHub", field: :pr_url]],
+        actions: [[key: "r", label: "Full review", record: :review]]
+      ],
+      stuck: [
+        heading: "YOUR DECISION",
+        title: "{key} is stuck: what now?",
+        records: [last: [relation: :task_of]],
+        byline: ["{last.kind}", "attempt {last.attempt} failed", [age: "stuck"]],
+        box: [title: "What went wrong", field: :task_failure, tone: :error, empty: ["none"]],
+        choose: true,
+        details: [
+          r: "Runs that step again with a fresh task.",
+          c: "Ends it; nothing more is built for it."
+        ],
+        actions: [[key: "l", label: "Agent's log", record: :last]]
+      ],
+      review_stuck: [
+        heading: "YOUR DECISION",
+        title: "{key} is stuck: what now?",
+        records: [last: [relation: :task_of]],
+        byline: ["{last.kind}", "attempt {last.attempt} failed", [age: "stuck"]],
+        box: [title: "What went wrong", field: :task_failure, tone: :error, empty: ["none"]],
+        choose: true,
+        details: [
+          r: "Runs a fresh review of its author's result.",
+          p: "Code opens its pull request without a review; its body says so.",
+          c: "Ends it; nothing more is built for it."
+        ],
+        actions: [[key: "l", label: "Agent's log", record: :last]]
+      ]
+    )
   end
 
   # After an author or rework pass: is the evidence good enough to review? Named by no

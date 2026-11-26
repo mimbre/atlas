@@ -138,6 +138,28 @@ defmodule Model.UseCase do
 
     progress(over: :in_use_case, field: :stage, own: :status)
     completion(field: :phase, value: :accepted)
+
+    # Accept its issues, as a panel: Plan's proposal, the issues it made in the order they
+    # are built, each with what it does, when it is done and the ones before it.
+    panel(
+      accepting: [
+        heading: "TO ACCEPT",
+        title: "Plan for {key} · {title}",
+        records: [proposal: [relation: :task_of, where: [kind: :plan]]],
+        byline: ["Proposed by {proposal}", [age: ""], "built in this order"],
+        items: [
+          relation: :in_use_case,
+          order: :order,
+          count: ["issue", "issues"],
+          details: [
+            [label: "What", field: :description, before: "Done when:"],
+            [label: "Done", field: :description, after: "Done when:"],
+            [label: "Needs", earlier: true]
+          ]
+        ],
+        actions: [[key: "i", label: "Full proposal", record: :proposal]]
+      ]
+    )
   end
 
   relation(:in_scene,
@@ -254,7 +276,7 @@ defmodule Model.UseCase do
         answers: [
           [key: "a", label: "Accept", change: %{values: %{verdict: :accept}}],
           [
-            key: "f",
+            key: "n",
             label: "Not accepted",
             note: true,
             change: %{values: %{verdict: :reject, supervisor_note: "$note"}}

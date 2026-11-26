@@ -79,10 +79,12 @@ defmodule RelaDSL.Control.Rules do
   its run ended and the work was reopened, it says so to anyone (`reopened`, when the
   model words it), with no answers.
 
-  `%{title, expected, why, instructions, section, answers, words}`: `why` is `%{text,
-  since, by}`; `section` what the state shows of a fact's field (`%{heading, text}`):
-  the part under its `heading`, or the whole field under its `label`; nil when that is
-  empty. Each answer is `%{key, label, note, change, set, remove}`.
+  `%{title, expected, why, instructions, section, answers, words, choice, panel}`: `why` is
+  `%{text, since, by}`; `section` what the state shows of a fact's field (`%{heading,
+  text}`): the part under its `heading`, or the whole field under its `label`; nil when
+  that is empty. Each answer is `%{key, label, note, change, set, remove}`. `panel` is the
+  panel the kind's `panel` annotation declares for the state the work is in, as written
+  (Control fills it); nil when it declares none.
   """
   def todo(flow, fact, parts, viewer) do
     case owner_view(flow, fact, parts, viewer) do
@@ -104,7 +106,8 @@ defmodule RelaDSL.Control.Rules do
           section: section,
           answers: presented_answers(todo),
           words: flow.words,
-          choice: todo["single_choice"]
+          choice: todo["single_choice"],
+          panel: (flow[:panels] || %{})[view["state"]]
         }
 
       _ ->

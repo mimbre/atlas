@@ -1996,10 +1996,11 @@ defmodule AtlasControl.Pages do
             links: links(k, fact)
           )
 
-        # Where its owner decides (the to-do has answers), what is judged is what is under
-        # it that anyone may put there (not what only a layer links, such as its runs):
-        # those lists say what each one is about.
-        deciding = todo != nil and todo.answers != []
+        # Where its owner decides (the to-do has answers, or a panel), what is judged is
+        # what is under it that anyone may put there (not what only a layer links, such as
+        # its runs): those lists say what each one is about.
+        panel = todo && Map.get(todo, :panel)
+        deciding = todo != nil and (todo.answers != [] or panel != nil)
 
         {judged, lists} =
           relations
@@ -2039,11 +2040,28 @@ defmodule AtlasControl.Pages do
 
         if deciding do
           # A page where its owner decides is one stretch, top down, in no parts: the to-do
-          # and its answers in one line; what is judged (the choice's options, the section
-          # of the fact the state names, the facts under it); the fact itself in full, with
+          # and its answers in one line, or the panel the model declares for its state;
+          # what is judged (the choice's options, the section of the fact the state names,
+          # the facts under it, but those the panel lists); the fact itself in full, with
           # why it came to them and how; then what it refers to.
+          {head, judged, item} =
+            case panel do
+              %{} = spec ->
+                related = Enum.zip(relations, child_answers)
+                {block, listed} = panel_block(m, kind, key, fact, todo, spec, related)
+                keys = for link <- block["props"]["links"] || [], do: link["key"]
+
+                {[{"panel", block}], Enum.reject(judged, &(elem(&1, 0) in listed)),
+                 update_in(item, ["props", "links"], fn links ->
+                   links && Enum.reject(links, &(&1["key"] in keys))
+                 end)}
+
+              nil ->
+                {decide_blocks(todo, kind, key, next), judged, item}
+            end
+
           content =
-            decide_blocks(todo, kind, key, next) ++
+            head ++
               for({id, {_title, list}} <- judged, do: {id, list}) ++
               [{"item", update_in(item, ["props", "fields"], &(&1 ++ todo_pairs(todo)))}] ++
               lists
@@ -3095,6 +3113,299 @@ defmodule AtlasControl.Pages do
     case todo do
       %{choice: %{}} -> [{"todo", line}, {"choice", todo_item(todo, kind, key)}]
       _ -> [{"todo", line}]
+    end
+  end
+
+  # -- The panel its owner decides in --------------------------------------------------
+  #
+  # The model's `panel` for the state the work is in (`todo.panel`, as written) says what
+  # the panel shows, in names of the kind's fields and relations; every word is the
+  # model's or a fact's. Its texts are templates: `{name}` is the fact's key (`key`), one
+  # of its fields (shown as the page shows it), the keys it links to through a relation,
+  # or a record (`records`: the latest fact of a relation pointing at it, by key, with
+  # `where` values): its key, or `{record.field}` its field. `{name|number}` keeps the
+  # trailing number of a value, `{name|line}` the first line of a text. A text whose
+  # values are not all there is not shown: a byline part is left out, anything else is
+  # "—". `{panel block, ids of the lists it shows the items of}`.
+  defp panel_block(m, kind, key, fact, todo, spec, related) do
+    k = kind(m, kind) || unknown_kind(kind)
+
+    records =
+      for {name, r} <- spec["records"] || %{}, into: %{} do
+        {name, latest_record(m, related, r)}
+      end
+
+    scope = %{m: m, k: k, key: key, fact: fact, records: records}
+    {items, aside, listed} = panel_items(m, spec["items"], related)
+
+    block =
+      Blocks.panel(
+        heading: spec["heading"] || "",
+        title: template(scope, spec["title"] || "") || "—",
+        aside: aside,
+        byline: byline(scope, spec["byline"] || [], todo),
+        items: items,
+        checks: for(c <- spec["checks"] || [], do: check(scope, c)),
+        box: panel_box(scope, spec["box"]),
+        answers: panel_answers(kind, key, todo, spec),
+        choose: if(spec["choose"] == true, do: true),
+        actions: panel_actions(scope, spec["actions"] || []),
+        links: panel_links(scope, spec["links"] || [])
+      )
+
+    {block, listed}
+  end
+
+  # The latest fact (by key, its numbers compared as numbers) of the relation `r` names
+  # that points at the fact, of those whose values `where` gives: `{kind, fact}` or nil.
+  defp latest_record(m, related, r) do
+    where = r["where"] || %{}
+
+    related
+    |> Enum.filter(fn {{relation, _from, _r}, _} -> relation == r["relation"] end)
+    |> Enum.flat_map(fn {{_relation, from, _r}, answer} ->
+      for fact <- answer["facts"] || [],
+          Enum.all?(where, fn {field, value} ->
+            to_text(fact["values"][field]) in Enum.map(List.wrap(value), &to_text/1)
+          end),
+          do: {from, fact}
+    end)
+    |> Enum.max_by(fn {_from, fact} -> natural(fact["key"]) end, fn -> nil end)
+    |> case do
+      nil -> nil
+      {from, fact} -> {kind(m, from) || unknown_kind(from), fact}
+    end
+  end
+
+  defp natural(key),
+    do:
+      for(
+        part <- Regex.split(~r/(\d+)/, key || "", include_captures: true, trim: true),
+        do: if(part =~ ~r/^\d+$/, do: {0, String.to_integer(part)}, else: {1, part})
+      )
+
+  # The items under the fact through `relation` (in `order`, those without one last), each
+  # with its details; how many there are, in the model's words (`count: [one, many]`).
+  defp panel_items(_m, nil, _related), do: {nil, nil, []}
+
+  defp panel_items(m, spec, related) do
+    found =
+      for {{relation, from, r}, answer} <- related, relation == spec["relation"] do
+        {list_id(relation, from, r), from, answer["facts"] || []}
+      end
+
+    facts =
+      for({_id, from, facts} <- found, fact <- facts, do: {from, fact})
+      |> Enum.sort_by(fn {_from, fact} ->
+        case Integer.parse(to_text(fact["values"][spec["order"]])) do
+          {n, ""} -> {0, n, natural(fact["key"])}
+          _ -> {1, 0, natural(fact["key"])}
+        end
+      end)
+
+    items =
+      facts
+      |> Enum.with_index()
+      |> Enum.map(fn {{from, fact}, i} ->
+        item_k = kind(m, from) || unknown_kind(from)
+        before = for {_from, f} <- Enum.take(facts, i), do: f["key"]
+
+        Blocks.panel_item(
+          key: fact["key"],
+          label: label(item_k, fact),
+          to: path({:item, from, fact["key"]}),
+          details: for(d <- spec["details"] || [], do: item_detail(d, fact, before))
+        )
+      end)
+
+    aside =
+      case spec["count"] do
+        [one, many] -> "#{length(items)} #{if length(items) == 1, do: one, else: many}"
+        _ -> nil
+      end
+
+    {items, aside, for({id, _from, _facts} <- found, do: id)}
+  end
+
+  # One detail of an item: the part of a field before or after a marker (all of it
+  # without either), or (`earlier`) the items before it, which it builds on.
+  defp item_detail(%{"earlier" => true} = d, _fact, before),
+    do: Blocks.pair(label: d["label"], value: dash(Enum.join(before, ", ")))
+
+  defp item_detail(d, fact, _before) do
+    text = to_text(fact["values"][d["field"]])
+
+    value =
+      case {d["before"], d["after"]} do
+        {marker, _} when is_binary(marker) -> text |> String.split(marker, parts: 2) |> hd()
+        {_, marker} when is_binary(marker) -> Enum.at(String.split(text, marker, parts: 2), 1)
+        _ -> text
+      end
+
+    Blocks.pair(label: d["label"], value: dash(String.trim(value || "")))
+  end
+
+  defp dash(""), do: "—"
+  defp dash(text), do: text
+
+  # Each part of the byline that has its values; an `age` part says since when the work
+  # has been its owner's.
+  defp byline(scope, parts, todo) do
+    for part <- parts, clause = byline_part(scope, part, todo), clause != nil, do: clause
+  end
+
+  defp byline_part(_scope, %{"age" => text}, todo) do
+    if since = todo.why.since, do: Blocks.clause(text: text, since: since)
+  end
+
+  defp byline_part(scope, text, _todo) when is_binary(text) do
+    if shown = template(scope, text), do: Blocks.clause(text: shown)
+  end
+
+  defp check(scope, c) do
+    state = c["state"] || %{}
+    value = to_text(raw(scope, state["field"]))
+
+    found =
+      Enum.find(~w(success error pending), fn s ->
+        value != "" and value in Enum.map(List.wrap(state[s]), &to_text/1)
+      end)
+
+    Blocks.check(
+      label: c["label"],
+      state: found || "none",
+      text: template(scope, c["text"] || "") || "—"
+    )
+  end
+
+  defp panel_box(_scope, nil), do: nil
+
+  defp panel_box(scope, box) do
+    text = String.trim(to_text(raw(scope, box["field"])))
+    text = if text in Enum.map(box["empty"] || [], &to_text/1), do: "", else: text
+    Blocks.box(title: box["title"], text: dash(text), tone: box["tone"])
+  end
+
+  # The answers, as the page's actions of the same keys (`answer_actions/3`) give them; in
+  # a choice the first is the recommended one. `details` says what each one does.
+  defp panel_answers(kind, key, todo, spec) do
+    choose = spec["choose"] == true
+    details = spec["details"] || %{}
+
+    todo.answers
+    |> Enum.filter(&(&1.change or is_binary(&1.set) or is_binary(&1.remove)))
+    |> Enum.with_index()
+    |> Enum.map(fn {a, i} ->
+      name = Map.get(a, :name) || a.key
+
+      to =
+        cond do
+          a.change -> path({:answer, kind, key, name})
+          is_binary(a.set) -> path({:set, kind, key, a.set})
+          true -> path({:remove, kind, key, a.remove})
+        end
+
+      Blocks.panel_answer(
+        label: a.label,
+        key: a.key,
+        to: to,
+        submit_to: if(a.change and a[:name] && !a.note, do: call_to({:answer, kind, key, name})),
+        note: if(a.note, do: true),
+        recommended: if(choose and i == 0, do: true),
+        detail: details[a.key] || Map.get(a, :details)
+      )
+    end)
+  end
+
+  defp panel_actions(scope, actions) do
+    for a <- actions, {record_k, fact} <- [scope.records[a["record"]]] do
+      Blocks.action(label: a["label"], key: a["key"], to: path({:item, record_k.name, fact["key"]}))
+    end
+  end
+
+  defp panel_links(scope, links) do
+    for l <- links,
+        url = to_text(raw(scope, l["field"])),
+        String.match?(url, ~r{^https?://\S+$}i),
+        do: Blocks.link(label: l["label"], key: l["key"], url: url)
+  end
+
+  # A template with each `{name}` filled in; nil when a value is not there.
+  defp template(scope, text) do
+    filled =
+      Regex.scan(~r/\{([^{}|]+)(?:\|(\w+))?\}/, text)
+      |> Enum.map(fn [whole | ref] -> {whole, filter(shown(scope, hd(ref)), Enum.at(ref, 1))} end)
+
+    if Enum.all?(filled, fn {_, value} -> value not in [nil, ""] end),
+      do: Enum.reduce(filled, text, fn {whole, value}, t -> String.replace(t, whole, value) end)
+  end
+
+  defp filter(nil, _), do: nil
+  defp filter(value, nil), do: value
+
+  defp filter(value, "number") do
+    case Regex.run(~r/(\d+)\D*$/, value) do
+      [_, n] -> n
+      _ -> nil
+    end
+  end
+
+  defp filter(value, "line") do
+    value |> String.split("\n") |> Enum.map(&String.trim/1) |> Enum.find(&(&1 != ""))
+  end
+
+  defp filter(value, _), do: value
+
+  # A name as the page shows it: the fact's key, field or links, a record's key or field.
+  defp shown(scope, "key"), do: scope.key
+
+  defp shown(scope, name) do
+    case String.split(name, ".", parts: 2) do
+      [record, field] ->
+        case scope.records[record] do
+          {record_k, fact} -> field_text(record_k, fact, field)
+          nil -> nil
+        end
+
+      [name] ->
+        case scope.records do
+          %{^name => {_k, fact}} -> fact["key"]
+          %{^name => nil} -> nil
+          _ -> field_text(scope.k, scope.fact, name) || links_text(scope.fact, name)
+        end
+    end
+  end
+
+  defp field_text(k, fact, name) do
+    value = fact["values"][name]
+
+    case Enum.find(k.fields, &(&1.name == name)) do
+      _ when value in [nil, ""] -> nil
+      nil -> to_text(value)
+      f -> show(f, value)
+    end
+  end
+
+  defp links_text(fact, relation) do
+    case get_in(fact, ["links", relation]) do
+      [_ | _] = keys -> Enum.join(keys, ", ")
+      _ -> nil
+    end
+  end
+
+  # The stored value a name refers to, as stored (a check compares it).
+  defp raw(_scope, nil), do: nil
+
+  defp raw(scope, name) do
+    case String.split(name, ".", parts: 2) do
+      [record, field] ->
+        case scope.records[record] do
+          {_k, fact} -> fact["values"][field]
+          nil -> nil
+        end
+
+      [field] ->
+        scope.fact["values"][field]
     end
   end
 

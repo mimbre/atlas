@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.24.0"
+  version "0.26.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -29,6 +29,51 @@ defmodule AtlasBFFContract.Models.Presentation do
     # The answer is given with a note saying why (a decline), as a form asks it.
     field :note, :boolean
     field :shortcut, :string
+  end
+
+  # One part of a panel's byline (`panel`): `text`, and with `since` (ISO 8601, UTC) how
+  # long ago that was, which a client shows after the text ("waiting 3h"; the age alone
+  # when the text is empty) and keeps current.
+  defmodel :clause do
+    field :text, :string, required: true
+    field :since, :string
+  end
+
+  # One of the items a panel is judged on: the fact (`key`, `label`) and its page (`to`);
+  # `details`, what a client shows of the selected one.
+  defmodel :panel_item do
+    field :key, :string, required: true
+    field :label, :string, required: true
+    field :to, :string, required: true
+    field :details, {:list, :pair}
+  end
+
+  # One check a panel is judged on: its `label`, its `state` (success, error, pending or
+  # none: not known) and what it says (`text`, "—" when not known).
+  defmodel :check do
+    field :label, :string, required: true
+    field :state, :string, required: true
+    field :text, :string, required: true
+  end
+
+  # A framed text of a panel; `tone` error: something went wrong.
+  defmodel :box do
+    field :title, :string, required: true
+    field :text, :string, required: true
+    field :tone, :string
+  end
+
+  # One answer of a panel, as its page's action of the same key gives it: opening `to`,
+  # or `submit_to` at once. `note`: given with a note saying why (a no), as `to`'s form
+  # asks it; else a yes. `recommended` and `detail` (what it does) for a choice.
+  defmodel :panel_answer do
+    field :label, :string, required: true
+    field :key, :string, required: true
+    field :to, :string, required: true
+    field :submit_to, :call
+    field :note, :boolean
+    field :recommended, :boolean
+    field :detail, :string
   end
 
   # A web address the user can open outside the client, in a browser: `url`. `key` is
