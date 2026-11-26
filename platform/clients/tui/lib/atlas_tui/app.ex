@@ -296,6 +296,10 @@ defmodule AtlasTui.App do
       {:worker_output_retry, delay}, state ->
         output_failed(state, :output_unavailable, delay)
 
+      {:copy, text}, state ->
+        AtlasTui.Clipboard.copy(text)
+        state
+
       {:open_url, url}, state ->
         AtlasTui.Browser.open(url, state.settings)
         state
