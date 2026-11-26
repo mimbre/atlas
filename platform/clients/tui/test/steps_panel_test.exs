@@ -27,7 +27,11 @@ defmodule AtlasTui.StepsPanelTest do
         "current" => 2,
         "steps" => [
           %{"n" => 1, "text" => "Open a terminal", "commands" => []},
-          %{"n" => 2, "text" => "Make its folder", "commands" => ["mkdir w", "cd w"]},
+          %{
+            "n" => 2,
+            "text" => "Make its folder\nIn your home.",
+            "commands" => ["mkdir w", "cd w"]
+          },
           %{"n" => 3, "text" => "Tell us", "commands" => []}
         ],
         "actions" => [
@@ -55,7 +59,7 @@ defmodule AtlasTui.StepsPanelTest do
     assert text =~ "step 2 of 3"
     assert text =~ "Why: The widget needs a home. · 3h"
     assert text =~ "✓ 1. Open a terminal"
-    assert text =~ "▸ 2. Make its folder"
+    assert text =~ ~r/▸ 2\. Make its folder +│ │\n.*│      In your home\./
     assert text =~ "│ mkdir w"
     assert text =~ "│ cd w"
     assert text =~ "3. Tell us"

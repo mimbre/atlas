@@ -444,6 +444,7 @@ defmodule AtlasAgent.CLI do
       end)
 
     keys = Enum.map_join(todo["actions"] || [], "   ", &"#{&1["key"]} #{&1["label"]}")
+
     ["To do: #{todo["title"]} (step #{min(current, length(steps))} of #{length(steps)})" | why] ++
       lines ++ ["  #{keys}", ""]
   end
