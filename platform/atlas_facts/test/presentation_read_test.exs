@@ -130,7 +130,8 @@ defmodule AtlasFacts.PresentationReadTest do
       "subject_key" => "P-1",
       "generation" => 1,
       "status" => status,
-      "state" => state
+      "state" => state,
+      "entered_at" => "2026-11-20T08:00:00Z"
     }
 
     case Rela.get(rela, "cursors", "R-1") do
@@ -158,6 +159,7 @@ defmodule AtlasFacts.PresentationReadTest do
              "flow" => "sorting",
              "run" => "R-1",
              "state" => "weigh",
+             "since" => "2026-11-20T08:00:00Z",
              "actionable" => true,
              "expected" => "Weigh it",
              "owner" => ["ada"],

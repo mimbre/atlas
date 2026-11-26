@@ -1300,9 +1300,10 @@ defmodule AtlasFacts.Server do
   end
 
   # The runs of the presenter's subflows on the subject, as the run mapping names their
-  # fields: those of every generation (the presentation takes the latest), each with the
-  # keys its supervision relation links (`supervisor`; none without supervision) and the
-  # fact that set that link (`supervisor_origin`, `AtlasFacts.Links`; IS-Atlas-47).
+  # fields: those of every generation (the presentation takes the latest), each with when
+  # it entered its state (`since`), the keys its supervision relation links (`supervisor`;
+  # none without supervision) and the fact that set that link (`supervisor_origin`,
+  # `AtlasFacts.Links`; IS-Atlas-47).
   defp subject_runs(state, presenter, key) do
     mapping = state.model.run_mapping()
     names = for f <- presenter["flows"] || [], do: f["name"]
@@ -1327,6 +1328,7 @@ defmodule AtlasFacts.Server do
                 "generation" => p[f["generation"]],
                 "status" => p[f["status"]],
                 "state" => p[f["state"]],
+                "since" => f["entered_at"] && p[f["entered_at"]],
                 "supervisor" => if(supervised_by, do: run.links[supervised_by] || [], else: []),
                 "supervisor_origin" =>
                   supervised_by &&
