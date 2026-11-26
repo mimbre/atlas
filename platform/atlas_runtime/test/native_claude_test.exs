@@ -103,7 +103,7 @@ defmodule AtlasRuntime.NativeClaudeTest do
     tmp_dir: dir
   } do
     answer =
-      String.duplicate("The change does what the issue asks. ", 100) <>
+      String.duplicate("The change does what was asked. ", 100) <>
         ~s(\n\n```json\n{"verdict": "approved", "findings": []}\n```)
 
     {:ok, {pid, ref}} = launch(dir, [@init, %{@result | "result" => answer}])
