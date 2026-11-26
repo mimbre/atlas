@@ -84,7 +84,7 @@ final class DecisionPageTests: XCTestCase {
     func testTheBlocksKeepControlsOrderAndTheDetailsGoUnder() throws {
         let decision = PagePresentation(try Self.page("/k/decision/D-7", Self.decision))
         XCTAssertEqual(decision.groups.map(\.id),
-                       ["block:header", "block:why", "block:option-1", "block:option-2", "block:option-3", "block:answers"])
+                       ["block:header", "block:why", "block:option-1", "block:option-2", "block:option-3", "block:actions"])
         XCTAssertEqual(decision.details?.title, "Details")
         XCTAssertTrue(decision.hasHeader, "the header block names the page")
         XCTAssertTrue(decision.hasOptions, "its options answer it, its answers are the rest")
@@ -92,7 +92,8 @@ final class DecisionPageTests: XCTestCase {
 
         let stuck = PagePresentation(try Self.page("/k/widget/W-1", Self.stuck))
         XCTAssertEqual(stuck.groups.map(\.id),
-                       ["block:header", "block:why", "block:failure", "block:option-1", "block:option-2", "block:answers"])
+                       ["block:header", "block:why", "block:failure", "block:option-1", "block:option-2", "block:answers",
+                        "block:actions"])
         XCTAssertEqual(stuck.details?.title, "Details")
     }
 

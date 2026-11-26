@@ -59,7 +59,8 @@ final class TodoPageTests: XCTestCase {
         let presentation = PagePresentation(try Self.page())
 
         XCTAssertEqual(presentation.groups.map(\.id),
-                       ["block:header", "block:why", "block:step-1", "block:step-2", "block:step-3", "block:answers"])
+                       ["block:header", "block:why", "block:step-1", "block:step-2", "block:step-3", "block:answers",
+                        "block:actions"])
         XCTAssertEqual(presentation.details?.title, "Details")
         XCTAssertTrue(presentation.hasHeader, "the header block names the page in place of its title")
         XCTAssertFalse(presentation.hasPanel)
