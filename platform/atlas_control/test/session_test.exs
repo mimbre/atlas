@@ -2081,6 +2081,88 @@ defmodule AtlasControl.SessionTest do
       do:
         for(%{"op" => op} = c <- FakeStore.sent(), op in ["pickup", "hand_over", "retry"], do: c)
 
+    # IS-Atlas-70: who puts a fact in, linked in its create, from who the client is.
+    defp put_in_shop do
+      port = gateway(Shop.PutIn)
+      FakeStore.put("ada", %{"name" => "Ada"}, "member")
+      Application.put_env(:atlas_control, :tui_user, "ada")
+      Application.put_env(:atlas, :assists, %{"helper" => "ada"})
+
+      on_exit(fn ->
+        Application.delete_env(:atlas_control, :tui_user)
+        Application.delete_env(:atlas, :assists)
+      end)
+
+      port
+    end
+
+    defp created(socket, values) do
+      put(socket, %{"op" => "submit", "to" => "/k/widget/new", "values" => values})
+      next(socket, "page")
+    end
+
+    test "a create by the member at the TUI links them as who put it in, by themselves" do
+      tui = hello_as(put_in_shop(), "tui")
+      assert %{"reason" => "stored"} = created(tui, %{"title" => "Wheel"})
+
+      assert %{"op" => "create", "by" => "ada", "links" => %{"put_in_by" => ["ada"]}} =
+               fact = FakeStore.last_fact()
+
+      refute Map.has_key?(fact, "cause")
+      refute Map.has_key?(fact["values"], "put_in_by")
+    end
+
+    test "a create by an agent links whom it assists; the write is the agent's, on their behalf" do
+      port = put_in_shop()
+      agent = hello_as(port, "agent", "helper")
+      assert %{"reason" => "stored"} = created(agent, %{"title" => "Wheel"})
+
+      assert %{
+               "by" => "helper",
+               "links" => %{"put_in_by" => ["ada"]},
+               "cause" => "Put in by helper on behalf of ada"
+             } = FakeStore.last_fact()
+
+      # Its own cause stays, and says on whose behalf.
+      put(agent, %{
+        "op" => "submit",
+        "to" => "/k/widget/new",
+        "values" => %{"title" => "Axle"},
+        "cause" => "From the call"
+      })
+
+      assert %{"reason" => "stored"} = next(agent, "page")
+      assert FakeStore.last_fact()["cause"] == "From the call (helper on behalf of ada)"
+
+      # An agent that assists nobody puts nothing in (UC-Atlas-23): the widget would record
+      # who put it in as nobody, so it is refused, saying so, and nothing is sent.
+      other = hello_as(port, "agent", "stranger")
+      before = length(FakeStore.sent())
+
+      assert %{"reason" => "refused", "blocks" => [%{"type" => "form", "props" => form}]} =
+               created(other, %{"title" => "Bolt"})
+
+      assert [why] = form["errors"]
+      assert why =~ "stranger is no member and assists nobody"
+      assert why =~ "no producer (put_in_by)"
+      assert length(FakeStore.sent()) == before
+    end
+
+    test "a form or write that names who put it in is refused; nothing is sent" do
+      port = put_in_shop()
+
+      for socket <- [hello_as(port, "tui"), hello_as(port, "agent", "helper")] do
+        before = length(FakeStore.sent())
+
+        assert %{"reason" => "refused", "blocks" => [%{"type" => "form", "props" => form}]} =
+                 created(socket, %{"title" => "Wheel", "put_in_by" => "ada"})
+
+        assert [why] = form["errors"]
+        assert why =~ "put_in_by"
+        assert length(FakeStore.sent()) == before
+      end
+    end
+
     test "Pick up from the TUI sends exactly a pickup input; an agent, or a stale run, sends nothing" do
       port = supervised_shop([])
 

@@ -91,6 +91,25 @@ defmodule RelaDSL.Description.ChecksTest do
     assert selects(c) == []
   end
 
+  # IS-Atlas-70: a create links who puts the fact in through a relation from its kind, to
+  # one fact at most, that nobody sets by hand; anything else is refused where it is said.
+  test "a create's producer is a relation from the kind, to one, that nobody sets by hand" do
+    assert checked(
+             concept(
+               entity: "create ask: [:title], producer: :kept_by",
+               relation: ", set_by: [:flow]"
+             )
+           ) == []
+
+    for {entity, relation} <- [
+          {"create producer: :nowhere", ", set_by: [:flow]"},
+          {"create producer: :kept_by", ""}
+        ] do
+      assert checked(concept(entity: entity, relation: relation)) ==
+               [{:create_producer, ["thing", String.trim_leading(entity, "create producer: :")]}]
+    end
+  end
+
   test "a name a rule gives must resolve to a field, relation or value" do
     assert checked(concept(entity: "create ask: [:colour]")) ==
              [{:unknown_field, ["thing", "colour"]}]

@@ -123,10 +123,14 @@ defmodule Model.IssueRunsTest do
     assert FakeFacts.get("task", @review)["values"]["state"] == "completed"
 
     # The follow-up is a new issue under the issue's use case, made by Flow for ada, with
-    # an issue's create defaults (its stage).
+    # an issue's create defaults (its stage), and produced by ada, who supervised the
+    # build whose review found it (UC-Atlas-23): its questions go to ada.
     made = FakeFacts.get("issue", "IS-Atlas-02")
     assert made["values"] == Map.put(follow_up, "stage", "specification")
-    assert made["links"] == %{"in_use_case" => ["UC-Atlas-01"]}
+    assert made["links"] == %{"in_use_case" => ["UC-Atlas-01"], "produced_by" => ["ada"]}
+
+    assert [%{"by" => "flow", "cause" => "For ada: proposed by " <> _}] =
+             for(w <- FakeFacts.stored_from_flow(), w["key"] == "IS-Atlas-02", do: w)
 
     # One fix on the author's result (the base the review had), with the review's findings.
     fixing = settle(c)

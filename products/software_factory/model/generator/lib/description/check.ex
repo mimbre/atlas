@@ -575,13 +575,43 @@ defmodule RelaDSL.Description.Check do
   defp create(ctx, kind, create, path) do
     id = (is_map(create) && create["id"]) || %{}
 
-    keys(create, ~w(ask id defaults), path) ++
+    keys(create, ~w(ask id defaults producer), path) ++
       Enum.flat_map(List.wrap(is_map(create) && create["ask"]), &field(ctx, kind, &1, path)) ++
+      create_producer(ctx, kind, is_map(create) && create["producer"], path ++ ["producer"]) ++
       Enum.flat_map((is_map(create) && create["defaults"]) || %{}, fn {name, value} ->
         values(ctx, kind, %{name => [value]}, path ++ ["defaults"])
       end) ++
       keys(id, ~w(prefix digits first from pattern template replace lower error), path ++ ["id"]) ++
       if(is_map(id) and id["from"], do: field(ctx, kind, id["from"], path ++ ["id"]), else: [])
+  end
+
+  # The relation a create links to who puts the fact in: one from the kind, to one fact at
+  # most, that nobody sets by hand (`set_by`), so the create is its one other writer.
+  defp create_producer(_ctx, _kind, value, _path) when value in [nil, false], do: []
+
+  defp create_producer(ctx, kind, relation, path) do
+    spec = is_binary(relation) && ctx.relations[relation]
+
+    cond do
+      not is_map(spec) or kind not in (spec["from"] || []) ->
+        p(
+          path,
+          :create_producer,
+          [kind, relation],
+          "#{kind}.create.producer: #{inspect(relation)} is no relation from #{kind}"
+        )
+
+      spec["max_outgoing"] != 1 or get_in(ctx.x, ["relations", relation, "set_by"]) in [nil, []] ->
+        p(
+          path,
+          :create_producer,
+          [kind, relation],
+          "#{kind}.create.producer: #{relation} must lead to one fact at most (max_outgoing 1) and be set by nobody by hand (set_by)"
+        )
+
+      true ->
+        []
+    end
   end
 
   defp late(_ctx, _kind, nil, _path), do: []

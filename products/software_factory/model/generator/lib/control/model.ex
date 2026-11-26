@@ -534,7 +534,14 @@ defmodule RelaDSL.Control.Model do
 
   defp form(_d, _kind, spec, :create) do
     rule = create_rule(spec)
-    %{ask: rule.ask, defaults: rule.defaults, made_from: rule.from, decides: nil}
+
+    %{
+      ask: rule.ask,
+      defaults: rule.defaults,
+      made_from: rule.from,
+      decides: nil,
+      producer: rule.producer
+    }
   end
 
   defp form(_d, _kind, spec, :edit) do
@@ -568,7 +575,7 @@ defmodule RelaDSL.Control.Model do
           nil
       end
 
-    %{ask: ask, defaults: %{}, made_from: made_from, decides: decides}
+    %{ask: ask, defaults: %{}, made_from: made_from, decides: decides, producer: nil}
   end
 
   defp ordered(spec, primary) do
@@ -600,7 +607,9 @@ defmodule RelaDSL.Control.Model do
       digits: get_in(rule, ["id", "digits"]) || 2,
       first: get_in(rule, ["id", "first"]) || 1,
       from: get_in(rule, ["id", "from"]),
-      defaults: rule["defaults"] || %{}
+      defaults: rule["defaults"] || %{},
+      # The relation the create links to who puts the fact in (IS-Atlas-70), or nil.
+      producer: rule["producer"]
     }
   end
 

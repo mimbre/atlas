@@ -87,7 +87,7 @@ final class SingleChoiceTests: XCTestCase {
         var choice = SingleChoice(try decoded())
         let before = choice
 
-        for key: SingleChoice.Key in [.digit("4"), .digit("9"), .digit("x"), .digit("٣"), .enter, .escape] {
+        for key: SingleChoice.Key in [.digit("4"), .digit("9"), .digit("x"), .digit("٣"), .escape] {
             XCTAssertEqual(choice.key(key), .nothing, "\(key)")
         }
         XCTAssertEqual(choice, before)
@@ -107,7 +107,6 @@ final class SingleChoiceTests: XCTestCase {
         XCTAssertEqual(choice.key(.enter), .submit(call("o10"), values: [:]))
         XCTAssertEqual(choice.key(.digit("1")), .nothing)
         XCTAssertEqual(choice.key(.escape), .nothing)
-        XCTAssertEqual(choice.key(.enter), .nothing)
         XCTAssertEqual(choice.key(.digit("0")), .nothing)
         XCTAssertEqual(choice.key(.enter), .submit(call("o1"), values: [:]))
         XCTAssertEqual(choice.key(.digit("4")), .nothing)
@@ -160,12 +159,12 @@ final class SingleChoiceTests: XCTestCase {
         var choice = SingleChoice(try decoded())
 
         // Nothing happens and no number is being typed: the key is not the block's.
-        for key: SingleChoice.Key in [.digit("9"), .enter, .escape] {
+        for key: SingleChoice.Key in [.digit("9"), .escape] {
             XCTAssertNil(choice.press(key), "\(key)")
         }
         // While the note form is open every key is the note field's, digits and Return too.
         XCTAssertEqual(choice.press(.digit("3")), .askNote(choice.choices[2]))
-        for key: SingleChoice.Key in [.digit("1"), .digit("0"), .enter, .escape] {
+        for key: SingleChoice.Key in [.digit("1"), .digit("0"), .enter, .escape, .up, .down] {
             XCTAssertNil(choice.press(key), "\(key)")
         }
         XCTAssertEqual(choice.noting?.id, "decline")
@@ -184,6 +183,68 @@ final class SingleChoiceTests: XCTestCase {
         XCTAssertEqual(choice.press(.digit("1")), .nothing)
         XCTAssertEqual(choice.press(.escape), .nothing)
         XCTAssertNil(choice.press(.escape))
-        XCTAssertNil(choice.press(.enter))
+        // With nothing typed, Return answers the selected choice.
+        XCTAssertEqual(choice.press(.enter), .submit(call("o1"), values: [:]))
+    }
+
+    func testTheRecommendedChoiceIsSelectedAndReturnAnswersIt() throws {
+        var choice = SingleChoice(try decoded())
+
+        XCTAssertEqual(choice.selectedChoice?.id, "sqlite")
+        XCTAssertEqual(choice.press(.enter), .submit(call("adopt-sqlite"), values: [:]))
+    }
+
+    func testTheArrowsMoveTheSelectionAndReturnAnswersTheSelectedChoice() throws {
+        var choice = SingleChoice(try decoded())
+
+        XCTAssertEqual(choice.press(.down), .nothing)
+        XCTAssertEqual(choice.selectedChoice?.id, "postgres")
+        XCTAssertEqual(choice.press(.enter), .submit(call("adopt-postgres"), values: [:]))
+
+        XCTAssertEqual(choice.press(.up), .nothing)
+        XCTAssertEqual(choice.press(.enter), .submit(call("adopt-sqlite"), values: [:]))
+    }
+
+    func testTheSelectionStopsAtTheEndsAndKeepsTheArrowsFromTheList() throws {
+        var choice = SingleChoice(try decoded())
+
+        // At the first, Up is still the block's (it does not move the list's selection).
+        XCTAssertEqual(choice.press(.up), .nothing)
+        XCTAssertEqual(choice.selectedChoice?.id, "sqlite")
+        for _ in 0..<5 { XCTAssertEqual(choice.press(.down), .nothing) }
+        XCTAssertEqual(choice.selectedChoice?.id, "decline")
+    }
+
+    func testReturnOnTheSelectedDeclineAsksForItsNote() throws {
+        var choice = SingleChoice(try decoded())
+        _ = choice.press(.down)
+        _ = choice.press(.down)
+
+        XCTAssertEqual(choice.press(.enter), .askNote(choice.choices[2]))
+        XCTAssertEqual(choice.giveNote("Not now."), .submit(call("decline"), values: ["note": "Not now."]))
+    }
+
+    func testAChoiceAnsweredByNumberOrClickBecomesTheSelectedOne() throws {
+        var choice = SingleChoice(try decoded())
+
+        _ = choice.key(.digit("2"))
+        XCTAssertEqual(choice.selectedChoice?.id, "postgres")
+        _ = choice.choose(choice.choices[2])
+        XCTAssertEqual(choice.selectedChoice?.id, "decline")
+    }
+
+    func testTheSameDecisionSentAgainKeepsTheSelectionAnotherStartsAtTheRecommended() throws {
+        var choice = SingleChoice(try decoded("D-7"))
+        _ = choice.press(.down)
+
+        var again = try decoded("D-7")
+        again.instructions = "Choose again."
+        choice.update(again)
+        XCTAssertEqual(choice.selectedChoice?.id, "postgres")
+
+        var other = try decoded("D-8")
+        other.options.removeAll { $0.id == "postgres" }
+        choice.update(other)
+        XCTAssertEqual(choice.selectedChoice?.id, "sqlite")
     }
 }

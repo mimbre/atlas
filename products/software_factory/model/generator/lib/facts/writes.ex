@@ -54,6 +54,13 @@ defmodule RelaDSL.Facts.Writes do
     relation. Replacing or removing a link requires being its old target too; sending the
     same links changes nothing.
   - `set_by`: only a writer named there (or `<name>/…`, a connector of a system) changes it.
+    One exception, per kind: the relation its `create.producer` names is set by the create
+    of a fact of that kind too, in that write only, and only to who puts the fact in
+    (IS-Atlas-70): whom the writer assists (the actor's `assists`, IS-Atlas-47), or else
+    the writer itself, when it is a fact of the kind the relation leads to. Any other
+    keys on that create, and any change after, are refused as for any `set_by`. Nothing
+    writes such a fact with that relation empty (UC-Atlas-23): a create that links nobody
+    through it is refused, whoever writes it (Flow too), and says so.
   - `limit`: `%{"max", "field", "values", "error"}`: a new link to a parent through it is
     refused while `max` facts of the kind whose `field` is one of `values` point at that
     parent already ({parent}, {child}, {value}).
@@ -230,6 +237,8 @@ defmodule RelaDSL.Facts.Writes do
       List.wrap(links[relation]) -- List.wrap(get_in(current.(), ["links", relation]))
     end
 
+    producer = if op == "create", do: get_in(d, ["entities", kind, "create", "producer"])
+
     set_by =
       for {relation, keys} <- Enum.sort(links),
           %{"set_by" => names} <- [rels[relation]],
@@ -237,21 +246,75 @@ defmodule RelaDSL.Facts.Writes do
           Enum.sort(List.wrap(keys)) !=
             Enum.sort(List.wrap(get_in(current.(), ["links", relation]))),
           not named?(by, names),
-          do: "only a #{Enum.join(names, " or ")} sets #{relation}"
+          reason = set_by_reason(relation, names, producer, keys, rels, actor, lookup),
+          reason != nil,
+          do: reason
 
     reasons =
-      if set_by != [] do
-        set_by
-      else
-        closed(d, kind, links, new, lookup) ++
-          limits(d, kind, key, links, new, lookup) ++
-          completed_children(d, kind, key, links, new, lookup)
+      cond do
+        set_by != [] ->
+          set_by
+
+        producer && List.wrap(links[producer]) == [] ->
+          [no_producer(d, kind, producer, actor)]
+
+        true ->
+          closed(d, kind, links, new, lookup) ++
+            limits(d, kind, key, links, new, lookup) ++
+            completed_children(d, kind, key, links, new, lookup)
       end
 
     if reasons == [], do: :ok, else: {:refused, reasons}
   end
 
   defp relations(_d, _kind, _op, _key, _links, _actor, _lookup), do: :ok
+
+  # Why a writer the relation does not name may not set it; nil on the create its kind's
+  # `create.producer` names, linking the one who puts the fact in.
+  defp set_by_reason(relation, names, relation, keys, rels, actor, lookup) do
+    case put_in_by(rels[relation], actor, lookup) do
+      nil ->
+        "only a #{Enum.join(names, " or ")} sets #{relation}, and a create by a person, or by an agent for whom it assists"
+
+      who ->
+        if List.wrap(keys) == [who],
+          do: nil,
+          else:
+            "#{relation} is who puts it in (#{who}), never chosen: only a #{Enum.join(names, " or ")} sets it otherwise"
+    end
+  end
+
+  defp set_by_reason(relation, names, _producer, _keys, _rels, _actor, _lookup),
+    do: "only a #{Enum.join(names, " or ")} sets #{relation}"
+
+  # Why a create of a kind whose `create.producer` names `relation` and that links nobody
+  # through it is refused: every such fact records its producer (UC-Atlas-23).
+  defp no_producer(d, kind, relation, actor) do
+    by = actor["by"]
+    by = if is_binary(by) and by != "", do: by, else: "its writer"
+
+    "a new #{String.downcase(label(d, kind))} records its producer (#{relation}): the person who puts it in, whom the agent that creates it assists, or the supervisor of the run that makes it; this create by #{by} links nobody"
+  end
+
+  # Who puts a fact in, as the producer relation `spec` names them: whom the writer
+  # assists, or the writer itself when it is a fact of the kind the relation leads to.
+  defp put_in_by(spec, actor, lookup) do
+    by = actor["by"]
+    assists = actor["assists"]
+
+    cond do
+      is_binary(assists) and assists != "" ->
+        assists
+
+      is_binary(by) and by != "" and
+        match?([_], spec["to"] || []) and
+          is_map(lookup["fact"].(hd(spec["to"]), by)) ->
+        by
+
+      true ->
+        nil
+    end
+  end
 
   defp named?(by, names),
     do: is_binary(by) and Enum.any?(names, &(by == &1 or String.starts_with?(by, &1 <> "/")))

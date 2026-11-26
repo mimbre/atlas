@@ -1514,7 +1514,13 @@ defmodule AtlasFacts.Server do
             do: {c["relation"], c["kind"], c["key"], c["values"]}
 
       replaced = for %{"as" => "replaced"} = c <- changes, do: {c["key"], c["values"]}
-      actor = %{"by" => content["by"], "sender" => state[:sender]}
+      # Whom the writer assists (IS-Atlas-47), for the rules that take it: who puts in a
+      # fact an agent creates for them (`create.producer`, IS-Atlas-70).
+      actor = %{
+        "by" => content["by"],
+        "sender" => state[:sender],
+        "assists" => AtlasBus.Actors.assisted(content["by"])
+      }
 
       with {:ok, targets} <- Description.targets(state.description, kind, own["links"] || %{}),
            {:ok, targets} <- target_kinds(state, op, targets),

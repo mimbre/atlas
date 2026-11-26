@@ -5,6 +5,12 @@ defmodule Model.Scene do
   pickup point is a subflow of its own; the pipeline is horseshoe-shaped: it starts with
   the scene, its producer's input, and ends with its producer's acceptance.
 
+  A scene records who put it in (`produced_by`, SC-Atlas-09, IS-Atlas-70), in the write
+  that creates it (`create(producer: :produced_by)`): the person who creates it (in the
+  TUI), or the person an agent that creates it assists (`assists` in the environment's
+  settings). Control takes it from who the client is, never from the form; Facts takes
+  the link on that create only, and from nobody else after.
+
     * `break_down_scene` **Design** (Scene → Use cases): a person picks it up (its span), and that pickup
       alone starts its work: one agent on the supervisor's Runtime reads the scene and a checkout of the
       repository and writes the use cases it proposes to a file in its result
@@ -19,7 +25,8 @@ defmodule Model.Scene do
       A scene too vague to design use cases from is not guessed at (UC-Atlas-24): its agent
       writes its questions instead (`asks:`), Flow puts them in the scene's `questions`,
       and "Answer its questions" (`clarifying`) goes to its producer (`produced_by`; the
-      configured decider for a scene that records none, as one made by hand), who may rewrite the description and
+      configured decider for a scene that records none, one from before producers were
+      recorded), who may rewrite the description and
       answers with a note (`answers`); a fresh pass of its agent then reads the questions,
       the answers and the description as they are now. The run keeps its supervisor.
       Its supervisor's "Not accepted", with a note (the scene's `note`), throws the proposal
@@ -27,8 +34,8 @@ defmodule Model.Scene do
       [discard: true]`) and the run goes back to its break-down, whose agent reads the note.
     * `accept_scene` **Accept** (Accept the scene): waits until every use case under it is accepted
       (`children`, `open_children`: the composition's count of the use cases in the scene,
-      and of those without an accepted `accept_use_case` run), then asks its producer (the
-      configured decider until a scene records who produced it). While it waits
+      and of those without an accepted `accept_use_case` run), then asks its producer
+      (`produced_by`: who put it in; the configured decider for a scene that records none). While it waits
       (`building`) it is its producer's, with no to-do: nothing is built on the scene and
       nobody has anything to do on it. Accept ends the
       pipeline; Not accepted keeps the producer's note (`note`) and starts a new round of
@@ -127,7 +134,13 @@ defmodule Model.Scene do
       description: "Flow: how the last pass ended (none, delivered, failed)"
     )
 
-    create(ask: [:title, :description], defaults: [status: :refine, phase: :break_down])
+    # Who puts it in is its producer, linked in the create itself (IS-Atlas-70).
+    create(
+      ask: [:title, :description],
+      defaults: [status: :refine, phase: :break_down],
+      producer: :produced_by
+    )
+
     progress(over: :in_scene, own: :status)
     completion(by: :accepted_by)
   end
@@ -194,8 +207,8 @@ defmodule Model.Scene do
     end
 
     # Its agent found it too vague to design use cases from and asked (UC-Atlas-24): its
-    # producer (`produced_by`; the configured decider for a scene that records none, as
-    # one made by hand) answers, after rewriting its description by hand if they like; a
+    # producer (`produced_by`, who put it in; the configured decider for a scene that
+    # records none, from before producers were recorded) answers, after rewriting its description by hand if they like; a
     # fresh pass of its agent then reads the questions, the answers and the description.
     # The run keeps its supervisor. Its producer, not its supervisor, though it lies in the span.
     state :clarifying, label: "Answer its questions" do
@@ -295,8 +308,15 @@ defmodule Model.Scene do
       branch(to: :building, when: "entity.phase == 'accept'")
     end
 
+    # Its producer accepts it: who put it in (`produced_by`). A scene that records none,
+    # from before producers were recorded, asks the configured decider (IS-Atlas-164).
     state :to_accept, label: "Accept" do
-      owner(via: :assignment, relation: :assigned_to, default: {:person, config: :decider})
+      owner(
+        via: :assignment,
+        relation: :assigned_to,
+        default: {:person, config: :decider, producer: :produced_by}
+      )
+
       set(verdict: :none)
 
       present(

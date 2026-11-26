@@ -114,6 +114,8 @@ defmodule Model.OpenForYouTest do
       "op" => "create",
       "key" => @issue,
       "values" => %{"title" => "Open"},
+      # As Control's create links it: who puts it in (UC-Atlas-23).
+      "links" => %{"produced_by" => ["ada"]},
       "by" => "ada"
     })
 
@@ -166,6 +168,7 @@ defmodule Model.OpenForYouTest do
       "op" => "create",
       "key" => "UC-Atlas-01",
       "values" => %{"title" => "U"},
+      "links" => %{"produced_by" => ["ada"]},
       "by" => "ada"
     })
 
@@ -175,7 +178,7 @@ defmodule Model.OpenForYouTest do
         "op" => "create",
         "key" => key,
         "values" => Map.reject(%{"title" => key, "order" => order}, &(elem(&1, 1) == nil)),
-        "links" => %{"in_use_case" => ["UC-Atlas-01"]},
+        "links" => %{"in_use_case" => ["UC-Atlas-01"], "produced_by" => ["ada"]},
         "by" => "ada"
       })
     end

@@ -3535,6 +3535,56 @@ defmodule AtlasControl.Pages do
     Map.merge(form.defaults, values_for(kind(m, kind), Map.take(raw, form.ask)))
   end
 
+  @doc """
+  What a create of `kind` links to who puts the fact in (`form.producer`, IS-Atlas-70),
+  taken from who the client is (`viewer`: `%{by, by_kind, assists}`), never from the
+  form: `{:ok, links, on_behalf}`, where `on_behalf` is nil, or `{agent, whom}` when an
+  agent puts it in for whom it assists (its cause says so). The client itself when it is
+  a fact of the kind the relation leads to (the user at the TUI); whom it assists when it
+  is an agent. A client that is neither puts no such fact in (UC-Atlas-23: every one
+  records its producer), and neither does a form that names an association nobody sets
+  by hand (`set_by`), as the producer: both are refused, `{:refuse, reasons}`. A kind
+  whose create names no producer links nobody (`%{}`).
+  """
+  def put_in_by(m, kind, raw, viewer) do
+    k = kind(m, kind)
+    producer = (m.module.form(kind, :create) || %{})[:producer]
+
+    named =
+      for %{name: name, set_by: set_by} <- (k && k.relations) || [],
+          set_by != nil,
+          Map.has_key?(raw, name),
+          do:
+            if(name == producer,
+              do: "#{name} is not set in a form: it is who puts it in, taken from who you are",
+              else: "#{name} is set by a #{Enum.join(set_by, " or ")}, never in a form"
+            )
+
+    rel = producer && m.relations[producer]
+
+    cond do
+      named != [] ->
+        {:refuse, named}
+
+      rel == nil ->
+        {:ok, %{}, nil}
+
+      is_binary(viewer[:assists]) and viewer[:assists] != "" ->
+        {:ok, %{producer => [viewer.assists]}, {viewer.by, viewer.assists}}
+
+      is_binary(viewer[:by_kind]) and viewer.by_kind in rel.to ->
+        {:ok, %{producer => [viewer.by]}, nil}
+
+      true ->
+        to = Enum.join(rel.to, " or ")
+
+        {:refuse,
+         [
+           "#{viewer[:by] || "You"} is no #{to} and assists nobody, so a new #{String.downcase((k && k.label) || kind)} would record no producer (#{producer}): create it as a #{to}, or as an agent that assists one"
+         ]}
+    end
+  end
+
   @doc "The kind as pages show it (`AtlasControl.Model.kinds/0`), or nil."
   def kind_view(m, kind), do: kind(m, kind) || nil
 

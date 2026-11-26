@@ -96,7 +96,7 @@ defmodule Model.DeciderTest do
 
   # The model names the role, never the person (slice 7): each environment's settings say
   # who the decider is, and Flow writes that one as the owner.
-  test "a person's decision, and accepting a scene, go to the configured decider" do
+  test "a person's decision, and accepting a scene with no producer, go to the configured decider" do
     assert Model.AtlasEyra.actors() == [decider: "person"]
     # Whoever this environment's settings name; the model never does.
     configured = %{"decider" => "someone-configured"}
@@ -108,7 +108,8 @@ defmodule Model.DeciderTest do
       assert AtlasFlow.Model.owner(decide(env).owner(state)["default"], actors) == decider
     end
 
-    # The scene's producer accepts it: the same person, until a scene records its producer.
+    # The scene's producer accepts it (who put it in, IS-Atlas-70; Model.SceneProducerTest):
+    # a scene that records none, as here (no run, no producer), goes to the decider.
     for env <- [:prod, :test] do
       accept = Enum.find(Model.AtlasEyra.subflows(env), &(&1.name() == "accept_scene"))
       assert AtlasFlow.Model.owner(accept.owner("to_accept")["default"], actors) == decider

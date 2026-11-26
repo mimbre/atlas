@@ -1226,13 +1226,31 @@ defmodule AtlasControl.Session do
 
   # A new fact gets the next free key of its kind; nobody types one. When two clients make
   # the same key at once, Facts refuses the second ("exists"), and it tries the next number.
+  # Who puts it in is linked in the same write when its kind says so (`create.producer`,
+  # IS-Atlas-70): the client, or whom the agent assists, never what the form says; a form
+  # that names it is refused before anything is sent.
   defp create(route, kind, raw, links, state) do
     k = Pages.kind_view(state.model, kind)
 
-    if k && k.id.from,
-      do: create_made(route, kind, raw, links, state),
-      else: create_numbered(route, kind, k, raw, links, state)
+    case Pages.put_in_by(state.model, kind, raw, viewer(state)) do
+      {:refuse, reasons} ->
+        not_sent(%{state | route: route, form: %{values: raw}}, route, reasons)
+
+      {:ok, put_in, on_behalf} ->
+        links = Map.merge(links, put_in)
+        state = %{state | cause: put_in_cause(state.cause, on_behalf)}
+
+        if k && k.id.from,
+          do: create_made(route, kind, raw, links, state),
+          else: create_numbered(route, kind, k, raw, links, state)
+    end
   end
+
+  # An agent that puts a fact in for whom it assists says so, as an answer on their
+  # behalf does (`AtlasControl.Answers`): the write stays the agent's.
+  defp put_in_cause(cause, nil), do: cause
+  defp put_in_cause(nil, {by, who}), do: "Put in by #{by} on behalf of #{who}"
+  defp put_in_cause(cause, {by, who}), do: "#{cause} (#{by} on behalf of #{who})"
 
   # An id made from a field: the same value is the same fact, so a taken key is never
   # retried with another number. When the key cannot be made, nothing goes to Facts.
