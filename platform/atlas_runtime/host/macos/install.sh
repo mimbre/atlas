@@ -75,6 +75,25 @@ done
 [[ -z ${ATLAS_RUNTIME_HOME:-} || ${ATLAS_RUNTIME_HOME:A} == ${HOME_DIR:A} ]] ||
   echo "install: warning: shell ATLAS_RUNTIME_HOME=$ATLAS_RUNTIME_HOME differs from runtime_home $HOME_DIR" >&2
 
+# What an agent's bin/check needs and cannot install in its sandbox, which has no network: ripgrep,
+# the Python packages of the Rela scripts and the pinned rela in ~/.cache/atlas (the worker
+# sandbox reads it). Installed here when missing, on the path the Runtime gives its workers.
+REPO=${SRC:h:h:h:h}
+toolchain() {
+  if [[ -n $DRY ]]; then echo "would $1"; else echo "$1"; eval "$2" || die "could not $1"; fi
+}
+PATH=$PATH_FOR_RUNTIME whence -p rg >/dev/null ||
+  toolchain "install ripgrep" "PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH brew install -q ripgrep"
+[[ -n $DRY ]] || PATH=$PATH_FOR_RUNTIME whence -p rg >/dev/null || die "rg is not on machine.json's path"
+REQUIREMENTS=$REPO/platform/atlas_facts/rela/scripts/requirements.txt
+PATH=$PATH_FOR_RUNTIME python3 -m pip install --dry-run --no-index --no-cache-dir --disable-pip-version-check \
+  --break-system-packages -q -r $REQUIREMENTS >/dev/null 2>&1 ||
+  toolchain "install the Python packages of $REQUIREMENTS" \
+    "PATH=\$PATH_FOR_RUNTIME python3 -m pip install -q --disable-pip-version-check --break-system-packages -r \$REQUIREMENTS"
+START_TEST=$REPO/platform/atlas_facts/rela/scripts/start-test.sh
+RELA=$HOME/.cache/atlas/rela-$(sed -n 's/^version=//p' $START_TEST)
+[[ -x $RELA/rela ]] || toolchain "install the pinned rela into $RELA" "ATLAS_RELA_BIN=\$RELA \$START_TEST install"
+
 T=$(mktemp -d "${TMPDIR:-/tmp}/atlas-install.XXXXXX"); trap 'rm -rf $T' EXIT
 typeset -A CHANGED
 # place FILE DEST MODE [LABEL]: installs FILE as DEST unless identical; marks LABEL changed.
