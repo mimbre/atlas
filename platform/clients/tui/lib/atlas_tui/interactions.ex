@@ -239,6 +239,8 @@ defmodule AtlasTui.Interactions do
     end
   end
 
+  defp panel_key(_model, _key), do: nil
+
   # A page with a to-do's steps: c copies the current step's first command, C the one
   # after the one copied last, y all of them; the TUI says so.
   defp copy_key(model, {:char, char}) when char in ["c", "C", "y"] do
@@ -249,8 +251,6 @@ defmodule AtlasTui.Interactions do
       _ -> nil
     end
   end
-
-  defp panel_key(_model, _key), do: nil
 
   defp copy_key(_model, _key), do: nil
 
