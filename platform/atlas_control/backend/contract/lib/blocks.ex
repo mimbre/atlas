@@ -47,7 +47,7 @@ defmodule AtlasBFFContract.Blocks do
       # order and the one they are at (`current`, from 1). A client shows the steps before
       # `current` as done, that one open with its commands, which it may copy, and the later
       # ones closed. `actions` move the current step (`submit_to` sets it) and answer the
-      # to-do, each on its key; a step's own `submit_to` makes it the current one.
+      # to-do, each on its key.
       defblock :steps do
         field :title, :string, required: true
         field :key, :string

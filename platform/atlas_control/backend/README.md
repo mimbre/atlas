@@ -254,7 +254,7 @@ client) before advancing Control.
 
 0.28.0 is a bump of the same kind: the `panel` block (to accept, to merge, a decision on stuck work, with its `clause`, `panel_item`, `check`, `box` and `panel_answer`). Control on 0.28.0 refuses older clients at hello; release the TUI and the Mac app with it.
 
-0.29.0 is a bump of the same kind: the `key` of a `panel`, `steps` and `single_choice` block (the fact it is about, shown beside its title where the client shows the panel in place of the page's title) and an `instruction_step`'s `submit_to` (that step made the current one). Control on 0.29.0 refuses older clients at hello; release the TUI and the Mac app with it.
+0.29.0 is a bump of the same kind: the `key` of a `panel`, `steps` and `single_choice` block (the fact it is about, shown beside its title where the client shows the panel in place of the page's title). Control on 0.29.0 refuses older clients at hello; release the TUI and the Mac app with it.
 
 
 ### Worker Control contract

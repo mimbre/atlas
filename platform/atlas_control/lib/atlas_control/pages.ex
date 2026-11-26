@@ -3354,13 +3354,7 @@ defmodule AtlasControl.Pages do
       steps:
         for(
           s <- steps,
-          do:
-            Blocks.instruction_step(
-              n: s.n,
-              text: s.text,
-              commands: s.commands,
-              submit_to: call_to({:step, kind, key, s.n})
-            )
+          do: Blocks.instruction_step(n: s.n, text: s.text, commands: s.commands)
         ),
       current: current,
       actions: moves ++ page_actions(page)

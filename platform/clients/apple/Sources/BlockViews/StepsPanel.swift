@@ -5,9 +5,8 @@ import AppKit
 #endif
 
 /// A `steps` block as it is worked through: where each step stands (done, the current
-/// one, later), the action a key or a click on a step takes, the buttons under it, and
-/// what Copy copies. Control moves the step (its actions keyed `Enter`, `Down` and `Up`,
-/// and each step's own `submit_to`); the app decides nothing about it.
+/// one, later), the buttons under it, and what Copy copies. Control moves the step (its
+/// actions keyed `Enter`, `Down` and `Up`); the app decides nothing about it.
 public struct StepsPanel: Sendable, Equatable {
     public enum Place: Sendable, Equatable {
         case done
@@ -33,33 +32,9 @@ public struct StepsPanel: Sendable, Equatable {
         current == nil ? "all \(count) step\(count == 1 ? "" : "s") done" : "step \(block.current) of \(count)"
     }
 
-    /// The action `key` takes, as Control declares it; nil when there is none (no next
-    /// step after the last, no previous before the first).
-    public func action(_ key: PanelKey) -> ActionModel? {
-        let name = switch key {
-        case .enter: "Enter"
-        case .up: "Up"
-        case .down: "Down"
-        }
-        return block.actions?.first { $0.key == name && $0.submitTo != nil }
-    }
-
-    /// A key the panel takes (`PanelKeys`): the action Control declares for it. Each moves
-    /// the step, so a key held down (`isRepeat`) moves it once, not on every repeat.
-    public func press(_ key: PanelKey, isRepeat: Bool) -> ActionModel? {
-        isRepeat ? nil : action(key)
-    }
-
-    /// A click on a step: the action that makes it the current one (its own `submit_to`);
-    /// nil for the current step, or one Control gives no call.
-    public func select(_ step: InstructionStepModel) -> ActionModel? {
-        guard place(step) != .current, let call = step.submitTo else { return nil }
-        return ActionModel(label: "Step \(step.n)", key: "", to: "", submitTo: call)
-    }
-
-    /// The buttons at the panel's bottom: this step done (Return), then the page's
-    /// answers and other actions (`page`, in Control's order), and those the page has
-    /// besides (`others`, More…). The arrows' moves are keys and clicks on the steps.
+    /// The buttons at the panel's bottom: this step done, then the page's answers and
+    /// other actions (`page`, in Control's order), and those the page has besides
+    /// (`others`, More…). The moves between steps are no buttons.
     public func buttons(others: [ActionModel] = []) -> [ActionModel] {
         let actions = block.actions ?? []
         let done = actions.filter { $0.key == "Enter" }

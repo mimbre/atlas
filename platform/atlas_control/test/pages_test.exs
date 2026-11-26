@@ -2085,9 +2085,6 @@ defmodule AtlasControl.PagesTest do
     assert done["submit_to"] == step.(3)
     assert previous["submit_to"] == step.(1)
 
-    # A click on a step makes it the current one, through the same submit.
-    assert Enum.map(steps["steps"], & &1["submit_to"]) == [step.(1), step.(2), step.(3)]
-
     # Then the item's details, in a part of their own: not the notes or the step in it,
     # and no key to fold them.
     assert %{"kind" => "part", "end" => "item", "props" => props} =

@@ -60,19 +60,10 @@ final class StepsTests: XCTestCase {
         XCTAssertEqual(panel.whyLine(now: now), "Why: the old key leaked. · 2d ago")
     }
 
-    func testReturnMarksTheStepDoneTheArrowsMoveItEachSettingTheStep() throws {
-        let panel = try panel(page())
-
-        XCTAssertEqual(panel.action(.enter)?.submitTo, call(3))
-        XCTAssertEqual(panel.action(.down)?.submitTo, call(3))
-        XCTAssertEqual(panel.action(.up)?.submitTo, call(1))
-
-        // Past the last step every step is done and nothing moves forward.
+    func testPastTheLastStepEveryStepIsDone() throws {
         let done = try self.panel(page(current: 4, actions: [Self.action("Previous step", "Up", 3)]))
         XCTAssertNil(done.current)
         XCTAssertEqual(done.progress, "all 3 steps done")
-        XCTAssertNil(done.action(.enter))
-        XCTAssertEqual(done.action(.up)?.submitTo, call(3))
     }
 
     func testTheButtonsAreThisStepDoneThenThePagesAnswersAndTheArrowsAreKeysOnly() throws {
@@ -85,24 +76,7 @@ final class StepsTests: XCTestCase {
         XCTAssertEqual(panel.buttons(others: PageActions.ofPage(page) + [more]).map(\.key), ["Enter", "x", "."])
     }
 
-    func testClickingStepThreeSendsTheStepActionForThree() throws {
-        let line = Self.line(current: 1, actions: [Self.action("Step 1 done", "Enter", 2)])
-            .replacingOccurrences(of: #""n":3,"text""#, with: #""n":3,"submit_to":\#(Self.step(3)),"text""#)
-        let message = try WireLine.decode(ControlMessage.self, from: Data(line.utf8))
-        guard case .pageOpen(let page) = message else { return XCTFail("not a page") }
-        let panel = try panel(page)
-
-        XCTAssertEqual(panel.select(panel.block.steps[2])?.submitTo, call(3))
-        // The current step is not moved to; a step Control gives no call takes no click.
-        XCTAssertNil(panel.select(panel.block.steps[0]))
-        XCTAssertNil(panel.select(panel.block.steps[1]))
-    }
-
-    func testAKeyHeldDownMovesTheStepOnceAndTheArrowsComeFromTheirKeyCodes() throws {
-        let panel = try panel(page())
-        XCTAssertEqual(panel.press(.down, isRepeat: false)?.submitTo, call(3))
-        XCTAssertNil(panel.press(.down, isRepeat: true))
-        XCTAssertNil(panel.press(.enter, isRepeat: true))
+    func testThePanelKeysComeFromTheirKeyCodes() {
         XCTAssertEqual(PanelKey(keyCode: 126), .up)
         XCTAssertEqual(PanelKey(keyCode: 125), .down)
         XCTAssertEqual(PanelKey(keyCode: 36), .enter)

@@ -55,8 +55,7 @@ defmodule AtlasBFFContract.Contract do
   # a decision on stuck work): a heading and title, a byline, the items or checks or box
   # it is judged on, and its answers (a choice when `choose`).
   # 0.29.0: a panel, steps or single choice names the fact it is about (`key`), so a client
-  # that shows the panel in place of the page's title still shows it; each step of a
-  # `steps` block may be made the current one on its own (`submit_to`).
+  # that shows the panel in place of the page's title still shows it.
   version "0.29.0"
 
   use AtlasBFFContract.Blocks

@@ -1,2 +1,2 @@
 #!/bin/sh
-cat > '/Users/melle/projects/eyra/atlas-threecolumns/platform/clients/tui/tmp/AtlasTui.StepsPanelTest/test-pbcopy-is-handed-the-text-60223d02/out'
+cat > '/Users/melle/projects/eyra/atlas-panel-polish/platform/clients/tui/tmp/AtlasTui.StepsPanelTest/test-pbcopy-is-handed-the-text-60223d02/out'
