@@ -12,8 +12,10 @@ defmodule AtlasTui.ConsoleTransportTest do
     JSON.decode!(line)
   end
 
+  # `server` is the tmux socket's path, in the temp folder: an agent's sandbox may not write
+  # tmux's default socket folder (/tmp/tmux-<uid>).
   defp tmux(server, args) do
-    {output, 0} = System.cmd("tmux", ["-L", server | args], stderr_to_stdout: true)
+    {output, 0} = System.cmd("tmux", ["-S", server | args], stderr_to_stdout: true)
     output
   end
 
@@ -186,11 +188,11 @@ defmodule AtlasTui.ConsoleTransportTest do
       ])
 
     {:ok, {_, port}} = :inet.sockname(listener)
-    server = "atlas-console-#{System.unique_integer([:positive])}"
+    server = Path.join(System.tmp_dir!(), "atlas-console-#{System.unique_integer([:positive])}")
 
     on_exit(fn ->
       :gen_tcp.close(listener)
-      System.cmd("tmux", ["-L", server, "kill-server"], stderr_to_stdout: true)
+      System.cmd("tmux", ["-S", server, "kill-server"], stderr_to_stdout: true)
     end)
 
     settings = %{"control" => %{"host" => "127.0.0.1", "port" => port}, "reconcile_seconds" => 60}
@@ -263,11 +265,11 @@ defmodule AtlasTui.ConsoleTransportTest do
       :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
 
     {:ok, {_, port}} = :inet.sockname(listener)
-    server = "atlas-tabs-#{System.unique_integer([:positive])}"
+    server = Path.join(System.tmp_dir!(), "atlas-tabs-#{System.unique_integer([:positive])}")
 
     on_exit(fn ->
       :gen_tcp.close(listener)
-      System.cmd("tmux", ["-L", server, "kill-server"], stderr_to_stdout: true)
+      System.cmd("tmux", ["-S", server, "kill-server"], stderr_to_stdout: true)
     end)
 
     settings = %{"control" => %{"host" => "127.0.0.1", "port" => port}, "reconcile_seconds" => 60}

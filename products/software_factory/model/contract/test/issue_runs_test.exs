@@ -1068,6 +1068,8 @@ defmodule Model.IssueRunsTest do
           "reason" => "no_changes",
           "details" => %{"base" => "develop"}
         })
+
+        send(test, :answered)
     end
 
     refuse(test)
@@ -1249,12 +1251,14 @@ defmodule Model.IssueRunsTest do
           )
         )
 
+        # In Flow's effect inbox: the Bus handed it over before `send/2` returned.
+        send(test, :answered)
         answer(test, if(refuse?, do: refused - 1, else: refused))
     end
   end
 
   # Reconciles until the run holds a task's intent, and returns it; between tries it waits
-  # for Flow's next reconcile request, as Code's answers and Facts' writes arrive.
+  # for Flow's next reconcile request or Code's next answer.
   defp intent(c, rounds \\ 50) do
     run = reconcile(c)
 
@@ -1276,10 +1280,13 @@ defmodule Model.IssueRunsTest do
     end
   end
 
+  # A reconcile request (Delivery's cast, Bases' notify), or Code's answer to an effect: Flow
+  # asks for no reconcile on an answer (its Engine's round takes it), the test does.
   defp next_reconcile do
     receive do
       {:reconcile, "issue", @key} -> true
       {:"$gen_cast", {:reconcile, "issue", @key}} -> true
+      :answered -> true
     after
       30_000 -> flunk("no reconcile of #{@key}")
     end

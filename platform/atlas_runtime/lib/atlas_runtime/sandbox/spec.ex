@@ -58,9 +58,9 @@ defmodule AtlasRuntime.Sandbox.Spec do
   ]
 
   # The toolchain locations a folder worker may read in its denied user home: asdf and
-  # .tool-versions, Mix archives, the Hex cache and the Go module cache (homeReadNames,
-  # codex.go:290).
-  @home_read_names [".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod"]
+  # .tool-versions, Mix archives, the Hex cache, the Go module cache and the tools folder
+  # ~/.cache/atlas, the pinned tools a repository's checks need (homeReadNames, codex.go:290).
+  @home_read_names [".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod", ".cache/atlas"]
 
   # A preparation also denies ~/.npmrc (setupArguments, codex.go:460).
   @setup_names [".npmrc"]
@@ -891,8 +891,9 @@ defmodule AtlasRuntime.Sandbox.Spec do
     end
   end
 
-  # claudeTemporaryRoots (claude.go:455-481): root outside every system temp root, and the
-  # private temp within Claude's child-temp limit.
+  # claudeTemporaryRoots (claude.go): root outside every system temp root, and the private temp
+  # within Claude's child-temp limit. The roots keep a fixed order (TMPDIR, /tmp, /var/tmp,
+  # duplicates dropped) that does not depend on where they resolve.
   defp claude_temporary_roots(root, temporary, subject, facts) do
     system =
       case facts["system_temp"] do
@@ -900,10 +901,7 @@ defmodule AtlasRuntime.Sandbox.Spec do
         fact -> resolution!(fact)
       end
 
-    roots =
-      [resolved!(facts, "/tmp"), resolved!(facts, "/var/tmp"), system]
-      |> Enum.uniq()
-      |> Enum.sort()
+    roots = Enum.uniq([system, resolved!(facts, "/tmp"), resolved!(facts, "/var/tmp")])
 
     for path <- roots,
         root == path or String.starts_with?(root, String.replace_suffix(path, "/", "") <> "/"),

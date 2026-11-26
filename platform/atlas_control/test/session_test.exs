@@ -2443,7 +2443,8 @@ defmodule AtlasControl.SessionTest do
     test "the page for / is the same as without a greeting" do
       greeted = home(hello_as(greeted_shop(Shop.ShelledGreeted), "tui"))
       plain = home(hello_as(greeted_shop(Shop.ShelledAssigned), "tui"))
-      assert greeted == plain
+      # "at" is the clock time each page was built: the two may fall in different seconds.
+      assert Map.delete(greeted, "at") == Map.delete(plain, "at")
       assert Enum.any?(greeted["blocks"], &(&1["id"] == "list"))
       refute JSON.encode!(greeted) =~ "Hello"
     end

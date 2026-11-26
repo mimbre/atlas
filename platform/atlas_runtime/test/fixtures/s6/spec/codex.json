@@ -2957,7 +2957,7 @@
             "-c",
             "default_permissions=\"atlas_folder\"",
             "-c",
-            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
+            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.cache/atlas\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -3030,6 +3030,10 @@
               ],
               [
                 "{user}/go/pkg/mod",
+                "read"
+              ],
+              [
+                "{user}/.cache/atlas",
                 "read"
               ],
               [
@@ -3268,7 +3272,7 @@
             "-c",
             "default_permissions=\"atlas_read_only_folder\"",
             "-c",
-            "permissions={atlas_read_only_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"read\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
+            "permissions={atlas_read_only_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"read\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.cache/atlas\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -3341,6 +3345,10 @@
               ],
               [
                 "{user}/go/pkg/mod",
+                "read"
+              ],
+              [
+                "{user}/.cache/atlas",
                 "read"
               ],
               [
@@ -3591,7 +3599,7 @@
             "-c",
             "default_permissions=\"atlas_folder\"",
             "-c",
-            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{home}/rebinds/{sha256:{tmp}/dest}/done\"=\"read\",\"{home}/preparations/{sha256:{tmp}/dest}/result.json\"=\"read\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
+            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{home}/rebinds/{sha256:{tmp}/dest}/done\"=\"read\",\"{home}/preparations/{sha256:{tmp}/dest}/result.json\"=\"read\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.cache/atlas\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -3672,6 +3680,10 @@
               ],
               [
                 "{user}/go/pkg/mod",
+                "read"
+              ],
+              [
+                "{user}/.cache/atlas",
                 "read"
               ],
               [
@@ -3910,7 +3922,7 @@
             "-c",
             "default_permissions=\"atlas_folder\"",
             "-c",
-            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
+            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.cache/atlas\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -3983,6 +3995,10 @@
               ],
               [
                 "{user}/go/pkg/mod",
+                "read"
+              ],
+              [
+                "{user}/.cache/atlas",
                 "read"
               ],
               [
@@ -4233,7 +4249,7 @@
             "-c",
             "default_permissions=\"atlas_folder\"",
             "-c",
-            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/code-home/runtime.token\"=\"none\",\"{user}/code-home\"=\"none\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
+            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.cache/atlas\"=\"read\",\"{user}/code-home/runtime.token\"=\"none\",\"{user}/code-home\"=\"none\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -4306,6 +4322,10 @@
               ],
               [
                 "{user}/go/pkg/mod",
+                "read"
+              ],
+              [
+                "{user}/.cache/atlas",
                 "read"
               ],
               [
@@ -4651,7 +4671,7 @@
             "-c",
             "default_permissions=\"atlas_folder\"",
             "-c",
-            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\",\"{user}/bin/atlas-runtime\"=\"read\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
+            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.cache/atlas\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\",\"{user}/bin/atlas-runtime\"=\"read\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -4724,6 +4744,10 @@
               ],
               [
                 "{user}/go/pkg/mod",
+                "read"
+              ],
+              [
+                "{user}/.cache/atlas",
                 "read"
               ],
               [
@@ -5130,6 +5154,10 @@
                 "read"
               ],
               [
+                "{user}/.cache/atlas",
+                "read"
+              ],
+              [
                 "{user}/.codex",
                 "none"
               ],
@@ -5371,7 +5399,7 @@
             "-c",
             "default_permissions=\"atlas_folder\"",
             "-c",
-            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{tmp}/dest/a/.git/config\"=\"read\",\"{tmp}/dest/a/.git/hooks\"=\"read\",\"{tmp}/dest/b/c/.git/config\"=\"read\",\"{tmp}/dest/b/c/.git/hooks\"=\"read\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
+            "permissions={atlas_folder={extends=\":read-only\",filesystem={\"{tmp}/dest\"=\"write\",\"{home}/scratch/t1\"=\"write\",\"{user}\"=\"none\",\"{home}\"=\"none\",\"{home}/runtime.sock\"=\"none\",\"{home}/backend.sock\"=\"none\",\"{home}/materializations/m1.json\"=\"read\",\"{home}/snapshots/s1/baseline.json\"=\"read\",\"{tmp}/dest/.git\"=\"none\",\"{tmp}/dest/a/.git/config\"=\"read\",\"{tmp}/dest/a/.git/hooks\"=\"read\",\"{tmp}/dest/b/c/.git/config\"=\"read\",\"{tmp}/dest/b/c/.git/hooks\"=\"read\",\"{user}/.asdf/shims\"=\"read\",\"{user}/missing/bin\"=\"read\",\"{user}/.asdf\"=\"read\",\"{user}/.tool-versions\"=\"read\",\"{user}/.hex\"=\"read\",\"{user}/go/pkg/mod\"=\"read\",\"{user}/.cache/atlas\"=\"read\",\"{user}/.codex\"=\"none\",\"{user}/.config/gh\"=\"none\",\"{user}/.ssh\"=\"none\",\"{user}/.aws\"=\"none\",\"{user}/.docker\"=\"none\",\"{user}/Library/Keychains\"=\"none\",\"{user}/.git-credentials\"=\"none\",\"{user}/.config/git\"=\"none\",\"{user}/.netrc\"=\"none\",\"{user}/.claude\"=\"none\",\"{user}/.claude.json\"=\"none\",\"{user}/.local/state/atlas-runtime\"=\"none\",\"{user}/.gitconfig\"=\"none\",\"{user}/.erlang.cookie\"=\"none\"},network={enabled=true,allow_local_binding=true,unix_sockets={\"{home}/scratch/t1\"=\"allow\"}}}}",
             "-c",
             "features.network_proxy=true",
             "-c",
@@ -5456,6 +5484,10 @@
               ],
               [
                 "{user}/go/pkg/mod",
+                "read"
+              ],
+              [
+                "{user}/.cache/atlas",
                 "read"
               ],
               [

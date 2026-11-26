@@ -66,7 +66,7 @@ func homePath(t *testing.T, user, home, dest string) []string {
 	t.Setenv("PATH", strings.Join([]string{filepath.Join(user, ".asdf", "shims"), filepath.Join(user, "linkbin"), "/usr/bin", user,
 		filepath.Join(home, "bin"), filepath.Join(dest, "bin"), filepath.Join(user, ".config"), "bin", filepath.Join(user, ".asdf", "shims")}, ":"))
 	readable := []string{filepath.Join(user, ".asdf", "shims"), filepath.Join(user, "tools", "bin"), filepath.Join(user, ".config")}
-	for _, name := range []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod"} {
+	for _, name := range []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod", ".cache/atlas"} {
 		readable = append(readable, filepath.Join(user, name))
 	}
 	return readable
@@ -393,13 +393,12 @@ func TestClaudeFolderSettingsAreTheEnforcementContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	var roots []string
-	for _, path := range []string{"/tmp", "/var/tmp", system} {
+	for _, path := range []string{system, "/tmp", "/var/tmp"} {
 		resolved, _ := resolvePath(path)
 		if !slices.Contains(roots, resolved) {
 			roots = append(roots, resolved)
 		}
 	}
-	slices.Sort(roots)
 	record, baseline := scope["record"].(string), scope["baseline"].(string)
 	protected := slices.Concat([]string{home}, socketPaths(home), []string{dest + "/.git", token, filepath.Dir(token), user + "/.claude"})
 	for _, name := range credentialPaths {

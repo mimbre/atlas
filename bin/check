@@ -1,22 +1,35 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# bin/check — CI's fast Linux checks, run locally before handing work over (seconds, not minutes).
+# bin/check — what CI's Linux jobs run, run here and offline before handing work over: green here
+# means green in CI.
 #
-#   bin/check              every Linux job of .github/workflows/ci.yml
+#   bin/check              every Linux job of .github/workflows/ci.yml, tests included
 #   bin/check beam tui     only those jobs (job ids from ci.yml)
+#   bin/check --fast ...   only the static steps (format, compile, lock check, greps): seconds
 #   bin/check --list       the job ids
 #   bin/check test-waits   only bin/check's own check below
 #
-# It reads the jobs from ci.yml, so it stays in step with CI. It runs each job's `run:` steps in
-# the job's working directory with the job's own env, but ONLY the fast static checks: format,
-# compile with warnings as errors, lock check and the boundary greps. Test suites (`mix test`,
-# `go test`, unittest, integration scripts) are left to CI, and so is generating the targets
-# (bin/generate, a generator task) that only tests read. Also skipped, because they only make
-# sense on a CI runner: `uses:` steps, steps that need a GitHub expression (`${{ … }}`) or an
-# env value that comes from one, installers (pip, hex/rebar, the pinned rela), and the macOS,
-# record and deploy jobs. A failing step fails its job; the other jobs still run. Exit 1 when
-# any job failed.
+# It reads the jobs from ci.yml, so it stays in step with CI: each job's `run:` steps, in the
+# job's working directory with the job's env, the tests too (`mix test --warnings-as-errors
+# --include integration`, `go test`, unittest, the integration scripts). The jobs run side by side
+# (ATLAS_CHECK_JOBS at a time, default 4); a failing step ends its job and the other jobs still run.
+# Each job's whole output is kept in a log file named in its report. Exit 1 when any job failed.
+#
+# Offline, like an agent's sandbox:
+# - Hex resolves from a local registry cache, never the registry (offline_hex below).
+# - The generated targets are written once, before the jobs, by one `bin/generate` with every
+#   name the selected jobs' steps generate; the jobs' own bin/generate steps are then skipped.
+#   bin/generate needs the pinned rela in the machine's tools folder, ~/.cache/atlas (checked first).
+# - An installer step (pip install, mix local.hex/local.rebar, start-test.sh install) installs
+#   nothing: a pip install checks, without the network, that its requirements are installed.
+#   Install what is missing outside the sandbox.
+# - The pinned toolchain (setup-beam's OTP and Elixir, setup-go's Go) is checked against this
+#   machine's before anything runs: a different major or minor version is a failure.
+# Skipped, because they only make sense on a CI runner: `uses:` steps, steps with an `id` (they
+# feed later steps' `${{ … }}`), steps that need a GitHub expression or an env value that comes
+# from one, and the macOS, record and deploy jobs. A step's `>> "$GITHUB_ENV"` is read back into
+# its job's env, as on a runner.
 #
 # One check is bin/check's own, not a ci.yml job: test-waits (bin/lib/test_waits.rb, with
 # its test and its allowlist test_waits.allow) fails when a test under platform/ or
@@ -32,10 +45,10 @@ root = File.expand_path('..', __dir__)
 workflow = YAML.load_file(File.join(root, '.github/workflows/ci.yml'))
 jobs = workflow.fetch('jobs')
 
-skip_jobs = ->(id, job) {
-  id == 'tested-tree' || id.start_with?('record-', 'deploy-') || job['runs-on'].to_s.include?('macos')
-}
-skip_run = /\$\{\{|pip install|local\.hex|local\.rebar|start-test\.sh install|mix test|go( -C \S+)? test|unittest|mix run /
+skip_jobs = ->(id, job) { id.start_with?('record-', 'deploy-') || job['runs-on'].to_s.include?('macos') }
+installer = /pip install|local\.hex|local\.rebar|start-test\.sh install/
+generate = %r{\A\s*bin/generate((?: +\w+)*)\s*\z}
+tests = /mix test|go( -C \S+)? test|unittest|mix run /
 fast = /mix format|mix compile|deps\.get --check-locked|grep /
 
 linux = jobs.reject { |id, job| skip_jobs.(id, job) }
@@ -53,6 +66,7 @@ if ARGV.include?('--list')
   exit 0
 end
 
+fast_only = !ARGV.delete('--fast').nil?
 selected = ARGV.empty? ? own.keys + linux.keys : ARGV
 unknown = selected - linux.keys - own.keys
 abort "bin/check: unknown job(s): #{unknown.join(', ')} (see bin/check --list)" unless unknown.empty?
@@ -64,92 +78,216 @@ abort "bin/check: unknown job(s): #{unknown.join(', ')} (see bin/check --list)" 
 # (AtlasCode.Dependencies, IS-Atlas-13), so a package the lockfile pins resolves on a machine
 # whose own cache never saw it. The copy is that registry, with the entries only the machine's
 # cache has added (for a lockfile the work changed); either alone when the other is missing.
-hex_home = nil
-at_exit { FileUtils.rm_rf(hex_home) if hex_home }
-offline_hex = lambda do
-  hex_home ||= Dir.mktmpdir('hex').tap do |dir|
-    target = File.join(dir, 'cache.ets')
-    machine = File.join(ENV['HEX_HOME'] || File.join(Dir.home, '.hex'), 'cache.ets')
-    shipped = File.join(root, '.atlas/hex/cache.ets')
-    caches = [shipped, machine].select { |cache| File.exist?(cache) }
-    if caches.size == 2
-      merge = '[S, M, T] = init:get_plain_arguments(), {ok, A} = ets:file2tab(S), ' \
-              '{ok, B} = ets:file2tab(M), ets:foldl(fun(O, _) -> ets:insert_new(A, O) end, ok, B), ' \
-              'ok = ets:tab2file(A, T), halt().'
-      _, status = Open3.capture2e('erl', '-noshell', '-eval', merge, '-extra', *caches, target)
-      FileUtils.cp(shipped, target) unless status.success?
-    elsif caches.size == 1
-      FileUtils.cp(caches.first, target)
+work = Dir.mktmpdir('atlas-check')
+hex_home = File.join(work, 'hex')
+FileUtils.mkdir_p(hex_home)
+target = File.join(hex_home, 'cache.ets')
+machine = File.join(ENV['HEX_HOME'] || File.join(Dir.home, '.hex'), 'cache.ets')
+shipped = File.join(root, '.atlas/hex/cache.ets')
+caches = [shipped, machine].select { |cache| File.exist?(cache) }
+if caches.size == 2
+  merge = '[S, M, T] = init:get_plain_arguments(), {ok, A} = ets:file2tab(S), ' \
+          '{ok, B} = ets:file2tab(M), ets:foldl(fun(O, _) -> ets:insert_new(A, O) end, ok, B), ' \
+          'ok = ets:tab2file(A, T), halt().'
+  _, status = Open3.capture2e('erl', '-noshell', '-eval', merge, '-extra', *caches, target)
+  FileUtils.cp(shipped, target) unless status.success?
+elsif caches.size == 1
+  FileUtils.cp(caches.first, target)
+end
+# The machine's package cache too, read-only, so a checkout whose dependencies are not fetched yet
+# (not a base Code prepared) fetches them offline from it.
+packages = File.join(ENV['HEX_HOME'] || File.join(Dir.home, '.hex'), 'packages')
+File.symlink(packages, File.join(hex_home, 'packages')) if File.directory?(packages)
+# MIX_ENV is the job's; HEX_HOME and HEX_OFFLINE hold for every step.
+offline = { 'HEX_OFFLINE' => '1', 'HEX_HOME' => hex_home }
+
+# The lines of a failing step's output worth reading first: each ExUnit, Go or unittest failure
+# and each compiler warning or error, with the lines under it, then the output's last lines.
+failures = lambda do |out|
+  lines = out.lines.map(&:rstrip)
+  picked = []
+  lines.each_with_index do |line, i|
+    next unless line.match?(/\A\s+\d+\) test |\A--- FAIL|\A(FAIL|ERROR): |::error::|\A\*\* \(Mix\)|(\A|\s)(warning|error): |\A\S+\.go:\d+:\d+: /)
+
+    block = [line]
+    lines[(i + 1)..(i + 30)].to_a.each do |more|
+      break if more.match?(/\A\S/) || more.match?(/\A\s+\d+\) test /)
+
+      block << more
     end
+    picked.concat(block)
   end
-  { 'HEX_OFFLINE' => '1', 'HEX_HOME' => hex_home }
+  (picked.uniq.first(150) + ['', '(last lines)'] + lines.last(15)).map { |l| "      #{l}" }.join("\n")
 end
 
-failed = []
-selected.each do |id|
-  if (check = own[id])
-    started = Time.now
-    puts "== #{id} (#{check['name']})"
-    ok = check['run'].all? do |run|
-      print "   run   #{run} … "
-      out, status = Open3.capture2e('bash', '-eo', 'pipefail', '-c', run, chdir: root)
-      puts(status.success? ? 'ok' : 'FAILED')
-      puts out.lines.last(40).map { |l| "      #{l}" }.join unless status.success?
-      status.success?
-    end
-    puts "   #{ok ? 'PASS' : 'FAIL'} #{id} in #{(Time.now - started).round}s"
-    failed << id unless ok
-    next
-  end
+# Runs one command for a job; answers [ok, output].
+run = lambda do |env, command, dir|
+  Open3.capture2e(env, 'bash', '-eo', 'pipefail', '-c', command, chdir: dir).then { |out, st| [st.success?, out] }
+end
 
-  job = linux.fetch(id)
-  started = Time.now
+# A job's steps as [label, command, dir, env, skip-reason]; the env read back from $GITHUB_ENV is
+# added when the step runs.
+steps_of = lambda do |job|
   env = {}
   dropped = []
-  (job['env'] || {}).each do |k, v|
-    v.to_s.include?('${{') ? dropped << k : env[k] = v.to_s
-  end
+  (job['env'] || {}).each { |k, v| v.to_s.include?('${{') ? dropped << k : env[k] = v.to_s }
   default_dir = job.dig('defaults', 'run', 'working-directory') || '.'
-  puts "== #{id} (#{job['name']})"
-  ok = true
-  (job['steps'] || []).each do |step|
-    run = step['run'] or next
+  (job['steps'] || []).map do |step|
+    command = step['run'] or next
     step_env = env.dup
     step_dropped = dropped.dup
-    (step['env'] || {}).each do |k, v|
-      v.to_s.include?('${{') ? step_dropped << k : step_env[k] = v.to_s
-    end
-    label = step['name'] || run.lines.first.strip
-    original = run
-    # A multi-line step that mixes fast checks with tests: keep only its plain fast commands.
-    if run.lines.size > 1 && run.match?(skip_run) && !run.include?('${{')
-      run = run.lines.map(&:strip).grep(/\Amix (format|compile|deps\.get --check-locked)/).join("\n")
-      run = nil if run.empty?
-    end
-    if run.nil? || run.match?(skip_run) || !run.match?(fast) || step_dropped.any? { |k| run.match?(/\$\{?#{k}\b/) }
-      puts "   skip  #{label[0, 90]}"
-      next
-    end
+    (step['env'] || {}).each { |k, v| v.to_s.include?('${{') ? step_dropped << k : step_env[k] = v.to_s }
+    label = (step['name'] || command.lines.first.strip)[0, 90]
     dir = File.join(root, step['working-directory'] || default_dir)
-    print "   run   #{label[0, 90]} … "
-    step_env = step_env.merge(offline_hex.()) if run.include?('deps.get')
-    out, status = Open3.capture2e(step_env, 'bash', '-eo', 'pipefail', '-c', run, chdir: dir)
-    if status.success?
-      puts 'ok'
-    else
-      puts 'FAILED'
-      puts out.lines.last(40).map { |l| "      #{l}" }.join
+    why =
+      if step['id'] || command.include?('${{') || step_dropped.any? { |k| command.match?(/\$\{?#{k}\b/) }
+        'GitHub only'
+      elsif fast_only && (command.match?(tests) || command.match?(installer) || !command.match?(fast))
+        '--fast'
+      elsif command.match?(generate)
+        'generated before the jobs'
+      elsif command.match?(installer) && !command.include?('pip install')
+        'installs nothing offline'
+      end
+    if command.include?('pip install') && !why
+      command = command.sub(/pip install/, 'pip install --dry-run --no-index --no-cache-dir ' \
+                                           '--disable-pip-version-check --break-system-packages')
+      label = "#{label} (installed already?)"
+    end
+    [label, command, dir, step_env, why]
+  end.compact
+end
+
+jobs_selected = selected.reject { |id| own.key?(id) }
+failed = []
+puts "bin/check: logs in #{work}"
+
+unless fast_only
+  # The pinned toolchain: setup-beam's and setup-go's versions, by major and minor.
+  wanted = jobs_selected.flat_map { |id| linux[id]['steps'] || [] }
+  pins = {
+    'OTP' => [wanted.map { |s| s.dig('with', 'otp-version') }, "erl -noshell -eval 'io:format(\"~s\", [erlang:system_info(otp_release)]), halt().'"],
+    'Elixir' => [wanted.map { |s| s.dig('with', 'elixir-version') }, "elixir -e 'IO.write(System.version())'"],
+    'Go' => [wanted.map { |s| s.dig('with', 'go-version') }, "go env GOVERSION | sed 's/^go//'"]
+  }
+  pins.each do |tool, (versions, probe)|
+    versions.compact.uniq.each do |pin|
+      ok, have = run.({}, "(#{probe}) 2>/dev/null", root)
+      have = have.strip
+      next if ok && (have == pin.to_s || have.start_with?("#{pin}."))
+
+      puts "== toolchain: CI pins #{tool} #{pin}; here #{ok ? have : "none (#{have.lines.last.to_s.strip})"}"
+      failed << "toolchain #{tool}"
+    end
+  end
+  if jobs_selected.any? { |id| linux[id]['steps'].to_a.any? { |s| s['run'].to_s.include?('read.sock') } } &&
+     !run.({}, 'command -v rg', root)[0]
+    puts '== toolchain: ripgrep (rg) is not installed (CI step "Nothing names the removed read.sock")'
+    failed << 'toolchain rg'
+  end
+
+  # The generated targets, once, for every selected job.
+  names = jobs_selected.flat_map do |id|
+    steps_of.(linux[id]).flat_map { |_, command, _, _, why| why == 'generated before the jobs' ? command[generate, 1].split : [] }
+  end.uniq
+  if names.include?('model')
+    version = File.read(File.join(root, 'platform/atlas_facts/rela/scripts/start-test.sh'))[/^version=(\S+)/, 1]
+    places = [ENV['XDG_CACHE_HOME'], File.join(Dir.home, '.cache')].compact.map { |c| File.join(c, 'atlas', "rela-#{version}") }
+    unless places.any? { |place| File.executable?(File.join(place, 'rela')) }
+      puts "== toolchain: the pinned rela #{version} is not installed (looked in #{places.join(', ')}). Install it with " \
+           'network, outside the sandbox: bin/generate model'
+      failed << 'toolchain rela'
+      names.clear
+    end
+  end
+  unless names.empty? && failed.empty?
+    started = Time.now
+    if failed.empty?
+      print "== generate (bin/generate #{names.join(' ')}) … "
+      ok, out = run.(offline, "bin/generate #{names.join(' ')}", root)
+      File.write(File.join(work, 'generate.log'), out)
+      puts "#{ok ? 'ok' : 'FAILED'} in #{(Time.now - started).round}s"
+      unless ok
+        puts failures.(out)
+        failed << 'generate'
+      end
+    end
+  end
+  unless failed.empty?
+    puts "bin/check: FAILED before the jobs: #{failed.join(', ')}"
+    exit 1
+  end
+end
+
+# One job: answers its report and whether it passed. Its variables are its own (after `;`): the
+# jobs run in threads, and a name assigned above would be shared between them.
+check_job = lambda do |id; started, log, report, ok, check, passed, out, github_env, learned, step_started|
+  started = Time.now
+  log = File.join(work, "#{id}.log")
+  report = []
+  ok = true
+  if (check = own[id])
+    report << "== #{id} (#{check['name']})"
+    check['run'].each do |command|
+      passed, out = run.({}, command, root)
+      File.write(log, out, mode: 'a')
+      report << "   run   #{command} … #{passed ? 'ok' : 'FAILED'}"
+      next if passed
+
+      report << failures.(out)
+      ok = false
+      break
+    end
+  else
+    report << "== #{id} (#{linux[id]['name']})"
+    github_env = File.join(work, "#{id}.github_env")
+    learned = {}
+    steps_of.(linux[id]).each do |label, command, dir, env, why|
+      if why
+        report << "   skip  #{label} (#{why})"
+        next
+      end
+      step_started = Time.now
+      FileUtils.rm_f(github_env)
+      env = env.merge(learned).merge(offline).merge('GITHUB_ENV' => github_env,
+                                                     'GITHUB_OUTPUT' => File::NULL, 'GITHUB_STEP_SUMMARY' => File::NULL)
+      passed, out = run.(env, command, dir)
+      File.write(log, "== #{label}\n#{out}\n", mode: 'a')
+      File.readlines(github_env).each { |l; k, v| k, v = l.chomp.split('=', 2); learned[k] = v if v } if File.exist?(github_env)
+      report << "   run   #{label} … #{passed ? 'ok' : 'FAILED'} in #{(Time.now - step_started).round}s"
+      next if passed
+
+      report << failures.(out)
       ok = false
       break
     end
   end
-  puts "   #{ok ? 'PASS' : 'FAIL'} #{id} in #{(Time.now - started).round}s"
-  failed << id unless ok
+  report << "   #{ok ? 'PASS' : 'FAIL'} #{id} in #{(Time.now - started).round}s (log: #{log})"
+  [report.join("\n"), ok]
 end
 
+# The own checks first, then the jobs side by side, the longest (most steps) first.
+queue = Queue.new
+(selected & own.keys).each { |id| queue << id }
+jobs_selected.sort_by { |id| -linux[id]['steps'].to_a.size }.each { |id| queue << id }
+lock = Mutex.new
+workers = Array.new([Integer(ENV.fetch('ATLAS_CHECK_JOBS', '4')), 1].max) do
+  Thread.new do |; id, report, ok|
+    until (id = (queue.pop(true) rescue nil)).nil?
+      report, ok = check_job.(id)
+      lock.synchronize do
+        puts report
+        failed << id unless ok
+      end
+    end
+  end
+end
+workers.each(&:join)
+
 if failed.empty?
+  FileUtils.rm_rf(work)
   puts "bin/check: all #{selected.size} job(s) passed"
 else
-  puts "bin/check: FAILED: #{failed.join(', ')}"
+  puts "bin/check: FAILED: #{failed.join(', ')} (logs in #{work})"
   exit 1
 end

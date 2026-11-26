@@ -896,18 +896,36 @@ func psProcesses() ([][3]int, error) {
 	return table, nil
 }
 
-// On darwin LP64, struct kinfo_proc is 648 bytes; kp_proc.p_pid sits at 40 and kp_eproc.e_ppid and
-// e_pgid at 560 and 564 (offsetof against the macOS SDK <sys/sysctl.h>).
+// On darwin LP64, struct kinfo_proc is 648 bytes; kp_proc.p_flag sits at 32, p_stat at 36 and p_pid
+// at 40, and kp_eproc.e_ppid and e_pgid at 560 and 564 (offsetof against the macOS SDK <sys/sysctl.h>).
 const (
 	darwinSysctl          = 202 // SYS___SYSCTL; a sandbox allows it where it denies exec of the setuid ps
 	darwinKinfoProcSize   = 648
+	darwinProcFlagOffset  = 32
+	darwinProcStatOffset  = 36
 	darwinProcPIDOffset   = 40
 	darwinEprocPPIDOffset = 560
 	darwinEprocPGIDOffset = 564
+	darwinExiting         = 0x2000 // P_WEXIT, <sys/proc.h>
+	darwinZombie          = 5      // SZOMB, <sys/proc.h>
 )
 
-// kernelProcesses reads sysctl kern.proc.all and checks the layout against this process.
+// kernelProcesses lists every process as pid, ppid, pgid.
 func kernelProcesses() ([][3]int, error) {
+	entries, err := kernelProcEntries()
+	if err != nil {
+		return nil, err
+	}
+	table := make([][3]int, 0, len(entries))
+	for _, entry := range entries {
+		table = append(table, [3]int{kinfoField(entry, darwinProcPIDOffset), kinfoField(entry, darwinEprocPPIDOffset), kinfoField(entry, darwinEprocPGIDOffset)})
+	}
+	return table, nil
+}
+
+// kernelProcEntries reads sysctl kern.proc.all as one kinfo_proc per entry and checks the layout
+// against this process.
+func kernelProcEntries() ([][]byte, error) {
 	mib := [3]int32{1, 14, 0} // CTL_KERN, KERN_PROC, KERN_PROC_ALL
 	sysctl := func(buffer []byte, size *uintptr) syscall.Errno {
 		var data unsafe.Pointer
@@ -938,22 +956,41 @@ func kernelProcesses() ([][3]int, error) {
 	if size%darwinKinfoProcSize != 0 {
 		return nil, errors.New("sysctl kern.proc.all returned an unexpected kinfo_proc size")
 	}
-	field := func(entry []byte, offset int) int {
-		return int(int32(binary.NativeEndian.Uint32(entry[offset:])))
-	}
-	table, self := make([][3]int, 0, size/darwinKinfoProcSize), false
+	entries, self := make([][]byte, 0, size/darwinKinfoProcSize), false
 	for offset := 0; offset < int(size); offset += darwinKinfoProcSize {
 		entry := buffer[offset : offset+darwinKinfoProcSize]
-		row := [3]int{field(entry, darwinProcPIDOffset), field(entry, darwinEprocPPIDOffset), field(entry, darwinEprocPGIDOffset)}
-		if row[0] == os.Getpid() {
-			self = row[1] == os.Getppid() && row[2] == syscall.Getpgrp()
+		if kinfoField(entry, darwinProcPIDOffset) == os.Getpid() {
+			self = kinfoField(entry, darwinEprocPPIDOffset) == os.Getppid() && kinfoField(entry, darwinEprocPGIDOffset) == syscall.Getpgrp() &&
+				entry[darwinProcStatOffset] != darwinZombie
 		}
-		table = append(table, row)
+		entries = append(entries, entry)
 	}
 	if !self {
 		return nil, errors.New("sysctl kern.proc.all: the kinfo_proc layout does not match this process")
 	}
-	return table, nil
+	return entries, nil
+}
+
+func kinfoField(entry []byte, offset int) int {
+	return int(int32(binary.NativeEndian.Uint32(entry[offset:])))
+}
+
+// groupMembers counts the members of process group pgid and those among them that are exiting or
+// zombies (darwin), which a group signal no longer reaches.
+func groupMembers(pgid int) (members, exiting int, err error) {
+	entries, err := kernelProcEntries()
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, entry := range entries {
+		if kinfoField(entry, darwinEprocPGIDOffset) == pgid {
+			members++
+			if kinfoField(entry, darwinProcFlagOffset)&darwinExiting != 0 || entry[darwinProcStatOffset] == darwinZombie {
+				exiting++
+			}
+		}
+	}
+	return members, exiting, nil
 }
 
 func (leader *process) signalGroup(sig syscall.Signal) error {
@@ -962,11 +999,23 @@ func (leader *process) signalGroup(sig syscall.Signal) error {
 		// macOS can deny a group signal while its last member is exiting,
 		// even before the leader can be reaped. Bound the wait for our own leader,
 		// then still signal any surviving descendants in the same group.
-		// A live leader or a second denial remains a real permission error.
+		// A live leader, or a second denial that exiting members do not explain, remains a real
+		// permission error.
 		if exited, waitErr := leader.wait(3 * time.Second); waitErr != nil || !exited {
 			return err
 		}
 		err = kill(-leader.pid, sig)
+		if err == syscall.EPERM && runtime.GOOS == "darwin" {
+			// With the leader reaped, macOS still answers EPERM, not ESRCH, while every member left
+			// is exiting or a zombie its new parent has not reaped yet (killpg skips both): nothing
+			// is left to signal. A group gone by the listing is asked once more and answers ESRCH.
+			members, exiting, listErr := groupMembers(leader.pid)
+			if listErr == nil && members == 0 {
+				err = kill(-leader.pid, sig)
+			} else if listErr == nil && exiting == members {
+				return nil
+			}
+		}
 	}
 	if err == syscall.ESRCH {
 		return nil

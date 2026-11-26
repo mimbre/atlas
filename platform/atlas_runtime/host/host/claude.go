@@ -547,7 +547,8 @@ func claudeWorkerSettings(scope map[string]any, temporary, user, inspector strin
 	return encodeSettings(settings)
 }
 
-// claudeTemporaryRoots are the sorted system temp roots whose writes Claude's sandbox denies;
+// claudeTemporaryRoots are the system temp roots whose writes Claude's sandbox denies, in a fixed
+// order (TMPDIR, /tmp, /var/tmp, duplicates dropped) that does not depend on where they resolve;
 // root must lie outside them and the private temp must fit Claude's child-temp limit.
 func claudeTemporaryRoots(root, temporary, subject string) ([]string, error) {
 	system, err := temporaryDirectory()
@@ -555,7 +556,7 @@ func claudeTemporaryRoots(root, temporary, subject string) ([]string, error) {
 		return nil, err
 	}
 	var roots []string
-	for _, path := range []string{"/tmp", "/var/tmp", system} {
+	for _, path := range []string{system, "/tmp", "/var/tmp"} {
 		resolved, err := resolvePath(path)
 		if err != nil {
 			return nil, err
@@ -564,7 +565,6 @@ func claudeTemporaryRoots(root, temporary, subject string) ([]string, error) {
 			roots = append(roots, resolved)
 		}
 	}
-	slices.Sort(roots)
 	for _, path := range roots {
 		if root == path || strings.HasPrefix(root, strings.TrimSuffix(path, "/")+"/") {
 			return nil, errors.New(subject + " must be outside system temporary directories")

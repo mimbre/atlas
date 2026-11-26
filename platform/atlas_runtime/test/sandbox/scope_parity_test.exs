@@ -27,7 +27,7 @@ defmodule AtlasRuntime.Sandbox.ScopeParityTest do
         {root, places} = S6Fixture.build_row!(@row)
         input = S6Fixture.substitute_value(places, @row["input"])
         write_records!(input)
-        result = with_row_env(places, @row, fn -> decide(@table, input) end)
+        result = with_row_env(places, @row, fn -> decide(@table, input, root) end)
         result = table_value(result, places, input)
 
         refute JSON.encode!(result) =~ root
@@ -39,13 +39,14 @@ defmodule AtlasRuntime.Sandbox.ScopeParityTest do
   test "a system Codex config is refused like a project one" do
     # /etc/codex/config.toml cannot be created by a test, so the Go table has no row for it;
     # this decides on real facts with that one candidate reported present.
-    {_root, places} =
+    {root, places} =
       S6Fixture.build_row!(%{"id" => "etc", "fs" => [dir("{user}"), git("{tmp}/repo")]})
 
     facts =
       with_row_env(places, %{}, fn ->
         Facts.fetch("dedicated", [S6Fixture.substitute(places, "{tmp}/repo")])
       end)
+      |> below_root(root)
 
     assert is_map(Scope.dedicated(facts))
 
@@ -72,12 +73,31 @@ defmodule AtlasRuntime.Sandbox.ScopeParityTest do
     end
   end
 
-  defp decide("dedicated", %{"origin" => %{"runtime_chosen" => %{"work" => work}}, "path" => path})
+  defp decide(
+         "dedicated",
+         %{"origin" => %{"runtime_chosen" => %{"work" => work}}, "path" => path},
+         root
+       )
        when is_binary(work),
-       do: Scope.dedicated(Facts.fetch("dedicated", [path]))
+       do: Scope.dedicated(below_root(Facts.fetch("dedicated", [path]), root))
 
-  defp decide("folder", %{"origin" => "client_named", "dest" => dest, "home" => home}),
-    do: Scope.folder(Facts.fetch("folder", [dest, home]), :client_named)
+  defp decide("folder", %{"origin" => "client_named", "dest" => dest, "home" => home}, root),
+    do: Scope.folder(below_root(Facts.fetch("folder", [dest, home]), root), :client_named)
+
+  # The Go table was written with the Codex-config ancestor walk stopped at the row's root
+  # (limitCodexConfigWalk); the helper walks to "/", so the candidates above the root, which
+  # belong to the machine (a real ~/.codex when TMPDIR is under the home), are dropped.
+  defp below_root(%{"codex_config" => %{"candidates" => candidates}} = facts, root) do
+    kept =
+      Enum.filter(candidates, fn %{"path" => path} ->
+        dir = path |> Path.dirname() |> Path.dirname()
+        path == "/etc/codex/config.toml" or dir == root or String.starts_with?(dir, root <> "/")
+      end)
+
+    put_in(facts, ["codex_config", "candidates"], kept)
+  end
+
+  defp below_root(facts, _root), do: facts
 
   defp dir(path), do: %{"path" => path, "type" => "dir"}
   defp git(path), do: %{"path" => path, "type" => "git"}
