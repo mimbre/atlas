@@ -36,7 +36,9 @@ The owner sees the instructions as a panel of steps, in the TUI, the Mac app and
 Why: the hosting bill goes to this account.
 1. Open the account.
 $ open https://example.com/billing
-2. Save the receipt in the shared folder.
+2. Download the receipt.
+> Billing > Invoices > "November > December"
+3. Save the receipt in the shared folder.
 $ cp ~/Downloads/receipt.pdf ~/Shared/
 ```
 
@@ -44,10 +46,21 @@ $ cp ~/Downloads/receipt.pdf ~/Shared/
   To-Do has been the owner's.
 - Numbered lines (`1.`, `2.`, …) start the steps. Text without numbered steps is
   one step.
-- A line starting with `$ ` is a command of the step above it, shown without the `$ `.
 
-The panel shows the done steps with ✓, the current step open with its commands, and
-the later steps faint. The To-Do's `step` field keeps where the owner is:
+A step has three kinds of line, shown in the order they are written:
+
+- **Text**: any other line, the step's own words.
+- **Command**: a line starting with `$ `, something to run. It is shown without the
+  `$ ` beside a bar, and it is what the copy keys copy.
+- **Route**: a line starting with `> `, the way to something in an app, its parts
+  separated by ` > `: `> Keychain Access > login > My Certificates`. A part in double
+  quotes is one part, even with ` > ` inside, and is shown without its quotes. The TUI
+  shows a route as a muted `⌘`, then each part bold in a light colour with a muted `›`
+  between them, and wraps a long route at a `›`. The Mac app shows each part as a small
+  label with `›` between them. A route is never copied.
+
+The panel shows the done steps with ✓, the current step open with its lines, and
+the later steps faint. Every step's mark and number are in the same columns. The To-Do's `step` field keeps where the owner is:
 
 | Key | Does |
 | --- | --- |
