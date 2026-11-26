@@ -46,6 +46,8 @@ defmodule AtlasTui.View do
   # A title keeps at least this many cells (or all of its own) before the age column goes.
   @title_floor 40
   @column_title_floor 20
+  # Narrower than this, a list's rows keep only their dot, key and title.
+  @narrow 80
   # A multi-line input that does not have the focus shows at most this many rows.
   @resting_rows 8
   # A focused one never shows fewer than this, however small the screen.
@@ -53,13 +55,8 @@ defmodule AtlasTui.View do
   # Markup says what a stretch of a page means; how it looks is this view's choice. A page
   # in parts shows them side by side from this width; narrower, one above the other.
   @side_by_side 120
-  # One column of page content reads best at most this wide; wider, it is centred.
-  @measure 100
-  # From this width a page's details stand beside it: one column, a gap, and the details
-  # at least this wide (growing to one column's width).
+  # The details beside the page start this far into their column, clear of the page's text.
   @gap 4
-  @side_least 40
-  @beside @measure + @gap + @side_least
 
   @doc """
   The contract's names this view knows: the blocks it draws, and the kinds of markup it
@@ -93,10 +90,8 @@ defmodule AtlasTui.View do
         in_columns(model, width, room)
       else
         measure = body_width(model, width)
-        margin = String.duplicate(" ", div(width - measure, 2))
         {lines, _long, viewports} = laid_out(model, measure, room)
         {body, viewport} = window(lines, model, room)
-        body = if margin == "", do: body, else: Enum.map(body, &[{:plain, margin} | &1])
         viewports = if viewport, do: Map.put(viewports, nil, viewport), else: viewports
         {body ++ Elixir.List.duplicate([], room - length(body)), viewports}
       end
@@ -159,19 +154,19 @@ defmodule AtlasTui.View do
   defp body(model, width, room), do: nodes(content(model), model, width, room)
 
   @doc """
-  How wide the page's body is drawn, centred in the terminal: one column of at most
-  #{@measure} cells; from #{@beside} wide, a page with details has them in a column beside
-  it (#{@gap} cells apart, #{@side_least} to #{@measure} wide, growing with the room); parts
-  side by side take the full width. The chrome (tabs, title, footer, status) always spans
-  the terminal (docs/design/apple-clients.md, Page width).
+  How wide the page's body is drawn, from the terminal's left edge: the page and, from
+  140 wide, its details as a column beside it (`AtlasTui.Columns.place/3`, the layout rule);
+  parts side by side take the full width. The chrome (tabs, title, footer, status) always
+  spans the terminal (docs/design/apple-clients.md, Layout).
   """
   def body_width(model, width) do
-    cond do
-      width >= @side_by_side and in_parts?(model) -> width
-      width >= @beside and details_part(model) != nil -> min(width, 2 * @measure + @gap)
-      true -> min(width, @measure)
-    end
+    if width >= @side_by_side and in_parts?(model),
+      do: width,
+      else: model |> body_columns(width) |> Enum.map(&elem(&1, 2)) |> Enum.sum()
   end
+
+  defp body_columns(model, width),
+    do: Columns.place(width, if(details_part(model), do: [:details], else: []))
 
   defp page_shown?(model) do
     model.connected and model.blocks != [] and model.plan == nil and
@@ -191,25 +186,30 @@ defmodule AtlasTui.View do
   defp details?(_node), do: false
 
   # The body's lines, and whether it is longer than its room. A page in parts fills its
-  # room exactly, each part scrolled on its own; a part that is cut says so itself. Wider
-  # than one column: the details beside the rest, both scrolled as one.
+  # room exactly, each part scrolled on its own; a part that is cut says so itself. With
+  # room for them: the details in their column beside the rest, both scrolled as one.
   defp laid_out(model, width, room) do
     cond do
-      in_parts?(model) -> parts(content(model), model, width, room)
-      width > @measure -> beside(model, width, room)
-      true -> plain_layout(model, width, room)
+      in_parts?(model) ->
+        parts(content(model), model, width, room)
+
+      true ->
+        case body_columns(model, width) do
+          [{:page, _, page}, {:details, _, side}] -> beside(model, page, side, room)
+          _ -> plain_layout(model, width, room)
+        end
     end
   end
 
-  defp beside(model, width, room) do
+  defp beside(model, page, side, room) do
     {details, main} = Enum.split_with(content(model), &details?/1)
-    main = nodes(main, model, @measure, room)
-    side = nodes(details, model, width - @measure - @gap, room)
+    main = nodes(main, model, page, room)
+    side = nodes(details, model, side - @gap, room)
     gap = [{:plain, String.duplicate(" ", @gap)}]
 
     lines =
       for row <- 0..(max(length(main), length(side)) - 1) do
-        pad_line(fit(Enum.at(main, row) || [], @measure), @measure) ++
+        pad_line(fit(Enum.at(main, row) || [], page), page) ++
           gap ++ (Enum.at(side, row) || [])
       end
 
@@ -435,9 +435,9 @@ defmodule AtlasTui.View do
     {body, cut, %{start: start, last: last, step: max(shown - 1, 1)}}
   end
 
-  # Columns (`AtlasTui.Columns`): the list, the page of its selected row and that page's
-  # details, each framed and scrolled on its own; the frame of the column with the focus
-  # in primary, its title bold and marked ▸, the others grey.
+  # Columns (`AtlasTui.Columns`): the sidebar, the list, the page of its selected row and
+  # that page's details, each scrolled on its own under its heading, one thin grey line
+  # between two columns and nothing else; the column with the focus has its heading lit.
   defp in_columns(model, width, room) do
     focus = Columns.focus(model)
     geometry = Columns.geometry(width)
@@ -445,11 +445,14 @@ defmodule AtlasTui.View do
     {main, details} = page_nodes(model)
 
     drawn =
-      for {column, _x, w} <- geometry do
-        inner = w - 4
+      for {column, x, w} <- geometry do
+        inner = w - 3
 
         {lines, title} =
           case column do
+            :sidebar ->
+              {sidebar_lines(model, inner), "Tabs"}
+
             :list ->
               list = Columns.list_model(model)
               {nodes(content(list), list, inner, :all), list_title(model, list)}
@@ -466,41 +469,68 @@ defmodule AtlasTui.View do
                details_title(details)}
           end
 
-        # The list follows its selection; the page opens at its top as in one column (a
-        # page about one fact, `model.scroll`) until the arrows move in it.
+        # The sidebar and the list follow their selection; the page opens at its top as in
+        # one column (a page about one fact, `model.scroll`) until the arrows move in it; the
+        # details at their top until they have the focus.
         scroll =
           case column do
+            :sidebar -> nil
             :list -> nil
             :page -> model.columns.scroll[:page] || model.scroll
-            :details -> model.columns.scroll[:details]
+            :details -> model.columns.scroll[:details] || if(focus != :details, do: 0)
           end
 
-        {body, _cut, viewport} = scrolled(lines, scroll, max(room - 2, 1))
-        {column, w, framed(body, title, column == focus, w), viewport}
+        {body, _cut, viewport} = scrolled(lines, scroll, max(room - 1, 1))
+        {column, w, headed(body, title, column == focus, x > 0, w), viewport}
       end
-
-    [{_, left, _} | _] = geometry
-    margin = [{:plain, String.duplicate(" ", left)}]
 
     lines =
       for row <- 0..(room - 1) do
-        margin ++
-          Enum.flat_map(drawn, fn {_, w, lines, _} -> pad_line(Enum.at(lines, row) || [], w) end)
+        Enum.flat_map(drawn, fn {_, w, lines, _} -> pad_line(Enum.at(lines, row) || [], w) end)
       end
 
     {lines, Map.new(drawn, fn {column, _, _, viewport} -> {column, viewport} end)}
   end
 
-  defp framed(body, title, focused, width) do
-    inner = width - 4
-    style = if focused, do: :frame, else: :rest_frame
-    title = String.slice(if(focused, do: "▸ " <> title, else: title), 0, max(width - 6, 0))
-    label = {if(focused, do: :bold, else: :dim), " " <> title <> " "}
-    rule = String.duplicate("─", max(width - 5 - String.length(title), 0))
+  # The sidebar: the tabs one under the other under their section's heading (Work,
+  # Browse), each with its count and its groups indented under it; the one shown marked
+  # and selected.
+  defp sidebar_lines(model, width) do
+    at = Columns.sidebar_at(model)
 
-    [[{style, "┌─"}, label, {style, rule <> "┐"}]] ++
-      Enum.map(body, &([{style, "│ "}] ++ pad_line(fit(&1, inner), inner) ++ [{style, " │"}])) ++
-      [[{style, "└" <> String.duplicate("─", max(width - 2, 0)) <> "┘"}]]
+    {lines, _section} =
+      model
+      |> Columns.sidebar_rows()
+      |> Enum.with_index()
+      |> Enum.flat_map_reduce(nil, fn {row, i}, section ->
+        heading =
+          if row.section == section,
+            do: [],
+            else:
+              if(section, do: [[]], else: []) ++
+                [[{:dim, if(row.section == "work", do: "Work", else: "Browse")}]]
+
+        style = if i == at, do: :selected, else: if(row.group?, do: :dim, else: :plain)
+        lead = if(i == at, do: "› ", else: "  ") <> if(row.group?, do: "  ", else: "")
+        count = if row.count, do: " #{row.count}", else: ""
+        label = cell_cut(single_line(row.label), max(width - String.length(lead <> count), 1))
+        line = lead <> label
+        pad = String.duplicate(" ", max(width - display_width(line) - String.length(count), 0))
+        {heading ++ [[{style, line <> pad <> count}]], row.section}
+      end)
+
+    lines
+  end
+
+  # A column: its heading (lit with the focus, else grey), then its lines, a cell clear
+  # either side; from the second column on, a thin grey line at its left edge.
+  defp headed(body, title, focused, line?, width) do
+    inner = width - 3
+    edge = {:rest_frame, if(line?, do: "│", else: " ")}
+    heading = {if(focused, do: :lit, else: :dim), cell_cut(title, inner)}
+
+    [[edge, {:plain, " "}, heading]] ++
+      Enum.map(body, &([edge, {:plain, " "}] ++ pad_line(fit(&1, inner), inner)))
   end
 
   defp list_title(model, list) do
@@ -701,12 +731,17 @@ defmodule AtlasTui.View do
     available = available - pending_room
     # How long each row has been where it stands, right-aligned before the title; a narrow
     # list drops it before it cuts a title (below `@title_floor`). The list column keeps it
-    # (dot, key, age, title), its titles cut sooner (`@column_title_floor`).
+    # (dot, key, age, title), its titles cut sooner (`@column_title_floor`). A terminal
+    # narrower than `@narrow` keeps only the dot, the key and the title.
+    {terminal, _height} = model.console.viewport
+    narrow? = terminal < @narrow
+    summaries = if narrow?, do: 0, else: summaries
     age_width = ages |> Enum.map(&String.length/1) |> Enum.max(fn -> 0 end)
     floor = if Columns.list_column?(model), do: @column_title_floor, else: @title_floor
 
     age_room =
-      with true <- age_width > 0,
+      with false <- narrow?,
+           true <- age_width > 0,
            {_, _, title_room} = columns(available - age_width - 2, titles, summaries),
            true <- title_room >= min(titles, floor) do
         age_width + 2
