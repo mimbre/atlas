@@ -16,8 +16,10 @@ defmodule AtlasBFFContract.Markup do
       # Ask of every new kind: does it name a meaning, or an appearance?
 
       # A top-level division of a view, with its title. `role` says what it holds: `main`
-      # (the item itself), `related` (what it links to) or `todo` (what its owner is to do,
-      # shown to the owner only, first). Parts do not nest in parts; sections nest in parts.
+      # (the item itself), `related` (what it links to), `todo` (what its owner is to do,
+      # shown to the owner only, first) or `details` (the item's facts, after what its owner
+      # decides; the one part that may stand beside blocks in no part, as the page's last
+      # stretch). Parts do not nest in parts; sections nest in parts.
       defmarkup :part do
         field :title, :string, required: true
         field :role, :string, required: true

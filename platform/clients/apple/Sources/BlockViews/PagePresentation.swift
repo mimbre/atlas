@@ -65,8 +65,16 @@ public struct PagePresentation: Sendable, Equatable {
     public var path: String
     /// Every shown block once, in order.
     public var entries: [Entry]
-    /// The same blocks, grouped by the page's top-level sections.
+    /// The same blocks, grouped by the page's top-level sections, but its details.
     public var groups: [Group]
+    /// The page's details, when its markup has them: a part of role details.
+    public var details: Details?
+
+    /// The facts of the page's item, apart from what is decided on it.
+    public struct Details: Sendable, Equatable {
+        public var title: String
+        public var groups: [Group]
+    }
 
     public init(_ page: PageMessage) {
         title = page.title
@@ -109,7 +117,31 @@ public struct PagePresentation: Sendable, Equatable {
                                            collapsible: props.collapsible == true, entries: inside)))
         }
         groups.append(contentsOf: shown[index...].map { .entry($0.entry) })
-        self.groups = groups
+
+        // The page's details (a part of role details): beside the rest or under it, as the
+        // room the page gets allows (`PageView`).
+        var position: [String: Int] = [:]
+        for (offset, block) in page.blocks.enumerated() { if let id = block.id { position[id] = offset } }
+        let part = page.markup.lazy.compactMap { entry -> (ClosedRange<Int>, String)? in
+            guard case .part(let props) = entry.content, props.role == "details",
+                  let start = position[entry.start], let end = position[entry.end], start <= end
+            else { return nil }
+            return (start...end, props.title)
+        }.first
+        if let (range, title) = part {
+            let inside = Set(shown.filter { range.contains($0.position) }.map(\.entry.id))
+            let first: (Group) -> String? = {
+                switch $0 {
+                case .entry(let entry): entry.id
+                case .section(let section): section.entries.first?.id
+                }
+            }
+            details = Details(title: title, groups: groups.filter { first($0).map(inside.contains) ?? false })
+            self.groups = groups.filter { !(first($0).map(inside.contains) ?? false) }
+        } else {
+            details = nil
+            self.groups = groups
+        }
     }
 
     /// The outermost sections, in block order, as ranges of block positions; none when the

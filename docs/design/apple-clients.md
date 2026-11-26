@@ -198,6 +198,61 @@ readonly), errors, submit and cancel; links opened with `openURL` (http and http
 Layout adapts by size, not by platform: two or more parts side by side when wide, stacked
 when narrow (the TUI's 120-column rule becomes a width threshold and size classes).
 
+#### Page width (TUI and Mac, 2026-11-26)
+
+One rule, in characters, for the room an opened page gets: the whole terminal in the
+TUI; the page's column (after tabs and the tab's list) on the Mac. The chrome (title and
+tab bars, toolbar, sidebars, status and footer lines) is not the page's and keeps the
+full width.
+
+- What is decided (lists, groups, panels, steps, item pages, forms) is one column of at
+  most **100** characters, centred; narrower, it takes the room it has. Text wraps at the
+  column's width.
+- A page whose markup has a `part` of role `details` (the item's facts where its owner
+  decides: its key, state, for whom and from whom since when, what it is about or based
+  on, and note, evidence or deadline once filled) shows them in the TUI in a column of
+  their own **beside** the main one from **144** columns: 4 apart, at least 40 and at
+  most 100 wide, growing with the room; the two centred together. Narrower, the details
+  come under the main column, compact. The Mac app, calmer, keeps them **under** what
+  is decided at every width, as a card.
+- Parts side by side (`main`/`related`/`todo`, from 120 columns) keep the full width.
+
+The TUI keeps these in `AtlasTui.View` (`@measure`, `@gap`, `@side_least`, `@beside`,
+`body_width/2`); the Mac in `Prism` (`characterWidth`, about one character of
+`Typography.bodySmall`, and `readableWidth`), applied by `PageView`. Behaviour tests:
+`AtlasTuiTest` (markup) and `PresentationTest` in the TUI, `ReadableWidthTests` on the Mac.
+
+#### Columns in the TUI (2026-11-26)
+
+On a wide terminal the TUI shows columns: the tab's list beside the page of the row
+selected in it (as the Mac does), and that page's details beside the page when there is
+room. The chrome keeps the full width.
+
+- From **210** columns: the list (**60**: dot, key, age, title of the tab's list), the page
+  (at most **100**) and its details (the rest, at most 100), centred together. From
+  **144**: the list and the page, the details under the page. Narrower: one column at a
+  time, as before (the Page width rule above).
+- The list follows live: moving in it opens the selected row's page and details at once
+  (no Enter), through Control as opening a page does; its cached copy shows while Control
+  reads it fresh. The list column is the newest page Control sent for the tab's path, kept
+  current by its hints. Back in one column returns to the list.
+- One column has the focus: its frame in primary, its title bold and marked ▸; the
+  others' frames grey (grey2 in dark, grey1 in light, where grey2 stays under 3:1). → moves
+  it right (list → page → details), ← left; Enter in the list is →; Esc always returns it to
+  the list; a mouse click in a column moves it there (the terminal reports clicks only
+  while there are columns). Tab and Shift-Tab still switch the work tabs.
+- The details take the focus only when they hold related items (rows that open a page:
+  the lists in a part of role `details` or `related`); ↑/↓ choose one, → or Enter opens it
+  in the page.
+- ↑/↓ act in the column with the focus only: the list's rows; in the page what they do in
+  one column (a panel's items or answers, a choice, the steps' moves Control binds, its own
+  rows); the related items. Every other key — the open item's actions (x, n, c, digits, m,
+  o, r, …) — acts on the open item, whichever column has the focus.
+- The key line under the columns names the keys of the column with the focus.
+
+The TUI keeps these in `AtlasTui.Columns` (layout, focus, keys, following the list) and
+`AtlasTui.View` (drawing). Behaviour tests: `AtlasTui.ColumnsTest`.
+
 ### The shell (approved, 2026-11-13)
 
 This is the plan for the macOS shell and for slice S1. iPhone and iPad follow it as the

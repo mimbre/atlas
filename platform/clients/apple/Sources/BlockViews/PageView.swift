@@ -30,8 +30,16 @@ public struct PageView: View {
         self.act = act
     }
 
+    /// The page in the room its column gives it: at most `Prism.readableWidth` wide,
+    /// centred; its details, when it has them, under what is decided, at any width.
     public var body: some View {
-        let lines = lines
+        list(lines(presentation.groups, header: header) + (presentation.details.map { lines($0) } ?? []))
+            .frame(maxWidth: Prism.readableWidth)
+            .frame(maxWidth: .infinity)
+            .navigationTitle(presentation.title)
+    }
+
+    private func list(_ lines: [Line]) -> some View {
         // The list selects a row by its id (the line's), never by a tag inside it; the row
         // selected is the first whose `to` is `selectedPath`, and selecting one opens its `to`.
         List(selection: Binding(
@@ -62,7 +70,6 @@ public struct PageView: View {
             }
         }
         .listStyle(.inset)
-        .navigationTitle(presentation.title)
     }
 
     /// A row of the page's list: the page's header, a list block's title, its empty text,
@@ -88,10 +95,15 @@ public struct PageView: View {
         }
     }
 
-    /// The page's rows, top down, each id made of its block's (the header's, which no
+    /// The details' rows: their title, then theirs.
+    private func lines(_ details: PagePresentation.Details) -> [Line] {
+        [Line(id: "\u{0}details", content: .title(details.title))] + lines(details.groups, header: false)
+    }
+
+    /// The rows of `groups`, top down, each id made of its block's (the header's, which no
     /// block's id can be, its own).
-    private var lines: [Line] {
-        let blocks = presentation.groups.flatMap { group -> [Line] in
+    private func lines(_ groups: [PagePresentation.Group], header: Bool) -> [Line] {
+        let blocks = groups.flatMap { group -> [Line] in
             switch group {
             case .section(let section):
                 return [Line(id: group.id, content: .section(section))]

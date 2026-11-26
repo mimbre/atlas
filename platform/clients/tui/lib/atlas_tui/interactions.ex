@@ -56,14 +56,28 @@ defmodule AtlasTui.Interactions do
         legend: if(projection && page["path"] == model.path, do: model.console.legend, else: nil)
     }
 
+    {%{model | console: console}, content(page)}
+  end
+
+  @doc "What of `page` is drawn: its blocks and markup but those the Console presents itself."
+  def content(page) do
     names = Contract.presentation_names()
 
-    content =
-      page
-      |> Map.put("blocks", Enum.reject(page["blocks"] || [], &(&1["type"] in names.blocks)))
-      |> Map.put("markup", Enum.reject(page["markup"] || [], &(&1["kind"] in names.markup)))
+    page
+    |> Map.put("blocks", Enum.reject(page["blocks"] || [], &(&1["type"] in names.blocks)))
+    |> Map.put("markup", Enum.reject(page["markup"] || [], &(&1["kind"] in names.markup)))
+  end
 
-    {%{model | console: console}, content}
+  @doc "The name of the operation `key` resolves to on this page now, or nil."
+  def operation(%{console: %{projection: nil}}, _key), do: nil
+
+  def operation(model, key) do
+    with {:ok, event} <- Contract.capture(model.console.projection, token(key), current(model)),
+         {:ok, action} <- Contract.resolve(model.console.projection, event, current(model)) do
+      action["props"]["operation"]["name"]
+    else
+      _ -> nil
+    end
   end
 
   def active(model), do: active_for(model, context(model))

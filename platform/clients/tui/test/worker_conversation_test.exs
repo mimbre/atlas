@@ -695,7 +695,7 @@ defmodule AtlasTui.WorkerConversationTest do
     model
   end
 
-  defp screen(model), do: model |> View.render(160, 60, 5) |> View.plain()
+  defp screen(model), do: model |> View.render(140, 60, 5) |> View.plain()
 
   test "the conversation leads with the latest assistant text and folds the details" do
     model = layout_model()

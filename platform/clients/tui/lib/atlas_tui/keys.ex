@@ -34,6 +34,24 @@ defmodule AtlasTui.Keys do
   defp parse("\e[5~" <> rest, acc), do: parse(rest, [:page_up | acc])
   defp parse("\e[6~" <> rest, acc), do: parse(rest, [:page_down | acc])
 
+  # A mouse report (SGR, `\e[<button;x;yM` pressed, `m` released): a press of the main
+  # button is a click at its cell, from 1; every other report is ignored whole.
+  defp parse("\e[<" <> rest = buffer, acc) do
+    case Regex.run(~r/^(\d+);(\d+);(\d+)([Mm])/, rest) do
+      [seq, button, x, y, kind] ->
+        rest = binary_part(rest, byte_size(seq), byte_size(rest) - byte_size(seq))
+
+        if button == "0" and kind == "M",
+          do: parse(rest, [{:click, String.to_integer(x), String.to_integer(y)} | acc]),
+          else: parse(rest, acc)
+
+      nil ->
+        if Regex.match?(~r/^[\d;]*$/, rest),
+          do: {Enum.reverse(acc), buffer},
+          else: parse(rest, acc)
+    end
+  end
+
   # Other CSI sequences (Delete, Page up, …) are ignored whole.
   defp parse("\e[" <> rest = buffer, acc) do
     case Regex.run(~r/^[0-9;]*[A-Za-z~]/, rest) do

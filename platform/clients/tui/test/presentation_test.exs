@@ -102,6 +102,14 @@ defmodule AtlasTui.PresentationTest do
     assert b > r + 100 and b > g + 100
   end
 
+  test "both themes keep the columns' frames above 3:1 on their own surface" do
+    for theme <- [:light, :dark], role <- [:frame, :rest_frame] do
+      {fg, bg} = Palette.colors(role, theme)
+      [low, high] = Enum.sort([luminance(fg), luminance(bg)])
+      assert (high + 0.05) / (low + 0.05) >= 3, "#{theme} #{inspect(role)}"
+    end
+  end
+
   test "the header bar is primary in every environment and only prod badges its name" do
     for env <- ["prod", "test"], count <- [nil, "3"], width <- [20, 60] do
       base = model()
@@ -236,7 +244,7 @@ defmodule AtlasTui.PresentationTest do
     model = model()
 
     for legend <- [nil, %{scroll: 0}],
-        width <- [60, 150] do
+        width <- [60, 140] do
       pending = %{
         model
         | console: %{model.console | expected: "/k/part", restoring: false, legend: legend}
@@ -290,6 +298,28 @@ defmodule AtlasTui.PresentationTest do
           String.contains?(elem(right, 1), "VALUE") do
         assert String.ends_with?(elem(left, 1), " ")
       end
+    end
+  end
+
+  test "one column of page content is at most 100 wide and centred; the chrome spans the terminal" do
+    model = model()
+
+    for {width, body, margin} <- [{140, 100, 20}, {80, 80, 0}] do
+      text = model |> View.render(width, 40, 5) |> View.plain() |> String.split("\n")
+      header = AtlasTui.ConsoleView.header(model, width)
+      assert View.body_width(model, width) == body
+
+      # The body sits between the margins: its rows start at the left one and no page line
+      # reaches past the right one.
+      row = Enum.find(text, &(&1 =~ "› W-01"))
+      assert String.length(row) - String.length(String.trim_leading(row)) >= margin
+      page = text |> Enum.drop(length(header)) |> Enum.drop(-3)
+      assert Enum.all?(page, &(String.length(&1) <= margin + body))
+
+      # The tab/title bar and the footer rule span the whole terminal.
+      [bar | _] = header
+      assert Enum.sum(Enum.map(bar, &String.length(elem(&1, 1)))) >= width
+      assert Enum.any?(text, &(&1 == String.duplicate("─", width)))
     end
   end
 
