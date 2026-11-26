@@ -1510,6 +1510,81 @@ defmodule AtlasControl.PagesTest do
     assert rows["/k/widget/W-3"] != nil
   end
 
+  test "each row says where its work stands for the viewer, with one meaning on every list" do
+    card = fn key, shown ->
+      fact(key, %{"of" => String.replace_prefix(key, "C-", "")})
+      |> Map.put("links", %{"held_by" => shown["owner"] || []})
+      |> Map.put("origins", %{"held_by" => %{"since" => "2026-11-01T09:00:00Z"}})
+      |> Map.put("presentation", shown)
+    end
+
+    # W-1 waits on ada; W-2 is bob's in a flow cy supervises: under way; W-3's run ended.
+    cards = %{
+      "facts" => [
+        card.("C-W-1", %{
+          "actionable" => true,
+          "status" => "active",
+          "owner" => ["ada"],
+          "since" => "2026-11-20T08:00:00Z"
+        }),
+        card.("C-W-2", %{
+          "actionable" => true,
+          "status" => "active",
+          "owner" => ["bob"],
+          "supervisor" => ["cy"],
+          "since" => "2026-11-24T10:30:00Z"
+        }),
+        card.("C-W-3", %{
+          "actionable" => false,
+          "status" => "completed",
+          "since" => "2026-11-25T16:00:00Z"
+        })
+      ]
+    }
+
+    # W-1 already counts as completed, but its run still waits on ada: that wins.
+    widgets = %{
+      "facts" =>
+        for(
+          {key, title} <- [{"W-1", "One"}, {"W-2", "Two"}, {"W-3", "Three"}],
+          do: fact(key, %{"title" => title}) |> Map.put("links", %{"card" => ["C-" <> key]})
+        )
+        |> List.update_at(0, &Map.put(&1, "completion", %{"done" => true}))
+    }
+
+    # The widgets' list reads their cards, with how Facts presents the work on each, as a
+    # lookup: the rows stay the widgets.
+    assert List.last(Pages.reads({:list, "widget"}, @carded_start)) ==
+             {"card", %{"linked" => %{}, "plain" => true, "presentation" => true}}
+
+    assert List.last(Pages.read_roles({:list, "widget"}, @carded_start)) == :lookup
+
+    page = render({:list, "widget"}, @carded_start, [widgets, cards], %{by: "ada"})
+    [list] = for %{"type" => "list", "props" => props} <- page.blocks, do: props
+
+    assert for(row <- list["rows"], do: {row["id"], row["tone"], row["since"]}) == [
+             {"W-1", "attention", "2026-11-20T08:00:00Z"},
+             {"W-2", "active", "2026-11-24T10:30:00Z"},
+             {"W-3", "done", "2026-11-25T16:00:00Z"}
+           ]
+
+    # Whose the next step is decides: for bob, W-2 needs him and W-1 waits on someone else
+    # in a flow nobody supervises.
+    page = render({:list, "widget"}, @carded_start, [widgets, cards], %{by: "bob"})
+    [list] = for %{"type" => "list", "props" => props} <- page.blocks, do: props
+    assert Enum.map(list["rows"], & &1["tone"]) == ["waiting", "attention", "done"]
+
+    # What is assigned (Facts answers ada's cards; it leaves completed facts out) says the
+    # same of the same work; with no run to date it, since it was assigned.
+    [first | _] = cards["facts"]
+    undated = %{first | "presentation" => Map.delete(first["presentation"], "since")}
+    open = %{"facts" => Enum.map(widgets["facts"], &Map.delete(&1, "completion"))}
+    page = render({:assigned, "ada"}, @carded_start, [%{"facts" => [undated]}, open])
+
+    assert [%{"id" => "W-1", "tone" => "attention", "since" => "2026-11-01T09:00:00Z"}] =
+             by_id(page)["list"]["rows"]
+  end
+
   # Open work: the list of the cards is what is held, for everyone; a card is due by a time.
   @open AtlasControl.Model.catalog(Shop.Open)
 

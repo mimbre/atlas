@@ -6,7 +6,10 @@ defmodule AtlasTui.ConsoleProjectionFixture do
   # explicit page actions below; no production client derives keys from blocks.
   @captured __DIR__ |> Path.join("console-actions.json") |> File.read!() |> JSON.decode!()
 
-  def model(page) do
+  def model(page), do: projected(page, project(page))
+
+  @doc "The model on `message`: `page` as projected, with whatever a test added to it."
+  def projected(page, message) do
     model = Model.new("test")
 
     model = %{
@@ -31,7 +34,7 @@ defmodule AtlasTui.ConsoleProjectionFixture do
         }
     }
 
-    {model, []} = Console.receive(model, project(page))
+    {model, []} = Console.receive(model, message)
     model
   end
 

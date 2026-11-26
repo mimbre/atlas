@@ -24,7 +24,7 @@ scenario "UC-Atlas-01: Manage scenes", fn %{t1: t1, t2: t2, instance: instance} 
 
   step "Open: defaults, no Flux id", fn ->
     press(t1, "Escape")
-    see(t1, ~r/› SC-Atlas-\d+  Write the first scene/)
+    see(t1, ~r/› (● )?SC-Atlas-\d+\s+(\w+\s+)?Write the first scene/)
     open_row(t1, "Write the first scene")
     see(t1, ~r/Flux group\s+Refine/)
     refute_see(t1, "Flux id")
@@ -44,19 +44,19 @@ scenario "UC-Atlas-01: Manage scenes", fn %{t1: t1, t2: t2, instance: instance} 
 
   step "A refusal: an empty title", fn ->
     press(t1, "Escape")
-    see(t1, ~r/› SC-Atlas-\d+  Write the first scene \(changed\)/)
+    see(t1, ~r/› (● )?SC-Atlas-\d+\s+(\w+\s+)?Write the first scene \(changed\)/)
     press(t1, "c")
     see(t1, ~r/^ Create scene$/m)
     at = press(t1, "C-s")
     stored(t1, "title is required", at)
     see(t1, ~r/^ Create scene$/m)
     press(t1, "Escape")
-    see(t1, ~r/› SC-Atlas-\d+  Write the first scene \(changed\)/)
+    see(t1, ~r/› (● )?SC-Atlas-\d+\s+(\w+\s+)?Write the first scene \(changed\)/)
   end
 
   step "Delete; TUI 2 follows by hint", fn ->
     press(t2, "Escape")
-    see(t2, ~r/› SC-Atlas-\d+  Write the first scene \(changed\)/)
+    see(t2, ~r/› (● )?SC-Atlas-\d+\s+(\w+\s+)?Write the first scene \(changed\)/)
     press(t1, "c")
     see(t1, ~r/^ Create scene$/m)
     type(t1, "To be deleted")
@@ -68,7 +68,7 @@ scenario "UC-Atlas-01: Manage scenes", fn %{t1: t1, t2: t2, instance: instance} 
     see(t1, ~r/Delete scene SC-Atlas-\d+\?/)
     at = press(t1, "y")
     stored(t1, "✓ Stored", at)
-    see(t1, ~r/› SC-Atlas-\d+  Write the first scene \(changed\)/)
+    see(t1, ~r/› (● )?SC-Atlas-\d+\s+(\w+\s+)?Write the first scene \(changed\)/)
     gone(t1, "To be deleted", 1_000)
     by_hint(t2, "To be deleted", at, gone: true)
   end
@@ -78,6 +78,7 @@ scenario "UC-Atlas-01: Manage scenes", fn %{t1: t1, t2: t2, instance: instance} 
     for t <- [t1, t2], do: see(t, "Not connected to Control. Retrying…")
     for t <- [t1, t2], do: refute_see(t, "Write the first scene")
     AtlasE2E.Instance.start_core(instance)
-    for t <- [t1, t2], do: see(t, ~r/› SC-Atlas-\d+  Write the first scene \(changed\)/, 30_000)
+    for t <- [t1, t2],
+        do: see(t, ~r/› (● )?SC-Atlas-\d+\s+(\w+\s+)?Write the first scene \(changed\)/, 30_000)
   end
 end
