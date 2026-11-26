@@ -1,7 +1,8 @@
 import AtlasControlKit
 
 /// A `single_choice` block as it is chosen from, by key or by click: what Control sent,
-/// numbered, and what choosing does. Choosing submits exactly the option's `answer`, the
+/// numbered, the choice selected (the arrows move it, Return answers it; the recommended
+/// one at first), and what choosing does. Choosing submits exactly the option's `answer`, the
 /// call Control projects for it; an option given with a note (a decline) first asks for
 /// the note, as Control's own answer form does. The app decides nothing about an option:
 /// the order, the recommendation and the shortcuts are Control's.
@@ -22,6 +23,8 @@ public struct SingleChoice: Sendable, Equatable {
         case digit(Character)
         case enter
         case escape
+        case up
+        case down
     }
 
     /// What a key or a click does.
@@ -46,11 +49,17 @@ public struct SingleChoice: Sendable, Equatable {
     public var note = ""
     /// The number typed so far, when a choice takes more than one digit.
     public private(set) var typed = ""
+    /// The place of the choice Return answers.
+    public private(set) var selected = 0
 
     public init(_ block: SingleChoiceBlock) {
         self.block = block
         choices = Self.choices(block)
+        selected = Self.recommended(choices)
     }
+
+    /// The choice Return answers; nil only without choices.
+    public var selectedChoice: Choice? { choices.indices.contains(selected) ? choices[selected] : nil }
 
     /// Control sent the block again: the note form, and its note, stay only while the new
     /// block has an option with exactly the same answer call (the call names the decision),
@@ -58,16 +67,20 @@ public struct SingleChoice: Sendable, Equatable {
     public mutating func update(_ block: SingleChoiceBlock) {
         guard block != self.block else { return }
         self.block = block
+        let was = selectedChoice?.id
         choices = Self.choices(block)
         noting = noting.flatMap { old in choices.first { $0.option.answer == old.option.answer } }
         typed = ""
+        selected = choices.firstIndex { $0.id == was } ?? Self.recommended(choices)
     }
 
     /// Numbers of more than one digit are typed, then confirmed with Enter.
     public var multiDigit: Bool { choices.contains { $0.number.count > 1 } }
 
-    /// `0` is the recommended choice 1 again; another number chooses its choice. A number
-    /// no choice has, or a key while the note form is open, does nothing (Esc closes it).
+    /// `0` is the recommended choice 1 again; another number chooses its choice. The arrows
+    /// move the selection (not past the first or last), Return chooses the selected choice
+    /// (or, while a number of more than one digit is typed, that number's). A number no
+    /// choice has, or a key while the note form is open, does nothing (Esc closes it).
     public mutating func key(_ key: Key) -> Outcome {
         if noting != nil {
             if key == .escape { noting = nil }
@@ -83,18 +96,28 @@ public struct SingleChoice: Sendable, Equatable {
             typed.append(digit)
             return .nothing
         case .enter:
-            guard multiDigit, !typed.isEmpty else { return .nothing }
-            let number = typed
+            guard typed.isEmpty else {
+                let number = typed
+                typed = ""
+                return choose(number: number)
+            }
+            guard let choice = selectedChoice else { return .nothing }
+            return choose(choice)
+        case .up, .down:
             typed = ""
-            return choose(number: number)
+            guard !choices.isEmpty else { return .nothing }
+            selected = key == .up ? max(selected - 1, 0) : min(selected + 1, choices.count - 1)
+            return .nothing
         }
     }
 
     /// A key the block has the focus for: what it does, or nil when the block leaves it to
     /// the view below (the note field while its form is open, or a key that does nothing
-    /// with no number being typed).
+    /// with no number being typed). The arrows are the block's while it has choices, also
+    /// at the first or last, so they never move the selection of the list around it.
     public mutating func press(_ key: Key) -> Outcome? {
         guard noting == nil else { return nil }
+        if key == .up || key == .down { return choices.isEmpty ? nil : self.key(key) }
         let wasTyping = !typed.isEmpty
         let outcome = self.key(key)
         if outcome == .nothing, !wasTyping, typed.isEmpty { return nil }
@@ -111,10 +134,12 @@ public struct SingleChoice: Sendable, Equatable {
         return choices.contains { $0.number == String(c) }
     }
 
-    /// Choose this choice (a click, or its number).
+    /// Choose this choice (a click, its number, or Return); it becomes the selected one.
     public mutating func choose(_ choice: Choice) -> Outcome {
-        guard let choice = choices.first(where: { $0 == choice }) else { return .nothing }
+        guard let index = choices.firstIndex(of: choice) else { return .nothing }
+        let choice = choices[index]
         typed = ""
+        selected = index
         if choice.needsNote {
             noting = choice
             return .askNote(choice)
@@ -140,6 +165,11 @@ public struct SingleChoice: Sendable, Equatable {
         let choice = normalized.isEmpty ? choices.first : choices.first { $0.number == String(normalized) }
         guard let choice else { return .nothing }
         return choose(choice)
+    }
+
+    /// The recommended choice's place, else the first's.
+    private static func recommended(_ choices: [Choice]) -> Int {
+        choices.firstIndex(where: \.recommended) ?? 0
     }
 
     private static func choices(_ block: SingleChoiceBlock) -> [Choice] {

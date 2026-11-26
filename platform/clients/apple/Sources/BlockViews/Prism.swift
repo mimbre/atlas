@@ -21,6 +21,15 @@ enum Prism {
         static let grey5 = Color(hex: 0xF6F6F6)
         static let grey6 = Color(hex: 0xFAFAFA)
         static let white = Color(hex: 0xFFFFFF)
+        /// Primary at 97%: the lightest shade of it under which white text is 4.5:1 (primary
+        /// itself is 4.3:1), for bars with white text. As the TUI's `primaryshade`.
+        static let primaryShade = Color(hex: 0x406FE8)
+
+        /// Muted text that stays 4.5:1 on a card: grey1, softened, in light appearance
+        /// (grey2 is 2.8:1 on white); grey2 in dark.
+        static func muted(_ scheme: ColorScheme) -> Color {
+            scheme == .dark ? grey2 : grey1.opacity(0.8)
+        }
     }
 
     /// `default` radius, 0.25rem.
