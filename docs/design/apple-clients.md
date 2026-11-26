@@ -210,17 +210,16 @@ full width.
   column's width.
 - A page whose markup has a `part` of role `details` (the item's facts where its owner
   decides: its key, state, for whom and from whom since when, what it is about or based
-  on, and note, evidence or deadline once filled) shows them in a column of their own
-  **beside** the main one, 4 apart, at least 40 and at most 100 wide, growing with the
-  room; the two centred together. The TUI does so from **144** columns (the main column
-  keeps its 100). The Mac app does so in the normal case: from **104** characters of the
-  page's column, with the main column at least 60 wide and growing first. Narrower, the
-  details come under the main column, compact.
+  on, and note, evidence or deadline once filled) shows them in the TUI in a column of
+  their own **beside** the main one from **144** columns: 4 apart, at least 40 and at
+  most 100 wide, growing with the room; the two centred together. Narrower, the details
+  come under the main column, compact. The Mac app, calmer, keeps them **under** what
+  is decided at every width, as a card.
 - Parts side by side (`main`/`related`/`todo`, from 120 columns) keep the full width.
 
 The TUI keeps these in `AtlasTui.View` (`@measure`, `@gap`, `@side_least`, `@beside`,
 `body_width/2`); the Mac in `Prism` (`characterWidth`, about one character of
-`Typography.bodySmall`, and the widths made of it), applied by `PageView`. Behaviour tests:
+`Typography.bodySmall`, and `readableWidth`), applied by `PageView`. Behaviour tests:
 `AtlasTuiTest` (markup) and `PresentationTest` in the TUI, `ReadableWidthTests` on the Mac.
 
 ### The shell (approved, 2026-11-13)
