@@ -127,6 +127,7 @@ defmodule AtlasControl.PanelTest do
 
     assert p["heading"] == "TO ACCEPT"
     assert p["title"] == "Parts of W-1 · Lamp"
+    assert p["key"] == "W-1"
     assert p["aside"] == "2 parts"
 
     assert p["byline"] == [

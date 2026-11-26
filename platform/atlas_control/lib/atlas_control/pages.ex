@@ -2899,9 +2899,23 @@ defmodule AtlasControl.Pages do
   end
 
   defp untitled(%{"type" => "list", "props" => %{"title" => title} = props} = block, title),
-    do: %{block | "props" => Map.delete(props, "title")}
+    do: unshared(%{block | "props" => Map.delete(props, "title")})
 
-  defp untitled(block, _title), do: block
+  defp untitled(block, _title), do: unshared(block)
+
+  # A list's rows (two or more) that all have the same detail do not each say it: the list
+  # says it (every to-do "To do"). Where they differ, each row keeps its own.
+  defp unshared(%{"type" => "list", "props" => %{"rows" => [_, _ | _] = rows} = props} = block) do
+    case Enum.uniq_by(rows, & &1["detail"]) do
+      [%{"detail" => detail}] when detail not in [nil, ""] ->
+        %{block | "props" => %{props | "rows" => Enum.map(rows, &Map.delete(&1, "detail"))}}
+
+      _ ->
+        block
+    end
+  end
+
+  defp unshared(block), do: block
 
   # A relation a route names that the model does not have: nothing to set or show.
   defp missing_relation(relation),
@@ -3334,12 +3348,19 @@ defmodule AtlasControl.Pages do
 
     Blocks.steps(
       title: title,
+      key: key,
       why: why,
       since: todo.why.since,
       steps:
         for(
           s <- steps,
-          do: Blocks.instruction_step(n: s.n, text: s.text, commands: s.commands)
+          do:
+            Blocks.instruction_step(
+              n: s.n,
+              text: s.text,
+              commands: s.commands,
+              submit_to: call_to({:step, kind, key, s.n})
+            )
         ),
       current: current,
       actions: moves ++ page_actions(page)
@@ -3398,7 +3419,8 @@ defmodule AtlasControl.Pages do
       recommended: choice["recommended"],
       rationale: choice["rationale"],
       revision: choice["revision"],
-      instructions: todo.instructions <> choice_keys(length(options))
+      instructions: todo.instructions <> choice_keys(length(options)),
+      key: key
     )
   end
 
@@ -3459,6 +3481,7 @@ defmodule AtlasControl.Pages do
       Blocks.panel(
         heading: spec["heading"] || "",
         title: template(scope, spec["title"] || "") || "—",
+        key: key,
         aside: aside,
         byline: byline(scope, spec["byline"] || [], todo),
         items: items,
