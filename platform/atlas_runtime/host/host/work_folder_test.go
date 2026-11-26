@@ -255,6 +255,9 @@ func TestWorkFolderProfilesDenyHomeEntriesCreatedDuringTheTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The home is a sibling of the user home, outside its Codex config ceiling: stop the walk at
+	// their common test root, so a real home above TMPDIR is never read.
+	limitCodexConfigWalk(t, filepath.Dir(parent))
 	home, work, scope := workFolderHome(t, parent)
 	if within(user, home) {
 		t.Fatalf("the home %s must lie outside the user home %s", home, user)

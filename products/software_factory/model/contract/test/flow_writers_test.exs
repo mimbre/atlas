@@ -117,9 +117,16 @@ defmodule Model.FlowWritersTest do
     end
   end
 
-  test "6. the issue's CI gate fences the CI status itself: Flow may set the connector's pr_checks" do
-    entry = %{"pr_checks" => "pending", "ci_fixes" => "one"}
-    change = {"issue", %{"op" => "change", "key" => "IS-1", "values" => entry, "links" => %{}}}
-    assert check(change, as("flow")) == :ok
+  test "6. the issue's CI gate: Flow writes the head Code pushed, and may set the connector's fields" do
+    head = "4700aac3d6324787f005dcf0d3bbc78ec24b2299"
+
+    for entry <- [
+          %{"pr_head" => head, "pr_url" => "https://github.com/o/r/pull/9"},
+          %{"pr_state" => "open", "ci_green" => "yes", "ci_fixes" => "one"},
+          %{"pr_checks" => "pending"}
+        ] do
+      change = {"issue", %{"op" => "change", "key" => "IS-1", "values" => entry, "links" => %{}}}
+      assert check(change, as("flow")) == :ok, inspect(entry)
+    end
   end
 end

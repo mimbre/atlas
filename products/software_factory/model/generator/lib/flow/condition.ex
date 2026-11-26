@@ -1,7 +1,9 @@
 defmodule RelaDSL.Flow.Condition do
   @moduledoc """
   The closed grammar of a subflow's conditions (a branch's `when:`, a predicate start),
-  compiled when the model compiles: comparisons of `entity.<field>` with a literal, a
+  compiled when the model compiles: comparisons of `entity.<field>` with a literal, an
+  equality of two fields (`entity.<field> == entity.<other>`, or `!=`: two values that
+  must agree, such as the head a status was read for and the head pushed), a
   parenthesised condition negated (`not (…)`, the negation the pinned rela parses: it has
   no `!`), then `and`, then `or`, and parentheses. A text outside the grammar does not
   compile.
@@ -102,6 +104,10 @@ defmodule RelaDSL.Flow.Condition do
       _ -> {:error, :unsupported_condition}
     end
   end
+
+  # Two fields agree, or differ: only `==` and `!=`, which hold on any two values.
+  defp comparison(["entity." <> field, op, "entity." <> other | rest], _) when op in ~w(== !=),
+    do: {:ok, {op, {:field, field}, {:field, other}}, rest}
 
   defp comparison(["entity." <> field, op, token | rest], _) when op in ~w(== != > >= < <=) do
     case literal(token) do

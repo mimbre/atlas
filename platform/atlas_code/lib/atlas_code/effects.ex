@@ -72,8 +72,9 @@ defmodule AtlasCode.Effects do
   "findings"}`: what an independent review of the result found) and its `fix` (`%{"task",
   "answer"}`: the task that fixed those findings, whose result this is; its commit sits on
   the author's, both on `base`); an input without a `review` says that no review was made.
-  Done, with `reference` and `outputs` `%{"url"}`, is that
-  pull's web address. A repeat first looks the branch's pull up, so it is never opened
+  Done, with `reference` and `outputs` `%{"url", "head"}`, is that
+  pull's web address and the commit Code pushed as its head (IS-Atlas-120: its CI is
+  waited for on that head). A repeat first looks the branch's pull up, so it is never opened
   twice; a branch already at another commit is refused `branch_taken`.
 
   **No pull without changes** (IS-Atlas-64). A result with no changes against `base` is
@@ -425,7 +426,7 @@ defmodule AtlasCode.Effects do
     with {:ok, pull} <- module.pull(config, slug, pull_number(url)) do
       cond do
         pull["head"] == record["commit"] ->
-          {:outcome, published(url)}
+          {:outcome, published(url, record["commit"])}
 
         pull["merged"] == true or pull["state"] != "open" ->
           {:outcome, refused("closed", %{"pull" => url})}
@@ -433,7 +434,7 @@ defmodule AtlasCode.Effects do
         true ->
           case module.push(config, slug, record["dir"], record["commit"], pull["head_ref"]) do
             :ok ->
-              {:outcome, published(url)}
+              {:outcome, published(url, record["commit"])}
 
             {:error, :branch_taken} ->
               {:outcome, refused("branch_taken", %{"branch" => pull["head_ref"]})}
@@ -465,9 +466,9 @@ defmodule AtlasCode.Effects do
          :ok <- module.push(config, slug, record["dir"], record["commit"], branch),
          :some <- github_changes(s, record, slug),
          {:ok, url} <- module.create_pull(config, slug, pull) do
-      {:outcome, published(url)}
+      {:outcome, published(url, record["commit"])}
     else
-      {:ok, url} when is_binary(url) -> {:outcome, published(url)}
+      {:ok, url} when is_binary(url) -> {:outcome, published(url, record["commit"])}
       {:error, :branch_taken} -> {:outcome, refused("branch_taken", %{"branch" => branch})}
       :none -> {:outcome, refused("no_changes", %{"base" => r["input"]["base"]})}
       {:unknown, details} -> {:outcome, refused("changes_unknown", details)}
@@ -659,7 +660,9 @@ defmodule AtlasCode.Effects do
   defp refused(reason, details),
     do: %{"status" => "refused", "reason" => reason, "details" => details}
 
-  defp published(url), do: %{"status" => "done", "reference" => url, "outputs" => %{"url" => url}}
+  # The pull's address, and the commit Code pushed as its head.
+  defp published(url, head),
+    do: %{"status" => "done", "reference" => url, "outputs" => %{"url" => url, "head" => head}}
 
   # The pull's body: the subject's description, its review and fix, what merging it does, and
   # who wrote it. No closing keyword in it reaches a reference (IS-Atlas-136): merging the pull
