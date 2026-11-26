@@ -93,7 +93,7 @@ defmodule Model.ToDo do
     start :create
     initial :open
 
-    state :open, label: "To do" do
+    state :open, label: "Open" do
       wait_for [:assignee], on: :status, reset: false, done: :done, wont_do: :wont_do
 
       present(

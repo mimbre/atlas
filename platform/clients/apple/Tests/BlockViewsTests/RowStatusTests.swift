@@ -37,3 +37,26 @@ final class RowStatusTests: XCTestCase {
         XCTAssertNil(RowTone(nil))
     }
 }
+
+/// What a list row's card says on its top line, and how long its title may be.
+final class RowCardTextTests: XCTestCase {
+    func testTheTopLineNamesTheKindInCapitalsThenTheKey() {
+        XCTAssertEqual(RowCardText.kindAndKey(kind: "Decision", id: "D-0104"), "DECISION · D-0104")
+        XCTAssertEqual(RowCardText.kindAndKey(kind: "To-Do", id: "TD-09"), "TO-DO · TD-09")
+        // An older Control sends no kind: the key alone; neither: nothing.
+        XCTAssertEqual(RowCardText.kindAndKey(kind: nil, id: "D-0104"), "D-0104")
+        XCTAssertEqual(RowCardText.kindAndKey(kind: "Decision", id: nil), "DECISION")
+        XCTAssertNil(RowCardText.kindAndKey(kind: nil, id: nil))
+    }
+
+    func testAStateIsShownOnlyWhenControlSendsOne() {
+        XCTAssertEqual(RowCardText.state("waiting for you"), "waiting for you")
+        // A list whose rows all share it: Control sends none, and the card says none.
+        XCTAssertNil(RowCardText.state(nil))
+        XCTAssertNil(RowCardText.state(""))
+    }
+
+    func testATitleTakesUpToTwoLines() {
+        XCTAssertEqual(RowCardText.titleLines, 2)
+    }
+}

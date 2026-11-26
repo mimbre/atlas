@@ -244,6 +244,12 @@ defmodule AtlasControl.PagesTest do
              list["actions"]
   end
 
+  test "a row names its item's kind in plain words" do
+    answer = %{"facts" => [fact("W-1", %{"title" => "One"})]}
+    %{blocks: [%{"props" => list}]} = render({:list, "widget"}, @d, [answer])
+    assert [%{"id" => "W-1", "kind" => "Widget"}] = list["rows"]
+  end
+
   test "rows that all say the same detail say none; one that differs keeps every detail" do
     dark = fn key -> fact(key, %{"title" => key, "shade" => "dark"}) end
 
