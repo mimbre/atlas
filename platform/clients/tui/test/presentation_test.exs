@@ -301,21 +301,30 @@ defmodule AtlasTui.PresentationTest do
     end
   end
 
-  test "one column of page content is at most 100 wide and centred; the chrome spans the terminal" do
+  test "narrower than 80 a row keeps its key and title and drops its state" do
+    wide = model() |> View.render(80, 40, 5) |> View.plain()
+    assert wide =~ ~r/W-01  .*Descriptive/u
+
+    narrow = model() |> View.render(79, 40, 5) |> View.plain()
+    assert narrow =~ ~r/› W-01  A title/u
+    refute narrow =~ "Descriptive"
+    refute narrow =~ "Another detail"
+  end
+
+  test "one column of page content is at most 100 wide from the left edge; the chrome spans the terminal" do
     model = model()
 
-    for {width, body, margin} <- [{140, 100, 20}, {80, 80, 0}] do
+    for {width, body} <- [{140, 100}, {80, 80}] do
       text = model |> View.render(width, 40, 5) |> View.plain() |> String.split("\n")
       header = AtlasTui.ConsoleView.header(model, width)
       assert View.body_width(model, width) == body
 
-      # The body sits between the margins: its rows start at the left one and no page line
-      # reaches past the right one.
+      # The body starts at the left edge, not centred, and no page line reaches past its
+      # width: the room left over is at the far right.
       row = Enum.find(text, &(&1 =~ "› W-01"))
-      assert String.length(row) - String.length(String.trim_leading(row)) >= margin
+      assert String.starts_with?(row, " › W-01")
       page = text |> Enum.drop(length(header)) |> Enum.drop(-3)
-      assert Enum.all?(page, &(String.length(&1) <= margin + body))
-
+      assert Enum.all?(page, &(String.length(&1) <= body))
       # The tab/title bar and the footer rule span the whole terminal.
       [bar | _] = header
       assert Enum.sum(Enum.map(bar, &String.length(elem(&1, 1)))) >= width

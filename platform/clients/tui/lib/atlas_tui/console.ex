@@ -330,9 +330,7 @@ defmodule AtlasTui.Console do
   def cycle(model, step) do
     console = model.console
 
-    if console.shell && !console.stale && model.connected && console.phase == :ready &&
-         !console.restoring &&
-         !draft?(model) do
+    if tabs_open?(model) do
       tabs = Enum.filter(console.shell["tabs"], &work?/1)
       index = Enum.find_index(tabs, &(&1["id"] == console.active))
       browse? = console.active != nil and index == nil
@@ -345,15 +343,30 @@ defmodule AtlasTui.Console do
           true -> Enum.at(tabs, Integer.mod((index || 0) + step, length(tabs)))
         end
 
-      if target do
-        {model, effects} = navigate(afresh(model), target["to"])
-        reopen(model, effects, target["to"], model.console.selections[target["to"]], %{})
-      else
-        {model, []}
-      end
+      if target, do: to_tab(model, target["to"]), else: {model, []}
     else
       {model, []}
     end
+  end
+
+  @doc """
+  Opens the page of a tab or of one of its groups (`to`, as the sidebar and Tab do), as it
+  was left there; nothing while a tab cannot be left (a draft, a stale shell, …).
+  """
+  def to_tab(model, to) do
+    if tabs_open?(model) do
+      {model, effects} = navigate(afresh(model), to)
+      reopen(model, effects, to, model.console.selections[to], %{})
+    else
+      {model, []}
+    end
+  end
+
+  defp tabs_open?(model) do
+    console = model.console
+
+    console.shell != nil and !console.stale and model.connected and console.phase == :ready and
+      !console.restoring and !draft?(model)
   end
 
   @doc "Whether `tab` is a work tab; a tab without a section is one."
