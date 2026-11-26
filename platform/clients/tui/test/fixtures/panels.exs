@@ -56,9 +56,17 @@ defmodule AtlasTui.PanelFixture do
           "tone" => "warning"
         }),
         answers([
-          %{"label" => "Inspector's log", "key" => "l", "to" => "/k/run/W-7"},
-          %{"label" => "More…", "key" => "m", "to" => @decision <> "/more"}
+          %{"label" => "Inspector's log", "key" => "l", "to" => "/k/run/W-7"}
         ]),
+        %{
+          "id" => "actions",
+          "type" => "actions",
+          "props" => %{
+            "actions" => [
+              %{"label" => "Update decision", "key" => "u", "to" => @decision <> "/edit"}
+            ]
+          }
+        },
         %{
           "id" => "item",
           "type" => "item",

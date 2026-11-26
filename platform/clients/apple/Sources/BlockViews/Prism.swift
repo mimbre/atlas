@@ -24,27 +24,6 @@ enum Prism {
         /// Primary at 97%: the lightest shade of it under which white text is 4.5:1 (primary
         /// itself is 4.3:1), for bars with white text. As the TUI's `primaryshade`.
         static let primaryShade = Color(hex: 0x406FE8)
-
-        /// Muted text that stays 4.5:1 on a card: grey1, softened, in light appearance
-        /// (grey2 is 2.8:1 on white); grey2 in dark.
-        static func muted(_ scheme: ColorScheme) -> Color {
-            scheme == .dark ? grey2 : grey1.opacity(0.8)
-        }
-
-        /// Primary as text (a panel's eyebrow): primary is 4.3:1 on white, so a shade of it
-        /// in light (4.7:1 on grey5, more on white), a tint of it in dark (6.2:1 on #1E1E1E).
-        static func accentText(_ scheme: ColorScheme) -> Color {
-            scheme == .dark ? Color(hex: 0x7B9AF4) : Color(hex: 0x3A66DB)
-        }
-
-        /// Prism's selection tint for a row: primarylight under dark text in light
-        /// appearance; in dark appearance primary, faint, so light text stays legible.
-        static func row(_ scheme: ColorScheme, selected: Bool, hovering: Bool) -> Color {
-            let dark = scheme == .dark
-            if selected { return dark ? primary.opacity(0.35) : primaryLight }
-            if hovering { return dark ? Color.primary.opacity(0.06) : grey5 }
-            return .clear
-        }
     }
 
     /// `default` radius, 0.25rem.
@@ -118,8 +97,7 @@ extension View {
     }
 }
 
-/// A calm card: white in light appearance, the system background in dark, so its text
-/// keeps the system's legible colours either way.
+/// A calm card (`PrismDarkGap.card`).
 struct PrismCard: ViewModifier {
     @Environment(\.colorScheme) private var scheme
 
@@ -131,19 +109,13 @@ struct PrismCard: ViewModifier {
             // it so no column, list row or scroll edge cuts it off.
             .background {
                 RoundedRectangle(cornerRadius: Prism.radius)
-                    .fill(scheme == .dark ? Self.systemBackground : Prism.Colors.white)
+                    .fill(PrismDarkGap.card(scheme))
                     .prismShadow(Prism.cardShadow)
             }
             .padding(.horizontal, Prism.Spacing.s13)
             .padding(.top, Prism.Spacing.s9)
             .padding(.bottom, Prism.Spacing.s19)
     }
-
-    #if canImport(AppKit)
-    static let systemBackground = Color(nsColor: .controlBackgroundColor)
-    #else
-    static let systemBackground = Color(uiColor: .secondarySystemBackground)
-    #endif
 }
 
 /// The card of the panel a page leads with: white in light, a raised surface in dark,
@@ -166,12 +138,12 @@ struct PanelCard: ViewModifier {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 shape
-                    .fill(scheme == .dark ? Color(white: 0.17) : Prism.Colors.white)
-                    .prismShadow(Prism.Shadow(color: .black.opacity(scheme == .dark ? 0.4 : 0.14), radius: 12, y: 5))
+                    .fill(PrismDarkGap.panelCard(scheme))
+                    .prismShadow(Prism.Shadow(color: PrismDarkGap.panelShadow(scheme), radius: 12, y: 5))
             }
             .overlay {
                 if focusable, panelKeys?.focus == .panel {
-                    shape.strokeBorder(Prism.Colors.accentText(scheme), lineWidth: 1.5)
+                    shape.strokeBorder(PrismDarkGap.accentText(scheme), lineWidth: 1.5)
                 }
             }
             .contentShape(shape)
@@ -207,9 +179,119 @@ struct RecessedCard: ViewModifier {
             .padding(.horizontal, Prism.Spacing.s15)
     }
 
-    private var fill: Color {
-        let dark = scheme == .dark
-        if error { return dark ? Prism.Colors.error.opacity(0.14) : Prism.Colors.errorLight }
-        return dark ? Color(white: 0.08) : Prism.Colors.grey5
+    private var fill: Color { PrismDarkGap.recessed(scheme, error: error) }
+}
+
+// Prism's `Tag` and `Button`, drawn as Prism's Swift package draws them (prism
+// `targets/swift/Sources/Prism/Tag.swift`, `Button.swift`): the same tokens, radius and
+// padding. Copied until Prism's package supports macOS; then Prism's own replace these.
+
+/// A tag's tone, as Prism's.
+enum PrismTagTone { case accent, success, warning, danger, neutral }
+
+/// Prism's `Tag`: a label in the tone's colour on the tone at 20%, over white; radius
+/// default, padding 6 × 12, 14/16 at subheading weight.
+struct PrismTag: View {
+    let text: String
+    var tone: PrismTagTone = .accent
+
+    var body: some View {
+        Text(text).font(.system(size: 14, weight: .medium)).lineSpacing(2)
+            .foregroundStyle(color)
+            .padding(.vertical, 6).padding(.horizontal, 12)
+            .background(color.opacity(0.2), in: RoundedRectangle(cornerRadius: Prism.radius))
+            .background(Prism.Colors.white, in: RoundedRectangle(cornerRadius: Prism.radius))
+            .fixedSize()
+    }
+
+    private var color: Color {
+        switch tone {
+        case .accent: Prism.Colors.primary
+        case .success: Prism.Colors.success
+        case .warning: Prism.Colors.warning
+        case .danger: Prism.Colors.error
+        case .neutral: Color(hex: 0x666666)
+        }
+    }
+}
+
+/// A button's variant and tone, as Prism's (those Atlas uses).
+enum PrismButtonVariant { case primary, secondary, plain, text }
+enum PrismButtonTone { case accent, success, warning, danger, neutral }
+
+/// Prism's `Button` look as a `ButtonStyle`: radius default, the button type (18/18,
+/// strong). `primary`: filled in the tone (accent: primary), white label, padding 15 × 16.
+/// `secondary`: no fill, a 2pt border and label in the tone, padding 13 × 16. `plain`:
+/// grey1 label, `text`: the tone's label; both padding 15 × 16, or 4 × 0 (plain) and 1 × 0
+/// (text) when not `padded`. Pressed, primary and secondary sink as Prism's do; disabled,
+/// at half opacity. Prism's grey1 has no dark value (`PrismDarkGap.text`).
+struct PrismButtonStyle: ButtonStyle {
+    var variant: PrismButtonVariant
+    var tone: PrismButtonTone = .accent
+    var padded = true
+
+    init(_ variant: PrismButtonVariant, tone: PrismButtonTone = .accent, padded: Bool = true) {
+        self.variant = variant
+        self.tone = tone
+        self.padded = padded
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        Look(style: self, configuration: configuration)
+    }
+
+    private struct Look: View {
+        let style: PrismButtonStyle
+        let configuration: Configuration
+        @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.colorScheme) private var scheme
+
+        var body: some View {
+            let pressed = configuration.isPressed
+            let (top, side, bottom) = padding(pressed)
+            configuration.label
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(foreground)
+                .padding(.top, top).padding(.bottom, bottom).padding(.horizontal, side)
+                .background(fill, in: RoundedRectangle(cornerRadius: Prism.radius))
+                .overlay {
+                    if style.variant == .secondary {
+                        RoundedRectangle(cornerRadius: Prism.radius).strokeBorder(toneColor, lineWidth: 2)
+                    }
+                }
+                .opacity(isEnabled || style.variant == .plain || style.variant == .text ? 1 : 0.5)
+                .contentShape(Rectangle())
+                .animation(.easeInOut(duration: 0.15), value: pressed)
+        }
+
+        private var toneColor: Color {
+            switch style.tone {
+            case .accent: Prism.Colors.primary
+            case .success: Prism.Colors.success
+            case .warning: Prism.Colors.warning
+            case .danger: Prism.Colors.error
+            case .neutral: PrismDarkGap.text(scheme)
+            }
+        }
+
+        private var foreground: Color {
+            switch style.variant {
+            case .primary: Prism.Colors.white
+            case .secondary, .text: toneColor
+            case .plain: style.tone == .accent ? PrismDarkGap.text(scheme) : toneColor
+            }
+        }
+
+        private var fill: Color { style.variant == .primary ? toneColor : .clear }
+
+        private func padding(_ pressed: Bool) -> (CGFloat, CGFloat, CGFloat) {
+            switch style.variant {
+            case .primary: pressed ? (16, 16, 14) : (15, 16, 15)
+            // Prism's 13 × 16 inside its 2pt border, which SwiftUI draws within the padding.
+            case .secondary: pressed ? (16, 18, 14) : (15, 18, 15)
+            case .plain: style.padded ? (pressed ? (16, 16, 14) : (15, 16, 15)) : (pressed ? (5, 0, 3) : (4, 0, 4))
+            case .text: style.padded ? (pressed ? (16, 16, 14) : (15, 16, 15)) : (pressed ? (2, 0, 0) : (1, 0, 1))
+            }
+        }
     }
 }

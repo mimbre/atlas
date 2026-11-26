@@ -38,7 +38,6 @@ final class PanelTests: XCTestCase {
         "actions": [
             ["label": "Accept", "key": "a", "to": "/k/gadget/UC-1/answer/a", "submit_to": call("accept"), "page": true],
             ["label": "Not accepted", "key": "n", "to": "/k/gadget/UC-1/answer/n", "page": true],
-            ["label": "More…", "key": "m", "to": "/k/gadget/UC-1/more", "page": true],
         ],
     ]]
 
@@ -106,7 +105,7 @@ final class PanelTests: XCTestCase {
         XCTAssertNil(no.submitTo)
         XCTAssertEqual(no.to, "/k/gadget/UC-1/answer/n")
         XCTAssertEqual(PageActions.action(key: "i", on: [page])?.to, "/k/inspection/IN-2")
-        XCTAssertEqual(PageActions.ofPage(page).map(\.key), ["m"])
+        XCTAssertEqual(PageActions.ofPage(page), [])
         XCTAssertEqual(PageActions.label(of: Self.acceptCall, on: [page]), "Accept")
 
         // Its links open in the browser by their keys; only http and https ones.

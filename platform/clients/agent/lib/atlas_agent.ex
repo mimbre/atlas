@@ -422,24 +422,8 @@ defmodule AtlasAgent do
   def actions(page), do: found(page, :action)
 
   @doc """
-  The actions Control offers on `page`, as `actions/1`; one that opens a fact's secondary
-  menu (the contract's `more` page, its More…) holds that menu's actions (`"more"`).
-  """
-  def actions(client, page) do
-    for action <- actions(page) do
-      with {:ok, :more, _} <- AtlasBFF.Paths.match(@contract.pages, action["to"]),
-           {:ok, menu} <- page(client, action["to"]) do
-        Map.put(action, "more", actions(menu))
-      else
-        _ -> action
-      end
-    end
-  end
-
-  @doc """
   Do the action labelled (or keyed) `name` on the page at `at` (a key or a path), as the
-  TUI does; one the page offers under its More… is done as well, when the page offers
-  none by that name itself. An action with a `submit_to` is submitted; otherwise its page
+  TUI does. An action with a `submit_to` is submitted; otherwise its page
   is opened, and the one call that page offers (a form's `submit_to`, a confirm's
   `confirm_to`) is submitted with its inputs' values, `values` (input name to text)
   replacing them. A page that offers no call is answered as it is; so is any page when
@@ -447,7 +431,7 @@ defmodule AtlasAgent do
   """
   def act(client, at, name, values, submit? \\ true) do
     with {:ok, page} <- page(client, at),
-         {:ok, action} <- action(page, actions(client, page), name) do
+         {:ok, action} <- action(page, actions(page), name) do
       if action["submit_to"] && submit? do
         submitted(Client.submit(client, action["submit_to"], values))
       else
@@ -467,36 +451,16 @@ defmodule AtlasAgent do
     end
   end
 
-  # The one action by `name` among those offered, else among those under a More….
+  # The one action by `name` among those offered.
   defp action(page, offered, name) do
-    named = &(name in [&1["label"], &1["key"]])
-    under = Enum.flat_map(offered, &(&1["more"] || []))
-
-    case Enum.filter(offered, named) do
+    case Enum.filter(offered, &(name in [&1["label"], &1["key"]])) do
       [action] ->
         {:ok, action}
 
-      [] when under != [] ->
-        case Enum.filter(under, named) do
-          [action] -> {:ok, action}
-          _ -> not_offered(page, offered, name)
-        end
-
       _ ->
-        not_offered(page, offered, name)
+        labels = Enum.map_join(offered, ", ", &inspect(&1["label"]))
+        {:error, "#{page["path"]} offers no single action #{inspect(name)}; it offers #{labels}"}
     end
-  end
-
-  defp not_offered(page, offered, name) do
-    labels =
-      Enum.map_join(offered, ", ", fn a ->
-        case a["more"] do
-          nil -> inspect(a["label"])
-          more -> "#{inspect(a["label"])} (#{Enum.map_join(more, ", ", &inspect(&1["label"]))})"
-        end
-      end)
-
-    {:error, "#{page["path"]} offers no single action #{inspect(name)}; it offers #{labels}"}
   end
 
   # What a block offers to submit: each call among its own fields, with the inputs it holds.

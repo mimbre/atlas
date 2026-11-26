@@ -30,7 +30,9 @@ final class TodoPageTests: XCTestCase {
         ["id": "answers", "type": "answers", "props": ["answers": [
             ["label": "Done", "key": "x", "to": "/k/chore/TD-12/answer/x", "submit_to": doneCall],
             ["label": "Won't do", "key": "n", "to": "/k/chore/TD-12/answer/n", "note": true],
-            ["label": "More…", "key": "m", "to": "/k/chore/TD-12/more"],
+        ]]],
+        ["id": "actions", "type": "actions", "props": ["actions": [
+            ["label": "Update chore", "key": "u", "to": "/k/chore/TD-12/edit"],
         ]]],
         ["id": "item", "type": "item", "props": ["title": "Chore TD-12", "fields": [["label": "Id", "value": "TD-12"]],
                                                  "actions": []]],
@@ -73,13 +75,13 @@ final class TodoPageTests: XCTestCase {
     func testTheAnswersAreThePageActionsOnTheirKeysAndNoKeyMovesBetweenSteps() throws {
         let page = try Self.page()
 
-        XCTAssertEqual(PageActions.all(page).map(\.key), ["x", "n", "m"])
+        XCTAssertEqual(PageActions.all(page).map(\.key), ["x", "n", "u"])
         let done = try XCTUnwrap(PageActions.action(key: "x", on: [page]))
         XCTAssertEqual(done.submitTo, CallModel(endpoint: "answer", params: ["kind": "chore", "key": "TD-12", "answer": "done"]))
         let wont = try XCTUnwrap(PageActions.action(key: "n", on: [page]))
         XCTAssertNil(wont.submitTo, "a no opens its note form")
         XCTAssertEqual(wont.to, "/k/chore/TD-12/answer/n")
-        XCTAssertEqual(PageActions.action(key: "m", on: [page])?.to, "/k/chore/TD-12/more")
+        XCTAssertEqual(PageActions.action(key: "u", on: [page])?.to, "/k/chore/TD-12/edit", "an other action keeps its key")
         for key in ["Enter", "Up", "Down"] {
             XCTAssertNil(PageActions.action(key: key, on: [page]), "\(key) moves no step")
         }
@@ -90,7 +92,6 @@ final class TodoPageTests: XCTestCase {
         var blocks = Self.blocks
         blocks[blocks.count - 1] = ["id": "item", "type": "item", "props": ["title": "Chore TD-12", "fields": [], "actions": [
             ["label": "Done", "key": "x", "to": "/k/chore/TD-12/answer/x", "submit_to": Self.doneCall, "page": true],
-            ["label": "More…", "key": "m", "to": "/k/chore/TD-12/more", "page": true],
             ["label": "Hand over", "key": "h", "to": "/k/chore/TD-12/hand_over", "page": true],
         ]]]
 

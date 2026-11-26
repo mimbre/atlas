@@ -36,7 +36,7 @@ final class DecisionPageTests: XCTestCase {
         option(3, "Decline", badge: "Decline · note", tone: "warning",
                fields: [("Details", "Keep things as they are.")],
                answer: ["label": "Decline…", "key": "3", "to": "/k/decision/D-7/answer/3", "note": true]),
-        ["id": "answers", "type": "answers", "props": ["answers": [["label": "More…", "key": "m", "to": "/k/decision/D-7/more"]]]],
+        ["id": "actions", "type": "actions", "props": ["actions": [["label": "Update decision", "key": "u", "to": "/k/decision/D-7/edit"]]]],
         ["id": "item", "type": "item", "props": ["title": "Decision D-7", "fields": [["label": "Id", "value": "D-7"]], "actions": []]],
     ]
 
@@ -51,7 +51,9 @@ final class DecisionPageTests: XCTestCase {
                answer: ["label": "Choose", "key": "c", "to": "/k/widget/W-1/answer/c"]),
         ["id": "answers", "type": "answers", "props": ["answers": [
             ["label": "Inspector's log", "key": "l", "to": "/k/inspection/I-1"],
-            ["label": "More…", "key": "m", "to": "/k/widget/W-1/more"],
+        ]]],
+        ["id": "actions", "type": "actions", "props": ["actions": [
+            ["label": "Delete widget", "key": "d", "to": "/k/widget/W-1/delete"],
         ]]],
         ["id": "item", "type": "item", "props": ["title": "Widget W-1", "fields": [["label": "Title", "value": "Lamp"]], "actions": []]],
     ]
@@ -129,7 +131,7 @@ final class DecisionPageTests: XCTestCase {
         let zero = try XCTUnwrap(PageActions.action(key: "0", on: [page]))
         XCTAssertEqual(zero.submitTo, sqlite)
         XCTAssertEqual(zero.to, "/k/decision/D-7/answer/1")
-        XCTAssertEqual(PageActions.all(page).map(\.key), ["1", "0", "2", "3", "m"])
+        XCTAssertEqual(PageActions.all(page).map(\.key), ["1", "0", "2", "3", "u"])
         // The options are not the page's own actions in its header again.
         XCTAssertEqual(PageActions.ofPage(page), [])
 
