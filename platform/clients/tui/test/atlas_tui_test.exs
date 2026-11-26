@@ -988,6 +988,51 @@ defmodule AtlasTuiTest do
       assert %Model{ids: ["#0"], markup: []} = model(@list)
       assert screen(model(@list)) =~ "Things"
     end
+
+    # What is decided, then the thing's details (a part of role details) after it.
+    @detailed %{
+      @marked
+      | "blocks" => Enum.reverse(@marked["blocks"]),
+        "markup" => [
+          %{
+            "kind" => "part",
+            "start" => "item",
+            "end" => "item",
+            "props" => %{"title" => "Details", "role" => "details"}
+          }
+        ]
+    }
+
+    test "details stand beside the page from 144 wide, centred with it; narrower, under it" do
+      m = model(@detailed)
+
+      for {width, body, side} <- [{250, 204, 100}, {160, 160, 56}, {144, 144, 40}] do
+        assert View.body_width(m, width) == body
+        lines = m |> View.render(width, 30, 5) |> View.plain() |> String.split("\n")
+        left = div(width - body, 2)
+        details = Enum.find(lines, &(&1 =~ "Details ─"))
+        wheel = Enum.find(lines, &(&1 =~ "› Wheel"))
+
+        # On the same rows: the main column at the left margin, the details 104 further.
+        [before | _] = String.split(details, " Details")
+        assert String.length(before) == left + 104
+        # A heading's rule ends one cell short of its column's edge.
+        assert String.length(details) == left + 104 + side - 1
+        assert String.starts_with?(wheel, String.duplicate(" ", left) <> " › Wheel")
+        assert details == wheel
+      end
+
+      # One column below 144: max 100 and centred, the details under the page.
+      for {width, left} <- [{143, 21}, {100, 0}, {60, 0}] do
+        lines = m |> View.render(width, 30, 5) |> View.plain() |> String.split("\n")
+        wheel = Enum.find_index(lines, &(&1 =~ "› Wheel"))
+        details = Enum.find_index(lines, &(&1 =~ "Details ─"))
+        assert wheel < details
+
+        assert Enum.at(lines, details)
+               |> String.starts_with?(String.duplicate(" ", left) <> " Details")
+      end
+    end
   end
 
   test "the Console renderer covers the complete presentation catalogue" do

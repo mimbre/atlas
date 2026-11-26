@@ -48,6 +48,13 @@ defmodule AtlasTui.View do
   # Markup says what a stretch of a page means; how it looks is this view's choice. A page
   # in parts shows them side by side from this width; narrower, one above the other.
   @side_by_side 120
+  # One column of page content reads best at most this wide; wider, it is centred.
+  @measure 100
+  # From this width a page's details stand beside it: one column, a gap, and the details
+  # at least this wide (growing to one column's width).
+  @gap 4
+  @side_least 40
+  @beside @measure + @gap + @side_least
 
   @doc """
   The contract's names this view knows: the blocks it draws, and the kinds of markup it
@@ -72,8 +79,11 @@ defmodule AtlasTui.View do
     header = AtlasTui.ConsoleView.header(model, width)
     help = footer_help(model)
     room = max(height - length(header) - 3 - length(help), 1)
-    {lines, _long, viewports} = laid_out(model, width, room)
+    measure = body_width(model, width)
+    margin = String.duplicate(" ", div(width - measure, 2))
+    {lines, _long, viewports} = laid_out(model, measure, room)
     {body, viewport} = window(lines, model, room)
+    body = if margin == "", do: body, else: Enum.map(body, &[{:plain, margin} | &1])
     viewports = if viewport, do: Map.put(viewports, nil, viewport), else: viewports
 
     body = body ++ Elixir.List.duplicate([], room - length(body))
@@ -147,15 +157,62 @@ defmodule AtlasTui.View do
 
   defp body(model, width, room), do: nodes(content(model), model, width, room)
 
+  @doc """
+  How wide the page's body is drawn, centred in the terminal: one column of at most
+  #{@measure} cells; from #{@beside} wide, a page with details has them in a column beside
+  it (#{@gap} cells apart, #{@side_least} to #{@measure} wide, growing with the room); parts
+  side by side take the full width. The chrome (tabs, title, footer, status) always spans
+  the terminal (docs/design/apple-clients.md, Page width).
+  """
+  def body_width(model, width) do
+    cond do
+      width >= @side_by_side and in_parts?(model) -> width
+      width >= @beside and details_part(model) != nil -> min(width, 2 * @measure + @gap)
+      true -> min(width, @measure)
+    end
+  end
+
+  defp page_shown?(model) do
+    model.connected and model.blocks != [] and model.plan == nil and
+      model.console.legend == nil and
+      (model.console.expected in [nil, model.path] or model.console.restoring)
+  end
+
+  defp in_parts?(model), do: page_shown?(model) and Model.parts(model) != []
+
+  # The page's details (a part of role details among blocks in no part), when shown.
+  defp details_part(model) do
+    if page_shown?(model) and Model.parts(model) == [],
+      do: Enum.find(content(model), &details?/1)
+  end
+
+  defp details?({:markup, %{"value" => %Part{role: "details"}}, _}), do: true
+  defp details?(_node), do: false
+
   # The body's lines, and whether it is longer than its room. A page in parts fills its
-  # room exactly, each part scrolled on its own; a part that is cut says so itself.
+  # room exactly, each part scrolled on its own; a part that is cut says so itself. Wider
+  # than one column: the details beside the rest, both scrolled as one.
   defp laid_out(model, width, room) do
-    if model.connected and model.blocks != [] and model.plan == nil and
-         model.console.legend == nil and
-         (model.console.expected in [nil, model.path] or model.console.restoring) and
-         Model.parts(model) != [],
-       do: parts(content(model), model, width, room),
-       else: plain_layout(model, width, room)
+    cond do
+      in_parts?(model) -> parts(content(model), model, width, room)
+      width > @measure -> beside(model, width, room)
+      true -> plain_layout(model, width, room)
+    end
+  end
+
+  defp beside(model, width, room) do
+    {details, main} = Enum.split_with(content(model), &details?/1)
+    main = nodes(main, model, @measure, room)
+    side = nodes(details, model, width - @measure - @gap, room)
+    gap = [{:plain, String.duplicate(" ", @gap)}]
+
+    lines =
+      for row <- 0..(max(length(main), length(side)) - 1) do
+        pad_line(fit(Enum.at(main, row) || [], @measure), @measure) ++
+          gap ++ (Enum.at(side, row) || [])
+      end
+
+    {lines, length(lines) > room, %{}}
   end
 
   defp plain_layout(model, width, room) do
@@ -406,6 +463,10 @@ defmodule AtlasTui.View do
     rule = String.duplicate("─", max(width - String.length(title) - 3, 0))
     [[{:bold, " " <> title}, {:dim, " " <> rule}], []] ++ nodes(children, model, width, room)
   end
+
+  # The page's details: compact, under a heading, whether beside the page or under it.
+  defp markup(%Part{role: "details", title: title}, children, model, width, room),
+    do: markup(%Section{title: title}, children, model, width, room)
 
   defp markup(%Part{title: title}, children, model, width, room) do
     inner = width - 4

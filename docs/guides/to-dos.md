@@ -57,7 +57,10 @@ the later steps faint. The To-Do's `step` field keeps where the owner is:
 | `C` | copies its next command |
 | `y` | copies all of its commands, one per line |
 | `x` / `n` | Done / Won't do, with a note |
-| `i` | folds Item details open: the To-Do in full |
+
+Beside the panel, when the screen is wide enough (else under it), are the To-Do's
+details: its key, status, for whom and from whom since when, what it is about or based
+on, and its note, evidence and deadline once filled. Its full text is `atlas get <key>`.
 
 The Mac app has a Copy button beside each command. The TUI copies with `pbcopy` when
 it runs on the Mac itself, and otherwise with OSC 52, which the terminal must allow.
