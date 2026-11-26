@@ -1,4 +1,5 @@
 import AtlasControlKit
+import Prism
 import SwiftUI
 
 /// The steer agent's plan (the contract's `plan` block), over the window, as the TUI shows
@@ -26,10 +27,10 @@ public struct PlanView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Prism.Spacing.s15) {
-            HStack(spacing: Prism.Spacing.s10) {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
+            HStack(spacing: Prism.Spacing.px10) {
                 if plan.state == "planning" || plan.state == "running" {
-                    ProgressView().controlSize(.small)
+                    ProgressView().progressViewStyle(.prism(.accent, size: .size20))
                 }
                 Text(plan.title ?? "").prism(Prism.Typography.title6).accessibilityAddTraits(.isHeader)
             }
@@ -47,7 +48,7 @@ public struct PlanView: View {
             }
             if let steps = plan.steps, !steps.isEmpty {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
+                    VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
                         ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
                             stepView(step)
                         }
@@ -56,12 +57,12 @@ public struct PlanView: View {
                 }
                 .frame(maxHeight: 420)
             }
-            HStack(spacing: Prism.Spacing.s10) {
+            HStack(spacing: Prism.Spacing.px10) {
                 Spacer()
                 buttons
             }
         }
-        .padding(Prism.Spacing.s22)
+        .padding(Prism.Spacing.px22)
         .frame(minWidth: 460, idealWidth: 560, maxWidth: WindowLayout.page, alignment: .leading)
     }
 
@@ -94,7 +95,7 @@ public struct PlanView: View {
 
     private func stepView(_ step: StepModel) -> some View {
         let isDropped = isDropped(step)
-        return HStack(alignment: .top, spacing: Prism.Spacing.s10) {
+        return HStack(alignment: .top, spacing: Prism.Spacing.px10) {
             if plan.state == "proposed", let n = step.n {
                 Toggle("Keep step \(n)", isOn: Binding(get: { !isDropped }, set: { _ in toggle(n) }))
                     .labelsHidden()

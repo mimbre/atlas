@@ -1,3 +1,4 @@
+import Prism
 import SwiftUI
 
 /// Prism has no dark tokens (it is designing them). Until it ships them, this is the one
@@ -30,7 +31,7 @@ enum PrismDarkGap {
     /// Prism's selection tint for a row: primarylight under dark text in light; in dark
     /// primary, faint, so light text stays legible.
     static func row(_ scheme: ColorScheme, selected: Bool, hovering: Bool) -> Color {
-        if selected { return pick(scheme, light: Prism.Colors.primaryLight, dark: Prism.Colors.primary.opacity(0.35)) }
+        if selected { return pick(scheme, light: Prism.Colors.primarylight, dark: Prism.Colors.primary.opacity(0.35)) }
         if hovering { return pick(scheme, light: Prism.Colors.grey5, dark: Color.primary.opacity(0.06)) }
         return .clear
     }
@@ -50,12 +51,9 @@ enum PrismDarkGap {
         pick(scheme, light: .black.opacity(0.14), dark: .black.opacity(0.4))
     }
 
-    /// A recessed card: grey5; a step below the page in dark. `error`: errorlight; a faint
-    /// wash of error in dark.
-    static func recessed(_ scheme: ColorScheme, error: Bool) -> Color {
-        error
-            ? pick(scheme, light: Prism.Colors.errorLight, dark: Prism.Colors.error.opacity(0.14))
-            : pick(scheme, light: Prism.Colors.grey5, dark: Color(white: 0.08))
+    /// A recessed card: grey5; a step below the page in dark.
+    static func recessed(_ scheme: ColorScheme) -> Color {
+        pick(scheme, light: Prism.Colors.grey5, dark: Color(white: 0.08))
     }
 
     /// A framed value: grey6; a faint lift in dark.
@@ -75,7 +73,7 @@ enum PrismDarkGap {
     /// A route's part: grey1 on white with a grey3 edge; primarylight on a faint primary in
     /// dark, without an edge.
     static func routeText(_ scheme: ColorScheme) -> Color {
-        pick(scheme, light: Prism.Colors.grey1, dark: Prism.Colors.primaryLight)
+        pick(scheme, light: Prism.Colors.grey1, dark: Prism.Colors.primarylight)
     }
 
     static func routeFill(_ scheme: ColorScheme) -> Color {
@@ -96,7 +94,7 @@ enum PrismDarkGap {
     /// selected without it: calm grey4; hovered: grey6 (a touch lighter in dark).
     static func listCard(_ scheme: ColorScheme, selected: Bool, focused: Bool, hovering: Bool) -> Color {
         if selected && focused {
-            return pick(scheme, light: Prism.Colors.primaryLight, dark: Prism.Colors.primary.opacity(0.3))
+            return pick(scheme, light: Prism.Colors.primarylight, dark: Prism.Colors.primary.opacity(0.3))
         }
         if selected { return pick(scheme, light: Prism.Colors.grey4, dark: Color(white: 0.27)) }
         if hovering { return pick(scheme, light: Prism.Colors.grey6, dark: Color(white: 0.21)) }
@@ -118,9 +116,52 @@ enum PrismDarkGap {
              dark: Color(white: selected ? 0.75 : 0.7))
     }
 
+    /// A Prism button's style in this appearance: Prism's own, but a `plain` one in dark,
+    /// whose grey1 label is unreadable on a dark surface: Prism's plain look with the label
+    /// in `text` (white).
+    static func buttonStyle(_ variant: PrismButtonVariant, tone: PrismButtonTone, padded: Bool, loading: Bool,
+                            scheme: ColorScheme) -> AnyButtonStyle {
+        scheme == .dark && variant == .plain
+            ? AnyButtonStyle(PlainInDark(padded: padded, loading: loading))
+            : AnyButtonStyle(PrismButtonStyle(variant, tone: tone, padded: padded, loading: loading))
+    }
+
+    private struct PlainInDark: ButtonStyle {
+        let padded: Bool
+        let loading: Bool
+
+        func makeBody(configuration: Configuration) -> some View {
+            var looks = PrismButtonLooks(.plain, padded: padded, pressed: configuration.isPressed, loading: loading)
+            looks.root.foreground = PrismDarkGap.text(.dark)
+            return configuration.label.prismLook(looks.label)
+                .overlay { if loading { ProgressView().progressViewStyle(.prism(.inverse, size: .size20)) } }
+                .prismText(looks.root)
+                .prismBox(looks.root)
+        }
+    }
+
     #if canImport(AppKit)
     private static let systemBackground = Color(nsColor: .controlBackgroundColor)
     #else
     private static let systemBackground = Color(uiColor: .secondarySystemBackground)
     #endif
+}
+
+extension Color {
+    /// A colour of Atlas's own, by its hex value (Prism's is internal to it).
+    init(hex: UInt32) {
+        self.init(.sRGB, red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255, opacity: 1)
+    }
+}
+
+/// Any `ButtonStyle`, so a view can choose one by appearance.
+struct AnyButtonStyle: ButtonStyle {
+    private let body: (Configuration) -> AnyView
+
+    init<Style: ButtonStyle>(_ style: Style) {
+        body = { AnyView(style.makeBody(configuration: $0)) }
+    }
+
+    func makeBody(configuration: Configuration) -> some View { body(configuration) }
 }
