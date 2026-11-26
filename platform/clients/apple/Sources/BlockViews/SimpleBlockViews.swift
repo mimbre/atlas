@@ -163,9 +163,9 @@ struct CardStack: View {
 
 /// An `option` block, one option of a decision, in a calm card of its own (`PanelCard`,
 /// without the keys' focus), as a step's: its number as a step's, its text, its badge in
-/// its tone (★ Recommended in success, Decline · note in warning), what it means as label
-/// and value rows (its Rule and what follows Then; a decline's Details), and its own answer
-/// as Prism's button (`OptionButton`). The button is the page's
+/// its tone (★ Recommended in success), what it means as label and value rows (its Rule and
+/// what follows Then), and its own answer as Prism's button (`OptionButton`), except on the
+/// only proposal (`alone`), which the page's Accept answers. The button is the page's
 /// action of the answer's key (`Panel.action`): exactly what the key does.
 struct OptionView: View {
     let block: OptionBlock
@@ -197,7 +197,7 @@ struct OptionView: View {
                     }
                     .prism(Prism.Typography.caption)
                 }
-                if let answer = block.answer, let action {
+                if block.alone != true, let answer = block.answer, let action {
                     OptionButton(answer: answer, pending: PageActions.isPending(action, pending)) { act(action) }
                         .padding(.top, Prism.Spacing.px3)
                 }
@@ -222,16 +222,17 @@ struct OptionView: View {
     }
 }
 
-/// An option's own answer as Prism's button, styled by its weight (`AnswerLook`): Choose
-/// the main one `primary`, Decline… `secondary`, which opens the note form. Its key is not
-/// shown (the menu bar lists it, its tooltip names it).
+/// An alternative's own Choose as Prism's button: the recommended one (weight main)
+/// `primary`, every other `secondary`. Its key is not shown (the menu bar lists it, its
+/// tooltip names it).
 struct OptionButton: View {
     let answer: PanelAnswerModel
     let pending: Bool
     let take: () -> Void
 
     var body: some View {
-        AnswerButton(answer: answer, pending: pending, take: take)
+        PrismActionButton(label: AnswerLook.label(answer), key: answer.key, pending: pending,
+                          variant: answer.weight == "main" ? .primary : .secondary, take: take)
     }
 }
 
@@ -268,18 +269,34 @@ struct AnswersView: View {
     let block: AnswersBlock
     let act: (ActionModel) -> Void
     @Environment(\.pendingAction) private var pending
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        FlowLayout(spacing: Prism.Spacing.px10) {
-            ForEach(Array((block.answers ?? []).enumerated()), id: \.offset) { _, answer in
-                let action = Panel.action(answer)
-                AnswerButton(answer: answer, pending: PageActions.isPending(action, pending)) { act(action) }
+        VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
+            FlowLayout(spacing: Prism.Spacing.px10) {
+                ForEach(Array((block.answers ?? []).enumerated()), id: \.offset) { _, answer in
+                    let action = Panel.action(answer)
+                    AnswerButton(answer: answer, pending: PageActions.isPending(action, pending)) { act(action) }
+                }
+            }
+            // What an answer means, small under the buttons (Decline: what declining keeps).
+            ForEach(Array(Self.details(block).enumerated()), id: \.offset) { _, detail in
+                Text(detail).prism(Prism.Typography.caption).foregroundStyle(PrismDarkGap.muted(scheme))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .textSelection(.disabled)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Prism.Spacing.px15)
         .padding(.bottom, Prism.Spacing.px10)
+    }
+
+    /// Each answer's explanation, after its label ("Decline: Keeps one block per kind").
+    static func details(_ block: AnswersBlock) -> [String] {
+        (block.answers ?? []).compactMap { answer in
+            guard let detail = answer.detail, !detail.isEmpty else { return nil }
+            return "\(AnswerLook.label(answer)): \(detail)"
+        }
     }
 }
 
@@ -295,7 +312,7 @@ struct OtherActionsView: View {
     var body: some View {
         FlowLayout(spacing: Prism.Spacing.px22) {
             ForEach(Array(PageActions.buttons(block.actions ?? []).enumerated()), id: \.offset) { _, action in
-                PrismActionButton(label: action.label ?? "", key: action.key,
+                PrismActionButton(label: AnswerLook.label(action), key: action.key,
                                   pending: PageActions.isPending(action, pending), variant: .plain,
                                   padded: false, icon: ActionIcon.symbol(action.icon)) { act(action) }
             }

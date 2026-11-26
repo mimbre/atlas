@@ -84,9 +84,9 @@ defmodule RelaDSL.Control.Rules do
   text}`): the part under its `heading`, or the whole field under its `label`; nil when
   that is empty. A section shown as steps (`steps: true`) has `steps: %{from}` too: the
   field the section shows. Each answer is `%{key, label, note, change, set,
-  remove, weight}`, `weight` `"main"` (exactly one), `"no"` (at most one) or `"other"`:
+  remove, weight}`, `weight` `"main"` (exactly one), `"decline"` (at most one) or `"other"`:
   as the model declares it, else the first answer main and the first other that asks a
-  note no. `panel` is the panel the kind's `panel` annotation declares for the state the
+  note decline. `panel` is the panel the kind's `panel` annotation declares for the state the
   work is in, as written (Control fills it); nil when it declares none.
   """
   def todo(flow, fact, parts, viewer) do
@@ -279,16 +279,16 @@ defmodule RelaDSL.Control.Rules do
   defp presented_answers(todo), do: todo |> answers() |> weighed() |> Enum.map(&answer_view/1)
 
   # Each answer's weight: as the model declares it; else the first answer main and the
-  # first other that asks a note no; the rest other.
+  # first other that asks a note decline; the rest other.
   defp weighed([]), do: []
 
   defp weighed(answers) do
     main =
       Enum.find(answers, &(&1["weight"] == "main")) ||
-        Enum.find(answers, &(&1["weight"] != "no"))
+        Enum.find(answers, &(&1["weight"] != "decline"))
 
-    no =
-      Enum.find(answers, &(&1["weight"] == "no")) ||
+    decline =
+      Enum.find(answers, &(&1["weight"] == "decline")) ||
         Enum.find(answers, &(&1 != main and &1["note"] == true and &1["weight"] == nil))
 
     for a <- answers do
@@ -297,7 +297,7 @@ defmodule RelaDSL.Control.Rules do
         "weight",
         cond do
           a == main -> "main"
-          a == no -> "no"
+          a == decline -> "decline"
           true -> "other"
         end
       )

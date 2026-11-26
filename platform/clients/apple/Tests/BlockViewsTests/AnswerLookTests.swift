@@ -5,11 +5,11 @@ import Prism
 import XCTest
 
 /// An answer's button by the weight Control gives it (`AnswerLook`), whether or not it
-/// asks a note, and "…" after the label of one that opens a note form; an action's icon by
-/// the name Control gives it (`ActionIcon`).
+/// asks a note, its label what Control says a button shows (never "…"); an action's icon
+/// by the name Control gives it (`ActionIcon`).
 final class AnswerLookTests: XCTestCase {
-    private func answer(_ label: String, weight: String?, note: Bool? = nil) -> PanelAnswerModel {
-        PanelAnswerModel(label: label, key: "x", to: "/k/chore/TD-1/answer/x", note: note, weight: weight)
+    private func answer(_ label: String, weight: String?, note: Bool? = nil, button: String? = nil) -> PanelAnswerModel {
+        PanelAnswerModel(label: label, key: "x", to: "/k/chore/TD-1/answer/x", note: note, weight: weight, button: button)
     }
 
     func testTheWeightNotTheNoteChoosesThePrismVariantAllInThePrimaryColour() {
@@ -18,21 +18,26 @@ final class AnswerLookTests: XCTestCase {
             XCTAssertEqual(main.variant, .primary)
             XCTAssertEqual(main.tone, .accent)
 
-            let no = AnswerLook.of(answer("Won't do", weight: "no", note: note))
-            XCTAssertEqual(no.variant, .secondary)
-            XCTAssertEqual(no.tone, .accent)
+            for weight in ["decline", "no"] {
+                let decline = AnswerLook.of(answer("Won't do", weight: weight, note: note))
+                XCTAssertEqual(decline.variant, .secondary, "\(weight); no is deprecated, the same")
+                XCTAssertEqual(decline.tone, .accent)
+            }
 
             XCTAssertEqual(AnswerLook.of(answer("Update", weight: "other", note: note)).variant, .plain)
         }
         XCTAssertEqual(AnswerLook.of(answer("Retry", weight: nil)).variant, .plain, "no weight: other")
     }
 
-    func testAnAnswerThatOpensANoteFormEndsWithAnEllipsis() {
-        XCTAssertEqual(AnswerLook.label(answer("Done", weight: "main", note: true)), "Done…")
-        XCTAssertEqual(AnswerLook.label(answer("Won't do", weight: "no", note: true)), "Won't do…")
-        XCTAssertEqual(AnswerLook.label(answer("Decline", weight: "no", note: true)), "Decline…")
+    func testAButtonSaysNothingOfWhatFollowsItsClick() {
+        XCTAssertEqual(AnswerLook.label(answer("Done", weight: "main", note: true)), "Done")
+        XCTAssertEqual(AnswerLook.label(answer("Won't do", weight: "decline", note: true)), "Won't do")
+        XCTAssertEqual(AnswerLook.label(answer("Decline", weight: "decline", note: true)), "Decline")
         XCTAssertEqual(AnswerLook.label(answer("Accept", weight: "main")), "Accept")
-        XCTAssertEqual(AnswerLook.label(answer("Decline…", weight: "no", note: true)), "Decline…", "never twice")
+        XCTAssertEqual(AnswerLook.label(answer("Retry…", weight: "other", button: "Retry")), "Retry", "Control's button")
+        XCTAssertEqual(AnswerLook.label(ActionModel(label: "Hand to…", key: "h", to: "/k/x/X-1/links/o", button: "Hand to")),
+                       "Hand to")
+        XCTAssertEqual(AnswerLook.label(ActionModel(label: "Update to-do", key: "u", to: "/k/x/X-1/edit")), "Update to-do")
     }
 
     func testAnActionsIconNameMapsToItsSymbolAndAnUnknownOrMissingOneToNone() throws {

@@ -459,8 +459,8 @@ defmodule AtlasAgent.CLI do
   end
 
   # A decision: the question, why and what went wrong, then each option by its key, its
-  # badge (recommended, decline · note) and what it means (Rule, Then; a decline's
-  # Details); then the other answers.
+  # badge (recommended) and what it means (Rule, Then); then the answers (Accept, Decline,
+  # Decline all with what declining keeps, the others).
   defp todo_text(%{"options" => options} = decision) when is_list(options) do
     said =
       for {label, text} <- [{"Why", decision["why"]}, {"What went wrong", decision["failure"]}],
@@ -477,7 +477,12 @@ defmodule AtlasAgent.CLI do
         ]
       end)
 
-    keys = Enum.map_join(decision["answers"] || [], "   ", &"#{&1["key"]} #{&1["label"]}")
+    keys =
+      Enum.map_join(decision["answers"] || [], "   ", fn a ->
+        detail = if a["detail"], do: " (#{a["detail"]})", else: ""
+        "#{a["key"]} #{a["label"]}#{detail}"
+      end)
+
     others = if keys == "", do: [], else: ["  #{keys}"]
 
     ["To do: #{decision["title"]}" | said] ++ options ++ others ++ [""]

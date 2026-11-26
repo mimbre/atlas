@@ -23,8 +23,9 @@ defmodule RelaDSL.DecisionOptions do
          ids = Enum.map(options, & &1["id"]),
          true <- length(ids) == length(Enum.uniq(ids)),
          true <- definition["recommended"] == hd(ids),
-         # Whoever answers can always refuse: an offer without a decline would take that away.
-         true <- Enum.any?(options, &(&1["effect"] == "decline")) do
+         # Something to adopt: two alternatives, or one beside a decline (D-0103: a decline
+         # is offered when there is one, never demanded).
+         true <- Enum.any?(options, &(&1["effect"] == "adopt")) do
       {:ok, definition}
     else
       _ -> {:error, error(rule, "invalid")}
@@ -36,7 +37,7 @@ defmodule RelaDSL.DecisionOptions do
   # The annotation words its refusals; these neutral ones stand in for any it leaves out.
   @errors %{
     "invalid" =>
-      "a choice needs a question, rationale, distinct complete options with at least one decline, and the recommended option first",
+      "a choice needs a question, rationale, distinct complete options (two to adopt, or one to adopt and a decline), and the recommended option first",
     "not_json" => "the options must be a JSON definition",
     "removed" => "options cannot be removed or answered without their definition",
     "unselected" => "select an offered option to answer",

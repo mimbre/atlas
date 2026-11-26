@@ -17,10 +17,12 @@ defmodule AtlasTui.PanelFixture do
       "params" => %{"kind" => kind, "key" => key, "answer" => answer}
     }
 
-  # A decision's choice (`:choice`): its question, why, an option per answer (the
-  # recommended one first, a decline given with a note), the page's other answers and its
-  # details. Stuck work (`:stuck`): its title as the question, its byline, what went wrong,
-  # its answers as options (Retry recommended), the agent's log among the other answers.
+  # A decision's choice (`:choice`): its question, why, a card per alternative (the
+  # recommended one first), then the answers: Decline all (the decline, given with a note,
+  # its text the detail) and the page's other answers; its details. One proposal
+  # (`:proposal`): its card `alone`, then Accept and Decline. Stuck work (`:stuck`): its
+  # title as the question, its byline, what went wrong, Retry as the one proposal, Accept
+  # and Decline (Close it) and the agent's log.
   def page(kind, props \\ %{})
 
   def page(:choice, _props) do
@@ -41,6 +43,15 @@ defmodule AtlasTui.PanelFixture do
       )
     end
 
+    decline_all = %{
+      "label" => "Decline all",
+      "weight" => "decline",
+      "key" => "3",
+      "to" => @decision <> "/answer/decline",
+      "note" => true,
+      "detail" => "None of these fits; say why."
+    }
+
     blocks =
       [
         header("YOUR DECISION", "D-7", "How do we store examples?"),
@@ -51,16 +62,8 @@ defmodule AtlasTui.PanelFixture do
           "weight" => "main"
         }),
         adopt.(2, "memory", "Use memory", %{"weight" => "other"}),
-        option(3, "Decline", [{"Details", "None of these fits; say why."}], %{
-          "label" => "Decline",
-          "weight" => "no",
-          "key" => "3",
-          "to" => @decision <> "/answer/decline",
-          "note" => true,
-          "badge" => "Decline · note",
-          "tone" => "warning"
-        }),
         answers([
+          decline_all,
           %{"label" => "Inspector's log", "key" => "l", "to" => "/k/run/W-7"}
         ]),
         %{
@@ -100,6 +103,24 @@ defmodule AtlasTui.PanelFixture do
     }
   end
 
+  def page(:proposal, _props) do
+    page = page(:choice)
+    [header, why, files, _memory, _answers | rest] = page["blocks"]
+    files = put_in(files, ["props", "alone"], true)
+    accept = Map.put(files["props"]["answer"], "label", "Accept")
+
+    decline = %{
+      "label" => "Decline",
+      "weight" => "decline",
+      "key" => "2",
+      "to" => @decision <> "/answer/decline",
+      "note" => true,
+      "detail" => "None of these fits; say why."
+    }
+
+    %{page | "blocks" => [header, why, files, answers([accept, decline]) | rest]}
+  end
+
   def page(:stuck, _props) do
     blocks = [
       header("YOUR DECISION", "IS-Atlas-134", "IS-Atlas-134 is stuck: what now?"),
@@ -116,18 +137,27 @@ defmodule AtlasTui.PanelFixture do
         "to" => @stuck <> "/answer/retry",
         "submit_to" => call("widget", "K-1", "retry"),
         "badge" => "★ Recommended",
-        "tone" => "success"
+        "tone" => "success",
+        "alone" => true
       }),
-      option(2, "Close it", [{"Details", "Closes the widget; you say why."}], %{
-        "label" => "Decline",
-        "weight" => "no",
-        "key" => "c",
-        "to" => @stuck <> "/answer/close",
-        "note" => true,
-        "badge" => "Decline · note",
-        "tone" => "warning"
-      }),
-      answers([%{"label" => "Agent's log", "key" => "l", "to" => "/k/run/W-134"}])
+      answers([
+        %{
+          "label" => "Accept",
+          "weight" => "main",
+          "key" => "t",
+          "to" => @stuck <> "/answer/retry",
+          "submit_to" => call("widget", "K-1", "retry")
+        },
+        %{
+          "label" => "Decline",
+          "weight" => "decline",
+          "key" => "c",
+          "to" => @stuck <> "/answer/close",
+          "note" => true,
+          "detail" => "Close it"
+        },
+        %{"label" => "Agent's log", "key" => "l", "to" => "/k/run/W-134"}
+      ])
     ]
 
     %{
@@ -171,7 +201,7 @@ defmodule AtlasTui.PanelFixture do
 
   # An option; `answer` carries its badge and tone too.
   defp option(n, text, fields, answer) do
-    {look, answer} = Map.split(answer, ["badge", "tone"])
+    {look, answer} = Map.split(answer, ["badge", "tone", "alone"])
 
     %{
       "id" => "option-#{n}",
@@ -261,7 +291,8 @@ defmodule AtlasTui.PanelFixture do
     do: DateTime.utc_now() |> DateTime.add(-hours * 3_600 - 60) |> DateTime.to_iso8601()
 
   # Control's actions for what the viewer can answer: a panel's or an answers block's
-  # answers, an option's own answer (the recommended one, tone success, on 0 too).
+  # answers, an option's own answer (the recommended one, tone success, on 0 too; the
+  # only proposal's, `alone`, on 0 only: its key is the answers' Accept).
   def projected(page) do
     projected = ConsoleProjectionFixture.project(page)
 
@@ -273,6 +304,9 @@ defmodule AtlasTui.PanelFixture do
 
     answers =
       Enum.flat_map(page["blocks"], fn
+        %{"type" => "option", "props" => %{"answer" => a, "alone" => true}} ->
+          [Map.put(a, "key", "0")]
+
         %{"type" => "option", "props" => %{"answer" => a, "tone" => "success"}} ->
           [a, Map.put(a, "key", "0")]
 

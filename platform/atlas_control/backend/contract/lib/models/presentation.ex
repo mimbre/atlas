@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.37.0"
+  version "0.38.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -10,7 +10,9 @@ defmodule AtlasBFFContract.Models.Presentation do
   # page's (what is done with the page's subject: create one, the fact's next step), not
   # its block's; a client shows it with the page's title, not under the block. `icon`: what
   # kind of thing the action does, by name (edit, delete, hand_over, create, open), which a
-  # client may show as an icon; one it does not know it shows without.
+  # client may show as an icon; one it does not know it shows without. `button`: what a
+  # client that shows it as a button says on it, when that is not its `label` (`Hand to`
+  # for `Hand to…`): a button says nothing of what follows its click.
   defmodel :action do
     field :label, :string, required: true
     field :key, :string, required: true
@@ -18,6 +20,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :submit_to, :call
     field :page, :boolean
     field :icon, :string
+    field :button, :string
   end
 
   # A line of an `instruction` block, in order: `kind` `text` (its `text`, the lines
@@ -66,9 +69,13 @@ defmodule AtlasBFFContract.Models.Presentation do
   # `answers` block (the page's action itself, on its key) or of an `option`: opening
   # `to`, or `submit_to` at once. `note`: given with a note saying why, as `to`'s form
   # asks it. `weight`: how much the answer weighs among the page's answers: `main` (the
-  # positive one, exactly one per page: Done, Choose the recommended, Accept), `no` (the
-  # declining one, at most one: Won't do, Decline, Not accepted) or `other`; a client
-  # styles an answer by it, never by `note`.
+  # positive one, exactly one per page: Done, Choose the recommended, Accept), `decline`
+  # (the declining one, at most one: Won't do, Decline, Decline all; `no` before 0.38.0,
+  # deprecated: a client takes it as `decline`) or `other`; a client styles an answer by
+  # it, never by `note`. `button`: what a client that shows it as a button says on it,
+  # when that is not its `label` (no `…`); a note it asks opens on the click, the button
+  # does not say so. `detail`: a short explanation shown with it (Decline: what declining
+  # keeps).
   defmodel :panel_answer do
     field :label, :string, required: true
     field :key, :string, required: true
@@ -76,6 +83,8 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :submit_to, :call
     field :note, :boolean
     field :weight, :string
+    field :button, :string
+    field :detail, :string
   end
 
   # A web address the user can open outside the client, in a browser: `url`. `key` is

@@ -160,6 +160,13 @@ defmodule Model.DecisionOptionsTest do
                )
              )
 
+    # Two alternatives need no decline (D-0103: a decline is offered, never demanded).
+    assert {:ok, _} =
+             Options.decode(
+               @rule,
+               JSON.encode!(Map.put(definition, "options", Enum.take(definition["options"], 2)))
+             )
+
     for change <- [
           Map.put(definition, "recommended", "missing"),
           Map.put(definition, "recommended", "memory"),
@@ -167,8 +174,14 @@ defmodule Model.DecisionOptionsTest do
           put_in(definition, ["options", Access.at(1), "details"], " "),
           put_in(definition, ["options", Access.at(1), "effect"], "approve"),
           put_in(definition, ["options", Access.at(2), "rule"], "Not a decline"),
-          # Only adopting options would leave the decider no way to refuse.
-          Map.put(definition, "options", Enum.take(definition["options"], 2))
+          # One alternative alone is no choice; nor are declines alone.
+          Map.put(definition, "options", [hd(definition["options"])]),
+          definition
+          |> Map.put("options", [
+            List.last(definition["options"]),
+            Map.put(List.last(definition["options"]), "id", "decline2")
+          ])
+          |> Map.put("recommended", "decline")
         ] do
       assert {:error, _} = Options.decode(@rule, JSON.encode!(change))
       assert {:refuse, _} = check(current(), %{"options" => JSON.encode!(change)})
@@ -279,11 +292,12 @@ defmodule Model.DecisionOptionsTest do
     end
   end
 
-  # The page a TUI opens from Assigned to you, as Control serves it to a Console client.
-  test "a Console client is served the offer as blocks: each option answers itself, 0 the first" do
+  # The page a TUI opens from Assigned to you, as Control serves it to a Console client:
+  # its blocks besides console actions, and how a key resolves on it.
+  defp served(text) do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     decide = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "decide"))
-    fact = Map.put(current(), "key", "D-private")
+    fact = Map.put(current(text), "key", "D-private")
 
     presentation =
       decide.present("for_person", fact["values"])
@@ -311,16 +325,34 @@ defmodule Model.DecisionOptionsTest do
 
     assert {:ok, projection} = AtlasBFFContract.Console.compile(projected)
 
-    blocks = for b <- projected["blocks"], b["type"] != "console_action", do: b
+    resolve = fn key, on ->
+      at = %{path: "/k/decision/D-private", context: "browse", generation: 1, on: on, row: nil}
+      assert {:ok, event} = AtlasBFFContract.Console.capture(projection, key, at)
+      assert {:ok, action} = AtlasBFFContract.Console.resolve(projection, event, at)
+      action["props"]["operation"]
+    end
 
-    # In order: the question, why, each option (recommended first), the page's other
-    # answers, the details.
+    note = fn to ->
+      "/k/decision/D-private/answer/" <> name = to
+      AtlasControl.Pages.render({:answer, "decision", "D-private", name}, m, answers, form).blocks
+    end
+
+    {for(b <- projected["blocks"], b["type"] != "console_action", do: b), resolve, note}
+  end
+
+  defp answers_of(blocks), do: Enum.find(blocks, &(&1["id"] == "answers"))["props"]["answers"]
+
+  test "alternatives: a card each with its own Choose, then Decline all, the decline its note" do
+    {blocks, resolve, note} = served(@text)
+
+    # In order: the question, why, each alternative (recommended first), the answers, the
+    # details. The decline is no card.
     assert [
              %{"id" => "header", "type" => "header", "props" => header},
              %{"id" => "why", "type" => "text", "props" => why},
              %{"id" => "option-1", "type" => "option", "props" => files},
              %{"id" => "option-2", "type" => "option", "props" => memory},
-             %{"id" => "option-3", "type" => "option", "props" => decline}
+             %{"id" => "answers", "type" => "answers"}
              | rest
            ] = blocks
 
@@ -332,37 +364,34 @@ defmodule Model.DecisionOptionsTest do
     assert Enum.any?(rest, &(&1["id"] == "item"))
     refute Enum.any?(blocks, &(&1["type"] in ["single_choice", "panel"]))
 
-    # Every option shows what it means: its rule and what follows, a decline its details.
+    # Every card shows what it means: its rule and what follows.
     for o <- [files, memory] do
       assert [%{"label" => "Rule", "value" => r}, %{"label" => "Then", "value" => c}] =
                o["fields"]
 
       assert r != "" and c != ""
+      refute Map.has_key?(o, "alone")
     end
-
-    assert [%{"label" => "Details", "value" => d}] = decline["fields"]
-    assert d != ""
 
     assert %{"n" => 1, "badge" => "★ Recommended", "tone" => "success"} = files
     refute Map.has_key?(memory, "badge")
-    assert %{"n" => 3, "badge" => "Decline · note", "tone" => "warning"} = decline
-    # The recommended Choose is the main answer, the Decline the no, another Choose other;
-    # clients add how a note is asked ("Decline…", "Decline · note").
+    # The recommended Choose is the main answer, another Choose other.
     assert %{"label" => "Choose", "key" => "1", "weight" => "main"} = files["answer"]
     assert %{"label" => "Choose", "key" => "2", "weight" => "other"} = memory["answer"]
 
-    assert %{"label" => "Decline", "key" => "3", "note" => true, "weight" => "no"} =
-             decline["answer"]
+    # Decline all is the no: the decline's own answer, asking a note, its text beside it.
+    decline = Enum.find(definition["options"], &(&1["effect"] == "decline"))
 
-    # Each option's own button (and key) sends exactly that option's answer; `0` the
-    # recommended one's; a decline opens its note form first.
-    resolve = fn key, on ->
-      at = %{path: "/k/decision/D-private", context: "browse", generation: 1, on: on, row: nil}
-      assert {:ok, event} = AtlasBFFContract.Console.capture(projection, key, at)
-      assert {:ok, action} = AtlasBFFContract.Console.resolve(projection, event, at)
-      action["props"]["operation"]
-    end
+    assert [
+             %{"label" => "Decline all", "key" => "3", "note" => true, "weight" => "decline"} =
+               decline_answer
+           ] =
+             answers_of(blocks)
 
+    assert decline_answer["detail"] == decline["text"]
+
+    # Each card's own button (and key) sends exactly that option's answer; `0` the
+    # recommended one's; Decline all opens its note form first.
     for {o, id} <- [{files, "option-1"}, {memory, "option-2"}] do
       assert %{"name" => "invoke", "call" => call} = resolve.(o["answer"]["key"], id)
       assert call == o["answer"]["submit_to"]
@@ -370,13 +399,9 @@ defmodule Model.DecisionOptionsTest do
 
     refute files["answer"]["submit_to"] == memory["answer"]["submit_to"]
     assert resolve.("0", "option-1") == resolve.("1", "option-1")
-    assert %{"name" => "open", "to" => to} = resolve.("3", "option-3")
-    assert to == decline["answer"]["to"]
-    refute Map.has_key?(decline["answer"], "submit_to")
-    "/k/decision/D-private/answer/" <> decline = to
-
-    note =
-      AtlasControl.Pages.render({:answer, "decision", "D-private", decline}, m, answers, form)
+    assert %{"name" => "open", "to" => to} = resolve.("3", "answers")
+    assert to == decline_answer["to"]
+    refute Map.has_key?(decline_answer, "submit_to")
 
     assert [
              %{
@@ -384,7 +409,46 @@ defmodule Model.DecisionOptionsTest do
                "props" => %{"inputs" => [%{"name" => "note", "required" => true}]}
              }
            ] =
-             note.blocks
+             note.(to)
+  end
+
+  test "one proposal: its card without an answer, then Accept and Decline (its note form)" do
+    definition = JSON.decode!(@text)
+    [files, _memory, decline] = definition["options"]
+    text = JSON.encode!(Map.put(definition, "options", [files, decline]))
+    {blocks, resolve, note} = served(text)
+
+    assert [%{"props" => card}] = Enum.filter(blocks, &(&1["type"] == "option"))
+    assert %{"n" => 1, "alone" => true, "badge" => "★ Recommended"} = card
+
+    assert [
+             %{"label" => "Accept", "key" => "1", "weight" => "main"} = accept,
+             %{"label" => "Decline", "key" => "2", "note" => true, "weight" => "decline"} =
+               decline_answer
+           ] = answers_of(blocks)
+
+    # Accept sends the proposal's own answer; Decline opens the decline's note form.
+    assert accept["submit_to"] == card["answer"]["submit_to"]
+    assert decline_answer["detail"] == decline["text"]
+    assert %{"name" => "open", "to" => to} = resolve.("2", "answers")
+    assert to == decline_answer["to"]
+
+    assert [
+             %{
+               "type" => "form",
+               "props" => %{"inputs" => [%{"name" => "note", "required" => true}]}
+             }
+           ] =
+             note.(to)
+  end
+
+  test "alternatives without a decline: a card each with its Choose and no Decline" do
+    definition = JSON.decode!(@text)
+    text = JSON.encode!(Map.update!(definition, "options", &Enum.take(&1, 2)))
+    {blocks, _resolve, _note} = served(text)
+
+    assert [_, _] = Enum.filter(blocks, &(&1["type"] == "option"))
+    refute Enum.any?(answers_of(blocks) || [], &(&1["weight"] == "decline"))
   end
 
   test "owner projection separates semantic answer identity from numeric shortcuts" do
