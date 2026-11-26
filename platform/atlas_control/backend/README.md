@@ -242,6 +242,8 @@ client) before advancing Control.
 
 0.24.0 is a bump of the same kind: an action's `page` (the page's action, not its block's). Control on 0.24.0 refuses older clients at hello; release the TUI and the Mac app with it.
 
+0.25.0 is a bump of the same kind: a list row's `tone` and `since`, so the Mac app, which reads Control through the AtlasControlKit published per contract version, can show them. Control on 0.25.0 refuses older clients at hello; release the TUI and the Mac app with it.
+
 
 ### Worker Control contract
 

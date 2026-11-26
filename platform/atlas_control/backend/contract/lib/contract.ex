@@ -47,7 +47,9 @@ defmodule AtlasBFFContract.Contract do
   # client cycles through the work tabs only. Older clients refuse sequence keys.
   # 0.24.0: an action may be the page's rather than its block's (`page`): a client shows it
   # with the page's title (the window's toolbar, an item page's header), not under the block.
-  version "0.24.0"
+  # 0.25.0: a list row may say where its work stands (`tone`) and since when (`since`); a
+  # client shows a coloured mark and an age beside the row's own words.
+  version "0.25.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup
