@@ -19,7 +19,7 @@ defmodule AtlasTui.StepsPanelTest do
     }
   end
 
-  defp page(steps \\ nil, current \\ 2) do
+  defp page(steps \\ nil, current \\ 2, key \\ nil) do
     path = "/k/widget/W-01"
 
     move = fn label, key, to ->
@@ -39,6 +39,7 @@ defmodule AtlasTui.StepsPanelTest do
       "type" => "steps",
       "props" => %{
         "title" => "Set up the widget",
+        "key" => key,
         "why" => "The widget needs a home.",
         "since" => DateTime.utc_now() |> DateTime.add(-3 * 3600) |> DateTime.to_iso8601(),
         "current" => current,
@@ -100,6 +101,10 @@ defmodule AtlasTui.StepsPanelTest do
   test "Enter moves to the next step through Control's action" do
     {moved, _} = Model.key(page(), :enter)
     assert moved.console.in_flight == "/k/widget/W-01/step/3"
+  end
+
+  test "the bar carries the to-do's key" do
+    assert screen(page(nil, 2, "TD-09")) =~ "◆ TO DO FOR YOU · TD-09  Set up the widget"
   end
 
   @tag :tmp_dir

@@ -56,7 +56,9 @@ defmodule AtlasBFFContract.Contract do
   # it is judged on, and its answers (a choice when `choose`).
   # 0.29.0: a step's routes and its lines in order (`instruction_line`: text, command or
   # route), so a client shows a route's parts and keeps where each line was written.
-  version "0.29.0"
+  # 0.30.0: a panel, steps or single choice names the fact it is about (`key`), so a client
+  # that shows the panel in place of the page's title still shows it.
+  version "0.30.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

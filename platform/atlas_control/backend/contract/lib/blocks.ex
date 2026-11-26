@@ -30,6 +30,7 @@ defmodule AtlasBFFContract.Blocks do
         field :links, {:list, :link}
       end
 
+      # `key`: the fact the choice is about, which a client shows beside the question.
       defblock :single_choice do
         field :question, :string, required: true
         field :options, {:list, :choice_option}, required: true
@@ -37,16 +38,19 @@ defmodule AtlasBFFContract.Blocks do
         field :rationale, :string, required: true
         field :revision, :string, required: true
         field :instructions, :string
+        field :key, :string
       end
 
       # What its owner is to do, step by step (a to-do's instructions): `title` the work in
-      # a few words, `why` the lead paragraph (without its "Why:"), `since` when it came
-      # to them (ISO 8601, UTC), the steps in order and the one they are at (`current`,
-      # from 1). A client shows the steps before `current` as done, that one open with its
-      # commands, which it may copy, and the later ones closed. `actions` move the current
-      # step (`submit_to` sets it) and answer the to-do, each on its key.
+      # a few words, `key` the fact's key (shown beside it), `why` the lead paragraph
+      # (without its "Why:"), `since` when it came to them (ISO 8601, UTC), the steps in
+      # order and the one they are at (`current`, from 1). A client shows the steps before
+      # `current` as done, that one open with its commands, which it may copy, and the later
+      # ones closed. `actions` move the current step (`submit_to` sets it) and answer the
+      # to-do, each on its key.
       defblock :steps do
         field :title, :string, required: true
+        field :key, :string
         field :why, :string
         field :since, :string
         field :steps, {:list, :instruction_step}, required: true
@@ -55,7 +59,8 @@ defmodule AtlasBFFContract.Blocks do
       end
 
       # Where its owner decides, as a panel: `heading` (what is asked of them: "TO
-      # ACCEPT"), `title`, `aside` (beside the title: "3 items"), the `byline`; what it is
+      # ACCEPT"), `title`, `key` (the fact's, shown beside the title), `aside` (beside the
+      # title: "3 items"), the `byline`; what it is
       # judged on: `items` (a client selects one and shows its details), `checks`, a `box`;
       # then its `answers` in Control's order, each the page's action of the same key.
       # `choose`: the answers are a choice, one selected (the recommended one first) and
@@ -63,6 +68,7 @@ defmodule AtlasBFFContract.Blocks do
       defblock :panel do
         field :heading, :string, required: true
         field :title, :string, required: true
+        field :key, :string
         field :aside, :string
         field :byline, {:list, :clause}
         field :items, {:list, :panel_item}

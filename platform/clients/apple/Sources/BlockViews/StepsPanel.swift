@@ -5,29 +5,13 @@ import AppKit
 #endif
 
 /// A `steps` block as it is worked through: where each step stands (done, the current
-/// one, later), the action a key takes, and what Copy copies. Control moves the step (its
+/// one, later), the buttons under it, and what Copy copies. Control moves the step (its
 /// actions keyed `Enter`, `Down` and `Up`); the app decides nothing about it.
 public struct StepsPanel: Sendable, Equatable {
     public enum Place: Sendable, Equatable {
         case done
         case current
         case later
-    }
-
-    /// A key, as the panel takes it while it has the focus.
-    public enum Key: Sendable, Equatable {
-        case enter
-        case up
-        case down
-
-        /// The key of the action Control declares for it.
-        var name: String {
-            switch self {
-            case .enter: "Enter"
-            case .up: "Up"
-            case .down: "Down"
-            }
-        }
     }
 
     public let block: StepsBlock
@@ -48,10 +32,14 @@ public struct StepsPanel: Sendable, Equatable {
         current == nil ? "all \(count) step\(count == 1 ? "" : "s") done" : "step \(block.current) of \(count)"
     }
 
-    /// The action `key` takes, as Control declares it; nil when there is none (no next
-    /// step after the last, no previous before the first).
-    public func action(_ key: Key) -> ActionModel? {
-        block.actions?.first { $0.key == key.name && $0.submitTo != nil }
+    /// The buttons at the panel's bottom: this step done, then the page's answers and
+    /// other actions (`page`, in Control's order), and those the page has besides
+    /// (`others`, More…). The moves between steps are no buttons.
+    public func buttons(others: [ActionModel] = []) -> [ActionModel] {
+        let actions = block.actions ?? []
+        let done = actions.filter { $0.key == "Enter" }
+        let page = actions.filter { $0.page == true }
+        return done + page + others.filter { other in !page.contains { $0.key == other.key } }
     }
 
     /// The commands of the current step, one per line: what Copy all copies.
@@ -71,9 +59,21 @@ public struct StepsPanel: Sendable, Equatable {
         }
     }
 
-    /// A step's first line: what a step not open shows.
+    /// A step's first line: what a step not open shows, without the colon that leads
+    /// into what it folds away.
     static func firstLine(_ text: String) -> String {
-        String(text.split(separator: "\n", omittingEmptySubsequences: false).first ?? "")
+        let line = String(text.split(separator: "\n", omittingEmptySubsequences: false).first ?? "")
+        return line.hasSuffix(":") ? String(line.dropLast()) : line
+    }
+
+    /// What a folded step holds besides its first line, counted from what Control sent:
+    /// "2 commands"; nil when it holds nothing more.
+    static func holds(_ step: InstructionStepModel) -> String? {
+        switch step.commands.count {
+        case 0: nil
+        case 1: "1 command"
+        case let n: "\(n) commands"
+        }
     }
 
     /// What a step not open shows: its first line as written, a route as its parts with ›

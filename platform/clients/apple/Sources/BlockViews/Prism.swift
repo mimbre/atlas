@@ -31,6 +31,12 @@ enum Prism {
             scheme == .dark ? grey2 : grey1.opacity(0.8)
         }
 
+        /// Primary as text (a panel's eyebrow): primary is 4.3:1 on white, so a shade of it
+        /// in light (4.7:1 on grey5, more on white), a tint of it in dark (6.2:1 on #1E1E1E).
+        static func accentText(_ scheme: ColorScheme) -> Color {
+            scheme == .dark ? Color(hex: 0x7B9AF4) : Color(hex: 0x3A66DB)
+        }
+
         /// Prism's selection tint for a row: primarylight under dark text in light
         /// appearance; in dark appearance primary, faint, so light text stays legible.
         static func row(_ scheme: ColorScheme, selected: Bool, hovering: Bool) -> Color {
@@ -121,9 +127,16 @@ struct PrismCard: ViewModifier {
         content
             .padding(Prism.Spacing.s15)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(scheme == .dark ? Self.systemBackground : Prism.Colors.white,
-                        in: RoundedRectangle(cornerRadius: Prism.radius))
-            .prismShadow(Prism.cardShadow)
+            // The shadow is the card's alone (not its text's or sections'), with room around
+            // it so no column, list row or scroll edge cuts it off.
+            .background {
+                RoundedRectangle(cornerRadius: Prism.radius)
+                    .fill(scheme == .dark ? Self.systemBackground : Prism.Colors.white)
+                    .prismShadow(Prism.cardShadow)
+            }
+            .padding(.horizontal, Prism.Spacing.s13)
+            .padding(.top, Prism.Spacing.s9)
+            .padding(.bottom, Prism.Spacing.s19)
     }
 
     #if canImport(AppKit)
@@ -131,4 +144,52 @@ struct PrismCard: ViewModifier {
     #else
     static let systemBackground = Color(uiColor: .secondarySystemBackground)
     #endif
+}
+
+/// The card of the panel a page leads with: white in light, a raised surface in dark,
+/// rounded, with a soft shadow a little stronger than `PrismCard`'s, cast by the card alone
+/// (not by what is on it). While the panel has the keys' focus (`PanelKeys`), a thin ring
+/// in the accent's text colour marks it (≥ 3:1 on the card); a click in it gives it the focus.
+struct PanelCard: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.panelKeys) private var panelKeys
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Prism.radius * 2)
+        content
+            .padding(Prism.Spacing.s18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                shape
+                    .fill(scheme == .dark ? Color(white: 0.17) : Prism.Colors.white)
+                    .prismShadow(Prism.Shadow(color: .black.opacity(scheme == .dark ? 0.4 : 0.14), radius: 12, y: 5))
+            }
+            .overlay {
+                if panelKeys?.focus == .panel {
+                    shape.strokeBorder(Prism.Colors.accentText(scheme), lineWidth: 1.5)
+                }
+            }
+            .contentShape(shape)
+            .simultaneousGesture(TapGesture().onEnded { panelKeys?.focusPanel() })
+            // Room for the shadow on every side, so no column, list row or scroll edge cuts it off.
+            .padding(.horizontal, Prism.Spacing.s15)
+            .padding(.top, Prism.Spacing.s10)
+            .padding(.bottom, Prism.Spacing.s22)
+    }
+}
+
+/// The card of the page's details under the panel, recessed: no shadow and no stroke, on
+/// a light grey surface (grey5 in light, a step below the page in dark), as wide as the
+/// panel's card above it.
+struct RecessedCard: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(Prism.Spacing.s15)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(scheme == .dark ? Color(white: 0.08) : Prism.Colors.grey5,
+                        in: RoundedRectangle(cornerRadius: Prism.radius * 2))
+            .padding(.horizontal, Prism.Spacing.s15)
+    }
 }
