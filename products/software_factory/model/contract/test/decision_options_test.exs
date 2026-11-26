@@ -280,7 +280,7 @@ defmodule Model.DecisionOptionsTest do
   end
 
   # The page a TUI opens from Assigned to you, as Control serves it to a Console client.
-  test "a Console client is served the offer: 0 and 1 one call, decline asks for a note" do
+  test "a Console client is served the offer as blocks: each option answers itself, 0 the first" do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     decide = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "decide"))
     fact = Map.put(current(), "key", "D-private")
@@ -311,26 +311,65 @@ defmodule Model.DecisionOptionsTest do
 
     assert {:ok, projection} = AtlasBFFContract.Console.compile(projected)
 
-    [choice] = for %{"type" => "single_choice", "props" => p} <- projected["blocks"], do: p
-    assert String.ends_with?(choice["instructions"], "\n0 selects recommended choice 1.")
-    assert Enum.map(choice["options"], & &1["note"]) == [false, false, true]
+    blocks = for b <- projected["blocks"], b["type"] != "console_action", do: b
 
-    at = %{path: "/k/decision/D-private", context: "browse", generation: 1, on: "item", row: nil}
+    # In order: the question, why, each option (recommended first), the page's other
+    # answers, the details.
+    assert [
+             %{"id" => "header", "type" => "header", "props" => header},
+             %{"id" => "why", "type" => "text", "props" => why},
+             %{"id" => "option-1", "type" => "option", "props" => files},
+             %{"id" => "option-2", "type" => "option", "props" => memory},
+             %{"id" => "option-3", "type" => "option", "props" => decline}
+             | rest
+           ] = blocks
 
-    [zero, one, two, three] =
-      for key <- ~w(0 1 2 3) do
-        assert {:ok, event} = AtlasBFFContract.Console.capture(projection, key, at)
-        assert {:ok, action} = AtlasBFFContract.Console.resolve(projection, event, at)
-        action["props"]["operation"]
-      end
+    assert %{"eyebrow" => "YOUR DECISION", "key" => "D-private"} = header
+    definition = JSON.decode!(@text)
+    assert header["title"] == definition["question"]
+    assert why["text"] == definition["rationale"]
+    assert why["label"] == "Why" and why["text"] != ""
+    assert Enum.any?(rest, &(&1["id"] == "item"))
+    refute Enum.any?(blocks, &(&1["type"] in ["single_choice", "panel"]))
 
-    assert %{"name" => "invoke", "call" => call} = zero
-    assert one == zero
-    assert call["params"]["answer"] == hd(choice["options"])["answer"]["params"]["answer"]
-    assert %{"name" => "invoke"} = two
-    refute two == one
-    decline = List.last(choice["options"])["answer"]["params"]["answer"]
-    assert three == %{"name" => "open", "to" => "/k/decision/D-private/answer/" <> decline}
+    # Every option shows what it means: its rule and what follows, a decline its details.
+    for o <- [files, memory] do
+      assert [%{"label" => "Rule", "value" => r}, %{"label" => "Then", "value" => c}] =
+               o["fields"]
+
+      assert r != "" and c != ""
+    end
+
+    assert [%{"label" => "Details", "value" => d}] = decline["fields"]
+    assert d != ""
+
+    assert %{"n" => 1, "badge" => "★ Recommended", "tone" => "success"} = files
+    refute Map.has_key?(memory, "badge")
+    assert %{"n" => 3, "badge" => "Decline · note", "tone" => "warning"} = decline
+    assert %{"label" => "Choose", "key" => "1"} = files["answer"]
+    assert %{"label" => "Choose", "key" => "2"} = memory["answer"]
+    assert %{"label" => "Decline…", "key" => "3", "note" => true} = decline["answer"]
+
+    # Each option's own button (and key) sends exactly that option's answer; `0` the
+    # recommended one's; a decline opens its note form first.
+    resolve = fn key, on ->
+      at = %{path: "/k/decision/D-private", context: "browse", generation: 1, on: on, row: nil}
+      assert {:ok, event} = AtlasBFFContract.Console.capture(projection, key, at)
+      assert {:ok, action} = AtlasBFFContract.Console.resolve(projection, event, at)
+      action["props"]["operation"]
+    end
+
+    for {o, id} <- [{files, "option-1"}, {memory, "option-2"}] do
+      assert %{"name" => "invoke", "call" => call} = resolve.(o["answer"]["key"], id)
+      assert call == o["answer"]["submit_to"]
+    end
+
+    refute files["answer"]["submit_to"] == memory["answer"]["submit_to"]
+    assert resolve.("0", "option-1") == resolve.("1", "option-1")
+    assert %{"name" => "open", "to" => to} = resolve.("3", "option-3")
+    assert to == decline["answer"]["to"]
+    refute Map.has_key?(decline["answer"], "submit_to")
+    "/k/decision/D-private/answer/" <> decline = to
 
     note =
       AtlasControl.Pages.render({:answer, "decision", "D-private", decline}, m, answers, form)

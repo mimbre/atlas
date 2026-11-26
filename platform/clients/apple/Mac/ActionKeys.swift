@@ -4,12 +4,13 @@ import AtlasControlKit
 import BlockViews
 import ControlSession
 
-/// The keys of the shown page's actions, as Control declares them (an action's `key`):
+/// The keys of the shown page's actions, as Control declares them (an action's `key`;
+/// a decision's option answers on theirs, the recommended one on `0` too, `Option.actions`):
 /// the opened page's, else the index page's; in the sheet, its more actions'. A key is
 /// one character without ⌘, ⌃ or ⌥, and is the action's whichever column has the focus
-/// (a list there would take letters for itself), except while text is being typed, while
-/// a focused `single_choice` takes it (its digits, `TypingFocus`), in a sheet that asks
-/// (its form or confirm has its own keys) and over the agent's plan (it has its own).
+/// (a list there would take letters for itself), except while text is being typed, in a
+/// sheet that asks (its form or confirm has its own keys) and over the agent's plan (it
+/// has its own).
 /// ↑, ↓ and Return go to the focused column (`PanelKeys`), as in the TUI: the middle list
 /// moves with them until → gives the focus to the page's panel; ← gives it back. Not while
 /// text is typed or a sheet is up. The window's own focus follows: the list is first
@@ -17,14 +18,12 @@ import ControlSession
 @MainActor
 final class ActionKeys {
     private var monitor: Any?
-    let typing = TypingFocus()
     let panels = PanelKeys()
     /// The list that last had the window's focus, to give it back on ←.
     private weak var list: NSTableView?
 
     func start(_ session: Session) {
         guard monitor == nil else { return }
-        let typing = typing
         let panels = panels
         panels.moved = { [weak self] column in self?.move(column) }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -42,7 +41,7 @@ final class ActionKeys {
                     return panels.press(key, isRepeat: event.isARepeat)
                 }
                 let shell = ShellViewModel(session.state)
-                if let action = Self.action(for: event, shell: shell, typing: typing) {
+                if let action = Self.action(for: event, shell: shell) {
                     session.act(action)
                     return true
                 }
@@ -61,7 +60,7 @@ final class ActionKeys {
     }
 
     /// The window's focus follows the column's: away from the list to the panel (which has
-    /// no responder of its own, but a choice takes it), back to the list.
+    /// no responder of its own), back to the list.
     private func move(_ column: KeyColumn) {
         guard let window = NSApp.keyWindow else { return }
         switch column {
@@ -91,16 +90,16 @@ final class ActionKeys {
         windowKey(for: event).flatMap(KeyColumn.init(keyCode:))
     }
 
-    static func action(for event: NSEvent, shell: ShellViewModel, typing: TypingFocus) -> ActionModel? {
+    static func action(for event: NSEvent, shell: ShellViewModel) -> ActionModel? {
         guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
               let key = event.characters, key.count == 1,
               let window = event.window, !(window.firstResponder is NSText) else { return nil }
         if window.sheetParent != nil {
             guard shell.plan == nil, let sheet = shell.sheet, !SessionState.asks(sheet) else { return nil }
-            return PageActions.action(key: key, on: [sheet], typing: typing)
+            return PageActions.action(key: key, on: [sheet])
         }
         guard window.attachedSheet == nil else { return nil }
-        return PageActions.action(key: key, on: [shell.opened, shell.index], typing: typing)
+        return PageActions.action(key: key, on: [shell.opened, shell.index])
     }
 
     /// A panel's link with the key on the shown pages, in the window (not over a sheet):

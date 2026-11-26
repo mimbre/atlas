@@ -43,7 +43,11 @@ File.mkdir_p!(data)
 # The selected runtime closure, as integration/work_anchors.exs documents for
 # Rela 26.11.2. Generated ACL/Flow files are validation inputs, not runtime inputs.
 for name <- ["schema.yaml", "data-entry.yaml", "modules", "compositions"],
-    do: File.cp_r!(Path.join([root, "products/software_factory/model/targets/rela", name]), Path.join(data, name))
+    do:
+      File.cp_r!(
+        Path.join([root, "products/software_factory/model/targets/rela", name]),
+        Path.join(data, name)
+      )
 
 refute File.exists?(Path.join(data, "acl.yaml"))
 refute File.exists?(Path.join(data, "flows.yaml"))
@@ -197,7 +201,10 @@ try do
 
   {:ok, gateway} = AtlasControl.Gateway.start_link(model: Model.AtlasEyra, port: 0)
   control_port = AtlasControl.Gateway.port(gateway)
-  text = File.read!(Path.join(root, "products/software_factory/e2e/fixtures/decision-options.json"))
+
+  text =
+    File.read!(Path.join(root, "products/software_factory/e2e/fixtures/decision-options.json"))
+
   # The model's own single-choice rule: its field names, statuses and wording.
   rule =
     Model.AtlasEyra.__rela__(:description).extension["entities"]["decision"]["decision_options"]
@@ -314,19 +321,20 @@ try do
   offer = fn client, key ->
     assert {:ok, page} = AtlasAgent.Client.open(client, "/k/decision/" <> key)
 
+    # What each option's own answer does, on its key; `0` is the recommended one's again
+    # (Control binds it for a Console client, `Model.DecisionOptionsTest`).
     calls =
       page
-      |> AtlasAgent.Client.blocks("item")
-      |> Enum.flat_map(&(&1["actions"] || []))
-      |> Enum.flat_map(fn
-        %{"key" => shortcut, "submit_to" => %{} = call} ->
-          [{shortcut, call}]
+      |> AtlasAgent.Client.blocks("option")
+      |> Enum.flat_map(fn option ->
+        bound =
+          case option["answer"] do
+            %{"submit_to" => %{} = call} -> call
+            %{"to" => to} -> %{"note_form" => to}
+          end
 
-        %{"key" => shortcut, "to" => "/k/decision/" <> _ = to} ->
-          if String.contains?(to, "/answer/"), do: [{shortcut, %{"note_form" => to}}], else: []
-
-        _ ->
-          []
+        keys = [option["answer"]["key"] | if(option["tone"] == "success", do: ["0"], else: [])]
+        for shortcut <- keys, do: {shortcut, bound}
       end)
       |> Map.new()
 
@@ -367,26 +375,44 @@ try do
 
   # Every offered option, in order and word for word, the recommendation first with its
   # rationale; 0 is the same call as 1, and 1/2/3 are three different calls.
-  assert [choice] = AtlasAgent.Client.blocks(offer_page, "single_choice")
-  assert length(choice["options"]) == length(definition["options"])
+  options = AtlasAgent.Client.blocks(offer_page, "option")
+  assert length(options) == length(definition["options"])
+  assert [%{"title" => question}] = AtlasAgent.Client.blocks(offer_page, "header")
+  assert question == definition["question"]
 
-  for {shown, offered} <- Enum.zip(choice["options"], definition["options"]),
-      do: assert(Map.take(shown, Map.keys(offered)) == offered)
+  assert Enum.any?(
+           AtlasAgent.Client.blocks(offer_page, "text"),
+           &(&1["text"] == definition["rationale"])
+         )
 
-  assert choice["recommended"] == hd(definition["options"])["id"]
-  assert choice["recommended"] == definition["recommended"]
-  assert choice["rationale"] == definition["rationale"]
+  # Every option shows what it means: its rule and consequences, a decline its details.
+  for {shown, offered} <- Enum.zip(options, definition["options"]) do
+    assert shown["text"] == offered["text"]
+
+    assert shown["fields"] ==
+             if(offered["effect"] == "decline",
+               do: [%{"label" => "Details", "value" => offered["details"]}],
+               else: [
+                 %{"label" => "Rule", "value" => offered["rule"]},
+                 %{"label" => "Then", "value" => offered["consequences"]}
+               ]
+             )
+  end
+
+  assert hd(definition["options"])["id"] == definition["recommended"]
+  assert hd(options)["badge"] == "★ Recommended"
   assert calls["0"] == calls["1"]
   assert length(Enum.uniq([calls["1"], calls["2"], calls["3"]])) == 3
   refute Map.has_key?(calls, "9") or Map.has_key?(calls, "4")
-  # Declining, as the a/f Reject, is given with a note: its key opens the note form.
-  assert Enum.map(choice["options"], &(&1["note"] == true)) == [false, false, true]
-  assert decline?.("3") and List.last(definition["options"])["effect"] == "decline"
-  decline_call = List.last(choice["options"])["answer"]
 
-  assert calls["3"] == %{
-           "note_form" => "/k/decision/D-private-zero/answer/" <> decline_call["params"]["answer"]
-         }
+  # Each option's own answer is what its key does; declining, as the a/f Reject, is given
+  # with a note: its key opens the note form.
+  for {o, n} <- Enum.with_index(options, 1),
+      do: assert(o["answer"]["key"] == Integer.to_string(n))
+
+  assert Enum.map(options, &(&1["answer"]["note"] == true)) == [false, false, true]
+  assert decline?.("3") and List.last(definition["options"])["effect"] == "decline"
+  assert calls["3"] == %{"note_form" => List.last(options)["answer"]["to"]}
 
   settings = Path.join(dir, "settings.json")
 
@@ -489,13 +515,13 @@ try do
       case now[number] do
         %{"note_form" => to} ->
           # Without a note the semantic decline call itself is refused, as Reject's is.
-          [choice] = AtlasAgent.Client.blocks(page, "single_choice")
-          bare = List.last(choice["options"])["answer"]
-          assert {:refused, without} = AtlasAgent.Client.submit(tester, bare, %{})
+          assert List.last(AtlasAgent.Client.blocks(page, "option"))["answer"]["to"] == to
           assert {:ok, form_page} = AtlasAgent.Client.open(tester, to)
 
           assert [%{"submit_to" => call, "inputs" => [%{"name" => "note"}]}] =
                    AtlasAgent.Client.blocks(form_page, "form")
+
+          assert {:refused, without} = AtlasAgent.Client.submit(tester, call, %{})
 
           File.write!(
             Path.join(dir, key <> ".call.json"),

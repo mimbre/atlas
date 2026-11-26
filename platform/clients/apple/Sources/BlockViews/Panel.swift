@@ -103,12 +103,10 @@ public final class PanelKeys {
 }
 
 /// A `panel` block as it is read and answered: where its owner decides (to accept, to
-/// merge, stuck work). Without `choose`, the arrows move the selection of its items and
-/// Return opens the selected one's page; its answers are buttons. With `choose`, its
-/// answers are a choice: the arrows move the selection (the recommended one at first) and
-/// Return answers it. An answer is taken as the page's action of the same key: its call
-/// when it has one (`submit_to`), else its page (`to`; a note's form for a no). The app
-/// decides nothing about an answer: the order, the recommendation and the keys are Control's.
+/// merge). The arrows move the selection of its items and Return opens the selected one's
+/// page; its answers are buttons. An answer is taken as the page's action of the same key:
+/// its call when it has one (`submit_to`), else its page (`to`; a note's form for a no).
+/// The app decides nothing about an answer: the order and the keys are Control's.
 public struct Panel: Sendable, Equatable {
     /// What a key or a click does.
     public enum Outcome: Sendable, Equatable {
@@ -121,73 +119,58 @@ public struct Panel: Sendable, Equatable {
     }
 
     public private(set) var block: PanelBlock
-    /// The place of the selected item, or, when the panel is a choice, of the selected answer.
-    public private(set) var selected: Int
+    /// The place of the selected item.
+    public private(set) var selected = 0
 
     public init(_ block: PanelBlock) {
         self.block = block
-        selected = Self.start(block)
     }
 
-    public var choosing: Bool { block.choose == true }
     public var items: [PanelItemModel] { block.items ?? [] }
     public var answers: [PanelAnswerModel] { block.answers ?? [] }
 
-    /// The item whose details show; nil without items, or when the panel is a choice.
+    /// The item whose details show; nil without items.
     public var selectedItem: PanelItemModel? {
-        guard !choosing, items.indices.contains(selected) else { return nil }
-        return items[selected]
+        items.indices.contains(selected) ? items[selected] : nil
     }
 
-    /// The answer Return takes; nil unless the panel is a choice with answers.
-    public var selectedAnswer: PanelAnswerModel? {
-        guard choosing, answers.indices.contains(selected) else { return nil }
-        return answers[selected]
-    }
-
-    /// Control sent the block again: the same item or answer (by key) stays selected.
+    /// Control sent the block again: the same item (by key) stays selected.
     public mutating func update(_ block: PanelBlock) {
         guard block != self.block else { return }
-        let was = choosing ? selectedAnswer?.key : selectedItem?.key
+        let was = selectedItem?.key
         self.block = block
-        let keys = choosing ? answers.map(\.key) : items.map(\.key)
-        selected = was.flatMap { keys.firstIndex(of: $0) } ?? Self.start(block)
+        selected = was.flatMap { key in items.firstIndex { $0.key == key } } ?? 0
     }
 
     /// A key the panel takes: what it does, or nil when it leaves it to the view below
-    /// (nothing to select). The arrows move the selection, not past the first or last, and
-    /// never answer; Return opens the selected item, or answers the selected answer, once:
-    /// held down (`isRepeat`) it does nothing more.
+    /// (nothing to select). The arrows move the selection, not past the first or last;
+    /// Return opens the selected item, once: held down (`isRepeat`) it does nothing more.
     public mutating func press(_ key: PanelKey, isRepeat: Bool = false) -> Outcome? {
-        let count = choosing ? answers.count : items.count
-        guard count > 0 else { return nil }
+        guard !items.isEmpty else { return nil }
         switch key {
         case .up:
             selected = max(selected - 1, 0)
             return .nothing
         case .down:
-            selected = min(selected + 1, count - 1)
+            selected = min(selected + 1, items.count - 1)
             return .nothing
         case .enter:
             if isRepeat { return .nothing }
-            if let answer = selectedAnswer { return self.answer(answer) }
             return selectedItem.map { .open($0.to) }
         }
     }
 
     /// Select this item (a click); a click on the selected one opens it.
     public mutating func click(item: PanelItemModel) -> Outcome {
-        guard !choosing, let index = items.firstIndex(of: item) else { return .nothing }
+        guard let index = items.firstIndex(of: item) else { return .nothing }
         if index == selected { return .open(item.to) }
         selected = index
         return .nothing
     }
 
-    /// Answer this answer (a click, its key, or Return on the selected one); in a choice
-    /// it becomes the selected one.
-    public mutating func answer(_ answer: PanelAnswerModel) -> Outcome {
-        if choosing, let index = answers.firstIndex(of: answer) { selected = index }
-        return .act(Self.action(answer))
+    /// Answer this answer (a click or its key).
+    public func answer(_ answer: PanelAnswerModel) -> Outcome {
+        .act(Self.action(answer))
     }
 
     /// An answer as the page's action of its key: its call, else its page (a no's: the
@@ -246,11 +229,5 @@ public struct Panel: Sendable, Equatable {
         case "pending": "…"
         default: "—"
         }
-    }
-
-    /// The recommended answer's place in a choice, else the first.
-    private static func start(_ block: PanelBlock) -> Int {
-        guard block.choose == true else { return 0 }
-        return (block.answers ?? []).firstIndex { $0.recommended == true } ?? 0
     }
 }

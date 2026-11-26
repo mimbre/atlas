@@ -257,7 +257,7 @@ defmodule AtlasControl.PanelTest do
              Enum.at(panel(page)["checks"], 1)
   end
 
-  test "stuck: what went wrong, and the answers as a choice, the first recommended", %{
+  test "stuck: a stack of simple blocks, what went wrong, then each answer as an option", %{
     port: port
   } do
     FakeStore.put(
@@ -278,41 +278,53 @@ defmodule AtlasControl.PanelTest do
 
     in_state("stuck")
     {_s, page} = open(port, "/k/widget/W-1")
-    p = panel(page)
-
-    assert p["heading"] == "YOUR DECISION"
-    assert p["title"] == "W-1 is stuck: what now?"
-
-    assert p["byline"] == [
-             %{"text" => "inspect"},
-             %{"text" => "attempt 2 failed"},
-             %{"text" => "stuck", "since" => @since}
-           ]
-
-    assert p["box"] == %{
-             "title" => "What went wrong",
-             "text" => "The bulb did not fit.",
-             "tone" => "error"
-           }
-
-    assert p["choose"] == true
+    refute panel(page)
 
     assert [
-             %{
-               "key" => "r",
-               "label" => "Retry",
-               "recommended" => true,
-               "detail" => "Inspects it again."
-             },
-             %{"key" => "c", "label" => "Close it", "detail" => "Ends it."} = close
-           ] = p["answers"]
+             {"header", "header",
+              %{
+                "eyebrow" => "YOUR DECISION",
+                "key" => "W-1",
+                "title" => "W-1 is stuck: what now?"
+              }},
+             {"why", "text",
+              %{"text" => "inspect · attempt 2 failed · stuck", "since" => @since}},
+             {"failure", "text",
+              %{
+                "label" => "What went wrong",
+                "text" => "The bulb did not fit.",
+                "role" => "error"
+              }},
+             {"option-1", "option", retry},
+             {"option-2", "option", close},
+             {"answers", "answers", %{"answers" => [log | _]}},
+             {"list:of_widget", "list", _},
+             {"item", "item", %{"actions" => []}} | _
+           ] =
+             for(
+               b <- page["blocks"],
+               b["type"] != "console_action",
+               do: {b["id"], b["type"], b["props"]}
+             )
 
-    refute Map.has_key?(close, "recommended")
+    assert %{
+             "n" => 1,
+             "text" => "Retry",
+             "badge" => "★ Recommended",
+             "tone" => "success",
+             "fields" => [%{"label" => "Then", "value" => "Inspects it again."}],
+             "answer" => %{"label" => "Choose", "key" => "r", "to" => "/k/widget/W-1/answer/r"}
+           } = retry
 
-    assert p["actions"] == [
-             %{"label" => "Inspector's log", "key" => "l", "to" => "/k/inspection/I-1"}
-           ]
+    assert %{
+             "n" => 2,
+             "text" => "Close it",
+             "fields" => [%{"label" => "Then", "value" => "Ends it."}],
+             "answer" => %{"label" => "Choose", "key" => "c", "to" => "/k/widget/W-1/answer/c"}
+           } = close
 
+    refute Map.has_key?(close, "badge")
+    assert %{"label" => "Inspector's log", "key" => "l", "to" => "/k/inspection/I-1"} = log
     assert ["r"] in keys(page) and ["c"] in keys(page) and ["l"] in keys(page)
 
     # Nothing recorded of what went wrong: it says so.
@@ -321,7 +333,7 @@ defmodule AtlasControl.PanelTest do
     })
 
     {_s, page} = open(port, "/k/widget/W-1")
-    assert panel(page)["box"]["text"] == "—"
+    assert Enum.find(page["blocks"], &(&1["id"] == "failure"))["props"]["text"] == "—"
   end
 
   test "someone who does not hold the work sees no panel", %{port: port} do

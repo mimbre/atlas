@@ -233,14 +233,14 @@ defmodule AtlasTui.Columns do
 
   defp take(_model, _focus, _key), do: nil
 
-  # In the page, the arrows choose as in one column (a panel's items or answers, a single
-  # choice, the commands of instructions), and among its own rows where Control binds
-  # them to the rows: never into the details.
+  # In the page, the arrows choose as in one column (a panel's items, a decision's options,
+  # the commands of instructions), and among its own rows where Control binds them to the
+  # rows: never into the details.
   defp page_move(model, key) do
     panel = Model.panel(model)
 
     cond do
-      Model.single_choice(model) != nil ->
+      Model.options(model) != [] ->
         nil
 
       panel != nil and Model.panel_choices(panel) != [] ->
@@ -382,7 +382,7 @@ defmodule AtlasTui.Columns do
 
       :page ->
         choose? =
-          Model.single_choice(model) != nil or
+          Model.options(model) != [] or
             (Model.panel(model) != nil and Model.panel_choices(Model.panel(model)) != []) or
             Model.commands(model) != [] or indexes(model, false) != []
 

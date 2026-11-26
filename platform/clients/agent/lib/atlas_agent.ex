@@ -153,7 +153,8 @@ defmodule AtlasAgent do
 
   @doc """
   One fact: `%{"key", "path", "title", "fields" => [[label, value]], "todo" => %{"title",
-  "fields"}` (only for its owner; a choice as Control sends it, or its steps as `%{"title",
+  "fields"}` (only for its owner; a decision as `%{"title", "why", "failure", "options" =>
+  [%{"n", "text", "badge", "fields", "answer"}], "answers"}`, or its steps as `%{"title",
   "why", "steps" => [%{"n", "lines"}], "answers"}`), "origins" =>
   %{label => %{"since", "by", "cause"}}, "lists" => [%{"title", "rows"}], "values" =>
   %{name => text}}`. `origins` holds the fact that set a field's value, for a link. `values`
@@ -163,17 +164,14 @@ defmodule AtlasAgent do
   def get(client, key) do
     with {:ok, page} <- Client.open(client, "/k/_/#{enc(key)}") do
       # The fact's own item; its owner's What to do part, when the client is the owner, is
-      # a second one (IS-Atlas-54), or a choice, which a line saying what to do may head,
-      # or its instructions as steps.
+      # a second one (IS-Atlas-54), or a decision's options, or its instructions as steps.
       items =
         for %{"type" => "item", "props" => props} = b <- page["blocks"] || [],
             do: {b["id"], props}
 
       todo =
-        steps_of(page["blocks"] || []) ||
-          Enum.find_value(page["blocks"] || [], fn b ->
-            if b["type"] == "single_choice", do: b["props"]
-          end) || Enum.find_value(items, fn {id, props} -> id == "todo" && props end)
+        steps_of(page["blocks"] || []) || options_of(page["blocks"] || []) ||
+          Enum.find_value(items, fn {id, props} -> id == "todo" && props end)
 
       case for({id, props} <- items, id != "todo", do: props) do
         [item] ->
@@ -224,8 +222,29 @@ defmodule AtlasAgent do
     end
   end
 
+  # A decision as its options (the page's `option` blocks), headed by its `header`, why
+  # and what went wrong (`text`, role error), with its other `answers`; nil without options.
+  defp options_of(blocks) do
+    of = fn type -> for %{"type" => ^type, "props" => props} <- blocks, do: props end
+    {failure, why} = Enum.split_with(of.("text"), &(&1["role"] == "error"))
+
+    case of.("option") do
+      [] ->
+        nil
+
+      options ->
+        %{
+          "title" => Enum.find_value(of.("header"), & &1["title"]),
+          "why" => Enum.find_value(why, & &1["text"]),
+          "failure" => Enum.find_value(failure, & &1["text"]),
+          "options" => options,
+          "answers" => Enum.flat_map(of.("answers"), & &1["answers"])
+        }
+    end
+  end
+
   # What to do, as the page words it: its title and its fields.
-  defp todo_of(%{"options" => _, "revision" => _} = choice), do: choice
+  defp todo_of(%{"options" => _} = decision), do: decision
   defp todo_of(%{"steps" => _} = steps), do: steps
 
   defp todo_of(todo),

@@ -193,16 +193,23 @@ struct ShadowRoom: ViewModifier {
 
 /// The card of the page's details under the panel, recessed: no shadow and no stroke, on
 /// a light grey surface (grey5 in light, a step below the page in dark), as wide as the
-/// panel's card above it.
+/// panel's card above it. `error` (what went wrong): on Prism's error tint instead
+/// (errorlight in light, a faint wash of error in dark).
 struct RecessedCard: ViewModifier {
+    var error = false
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
         content
             .padding(Prism.Spacing.s15)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(scheme == .dark ? Color(white: 0.08) : Prism.Colors.grey5,
-                        in: RoundedRectangle(cornerRadius: Prism.radius * 2))
+            .background(fill, in: RoundedRectangle(cornerRadius: Prism.radius * 2))
             .padding(.horizontal, Prism.Spacing.s15)
+    }
+
+    private var fill: Color {
+        let dark = scheme == .dark
+        if error { return dark ? Prism.Colors.error.opacity(0.14) : Prism.Colors.errorLight }
+        return dark ? Color(white: 0.08) : Prism.Colors.grey5
     }
 }

@@ -32,11 +32,11 @@ struct ShellView: View {
         } content: {
             // Room for a row's key, title (two lines) and to-do side by side.
             Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
-                   submit: submit, act: session.act)
+                   act: session.act)
                 .navigationSplitViewColumnWidth(min: 420, ideal: 560)
         } detail: {
             Column(page: shell.opened, header: true, selectedPath: shell.selectedPath, open: session.open,
-                   submit: submit, act: session.act)
+                   act: session.act)
         }
         .onAppear { keys.start(session) }
         .onDisappear { keys.stop() }
@@ -65,7 +65,6 @@ struct ShellView: View {
                 }
             }
             .environment(\.pendingAction, shell.pending)
-            .environment(\.typingFocus, keys.typing)
         }
         .navigationTitle(shell.title ?? "")
         .greeting(shell.greeting)
@@ -89,7 +88,6 @@ struct ShellView: View {
             }
         }
         .environment(\.pendingAction, shell.pending)
-        .environment(\.typingFocus, keys.typing)
         .environment(\.panelKeys, keys.panels)
     }
 }
@@ -241,13 +239,11 @@ struct Column: View {
     let header: Bool
     let selectedPath: String?
     let open: (String) -> Void
-    let submit: (CallModel, [String: String]) -> Void
     let act: (ActionModel) -> Void
 
     var body: some View {
         if let page {
-            PageView(page: page, header: header, selectedPath: selectedPath, open: open, submit: submit,
-                     act: act)
+            PageView(page: page, header: header, selectedPath: selectedPath, open: open, act: act)
         } else {
             Color.clear
         }
