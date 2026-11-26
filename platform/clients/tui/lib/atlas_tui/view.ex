@@ -25,7 +25,7 @@ defmodule AtlasTui.View do
 
   alias AtlasTui.Blocks.List, as: ListBlock
   alias AtlasTui.Blocks.Text, as: TextBlock
-  alias AtlasTui.{Columns, Model, Text}
+  alias AtlasTui.{Columns, Console, Model, Text}
 
   @label_width 16
   # Beside the label of a row Control marks pending (docs/design/page-freshness.md §2.3).
@@ -84,7 +84,8 @@ defmodule AtlasTui.View do
     model = put_in(model.console.viewport, {width, height})
     header = AtlasTui.ConsoleView.header(model, width)
     help = footer_help(model)
-    room = max(height - length(header) - 3 - length(help), 1)
+    status = status(model, reconcile_seconds, width)
+    room = max(height - length(header) - 2 - length(status) - length(help), 1)
 
     {body, viewports} =
       if Columns.shown?(model) do
@@ -100,12 +101,7 @@ defmodule AtlasTui.View do
       end
 
     footer =
-      help ++
-        [
-          [{:dim, String.duplicate("─", width)}],
-          console_notice(model),
-          status(model, reconcile_seconds)
-        ]
+      help ++ [[{:dim, String.duplicate("─", width)}], console_notice(model)] ++ status
 
     rows = Enum.map(Enum.take(header ++ body ++ footer, height), &fit(&1, width))
     {rows, %{model | viewports: viewports}}
@@ -137,10 +133,9 @@ defmodule AtlasTui.View do
 
   # Body
 
-  # Closed by Control: why, in full, in place of a page that is no longer current (a build
-  # too old for Control says what is true and what to do, IS-Atlas-76).
-  defp body(%Model{connected: false, closed: true, notice: %{text: text}}, width, _room),
-    do: [[] | Enum.map(AtlasTui.Text.wrap(text, width - 2), &[{:error, " " <> &1}])]
+  # Without Control's content the body stays empty: nothing old is shown as if it were
+  # current, and the status line says why and what happens next (`status/2`).
+  defp body(%Model{connected: false, closed: true}, _width, _room), do: []
 
   # Waiting for a page that is not shown yet; a page kept for it (back, a tab) shows.
   defp body(%Model{console: %{expected: target, restoring: false}, path: path}, _width, _room)
@@ -150,13 +145,7 @@ defmodule AtlasTui.View do
   defp body(%Model{console: %{legend: legend}} = model, width, room) when legend != nil,
     do: AtlasTui.LegendView.render(model, width, room)
 
-  defp body(%Model{connected: false, closed: false}, _width, _room) do
-    [
-      [],
-      [{:error, " Not connected to Control. Retrying…"}],
-      [{:dim, " Nothing old is shown as if it were current."}]
-    ]
-  end
+  defp body(%Model{connected: false}, _width, _room), do: []
 
   # The agent's plan shows over the page; the page stays underneath and follows hints.
   defp body(%Model{plan: %Plan{}} = model, width, room) do
@@ -164,7 +153,7 @@ defmodule AtlasTui.View do
     block(block, 0, model, width, room)
   end
 
-  defp body(%Model{blocks: []}, _width, _room), do: [[], [{:dim, " Waiting for Control…"}]]
+  defp body(%Model{blocks: []}, _width, _room), do: []
 
   defp body(model, width, room), do: nodes(content(model), model, width, room)
 
@@ -1643,9 +1632,6 @@ defmodule AtlasTui.View do
 
   defp window(lines, _model, _room), do: {lines, nil}
 
-  defp console_notice(%Model{console: %{error: error}}) when is_binary(error),
-    do: [{:error, " Console: " <> error <> " · retrying boot"}]
-
   defp console_notice(%Model{console: %{action_error: error}}) when is_binary(error),
     do: [{:error, " Console: " <> error}]
 
@@ -1654,6 +1640,9 @@ defmodule AtlasTui.View do
 
   defp console_notice(%Model{console: %{key_prefix: prefix}}) when prefix != "",
     do: [{:dim, "#{prefix} … · Esc to cancel"}]
+
+  # Closed by Control: its words are the status line's (`status/2`), not said twice.
+  defp console_notice(%Model{connected: false, closed: true}), do: []
 
   defp console_notice(model), do: notice(model)
 
@@ -1756,9 +1745,10 @@ defmodule AtlasTui.View do
     [{tone, " #{icon} #{notice.text}"}]
   end
 
-  defp status(model, reconcile_seconds) do
-    connection = if model.connected, do: {:ok, " ● connected"}, else: {:error, " ○ not connected"}
-
+  # The connection, compact and in plain words, as lines: connected (what the page on
+  # screen is and how it stays current), or not, with why and what happens next, wrapped
+  # when it does not fit, so what to do is never cut off.
+  defp status(%Model{connected: true} = model, reconcile_seconds, _width) do
     updated =
       case model.updated do
         nil ->
@@ -1775,8 +1765,59 @@ defmodule AtlasTui.View do
         _ -> ""
       end
 
-    [connection, {:dim, updated <> hint <> " · reconciles every #{reconcile_seconds}s"}]
+    [
+      [
+        {:ok, " ● connected"},
+        {:dim, waiting(model) <> updated <> hint <> " · reconciles every #{reconcile_seconds}s"}
+      ]
+    ]
   end
+
+  defp status(model, _reconcile_seconds, width) do
+    {why, retries} = offline(model)
+    retries = if retries, do: " · retries every #{div(Console.retry_ms(), 1_000)}s", else: ""
+    mark = "○ not connected"
+
+    [first | rest] = Text.wrap("#{mark} · #{why}#{retries}", width - 1)
+
+    first =
+      case String.split_at(first, String.length(mark)) do
+        {^mark, after_mark} -> [{:error, " " <> mark}, {:dim, after_mark}]
+        _ -> [{:error, " " <> first}]
+      end
+
+    [first | Enum.map(rest, &[{:dim, " " <> &1}])]
+  end
+
+  defp waiting(%Model{console: %{error: error}}) when is_binary(error),
+    do: " · the tabs could not be refreshed (#{error}); the last ones stay and are asked again"
+
+  defp waiting(%Model{blocks: []}), do: " · waiting for Control's first page"
+  defp waiting(_model), do: ""
+
+  # Why there is no Control content, and what happens next; and whether it is tried again
+  # every few seconds (a Control that answered but refused this TUI is not asked again until
+  # it restarts).
+  defp offline(%Model{closed: true, notice: %{text: text}}), do: {text, true}
+
+  defp offline(%Model{offline: :no_tunnel}),
+    do: {"the tunnel to Control is closed; any atlas command opens it", true}
+
+  defp offline(%Model{offline: :unreachable}),
+    do: {"Control cannot be reached; connects by itself once it answers", true}
+
+  defp offline(%Model{offline: :silent}),
+    do: {"Control is down or restarting; connects once it answers", true}
+
+  defp offline(%Model{offline: {:newer, theirs}, env: env}),
+    do:
+      {"this TUI is newer than #{env} (#{AtlasTui.Protocol.version()} vs #{theirs}); " <>
+         "connects once #{env} is updated", false}
+
+  defp offline(%Model{offline: :refused, env: env}),
+    do: {"Control #{env} refused this TUI as its Console; connects once Control restarts", false}
+
+  defp offline(_model), do: {"connecting to Control", false}
 
   defp reason("open"), do: "opened"
   defp reason("hint"), do: "updated by hint"

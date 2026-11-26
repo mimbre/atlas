@@ -47,6 +47,10 @@ defmodule AtlasTui.Console do
             generation: 0
 
   @history_limit 100
+  # How long after losing Control the TUI tries again (`AtlasTui.App`).
+  @retry_ms 2_000
+
+  def retry_ms, do: @retry_ms
 
   def new, do: %__MODULE__{}
 
@@ -61,12 +65,14 @@ defmodule AtlasTui.Console do
     })
   end
 
-  def disconnected(model) do
+  @doc "No Control content any more; `why` (see `AtlasTui.Model`'s `offline`) when known."
+  def disconnected(model, why \\ nil) do
     model = WorkerConversation.capture(model)
 
     %{
       model
       | connected: false,
+        offline: why || model.offline,
         console: %{
           model.console
           | stale: true,
@@ -89,6 +95,7 @@ defmodule AtlasTui.Console do
       {%{
          model
          | connected: true,
+           offline: nil,
            closed: false,
            notice: nil,
            console: %{model.console | phase: :compatibility, error: nil}
@@ -97,12 +104,8 @@ defmodule AtlasTui.Console do
       {%{
          model
          | connected: false,
-           console: %{
-             model.console
-             | phase: :unsupported,
-               stale: true,
-               error: "Control did not acknowledge a compatible Console surface"
-           }
+           offline: refused(model, message),
+           console: %{model.console | phase: :unsupported, stale: true}
        }, []}
     end
   end
@@ -187,6 +190,22 @@ defmodule AtlasTui.Console do
 
   def receive(model, message),
     do: WorkerConversation.receive(Model.message(model, message), message)
+
+  # A welcome this TUI cannot take: from a Control on an older contract (this build is
+  # newer than it; Control closes a client older than it, above), or one that names
+  # another environment or no Console surface.
+  defp refused(model, %{"surface" => "console", "spec" => theirs} = message)
+       when is_binary(theirs) do
+    with true <- message["env"] == model.env,
+         {:ok, version} <- Version.parse(theirs),
+         :lt <- Version.compare(version, Version.parse!(Protocol.version())) do
+      {:newer, theirs}
+    else
+      _ -> :refused
+    end
+  end
+
+  defp refused(_model, _message), do: :refused
 
   # A page is kept for its path first, whatever happens to it here.
   defp cache(%{console: %{phase: :unsupported}} = model, _message), do: model
