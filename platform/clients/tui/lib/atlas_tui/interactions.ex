@@ -3,7 +3,9 @@ defmodule AtlasTui.Interactions do
   Console operations from the current BFF projection. Contract owns validation,
   binding selection and action identity. The renderer adds local focus and shell
   revision checks to reject captured events after its own state changes. On a page with a
-  single choice, ↑/↓ select an option and Enter answers it with the option's own key.
+  single choice, ↑/↓ select an option and Enter answers it with the option's own key; on a
+  page with a panel, ↑/↓ select its item (Enter opens it) or, in a choice, its answer
+  (Enter answers it with the answer's own key).
   """
   alias AtlasTui.{Blocks, Console, Legend, Model}
   alias AtlasBFFContract.Console, as: Contract
@@ -181,7 +183,7 @@ defmodule AtlasTui.Interactions do
         model = put_in(model.console.key_buffer, "")
 
         cond do
-          choice = choice_key(model, key) -> choice
+          choice = choice_key(model, key) || panel_key(model, key) -> choice
           copy = copy_key(model, key) -> copy
           prefix?(model, key) -> {put_in(model.console.key_prefix, elem(key, 1)), []}
           true -> direct_key(model, key)
@@ -211,6 +213,33 @@ defmodule AtlasTui.Interactions do
   end
 
   defp choice_key(_model, _key), do: nil
+
+  # A page with a panel whose arrows select (`Model.panel_choices/1`): they move the
+  # selection; Enter opens the selected item's page, or answers the selected answer exactly
+  # as its key does (an answer given with a note opens its note form first).
+  defp panel_key(model, key) when key in [:up, :down, :enter] do
+    with "browse" <- context(model),
+         %Blocks.Panel{} = panel <- Model.panel(model),
+         [_ | _] = choices <- Model.panel_choices(panel) do
+      at = Model.panel_chosen(panel, model.choice)
+
+      case {key, Enum.at(choices, at)} do
+        {:enter, %Blocks.PanelItem{to: to}} ->
+          Console.open(model, to)
+
+        {:enter, %Blocks.PanelAnswer{key: answer}} ->
+          dispatch(model, capture(model, {:char, answer}))
+
+        {move, _} ->
+          to = (at + if(move == :up, do: -1, else: 1)) |> max(0) |> min(length(choices) - 1)
+          {%{model | choice: Enum.at(choices, to).key}, []}
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp panel_key(_model, _key), do: nil
 
   # A page with a to-do's steps: c copies the current step's first command, C the one
   # after the one copied last, y all of them; the TUI says so.

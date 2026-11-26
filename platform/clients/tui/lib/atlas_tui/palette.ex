@@ -23,6 +23,8 @@ defmodule AtlasTui.Palette do
   viewer, orange when under way, blue when planned or waiting, green when done. In dark the
   dot is the colour on the surface; in light, where those colours are too faint as text on
   white, the cell is the colour and the dot is drawn on it in white or grey1 (each ≥4.5:1).
+  `:error_frame` frames what went wrong in Prism's error (a line, not text); its heading
+  is `:error` text.
   """
   @tokens %{
     primary: {66, 114, 239},
@@ -63,6 +65,7 @@ defmodule AtlasTui.Palette do
         :dim -> if dark, do: {:grey3, :grey1}, else: base
         :border -> if dark, do: {:grey2, :grey1}, else: {:grey2, :white}
         :frame -> if dark, do: {:primary, :grey1}, else: {:primary, :white}
+        :error_frame -> if dark, do: {:error, :grey1}, else: {:error, :white}
         :key -> if dark, do: {:tertiary, :grey1}, else: {:grey1, :warninglight}
         :warning -> if dark, do: {:warning, :grey1}, else: {:grey1, :warninglight}
         :ok -> if dark, do: {:success, :grey1}, else: {:grey1, :successlight}

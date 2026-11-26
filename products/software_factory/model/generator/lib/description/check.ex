@@ -427,7 +427,7 @@ defmodule RelaDSL.Description.Check do
 
     keys(
       spec,
-      ~w(top primary plural_label start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options),
+      ~w(top primary plural_label start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options panel),
       path
     ) ++
       navigation(spec["start"], at.("start")) ++
@@ -481,12 +481,65 @@ defmodule RelaDSL.Description.Check do
           Enum.flat_map(List.wrap(r["fields"]), &field(ctx, kind, &1, at.("requires")))
       end) ++
       decision_options(ctx, kind, spec["decision_options"], at.("decision_options")) ++
+      panels(ctx, kind, spec["panel"], at.("panel")) ++
       authority(ctx, kind, spec["authority"], at.("authority")) ++
       layering(ctx, kind, spec["layering"], at.("layering")) ++
       frozen(ctx, kind, spec["frozen"], at.("frozen")) ++
       sealed(ctx, kind, spec["sealed"], at.("sealed")) ++
       replaces(ctx, kind, spec["replaces"], at.("replaces"))
   end
+
+  # A kind's panels, per state of its work: their keys and texts. The relations they read
+  # may be another composition's (a kind is shared): one a composition lacks shows nothing.
+  defp panels(_ctx, _kind, nil, _path), do: []
+
+  defp panels(ctx, kind, panels, path) when is_map(panels) do
+    Enum.flat_map(panels, fn {state, panel} ->
+      at = path ++ [state]
+
+      keys(
+        panel,
+        ~w(heading title records byline items checks box choose details actions links),
+        at
+      ) ++
+        if(text?(panel["heading"]) and text?(panel["title"]),
+          do: [],
+          else: p(at, :panel, [kind], "#{kind}.panel.#{state}: expected its heading and title")
+        ) ++
+        Enum.flat_map(
+          panel["records"] || %{},
+          &keys(elem(&1, 1), ~w(relation where), at ++ ["records"])
+        ) ++
+        if(panel["items"],
+          do: keys(panel["items"], ~w(relation order count details), at ++ ["items"]),
+          else: []
+        ) ++
+        Enum.flat_map(
+          List.wrap(panel["checks"]),
+          &keys(&1, ~w(label text state), at ++ ["checks"])
+        ) ++
+        if(panel["box"],
+          do:
+            keys(panel["box"], ~w(title field tone empty), at ++ ["box"]) ++
+              field(ctx, kind, panel["box"]["field"], at ++ ["box"]),
+          else: []
+        ) ++
+        Enum.flat_map(List.wrap(panel["actions"]), fn a ->
+          keys(a, ~w(key label record), at ++ ["actions"]) ++
+            if(Map.has_key?(panel["records"] || %{}, a["record"]),
+              do: [],
+              else: p(at, :panel, [kind], "#{kind}.panel.#{state}: an action names no record")
+            )
+        end) ++
+        Enum.flat_map(List.wrap(panel["links"]), fn l ->
+          keys(l, ~w(key label field), at ++ ["links"]) ++
+            field(ctx, kind, l["field"], at ++ ["links"])
+        end)
+    end)
+  end
+
+  defp panels(_ctx, kind, _panels, path),
+    do: p(path, :panel, [kind], "#{kind}.panel: expected a panel per state")
 
   defp decision_options(_ctx, _kind, nil, _path), do: []
 

@@ -30,6 +30,15 @@ enum Prism {
         static func muted(_ scheme: ColorScheme) -> Color {
             scheme == .dark ? grey2 : grey1.opacity(0.8)
         }
+
+        /// Prism's selection tint for a row: primarylight under dark text in light
+        /// appearance; in dark appearance primary, faint, so light text stays legible.
+        static func row(_ scheme: ColorScheme, selected: Bool, hovering: Bool) -> Color {
+            let dark = scheme == .dark
+            if selected { return dark ? primary.opacity(0.35) : primaryLight }
+            if hovering { return dark ? Color.primary.opacity(0.06) : grey5 }
+            return .clear
+        }
     }
 
     /// `default` radius, 0.25rem.

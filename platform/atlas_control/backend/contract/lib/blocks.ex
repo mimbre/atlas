@@ -54,6 +54,26 @@ defmodule AtlasBFFContract.Blocks do
         field :actions, {:list, :action}
       end
 
+      # Where its owner decides, as a panel: `heading` (what is asked of them: "TO
+      # ACCEPT"), `title`, `aside` (beside the title: "3 items"), the `byline`; what it is
+      # judged on: `items` (a client selects one and shows its details), `checks`, a `box`;
+      # then its `answers` in Control's order, each the page's action of the same key.
+      # `choose`: the answers are a choice, one selected (the recommended one first) and
+      # answered at once, its detail shown. `actions` and `links` open what it refers to.
+      defblock :panel do
+        field :heading, :string, required: true
+        field :title, :string, required: true
+        field :aside, :string
+        field :byline, {:list, :clause}
+        field :items, {:list, :panel_item}
+        field :checks, {:list, :check}
+        field :box, :box
+        field :answers, {:list, :panel_answer}
+        field :choose, :boolean
+        field :actions, {:list, :action}
+        field :links, {:list, :link}
+      end
+
       # Submitting sends the inputs' values to the endpoint `submit_to` names.
       defblock :form do
         field :title, :string, required: true
