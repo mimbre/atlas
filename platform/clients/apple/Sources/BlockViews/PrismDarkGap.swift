@@ -86,6 +86,38 @@ enum PrismDarkGap {
         pick(scheme, light: Prism.Colors.grey3, dark: .clear)
     }
 
+    /// The list's ground under its row cards: grey5; a dark ground in dark.
+    static func listGround(_ scheme: ColorScheme) -> Color {
+        pick(scheme, light: Prism.Colors.grey5, dark: Color(white: 0.118))
+    }
+
+    /// A list row's card, a little lighter than the ground: white (a raised surface in
+    /// dark). Selected while the list has the focus: primarylight (a faint primary in dark);
+    /// selected without it: calm grey4; hovered: grey6 (a touch lighter in dark).
+    static func listCard(_ scheme: ColorScheme, selected: Bool, focused: Bool, hovering: Bool) -> Color {
+        if selected && focused {
+            return pick(scheme, light: Prism.Colors.primaryLight, dark: Prism.Colors.primary.opacity(0.3))
+        }
+        if selected { return pick(scheme, light: Prism.Colors.grey4, dark: Color(white: 0.27)) }
+        if hovering { return pick(scheme, light: Prism.Colors.grey6, dark: Color(white: 0.21)) }
+        return pick(scheme, light: Prism.Colors.white, dark: Color(white: 0.17))
+    }
+
+    /// A selected card's thin border: primary while the list has the focus (the accent's
+    /// tint in dark, ≥ 3:1 on the card), else grey3 (a faint white in dark).
+    static func listCardEdge(_ scheme: ColorScheme, focused: Bool) -> Color {
+        focused
+            ? pick(scheme, light: Prism.Colors.primary, dark: accentText(scheme))
+            : pick(scheme, light: Prism.Colors.grey3, dark: Color.white.opacity(0.18))
+    }
+
+    /// A card's top line, ≥ 4.5:1 on every card fill: grey1 softened, a little lighter on
+    /// a selected card; a light grey in dark, a little lighter when selected.
+    static func listMuted(_ scheme: ColorScheme, selected: Bool) -> Color {
+        pick(scheme, light: Prism.Colors.grey1.opacity(selected ? 0.7 : 0.8),
+             dark: Color(white: selected ? 0.75 : 0.7))
+    }
+
     #if canImport(AppKit)
     private static let systemBackground = Color(nsColor: .controlBackgroundColor)
     #else
