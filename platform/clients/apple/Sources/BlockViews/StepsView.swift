@@ -163,7 +163,7 @@ struct StepsView: View {
     }
 }
 
-/// One command, in a darker block, monospaced and selectable, with its Copy button; for a
+/// One command, in a block (grey1 bordered grey2 in dark, grey5 bordered grey3 in light), monospaced and selectable, with its Copy button; for a
 /// moment after a copy the button says so.
 struct CommandBlock: View {
     let command: String
@@ -183,8 +183,10 @@ struct CommandBlock: View {
         .prism(Prism.Typography.tableRow)
         .padding(.horizontal, Prism.Spacing.s10)
         .padding(.vertical, Prism.Spacing.s7)
-        .background(scheme == .dark ? Color.black.opacity(0.45) : Prism.Colors.grey4,
+        .background(scheme == .dark ? Prism.Colors.grey1 : Prism.Colors.grey5,
                     in: RoundedRectangle(cornerRadius: Prism.radius))
+        .overlay(RoundedRectangle(cornerRadius: Prism.radius)
+            .strokeBorder(scheme == .dark ? Prism.Colors.grey2 : Prism.Colors.grey3))
         .accessibilityLabel("Command: \(command)")
     }
 }

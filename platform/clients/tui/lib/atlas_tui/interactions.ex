@@ -182,6 +182,7 @@ defmodule AtlasTui.Interactions do
 
         cond do
           choice = choice_key(model, key) -> choice
+          copy = copy_key(model, key) -> copy
           prefix?(model, key) -> {put_in(model.console.key_prefix, elem(key, 1)), []}
           true -> direct_key(model, key)
         end
@@ -210,6 +211,19 @@ defmodule AtlasTui.Interactions do
   end
 
   defp choice_key(_model, _key), do: nil
+
+  # A page with a to-do's steps: c copies the current step's first command, C the one
+  # after the one copied last, y all of them; the TUI says so.
+  defp copy_key(model, {:char, char}) when char in ["c", "C", "y"] do
+    with "browse" <- context(model),
+         {model, text} <- Model.copy(model, char) do
+      {%{model | notice: %{tone: "ok", text: "copied"}}, [{:copy, text}]}
+    else
+      _ -> nil
+    end
+  end
+
+  defp copy_key(_model, _key), do: nil
 
   # Whether `key` starts an action's two-key sequence; a single-key action on the
   # same character keeps it.
