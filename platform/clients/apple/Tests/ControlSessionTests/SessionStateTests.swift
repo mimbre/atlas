@@ -2,11 +2,17 @@ import AtlasControlKit
 @testable import ControlSession
 import XCTest
 
-/// `SessionState` on its own, input by input: a line of a known op that does not decode
+/// `SessionState` on its own, input by input: a message of a known op that does not decode
 /// still answers what the session waits for (the TUI goes by `op` alone), and only an
-/// `open` answers an `open`.
+/// `open` answers an `open`. The package reads every field as optional (D-0105), so such
+/// a message is made here as the package would give it.
 final class SessionStateTests: XCTestCase {
     private let settings = SessionSettings(env: "test", host: "127.0.0.1", port: 7001)
+
+    /// A line as the package gives a message of a known op whose fields do not decode.
+    private func unreadable(_ line: Data, _ reason: Fallback.Reason) -> ControlMessage {
+        .undecodable((try? JSONDecoder().decode(JSONValue.self, from: line)) ?? .null, reason)
+    }
 
     /// Connected, at the handshake: hello sent, no welcome yet.
     private func handshake() -> SessionState {
@@ -37,7 +43,7 @@ final class SessionStateTests: XCTestCase {
     func testAWelcomeThatDoesNotDecodeEndsTheSessionWithoutRetrying() {
         var state = handshake()
 
-        let effects = state.handle(.line(Lines.with(Lines.welcome(), "env", 1)))
+        let effects = state.receive(unreadable(Lines.with(Lines.welcome(), "env", 1), .wrongType(path: ["env"])))
 
         XCTAssertEqual(state.connection, .ended(.unreadableWelcome(.wrongType(path: ["env"]))))
         XCTAssertEqual(effects, [.close])
@@ -48,13 +54,14 @@ final class SessionStateTests: XCTestCase {
     // MARK: Boot
 
     func testABootReplyThatDoesNotDecodeFailsTheBootAndKeepsTheConnectionAndTheShell() {
-        for reply in [Lines.with(Lines.boot(title: "Other"), "tabs", "none"), Lines.json(["op": "boot", "error": 1])] {
+        for reply in [unreadable(Lines.with(Lines.boot(title: "Other"), "tabs", "none"), .wrongType(path: ["tabs"])),
+                      unreadable(Lines.json(["op": "boot", "error": 1]), .wrongType(path: ["error"]))] {
             var state = ready()
             let shell = state.shell
             let serial = state.bootSerial
             XCTAssertEqual(state.handle(.tick), [.send(.boot(BootRequest(to: "/k/widget"))), .bootDeadline(serial: serial + 1), .send(.refresh)])
 
-            XCTAssertEqual(state.handle(.line(reply)), [])
+            XCTAssertEqual(state.receive(reply), [])
 
             guard case .unreadable = state.bootFailure else { return XCTFail("boot failure: \(String(describing: state.bootFailure))") }
             XCTAssertTrue(state.shellStale)
@@ -69,7 +76,7 @@ final class SessionStateTests: XCTestCase {
     func testAFirstBootThatDoesNotDecodeIsAskedAgainOnTheNextInterval() {
         var state = booting()
 
-        XCTAssertEqual(state.handle(.line(Lines.with(Lines.boot(), "tabs", "none"))), [])
+        XCTAssertEqual(state.receive(unreadable(Lines.with(Lines.boot(), "tabs", "none"), .wrongType(path: ["tabs"]))), [])
         XCTAssertEqual(state.bootFailure, .unreadable(.wrongType(path: ["tabs"])))
         XCTAssertEqual(state.connection, .connected)
 
@@ -85,7 +92,7 @@ final class SessionStateTests: XCTestCase {
         var state = ready()
         XCTAssertEqual(state.handle(.open(to: "/k/widget/W-01")), [.send(.open(OpenRequest(to: "/k/widget/W-01")))])
 
-        let effects = state.handle(.line(Lines.with(Lines.page("/k/widget/W-01"), "title", 1)))
+        let effects = state.receive(unreadable(Lines.with(Lines.page("/k/widget/W-01"), "title", 1), .wrongType(path: ["title"])))
 
         XCTAssertEqual(effects, [])
         XCTAssertEqual(state.openFailure, SessionState.OpenFailure(path: "/k/widget/W-01", reason: .wrongType(path: ["title"])))
@@ -100,12 +107,23 @@ final class SessionStateTests: XCTestCase {
         XCTAssertNil(state.openFailure)
     }
 
+    func testAPageWithAFieldOfAnotherTypeIsShownWithoutIt() {
+        var state = ready()
+        _ = state.handle(.open(to: "/k/widget/W-01"))
+
+        XCTAssertEqual(state.handle(.line(Lines.with(Lines.page("/k/widget/W-01"), "title", 1))), [])
+
+        XCTAssertEqual(state.opened?.path, "/k/widget/W-01")
+        XCTAssertNil(state.opened?.title)
+        XCTAssertNil(state.openFailure)
+    }
+
     func testAnUnreadableAnswerToAnOpenNoLongerWantedAsksForTheNewestWish() {
         var state = ready()
         _ = state.handle(.open(to: "/k/widget/W-01"))
         XCTAssertEqual(state.handle(.open(to: "/k/widget/W-02")), [])
 
-        let effects = state.handle(.line(Lines.with(Lines.page("/k/widget/W-01"), "title", 1)))
+        let effects = state.receive(unreadable(Lines.with(Lines.page("/k/widget/W-01"), "title", 1), .wrongType(path: ["title"])))
 
         XCTAssertEqual(effects, [.send(.open(OpenRequest(to: "/k/widget/W-02")))])
         XCTAssertNil(state.openFailure)
@@ -117,7 +135,7 @@ final class SessionStateTests: XCTestCase {
         var state = booting()
         _ = state.handle(.line(Lines.boot()))
 
-        XCTAssertEqual(state.handle(.line(Lines.with(Lines.page("/k/widget"), "title", 1))), [])
+        XCTAssertEqual(state.receive(unreadable(Lines.with(Lines.page("/k/widget"), "title", 1), .wrongType(path: ["title"]))), [])
 
         XCTAssertEqual(state.openFailure?.path, "/k/widget")
         XCTAssertNil(state.expected)
@@ -128,7 +146,7 @@ final class SessionStateTests: XCTestCase {
         var state = handshake()
         _ = state.handle(.line(Lines.welcome()))
 
-        let effects = state.handle(.line(Lines.with(Lines.page("/", title: "Home"), "title", 1)))
+        let effects = state.receive(unreadable(Lines.with(Lines.page("/", title: "Home"), "title", 1), .wrongType(path: ["title"])))
 
         XCTAssertEqual(effects, [.send(.boot(BootRequest(to: nil))), .bootDeadline(serial: state.bootSerial)])
         XCTAssertNil(state.openFailure)
@@ -138,7 +156,8 @@ final class SessionStateTests: XCTestCase {
         var state = ready()
         let before = state
 
-        XCTAssertEqual(state.handle(.line(Lines.with(Lines.page("/k/widget", reason: "hint", position: 9), "title", 1))), [])
+        let push = Lines.with(Lines.page("/k/widget", reason: "hint", position: 9), "title", 1)
+        XCTAssertEqual(state.receive(unreadable(push, .wrongType(path: ["title"]))), [])
 
         XCTAssertEqual(state, before)
     }

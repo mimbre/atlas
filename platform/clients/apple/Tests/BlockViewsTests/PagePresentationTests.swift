@@ -51,10 +51,10 @@ final class PagePresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.entries.map(\.id), ["list"])
         guard case .list(let list) = presentation.entries[0].item else { return XCTFail("not a list") }
-        XCTAssertEqual(list.rows.map(\.to), ["/k/widget/W-01"])
+        XCTAssertEqual(list.rows?.map(\.to), ["/k/widget/W-01"])
     }
 
-    func testValidItemsKeepFullFieldsAlongsideMalformedAndUnknownBlocks() throws {
+    func testValidItemsKeepFullFieldsAlongsideIncompleteAndUnknownBlocks() throws {
         let full = "First line\n\n" + String(repeating: "complete detail ", count: 100) + "\nLast line"
         let item = block("item", [
             "title": .string(full),
@@ -75,21 +75,23 @@ final class PagePresentationTests: XCTestCase {
         ])])], id: "list")
         let presentation = PagePresentation(try page([item, broken, unknown, list]))
         guard case .item(let detail) = presentation.entries[0].item,
-              case .fallback(let malformed) = presentation.entries[1].item,
+              case .item(let incomplete) = presentation.entries[1].item,
               case .fallback(let future) = presentation.entries[2].item,
               case .list(let summary) = presentation.entries[3].item
         else { return XCTFail("valid blocks lost") }
         XCTAssertEqual(detail.title, full)
-        XCTAssertEqual(detail.fields[1].label, "")
-        XCTAssertEqual(detail.fields[1].value, full)
-        XCTAssertNil(detail.fields[2].value)
+        XCTAssertEqual(detail.fields?[1].label, "")
+        XCTAssertEqual(detail.fields?[1].value, full)
+        XCTAssertNil(detail.fields?[2].value)
         XCTAssertEqual(detail.actions?.map(\.label), ["Unsupported operation"])
-        XCTAssertEqual(malformed.reason, .missing(path: ["fields"]))
+        // An item without its fields is still an item (D-0105): what it has shows.
+        XCTAssertEqual(incomplete.title, "Broken")
+        XCTAssertNil(incomplete.fields)
         XCTAssertEqual(future.reason, .unknownType)
-        XCTAssertEqual(summary.rows[0].id, full)
-        XCTAssertEqual(summary.rows[0].label, full)
-        XCTAssertEqual(summary.rows[0].detail, full)
-        XCTAssertEqual(summary.rows[0].to, "/workers/example")
+        XCTAssertEqual(summary.rows?[0].id, full)
+        XCTAssertEqual(summary.rows?[0].label, full)
+        XCTAssertEqual(summary.rows?[0].detail, full)
+        XCTAssertEqual(summary.rows?[0].to, "/workers/example")
     }
 
     private func action(_ label: String, _ key: String, _ to: String, page: Bool? = nil) -> JSONValue {
@@ -134,15 +136,15 @@ final class PagePresentationTests: XCTestCase {
         }
         XCTAssertEqual(items.count, 4)
         XCTAssertEqual(items.map(\.title), ["Example task", "Worker messages", "Output stream", "Execution"])
-        XCTAssertEqual(items.map { $0.fields.count }, [10, 1, 1, 6])
-        XCTAssertEqual(items[0].fields[0], PairModel(label: "State", value: "running"))
-        XCTAssertEqual(items[1].fields[0], PairModel(label: "", value: "Reading the worker's output…"))
-        XCTAssertEqual(items[2].fields[0].value, "available for this exact execution")
+        XCTAssertEqual(items.map { $0.fields?.count }, [10, 1, 1, 6])
+        XCTAssertEqual(items[0].fields?[0], PairModel(label: "State", value: "running"))
+        XCTAssertEqual(items[1].fields?[0], PairModel(label: "", value: "Reading the worker's output…"))
+        XCTAssertEqual(items[2].fields?[0].value, "available for this exact execution")
         guard case .list(let guidance) = presentation.entries[3].item else {
             return XCTFail("guidance list lost")
         }
         XCTAssertEqual(guidance.empty, "No durable guidance is recorded.")
-        XCTAssertTrue(guidance.rows.isEmpty)
+        XCTAssertEqual(guidance.rows?.isEmpty, true)
         // Details nests in the Conversation part and folds output details through the record.
         XCTAssertEqual(shape(presentation),
                        ["worker", "worker-output", "▸Details[worker-output-details,guidance-history,worker-record]"])
@@ -215,7 +217,7 @@ final class PagePresentationTests: XCTestCase {
             label: "Show or hide details", keys: ["d"], operation: ConsoleOperationModel(name: "sections_toggle"),
             scope: ConsoleScopeModel(page: "/k/widget", revision: "r", context: "page"), available: true)
         var page = try self.page(lists(["a", "b", "c"]), markup: [section("b", "c", "Details", collapsible: true)])
-        page.blocks.insert(Block(id: "action", content: .consoleAction(action)), at: 1)
+        page.blocks?.insert(Block(id: "action", content: .consoleAction(action)), at: 1)
         XCTAssertEqual(shape(PagePresentation(page)), ["a", "▸Details[b,c]"])
     }
 
@@ -238,11 +240,11 @@ final class PagePresentationTests: XCTestCase {
         else { return XCTFail("\(presentation.groups)") }
         XCTAssertEqual(summary.title, "Overview")
         XCTAssertEqual(summary.fields, [PairModel(label: "To do", value: "2"), PairModel(label: "Late", value: "1")])
-        XCTAssertEqual(list.rows.map(\.id), [nil, nil])
-        XCTAssertEqual(list.rows.map(\.label), ["Write the summary", "Check the import"])
-        XCTAssertEqual(list.rows[0].detail, "review · Expected: a decision · late")
+        XCTAssertEqual(list.rows?.map(\.id), [nil, nil])
+        XCTAssertEqual(list.rows?.map(\.label), ["Write the summary", "Check the import"])
+        XCTAssertEqual(list.rows?[0].detail, "review · Expected: a decision · late")
         XCTAssertEqual(technical.title, "Technical details")
-        XCTAssertEqual(technical.fields.map(\.label), ["W-1", "W-2"])
+        XCTAssertEqual(technical.fields?.map(\.label), ["W-1", "W-2"])
     }
 
     func testAPageWithoutRowsHasNoDetailsToFold() throws {
@@ -250,19 +252,33 @@ final class PagePresentationTests: XCTestCase {
         XCTAssertEqual(shape(PagePresentation(page)), ["summary", "list"])
     }
 
-    func testAnUnknownOrBrokenBlockIsAFallbackAndTheRestStillShows() throws {
-        let unknown = block("chart", [:], id: "chart")
-        let broken = block("list", [:], id: "broken")
+    func testAnUnknownBlockShowsItsPlainWordsAndTheRestStillShows() throws {
+        let unknown = block("chart", ["title": .string("Sales"), "text": .string("Up 3%")], id: "chart")
         let good = block("list", ["rows": .array([])], id: "good")
-        let presentation = PagePresentation(try page([unknown, broken, good]))
+        let presentation = PagePresentation(try page([unknown, good]))
 
-        XCTAssertEqual(presentation.entries.map(\.id), ["chart", "broken", "good"])
-        guard case .fallback(let first) = presentation.entries[0].item,
-              case .fallback(let second) = presentation.entries[1].item,
-              case .list = presentation.entries[2].item
+        XCTAssertEqual(presentation.entries.map(\.id), ["chart", "good"])
+        guard case .fallback(let chart) = presentation.entries[0].item,
+              case .list = presentation.entries[1].item
         else { return XCTFail("\(presentation.entries)") }
-        XCTAssertEqual(first.reason, .unknownType)
-        XCTAssertEqual(second.reason, .missing(path: ["rows"]))
+        XCTAssertEqual(chart.reason, .unknownType)
+        XCTAssertEqual(chart.plain.title, "Sales")
+        XCTAssertEqual(chart.plain.lines, ["Up 3%"])
+    }
+
+    func testAKnownBlockMissingAPropertyStillShows() throws {
+        let rowless = block("list", ["title": .string("Work")], id: "rowless")
+        let textless = block("text", ["label": .string("Why")], id: "textless")
+        let presentation = PagePresentation(try page([rowless, textless]))
+
+        XCTAssertEqual(presentation.entries.map(\.id), ["rowless", "textless"])
+        guard case .list(let list) = presentation.entries[0].item,
+              case .text(let text) = presentation.entries[1].item
+        else { return XCTFail("\(presentation.entries)") }
+        XCTAssertEqual(list.title, "Work")
+        XCTAssertNil(list.rows)
+        XCTAssertNil(text.text)
+        XCTAssertEqual(TextLine.line(text, now: Date()), "Why")
     }
 
     func testConsoleActionsAreNotBlocksOnThePage() throws {
@@ -270,7 +286,7 @@ final class PagePresentationTests: XCTestCase {
             label: "Open", keys: ["enter"], operation: ConsoleOperationModel(name: "open"),
             scope: ConsoleScopeModel(page: "/k/widget", revision: "r", context: "page"), available: true)
         var page = try self.page([block("list", ["rows": .array([])], id: "list")])
-        page.blocks.append(Block(id: "action", content: .consoleAction(action)))
+        page.blocks?.append(Block(id: "action", content: .consoleAction(action)))
 
         XCTAssertEqual(PagePresentation(page).entries.map(\.id), ["list"])
     }
@@ -288,7 +304,7 @@ final class PagePresentationTests: XCTestCase {
             "cancel_to": .string("/k/widget/W-01"),
         ], id: "confirm")
         let page = try page([confirm])
-        guard case .confirm(let value) = page.blocks[0].content else {
+        guard case .confirm(let value)? = page.blocks?.first?.content else {
             return XCTFail("confirmation did not decode against the generated contract")
         }
         XCTAssertNil(value.confirmLabel)

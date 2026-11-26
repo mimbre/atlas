@@ -70,7 +70,6 @@ defmodule AtlasTui.ShellStatusTest do
   end
 
   @retries "retries every #{div(Console.retry_ms(), 1_000)}s"
-  @ours Protocol.version()
 
   test "each shell state says why and what happens next, once, in the status line" do
     gone = Model.disconnected(ready(), nil)
@@ -80,9 +79,6 @@ defmodule AtlasTui.ShellStatusTest do
           {:no_tunnel, "the tunnel to Control is closed; any atlas command opens it", true},
           {:unreachable, "Control cannot be reached; connects by itself once it answers", true},
           {:silent, "Control is down or restarting; connects once it answers", true},
-          {{:newer, "0.1.0"},
-           "this TUI is newer than prod (#{@ours} vs 0.1.0); connects once prod is updated",
-           false},
           {:refused,
            "Control prod refused this TUI as its Console; connects once Control restarts", false}
         ] do
@@ -99,16 +95,18 @@ defmodule AtlasTui.ShellStatusTest do
     end
   end
 
-  test "the client tells its states apart: failures, a newer TUI, a refusal" do
+  test "the client tells its states apart: failures, a refusal; another version is no refusal" do
     assert Model.disconnected(fresh(), :unreachable).offline == :unreachable
     # The socket opening again keeps the last known why, so the line does not flicker.
     assert Model.disconnected(%{fresh() | offline: :silent}).offline == :silent
 
-    {newer, []} = Console.receive(fresh(), welcome("0.1.0"))
-    assert newer.offline == {:newer, "0.1.0"}
+    # D-0105: an older or newer Control connects; the status line says the versions.
+    for spec <- ["0.1.0", "999.0.0"] do
+      {other, _} = Console.receive(fresh(), welcome(spec))
+      assert other.connected and other.offline == nil
+    end
+
     {refused, []} = Console.receive(fresh(), %{welcome() | "env" => "test"})
-    assert refused.offline == :refused
-    {refused, []} = Console.receive(fresh(), welcome("999.0.0"))
     assert refused.offline == :refused
   end
 
@@ -122,8 +120,8 @@ defmodule AtlasTui.ShellStatusTest do
   end
 
   test "on a narrow screen the line wraps, so what to do is never cut off" do
-    model = %{Model.disconnected(ready()) | offline: {:newer, "0.1.0"}}
-    assert status(model, 60) =~ "connects once prod is updated"
+    model = %{Model.disconnected(ready()) | offline: :refused}
+    assert status(model, 60) =~ "connects once Control restarts"
     assert Enum.all?(lines(model, 60), &(String.length(&1) <= 60))
   end
 

@@ -51,7 +51,7 @@ defmodule AtlasControl.ShellTest do
     send_message(
       s,
       Map.merge(
-        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.32.0"),
+        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.33.0"),
         overrides
       )
     )
@@ -60,7 +60,7 @@ defmodule AtlasControl.ShellTest do
   defp connected(port) do
     s = socket(port)
     hello(s)
-    assert %{"op" => "welcome", "spec" => "0.32.0"} = receive_message(s)
+    assert %{"op" => "welcome", "spec" => "0.33.0"} = receive_message(s)
     assert %{"op" => "page"} = receive_message(s)
     s
   end
@@ -180,7 +180,9 @@ defmodule AtlasControl.ShellTest do
     assert {:error, _} = Shell.boot(description(), nil, String.duplicate("x", 2_049))
   end
 
-  test "legacy negotiation precedes boot; wrong env and old clients close", %{port: port} do
+  test "legacy negotiation precedes boot; wrong env closes, old clients are welcomed", %{
+    port: port
+  } do
     s = socket(port)
     send_message(s, Protocol.message(:boot, :boot))
     assert %{"op" => "notice", "text" => "Say hello first."} = receive_message(s)
@@ -189,12 +191,15 @@ defmodule AtlasControl.ShellTest do
     assert %{"op" => "page"} = receive_message(s)
     assert %{"op" => "boot", "env" => "test"} = boot(s)
 
-    for override <- [%{"env" => "prod"}, %{"spec" => "0.1.0"}] do
-      rejected = socket(port)
-      hello(rejected, override)
-      assert %{"op" => "bye"} = receive_message(rejected)
-      assert {:error, :closed} = :gen_tcp.recv(rejected, 0, 1_000)
-    end
+    rejected = socket(port)
+    hello(rejected, %{"env" => "prod"})
+    assert %{"op" => "bye"} = receive_message(rejected)
+    assert {:error, :closed} = :gen_tcp.recv(rejected, 0, 1_000)
+
+    # D-0105: an older client is welcomed with Control's version.
+    old = socket(port)
+    hello(old, %{"spec" => "0.1.0"})
+    assert %{"op" => "welcome", "spec" => "0.33.0"} = receive_message(old)
   end
 
   test "boot separates queued pages and preserves the edit form", %{port: port} do

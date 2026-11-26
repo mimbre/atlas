@@ -30,10 +30,10 @@ final class ControlIntegrationTests: XCTestCase {
         let shell = try XCTUnwrap(state.shell)
         XCTAssertEqual(shell.env, settings.env)
         XCTAssertEqual(shell.spec, Contract.version)
-        XCTAssertFalse(shell.tabs.isEmpty)
+        XCTAssertFalse(shell.tabs?.isEmpty ?? true)
         XCTAssertFalse(state.shellStale)
         let page = try XCTUnwrap(state.pageOnScreen)
-        XCTAssertNotNil(Page.match(page.path))
-        XCTAssertEqual(ShellViewModel(state).tabs.map(\.id), shell.tabs.map(\.id))
+        XCTAssertNotNil(Page.match(try XCTUnwrap(page.path)))
+        XCTAssertEqual(ShellViewModel(state).tabs.map(\.id), shell.tabs?.compactMap(\.id))
     }
 }

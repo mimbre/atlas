@@ -24,7 +24,7 @@ defmodule AtlasTui.WorkerOutputConnection do
   use GenServer
 
   alias AtlasBFFContract.Wire.Control.Workers.Protocol, as: Wire
-  alias AtlasTui.{Console, Protocol}
+  alias AtlasTui.Console
 
   # Match App's connect/handshake conventions without adding user settings.
   @connect_timeout 2_000
@@ -163,8 +163,8 @@ defmodule AtlasTui.WorkerOutputConnection do
   end
 
   defp receive_message(%{phase: :welcome} = state, %{"op" => "welcome"} = message) do
-    if message["env"] == state.env and message["surface"] == "console" and
-         message["spec"] == Protocol.version() do
+    # Any contract version is welcome (D-0105).
+    if message["env"] == state.env and message["surface"] == "console" do
       listen(%{state | phase: :compatibility})
     else
       finish(state, :incompatible_welcome)

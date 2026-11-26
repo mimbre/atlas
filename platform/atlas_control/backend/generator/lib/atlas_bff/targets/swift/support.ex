@@ -144,6 +144,49 @@ defmodule AtlasBFF.Targets.Swift.Support do
         }
 
         public var description: String { "\(type ?? "?"): \(reason)" }
+
+        /// What the block says, in plain words, for a client to show in its place (D-0105):
+        /// its title or label, and its other texts in order, a text field first; an entry of
+        /// a list with a label and a value as "label: value". Keys that only say where
+        /// something goes or how it looks are left out.
+        public var plain: (title: String?, lines: [String]) {
+            Fallback.plain(raw["props"] ?? .null)
+        }
+
+        static let titles = ["title", "label", "heading", "name"]
+        static let structural: Set<String> = ["id", "to", "path", "key", "kind", "type", "tone", "role", "style",
+                                              "icon", "endpoint", "params", "scope", "operation", "keys", "at"]
+        static let first = ["text", "description", "body", "summary", "value"]
+
+        static func text(_ value: JSONValue?) -> String? {
+            guard let text = value?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
+
+        static func plain(_ props: JSONValue) -> (title: String?, lines: [String]) {
+            guard case .object(let object) = props else { return (nil, []) }
+            let titleKey = titles.first { text(object[$0]) != nil }
+            let keys = object.keys
+                .filter { $0 != titleKey && !structural.contains($0) && !$0.hasSuffix("_to") }
+                .sorted { a, b in
+                    let (ra, rb) = (first.firstIndex(of: a) ?? first.count, first.firstIndex(of: b) ?? first.count)
+                    return ra == rb ? a < b : ra < rb
+                }
+            return (titleKey.flatMap { text(object[$0]) }, keys.flatMap { lines(object[$0] ?? .null) })
+        }
+
+        static func lines(_ value: JSONValue) -> [String] {
+            switch value {
+            case .string: return text(value).map { [$0] } ?? []
+            case .array(let values): return values.flatMap(lines)
+            case .object:
+                let (title, lines) = plain(value)
+                guard let title else { return lines }
+                guard let line = lines.first else { return [title] }
+                return ["\(title): \(line)"] + lines.dropFirst()
+            default: return []
+            }
+        }
     }
     """
   end

@@ -77,7 +77,7 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(h.connection.take(), [])
     }
 
-    // MARK: Bye and an incompatible welcome end the session
+    // MARK: Bye and a welcome for another environment or surface end the session
 
     func testByeEndsTheSessionWithItsTextAndIsNotRetried() {
         let h = Harness()
@@ -93,17 +93,15 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(h.connector.made.count, 1)
     }
 
-    func testClosedAsTooOldIsItsOwnEndingWithControlsContract() {
-        let h = Harness()
-        h.session.start()
-        h.connection.ready()
-        let text = "This client implements contract 0.1.0; Control test speaks 9.9.9, and no older one."
-
-        h.connection.receive(Lines.with(Lines.with(Lines.bye(text), "reason", "too_old"), "spec", "9.9.9"))
-
-        XCTAssertEqual(h.state.connection, .ended(.tooOld(control: "9.9.9", text: text)))
-        h.clock.advance(by: 60)
-        XCTAssertEqual(h.connector.made.count, 1)
+    func testOnlyANewerControlAsksForTheAppsUpdate() {
+        for (spec, newer) in [("9.9.0", "9.9.0"), ("0.1.0", nil), (Contract.version, nil)] as [(String, String?)] {
+            let h = Harness()
+            h.session.start()
+            h.connection.ready()
+            h.connection.receive(Lines.welcome(spec: spec))
+            XCTAssertEqual(h.state.connection, .connected, spec)
+            XCTAssertEqual(h.state.newerControl, newer, spec)
+        }
     }
 
     func testTheUpdatedAppOpensThePageItShowedAfterTheFirstBoot() {
@@ -134,19 +132,20 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(h.connector.made.count, 1)
     }
 
-    func testAWelcomeWithAnotherVersionEndsTheSession() {
-        let h = Harness()
-        h.session.start()
-        h.connection.ready()
-        h.connection.receive(Lines.welcome(spec: "0.0.1"))
+    func testAWelcomeWithAnotherVersionConnectsAndBoots() {
+        for spec in ["9.9.0", "0.1.0"] {
+            let h = Harness()
+            h.session.start()
+            h.connection.ready()
+            _ = h.connection.take()
+            h.connection.receive(Lines.welcome(spec: spec))
 
-        guard case .ended(.incompatible(let welcome)) = h.state.connection else {
-            return XCTFail("not ended: \(h.state.connection)")
+            XCTAssertEqual(h.state.connection, .connected, spec)
+            XCTAssertEqual(h.state.controlSpec, spec)
+            XCTAssertFalse(h.connection.cancelled, spec)
+            h.connection.receive(Lines.page("/", title: "Home"))
+            XCTAssertEqual(h.connection.take().count, 1, "boots: \(spec)")
         }
-        XCTAssertEqual(welcome.spec, "0.0.1")
-        XCTAssertTrue(h.connection.cancelled)
-        h.clock.advance(by: 60)
-        XCTAssertEqual(h.connector.made.count, 1)
     }
 
     func testAWelcomeForAnotherEnvironmentOrWithoutTheConsoleSurfaceEndsTheSession() {
@@ -409,10 +408,11 @@ final class SessionTests: XCTestCase {
         h.connect()
         h.connection.receive(Data("not json".utf8))
         h.connection.receive(Lines.json(["op": "something_new", "x": 1]))
-        h.connection.receive(Lines.json(["op": "notice", "tone": 1]))
+        h.connection.receive(Lines.json(["op": "notice", "text": "Saved.", "tone": 1]))
         XCTAssertEqual(h.state.connection, .connected)
         XCTAssertEqual(h.state.index?.path, "/k/widget")
-        XCTAssertNil(h.state.notice)
+        // A field of another type is read as absent; the rest of the message counts.
+        XCTAssertEqual(h.state.notice, NoticeMessage(text: "Saved."))
     }
 
     func testStopClosesAndNothingFollows() {

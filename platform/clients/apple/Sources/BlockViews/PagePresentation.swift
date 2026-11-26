@@ -98,10 +98,11 @@ public struct PagePresentation: Sendable, Equatable {
     }
 
     public init(_ page: PageMessage) {
-        title = page.title
-        path = page.path
+        title = page.title ?? ""
+        path = page.path ?? ""
+        let blocks = page.blocks ?? []
         // Positions are the page's, so markup over a block this view leaves out still lines up.
-        let shown: [(position: Int, entry: Entry)] = page.blocks.enumerated().compactMap { offset, block in
+        let shown: [(position: Int, entry: Entry)] = blocks.enumerated().compactMap { offset, block in
             let item: Item
             switch block.content {
             case .list(let list): item = .list(list)
@@ -136,8 +137,8 @@ public struct PagePresentation: Sendable, Equatable {
                 inside.append(shown[index].entry)
                 index += 1
             }
-            let start = page.blocks[range.lowerBound].id ?? "#\(range.lowerBound)"
-            groups.append(.section(Section(id: start, title: props.title,
+            let start = blocks[range.lowerBound].id ?? "#\(range.lowerBound)"
+            groups.append(.section(Section(id: start, title: props.title ?? "",
                                            collapsible: props.collapsible == true, entries: inside)))
         }
         groups.append(contentsOf: shown[index...].map { .entry($0.entry) })
@@ -145,12 +146,12 @@ public struct PagePresentation: Sendable, Equatable {
         // The page's details (a part of role details): beside the rest or under it, as the
         // room the page gets allows (`PageView`).
         var position: [String: Int] = [:]
-        for (offset, block) in page.blocks.enumerated() { if let id = block.id { position[id] = offset } }
-        let part = page.markup.lazy.compactMap { entry -> (ClosedRange<Int>, String)? in
+        for (offset, block) in blocks.enumerated() { if let id = block.id { position[id] = offset } }
+        let part = (page.markup ?? []).lazy.compactMap { entry -> (ClosedRange<Int>, String)? in
             guard case .part(let props) = entry.content, props.role == "details",
                   let start = position[entry.start], let end = position[entry.end], start <= end
             else { return nil }
-            return (start...end, props.title)
+            return (start...end, props.title ?? "")
         }.first
         if let (range, title) = part {
             let inside = Set(shown.filter { range.contains($0.position) }.map(\.entry.id))
@@ -172,14 +173,14 @@ public struct PagePresentation: Sendable, Equatable {
     /// page's markup is not a well-formed tree.
     static func topLevelSections(_ page: PageMessage) -> [(ClosedRange<Int>, SectionMarkup)] {
         var position: [String: Int] = [:]
-        for (offset, block) in page.blocks.enumerated() {
+        for (offset, block) in (page.blocks ?? []).enumerated() {
             guard let id = block.id else { continue }
             if position.updateValue(offset, forKey: id) != nil { return [] }  // an id used twice
         }
         // Every entry of a known kind is checked, so a section is never drawn from markup
         // that is wrong elsewhere. Entries this package could not read are left out.
         var ranges: [(ClosedRange<Int>, SectionMarkup?)] = []
-        for entry in page.markup {
+        for entry in page.markup ?? [] {
             let section: SectionMarkup?
             switch entry.content {
             case .fallback: continue

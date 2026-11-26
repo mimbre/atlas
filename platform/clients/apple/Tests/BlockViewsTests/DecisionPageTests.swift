@@ -99,8 +99,8 @@ final class DecisionPageTests: XCTestCase {
         XCTAssertEqual(decision.map(\.n), [1, 2, 3])
         XCTAssertEqual(decision.map(\.text), ["Use SQLite", "Use Postgres", "Decline"])
         XCTAssertEqual(decision.map(\.badge), ["★ Recommended", nil, "Decline · note"])
-        XCTAssertEqual(decision.map { $0.fields.map(\.label) }, [["Rule", "Then"], ["Rule", "Then"], ["Details"]])
-        XCTAssertEqual(decision.map { $0.fields.map(\.value) }, [
+        XCTAssertEqual(decision.map { $0.fields?.map(\.label) }, [["Rule", "Then"], ["Rule", "Then"], ["Details"]])
+        XCTAssertEqual(decision.map { $0.fields?.map(\.value) }, [
             ["Store examples in SQLite.", "One file per environment."],
             ["Store examples in Postgres.", "A server to run."],
             ["Keep things as they are."],
@@ -108,17 +108,18 @@ final class DecisionPageTests: XCTestCase {
 
         let stuck = Self.options(try Self.page("/k/widget/W-1", Self.stuck))
         XCTAssertEqual(stuck.map(\.text), ["Retry", "Close it"])
-        XCTAssertEqual(stuck.map { $0.fields.map(\.value) }, [["Inspects it again."], ["Ends it."]])
+        XCTAssertEqual(stuck.map { $0.fields?.map(\.value) }, [["Inspects it again."], ["Ends it."]])
     }
 
     func testEachOptionsButtonSendsExactlyThatOptionsAnswerAsItsKeyDoes() throws {
         let page = try Self.page("/k/decision/D-7", Self.decision)
 
         for block in Self.options(page) {
-            let button = Option.action(block)
-            XCTAssertEqual(button.to, block.answer.to, "option \(block.n)")
-            XCTAssertEqual(button.submitTo, block.answer.submitTo, "option \(block.n)")
-            XCTAssertEqual(PageActions.action(key: block.answer.key, on: [page]), button, "its key takes the same")
+            let button = try XCTUnwrap(Option.action(block))
+            XCTAssertEqual(button.to, block.answer?.to, "option \(block.n ?? 0)")
+            XCTAssertEqual(button.submitTo, block.answer?.submitTo, "option \(block.n ?? 0)")
+            XCTAssertEqual(PageActions.action(key: try XCTUnwrap(block.answer?.key), on: [page]), button,
+                           "its key takes the same")
         }
         let sqlite = CallModel(endpoint: "answer", params: ["kind": "decision", "key": "D-7", "answer": "adopt-sqlite"])
         let postgres = CallModel(endpoint: "answer", params: ["kind": "decision", "key": "D-7", "answer": "adopt-postgres"])
@@ -135,7 +136,7 @@ final class DecisionPageTests: XCTestCase {
         // Stuck work: an option without a call opens its page, as its key does.
         let stuck = try Self.page("/k/widget/W-1", Self.stuck)
         let close = try XCTUnwrap(Self.options(stuck).last)
-        XCTAssertNil(Option.action(close).submitTo)
+        XCTAssertNil(Option.action(close)?.submitTo)
         XCTAssertEqual(PageActions.action(key: "c", on: [stuck]), Option.action(close))
         XCTAssertEqual(PageActions.action(key: "0", on: [stuck])?.submitTo,
                        CallModel(endpoint: "answer", params: ["kind": "widget", "key": "W-1", "answer": "retry"]))
@@ -145,8 +146,8 @@ final class DecisionPageTests: XCTestCase {
         let page = try Self.page("/k/decision/D-7", Self.decision)
         let decline = try XCTUnwrap(Self.options(page).last)
 
-        XCTAssertEqual(decline.answer.note, true)
-        let action = Option.action(decline)
+        XCTAssertEqual(decline.answer?.note, true)
+        let action = try XCTUnwrap(Option.action(decline))
         XCTAssertNil(action.submitTo, "a decline submits nothing at once")
         XCTAssertEqual(action.to, "/k/decision/D-7/answer/3", "it opens the form that asks its note")
         XCTAssertTrue(PageActions.doable(action))

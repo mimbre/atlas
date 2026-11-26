@@ -56,11 +56,13 @@
 # --env and the file's "env" must agree. ATLAS_NO_UPDATE=1 keeps `atlas tui` from
 # updating the main clone first.
 #
-# A running TUI takes a release (IS-Atlas-76): when Control closes it as too old, it ends
-# (status 75, the page it showed in its handoff file) and `atlas tui` takes the newest
-# build as at start (pull, clean-build, compile) and starts it again on that page. When the
-# build cannot be made current (the pull failed, the main clone is not on develop, ...) it
-# says so and what to do, and starts no TUI into the same refusal.
+# A running TUI takes a release (IS-Atlas-76, D-0105): when it connects to a Control on a
+# newer contract, it ends (status 75, the page it showed in its handoff file) and `atlas
+# tui` takes the newest build as at start (pull, clean-build, compile) and starts it again
+# on that page. When the build cannot be made current (the pull failed, the main clone is
+# not on develop, develop has nothing newer, ...) the TUI starts anyway: it reads what it
+# knows, shows the rest plainly, and its status line says the versions and why it is not
+# updated.
 #
 # ATLAS_AS=<agent key> makes the agents' commands that agent (ATLAS_AS=coordinator atlas
 # get IS-Atlas-12): what is assigned to it shows its What to do (IS-Atlas-54), and what it
@@ -71,7 +73,7 @@ given=("$@")
 
 # This script's own hand-over to itself, never set by a person, kept out of every child:
 # ATLAS_UPDATED (update_build pulled already: start the pulled scripts without another
-# pull) and, after a TUI was closed as too old, ATLAS_TUI_TO (the page it showed),
+# pull) and, after a TUI ended to take a newer build, ATLAS_TUI_TO (the page it showed),
 # ATLAS_TUI_TOO_OLD (the commit of that build) and ATLAS_TUI_SPECS (Control's contract and
 # its own).
 updated="${ATLAS_UPDATED-}" tui_to="${ATLAS_TUI_TO-}" too_old="${ATLAS_TUI_TOO_OLD-}" specs="${ATLAS_TUI_SPECS-}"
@@ -149,9 +151,9 @@ fi
 resolve_places
 
 # The main clone follows develop: take the newest build before trying it (bin/lib/update.sh).
-# The TUI says update_failed and update_once if Control finds it too old (IS-Atlas-76),
-# rather than ending to be started again. After a TUI was closed as too old, not_current
-# says what follows a failed pull.
+# The TUI says update_failed in its status line if it meets a newer Control (IS-Atlas-76),
+# rather than ending to be started again. After a TUI ended for a newer build, not_current
+# says why the build is not newer when the update made none.
 . "$root/bin/lib/update.sh"
 update_quiet="$too_old"
 restart_updated() {
@@ -159,17 +161,14 @@ restart_updated() {
     exec "$root/bin/atlas" ${given[@]+"${given[@]}"}
 }
 
-# After a TUI was closed as too old: the update made no newer build (it failed, or develop
-# has nothing newer), so a TUI started now would be refused the same way. Say what is true
-# and what to do instead.
+# After a TUI ended for a newer build: the update made none (it failed, or develop has
+# nothing newer). The TUI starts anyway (D-0105) and says why it is not updated, so it
+# does not end again for the same Control.
 not_current() {
   if [ -z "$update_failed" ] && [ "$(git -C "$root" rev-parse HEAD 2>/dev/null)" = "$too_old" ]; then
     update_failed="develop has nothing newer than this build ($(head_now))"
-    update_once="develop has a build for contract ${specs%% *}"
   fi
-  [ -n "$update_failed" ] || return 0
-  echo "atlas: Control $env speaks ${specs%% *}; this build is ${specs#* } and could not be updated: $update_failed. Run atlas again once $update_once." >&2
-  exit 1
+  [ -z "$update_failed" ] || echo "atlas: Control $env speaks ${specs%% *}; this build is ${specs#* } and could not be updated: $update_failed. Starting it anyway; some parts may look plain." >&2
 }
 
 # Build output of apps no mix.exs declares any more goes before anything compiles, so a
@@ -207,16 +206,16 @@ case "$cmd" in
     cd "$root/platform/clients/tui"
     to=()
     [ -z "$tui_to" ] || to=(--to "$tui_to")
-    # The TUI writes the page it showed here when Control closes it as too old.
+    # The TUI writes the page it showed here when it ends to take a newer build.
     handoff="$(mktemp "${TMPDIR:-/tmp}/atlas-tui.XXXXXX")"
     status=0
-    ATLAS_TUI_HANDOFF="$handoff" ATLAS_UPDATE_FAILED="$update_failed" ATLAS_UPDATE_ONCE="$update_once" \
+    ATLAS_TUI_HANDOFF="$handoff" ATLAS_UPDATE_FAILED="$update_failed" \
       mix atlas.tui --env "$env" ${to[@]+"${to[@]}"} ${args[@]+"${args[@]}"} || status=$?
     [ -n "$saved" ] && stty "$saved" 2>/dev/null || true
     page="" theirs="" ours=""
     { IFS= read -r page; IFS= read -r theirs; IFS= read -r ours; } <"$handoff" || true
     rm -f "$handoff"
-    # Closed as too old: take the newest build as at start, and start it again on that page.
+    # Control is newer: take the newest build as at start, and start it again on that page.
     if [ "$status" = 75 ] && [ -n "$theirs" ]; then
       echo "atlas: Control $env speaks $theirs; this build is $ours. Taking the newest build${page:+, then back to $page}." >&2
       ATLAS_TUI_TO="$page" ATLAS_TUI_TOO_OLD="$(git -C "$root" rev-parse HEAD)" ATLAS_TUI_SPECS="$theirs $ours" \

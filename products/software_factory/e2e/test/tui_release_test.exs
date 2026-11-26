@@ -1,15 +1,17 @@
 defmodule AtlasE2E.TuiReleaseTest do
-  # IS-Atlas-76: a running TUI takes a release. Control (here a test Control on loopback,
-  # whose contract is made newer than the client's) closes it as too old; it ends with the
-  # page it showed, `bin/atlas tui` takes the newest build as at start (pull, clean-build,
-  # compile) and starts it again on that page. When the update makes nothing current, no
-  # TUI starts into the same refusal: bin/atlas says what is true and what to do.
+  # IS-Atlas-76, D-0105: a running TUI takes a release. Control (here a test Control on
+  # loopback, whose contract is made newer than the client's) welcomes it with its newer
+  # version; the TUI ends with the page it showed, `bin/atlas tui` takes the newest build
+  # as at start (pull, clean-build, compile) and starts it again on that page. When the
+  # update makes nothing current, the TUI starts anyway: bin/atlas says why, and the TUI's
+  # status line says both versions and that it is not updated.
   #
   # Each test runs bin/atlas of a main clone of its own, on develop, made from this working
   # tree (its tracked and untracked files, as `git add -A` takes them, through an index of
   # its own: this checkout's index and branches are not touched) and pulling from a bare
-  # repository of its own. The tests without a terminal run the update's refusals; the
-  # last one runs the real TUI in tmux, and is skipped without it.
+  # repository of its own. The tests without a terminal run the update's failures (the
+  # TUI then starts, and ends at once without a terminal); the last one runs the real TUI
+  # in tmux, and is skipped without it.
   use ExUnit.Case, async: true
 
   @root Path.expand("../../../..", __DIR__)
@@ -94,9 +96,9 @@ defmodule AtlasE2E.TuiReleaseTest do
     {listener, file}
   end
 
-  # bin/atlas tui of `clone`, as its own run after a TUI of `clone` at its HEAD was closed
-  # as too old by a Control on 0.99.0 (what bin/atlas hands itself, see its header).
-  defp after_too_old(clone, file) do
+  # bin/atlas tui of `clone`, as its own run after a TUI of `clone` at its HEAD ended for a
+  # Control on 0.99.0 (what bin/atlas hands itself, see its header).
+  defp after_update(clone, file) do
     System.cmd(Path.join(clone, "bin/atlas"), ["tui", "--env", "test"],
       env: [
         {"ATLAS_ENV_FILE", file},
@@ -110,57 +112,55 @@ defmodule AtlasE2E.TuiReleaseTest do
     )
   end
 
-  # No TUI said hello to the test Control.
-  defp no_tui(listener), do: assert({:error, :timeout} = :gen_tcp.accept(listener, 300))
+  # It says why it is not updated, then starts the TUI anyway (here without a terminal, so
+  # the TUI ends at once).
+  defp started_anyway(out) do
+    assert out =~ ". Starting it anyway; some parts may look plain.\n"
+    assert out =~ "the TUI needs a terminal"
+  end
 
-  test "the pull fails: no TUI starts into the same refusal; it says what is true and what to do" do
+  test "the pull fails: it says why, and starts the TUI anyway" do
     {dir, clone, upstream} = main_clone!()
-    {listener, file} = control!(dir)
+    {_listener, file} = control!(dir)
     File.rename!(upstream, upstream <> ".gone")
 
-    assert {out, 1} = after_too_old(clone, file)
+    assert {out, 1} = after_update(clone, file)
 
     assert out =~
              "atlas: Control test speaks 0.99.0; this build is 0.24.0 and could not be updated: " <>
                "the pull of develop failed ("
 
-    assert out =~ "Run atlas again once git -C #{clone} pull --ff-only works.\n"
-    no_tui(listener)
+    started_anyway(out)
   end
 
-  test "develop has nothing newer: it says so, and starts no TUI" do
+  test "develop has nothing newer: it says so, and starts the TUI anyway" do
     {dir, clone, _upstream} = main_clone!()
-    {listener, file} = control!(dir)
+    {_listener, file} = control!(dir)
     short = git(clone, ["rev-parse", "--short", "HEAD"])
 
-    assert {out, 1} = after_too_old(clone, file)
+    assert {out, 1} = after_update(clone, file)
 
     assert out =~
              "atlas: Control test speaks 0.99.0; this build is 0.24.0 and could not be updated: " <>
-               "develop has nothing newer than this build (#{short}). Run atlas again once " <>
-               "develop has a build for contract 0.99.0.\n"
+               "develop has nothing newer than this build (#{short})."
 
-    no_tui(listener)
+    started_anyway(out)
   end
 
-  test "the main clone is not on develop: it says so, and starts no TUI" do
+  test "the main clone is not on develop: it says so, and starts the TUI anyway" do
     {dir, clone, _upstream} = main_clone!()
-    {listener, file} = control!(dir)
+    {_listener, file} = control!(dir)
     git(clone, ["switch", "-q", "-c", "elsewhere"])
 
-    assert {out, 1} = after_too_old(clone, file)
-
-    assert out =~
-             "could not be updated: the main clone #{clone} is on elsewhere, not develop. " <>
-               "Run atlas again once it is on develop again (git -C #{clone} switch develop).\n"
-
-    no_tui(listener)
+    assert {out, 1} = after_update(clone, file)
+    assert out =~ "could not be updated: the main clone #{clone} is on elsewhere, not develop."
+    started_anyway(out)
   end
 
   describe "a real TUI under bin/atlas, in tmux" do
     @describetag skip: is_nil(System.find_executable("tmux"))
 
-    test "closed as too old it restarts on the newer build, on the page it showed; a failed update then ends with the plain text" do
+    test "welcomed by a newer Control it restarts on the newer build, on the page it showed; a failed update then stays, saying so" do
       {dir, clone, upstream} = main_clone!()
       {listener, file} = control!(dir)
       server = "atlas-release-#{System.unique_integer([:positive])}"
@@ -195,9 +195,9 @@ defmodule AtlasE2E.TuiReleaseTest do
       # Develop has the newer build; Control is deployed with its contract.
       git(work, ["push", "-q", "origin", "develop"])
       :gen_tcp.close(socket)
-      {refused, hello} = hello(listener, 10_000)
+      {older, hello} = hello(listener, 10_000)
       assert %{"op" => "hello", "spec" => ^ours} = hello
-      too_old(refused, ours, newer)
+      newer_control(older, newer)
 
       # Without anything typed: the newer build, back on Parts.
       {socket, hello} = hello(listener, 300_000)
@@ -211,21 +211,28 @@ defmodule AtlasE2E.TuiReleaseTest do
       assert File.read!(log) =~
                "Control test speaks #{newer}; this build is #{ours}. Taking the newest build, then back to /k/part."
 
-      # Another release, which this clone cannot pull: no TUI starts into the same refusal.
+      # Another release, which this clone cannot pull: the TUI starts again on the same
+      # build, stays with the newer Control, and its status line says so.
       newest = bump(newer)
       File.rename!(upstream, upstream <> ".gone")
       :gen_tcp.close(socket)
-      {refused, hello} = hello(listener, 10_000)
+      {older, hello} = hello(listener, 10_000)
       assert %{"op" => "hello", "spec" => ^newer} = hello
-      too_old(refused, newer, newest)
-      see(server, "[atlas exited 1]")
+      newer_control(older, newest)
+
+      {socket, hello} = hello(listener, 300_000)
+      assert %{"op" => "hello", "spec" => ^newer} = hello
+      welcome(socket, hello, "/k/widget", newest)
+      assert %{"op" => "open", "to" => "/k/part"} = read(socket)
+      send_message(socket, content("/k/part"))
+      see(server, "▸ Parts")
+      see(server, "test speaks #{short(newest)}, this TUI #{short(newer)} · not updated")
 
       assert File.read!(log) =~
                "atlas: Control test speaks #{newest}; this build is #{newer} and could not be " <>
                  "updated: the pull of develop failed ("
 
-      assert File.read!(log) =~ "Run atlas again once git -C #{clone} pull --ff-only works."
-      no_tui(listener)
+      assert File.read!(log) =~ "Starting it anyway; some parts may look plain."
     end
   end
 
@@ -249,17 +256,20 @@ defmodule AtlasE2E.TuiReleaseTest do
     JSON.decode!(line)
   end
 
-  defp too_old(socket, theirs, ours) do
+  # A Control on a newer contract welcomes the client with it; a TUI started by bin/atlas
+  # then ends to take the newest build.
+  defp newer_control(socket, ours) do
     send_message(socket, %{
-      "op" => "bye",
-      "reason" => "too_old",
-      "spec" => ours,
-      "text" =>
-        "This client implements contract #{theirs}; Control test speaks #{ours}, and no older one."
+      "op" => "welcome",
+      "surface" => "console",
+      "env" => "test",
+      "spec" => ours
     })
 
-    :gen_tcp.close(socket)
+    {:error, :closed} = :gen_tcp.recv(socket, 0, 60_000)
   end
+
+  defp short(version), do: String.replace_suffix(version, ".0", "")
 
   # After hello: welcome on the client's contract, the compatibility page, boot, and the
   # start page it opens.
@@ -269,13 +279,14 @@ defmodule AtlasE2E.TuiReleaseTest do
     send_message(socket, content(start))
   end
 
-  # Welcome, the compatibility page, and boot with `start` as Control's start page.
-  defp welcome(socket, %{"op" => "hello", "spec" => spec}, start) do
+  # Welcome (on `control`'s contract; the client's when not given), the compatibility page,
+  # and boot with `start` as Control's start page.
+  defp welcome(socket, %{"op" => "hello", "spec" => spec}, start, control \\ nil) do
     send_message(socket, %{
       "op" => "welcome",
       "surface" => "console",
       "env" => "test",
-      "spec" => spec
+      "spec" => control || spec
     })
 
     send_message(socket, content("/"))

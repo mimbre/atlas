@@ -58,7 +58,7 @@ defmodule AtlasAgent.Client do
 
   def close(%__MODULE__{socket: socket}), do: AtlasControlTransport.close(socket)
 
-  # The contract version this client implements; Control sends a too old one away.
+  # The contract version this client implements; Control welcomes any (D-0105).
   @version AtlasAgent.Protocol.version()
 
   @doc "The hello this client says: its environment, what it is, and its contract version."

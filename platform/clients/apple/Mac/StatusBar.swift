@@ -12,20 +12,22 @@ struct StatusBar: View {
     let shell: ShellViewModel
     /// What the app's update says ("Updating to <revision>…"), when it says anything.
     let update: (text: String, tone: UpdateStatus.Tone)?
-    /// What the app's update says when Control closed it as too old, given Control's contract.
-    let closedTooOld: (String) -> String
 
     var body: some View {
         HStack(spacing: 14) {
             HStack(spacing: 5) {
                 Circle().fill(dot).frame(width: 8, height: 8)
-                let connection = status.text(closedTooOld: closedTooOld)
+                let connection = status.text()
                 Text(connection)
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .help(connection)
             }
             .layoutPriority(1)
+            // Control speaks another contract version: said, never blocking (D-0105).
+            if let warning = status.versionWarning {
+                Text(warning).foregroundStyle(.orange).lineLimit(1).truncationMode(.middle)
+            }
             if let position = status.position {
                 Text("position \(position)")
             }
@@ -57,9 +59,9 @@ struct StatusBar: View {
                     .truncationMode(.middle)
                     .help(update.text)
             }
-            if let notice = status.notice {
-                Text(notice.text)
-                    .foregroundStyle(tone(notice.tone))
+            if let notice = status.notice, let text = notice.text {
+                Text(text)
+                    .foregroundStyle(tone(notice.tone ?? ""))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }

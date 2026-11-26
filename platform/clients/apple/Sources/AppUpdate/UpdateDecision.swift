@@ -3,16 +3,16 @@
 public enum UpdateDecision: Sendable, Equatable {
     /// The feed names a later release than this app: take it.
     case update(AppRelease)
-    /// The feed names this release (or an earlier one), and Control has not closed the app.
+    /// The feed names this release (or an earlier one), and Control is not newer.
     case current
-    /// Control closed the app as too old, and the newest release is still this one or one
-    /// older than Control's contract: its release is being published; ask again shortly.
+    /// Control speaks a newer contract, and the newest release is still this one or one
+    /// older than Control's: its release is being published; ask again shortly.
     case waiting(newest: AppRelease, control: String)
     /// The feed gave no release.
     case unreachable(FeedProblem)
 
-    /// The decision for `installed`, given what the feed answered and, when Control closed
-    /// the app as too old, the contract Control speaks.
+    /// The decision for `installed`, given what the feed answered and, when Control's
+    /// welcome said a newer contract, that contract.
     public static func decide(installed: InstalledApp, feed: Result<AppRelease, FeedProblem>,
                               controlSpec: String?) -> UpdateDecision {
         let newest: AppRelease

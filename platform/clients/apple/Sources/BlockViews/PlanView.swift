@@ -31,9 +31,11 @@ public struct PlanView: View {
                 if plan.state == "planning" || plan.state == "running" {
                     ProgressView().controlSize(.small)
                 }
-                Text(plan.title).prism(Prism.Typography.title6).accessibilityAddTraits(.isHeader)
+                Text(plan.title ?? "").prism(Prism.Typography.title6).accessibilityAddTraits(.isHeader)
             }
-            Text("Asked: \(plan.request)").foregroundStyle(.secondary).textSelection(.enabled)
+            if let request = plan.request, !request.isEmpty {
+                Text("Asked: \(request)").foregroundStyle(.secondary).textSelection(.enabled)
+            }
             if let before = plan.before, !before.isEmpty {
                 Text(before).fixedSize(horizontal: false, vertical: true)
             }
@@ -43,10 +45,10 @@ public struct PlanView: View {
             if let by = plan.by, !by.isEmpty {
                 Text("By \(by)").font(.caption).foregroundStyle(.secondary)
             }
-            if !plan.steps.isEmpty {
+            if let steps = plan.steps, !steps.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Prism.Spacing.s10) {
-                        ForEach(plan.steps, id: \.n) { step in
+                        ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
                             stepView(step)
                         }
                     }
@@ -82,30 +84,34 @@ public struct PlanView: View {
         }
     }
 
-    private var kept: Int { plan.steps.filter { !dropped.contains($0.n) && $0.state != "dropped" }.count }
+    private var kept: Int { (plan.steps ?? []).filter { !isDropped($0) }.count }
+
+    private func isDropped(_ step: StepModel) -> Bool {
+        step.state == "dropped" || (step.n.map { dropped.contains($0) } ?? false)
+    }
 
     private var runLabel: String { kept == 1 ? "Run 1 step" : "Run \(kept) steps" }
 
     private func stepView(_ step: StepModel) -> some View {
-        let isDropped = dropped.contains(step.n) || step.state == "dropped"
+        let isDropped = isDropped(step)
         return HStack(alignment: .top, spacing: Prism.Spacing.s10) {
-            if plan.state == "proposed" {
-                Toggle("Keep step \(step.n)", isOn: Binding(get: { !isDropped }, set: { _ in toggle(step.n) }))
+            if plan.state == "proposed", let n = step.n {
+                Toggle("Keep step \(n)", isOn: Binding(get: { !isDropped }, set: { _ in toggle(n) }))
                     .labelsHidden()
                     #if os(macOS)
                     .toggleStyle(.checkbox)
                     #endif
             }
-            Text("\(step.n).").monospaced().bold()
+            if let n = step.n { Text("\(n).").monospaced().bold() }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text(step.label).bold().strikethrough(isDropped)
-                    Text(isDropped ? "dropped" : step.state).font(.caption.weight(.semibold))
+                    Text(step.label ?? "").bold().strikethrough(isDropped)
+                    Text(isDropped ? "dropped" : step.state ?? "").font(.caption.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 1)
                         .background(Color.primary.opacity(0.08), in: Capsule())
                 }
-                ForEach(step.inputs ?? [], id: \.name) { input in
-                    Text("\(input.label): \(input.value ?? "")").foregroundStyle(.secondary)
+                ForEach(Array((step.inputs ?? []).enumerated()), id: \.offset) { _, input in
+                    Text([input.label, input.value].compactMap { $0 }.joined(separator: ": ")).foregroundStyle(.secondary)
                 }
                 if let why = step.why, !why.isEmpty {
                     Text(why).foregroundStyle(.secondary)

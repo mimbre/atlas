@@ -177,6 +177,31 @@ defmodule AtlasAgent.CLITest do
     assert out == expected
   end
 
+  # D-0105: a newer Control's block this client does not know shows in plain words after
+  # the fact; a field of another shape is left out, never a crash.
+  test "get: a block of a newer Control shows plainly; odd fields are left out", %{control: c} do
+    widget = FakeControl.put(c, "widget", %{"title" => "A newer page"})
+
+    FakeControl.lead(c, widget, [
+      %{
+        "id" => "plan",
+        "type" => "timeline",
+        "props" => %{
+          "title" => "Release plan",
+          "text" => "Three steps left",
+          "to" => "/k/plan/1",
+          "entries" => [%{"label" => "Build", "value" => "done"}, %{"label" => "Ship"}]
+        }
+      },
+      %{"id" => "todo", "type" => "item", "props" => %{"fields" => ["odd", %{"label" => 7}]}}
+    ])
+
+    {0, out, ""} = atlas(["get", widget])
+    assert out =~ "Widget WI-01: A newer page"
+    assert out =~ "Release plan\n  Three steps left\n  Build: done\n  Ship"
+    refute out =~ "/k/plan/1"
+  end
+
   test "get: a to-do's steps first, every step in full, then its answers; unknown lines left out",
        %{control: c} do
     widget = FakeControl.put(c, "widget", %{"title" => "Rotate the key"})
