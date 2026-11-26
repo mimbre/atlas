@@ -371,7 +371,7 @@ defmodule AtlasE2E.Scenario do
         fn screen ->
           screen =~ @first_page and
             not Enum.any?(
-              ["Loading…", "Waiting for Control…", "Waiting for Console boot…"],
+              ["Loading…", "waiting for Control's first page"],
               fn text ->
                 screen =~ text
               end

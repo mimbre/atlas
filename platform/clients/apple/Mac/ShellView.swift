@@ -80,12 +80,12 @@ struct ShellView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             StatusBar(status: StatusViewModel(session.state), shell: shell,
-                      update: updater.status.statusText(installed: updater.installed))
-        }
-        .overlay {
-            if case .ended(let ending) = session.state.connection {
-                EndedView(ending: ending, env: session.state.settings.env, updater: updater)
-            }
+                      update: updater.status.statusText(installed: updater.installed),
+                      closedTooOld: { [session, updater] control in
+                          // What each side speaks and where the update stands, never "too old" alone.
+                          updater.status.closedText(installed: updater.installed, env: session.state.settings.env,
+                                                    control: control, ownContract: Contract.version)
+                      })
         }
         .environment(\.pendingAction, shell.pending)
         .environment(\.panelKeys, keys.panels)
@@ -262,36 +262,6 @@ struct EnvironmentBadge: View {
             .padding(.vertical, 1)
             .foregroundStyle(production ? Color(nsColor: .windowBackgroundColor) : .secondary)
             .background(production ? Color.primary : Color.clear, in: RoundedRectangle(cornerRadius: 4))
-    }
-}
-
-/// Why the session is over, over the window.
-struct EndedView: View {
-    let ending: SessionState.Ending
-    let env: String
-    let updater: Updater
-
-    var body: some View {
-        VStack(spacing: 8) {
-            switch ending {
-            case .bye(let text):
-                Text(text)
-            case .tooOld(let control, _):
-                // What each side speaks and where the update stands, never "too old" alone.
-                Text(updater.status.closedText(installed: updater.installed, env: env, control: control,
-                                               ownContract: Contract.version))
-            case .incompatible(let welcome):
-                Text("Control \(welcome.env) speaks contract \(welcome.spec); this app implements \(Contract.version) for this environment.")
-            case .unreadableWelcome(let reason):
-                Text("Control's welcome could not be read (\(reason)); this app implements contract \(Contract.version).")
-            case .stopped:
-                EmptyView()
-            }
-        }
-        .multilineTextAlignment(.center)
-        .padding(24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .frame(maxWidth: 520)
     }
 }
 

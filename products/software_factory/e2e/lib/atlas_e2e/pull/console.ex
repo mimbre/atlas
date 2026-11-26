@@ -142,7 +142,8 @@ defmodule AtlasE2E.Pull.Console do
     await(
       c,
       fn s ->
-        s =~ ~r/● connected · / and not String.contains?(s, ["Loading…", "Waiting for Control…"])
+        s =~ ~r/● connected · / and
+          not String.contains?(s, ["Loading…", "waiting for Control's first page"])
       end,
       "be connected"
     )

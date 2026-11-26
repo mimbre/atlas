@@ -41,7 +41,7 @@ Also try:
 - **Two at once.** Press `c` in both TUIs, give each a title, and save both. They get different codes. If both take the same number, Facts refuses the second, and its TUI tries the next number by itself (`… is taken; trying …`).
 - **A deleted code.** Delete the newest scene and create another right away. rela keeps a deleted code reserved for a few minutes, so the TUI says the code is taken and moves on to the next number.
 - **A scene with use cases.** Deleting a scene that still has use cases is refused, with the number of use cases (see UC-Atlas-02).
-- **Losing Control.** Run `atlas-ops tunnel close --env test` in a third terminal (on a private instance: `atlas-ops stop --env test`). Both TUIs say `Not connected to Control. Retrying…` and show nothing old as current. Run any `atlas` command, for example `atlas list scene --env test`, which opens the tunnel again (on a private instance: `atlas-ops restart --env test`); they come back on the page they were on.
+- **Losing Control.** Run `atlas-ops tunnel close --env test` in a third terminal (on a private instance: `atlas-ops stop --env test`). Both TUIs empty their content area and say why in their status line: `○ not connected · the tunnel to Control is closed; any atlas command opens it · retries every 2s` (on a private instance: `Control cannot be reached; …`). Run any `atlas` command, for example `atlas list scene --env test`, which opens the tunnel again (on a private instance: `atlas-ops restart --env test`); they come back on the page they were on.
 
 ## What is underneath
 

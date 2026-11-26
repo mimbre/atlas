@@ -35,6 +35,10 @@ defmodule AtlasTui.Model do
             conversation: nil,
             env: nil,
             connected: false,
+            # Why there is no Control content while not connected, as the client knows it
+            # (the status line says it in plain words): nil (connecting, or connected),
+            # `:no_tunnel`, `:unreachable`, `:silent`, `{:newer, control spec}`, `:refused`.
+            offline: nil,
             path: nil,
             title: "",
             # What waits for the user, as Control words it (`count` on every page), or nil.
@@ -200,7 +204,7 @@ defmodule AtlasTui.Model do
   # A page about one fact opens at its top, even when a list under it has a selected row.
   defp first_scroll(blocks), do: if(Enum.any?(blocks, &match?(%Item{}, &1)), do: 0, else: nil)
 
-  def disconnected(model), do: AtlasTui.Console.disconnected(model)
+  def disconnected(model, why \\ nil), do: AtlasTui.Console.disconnected(model, why)
 
   # The block that takes the keys.
 
