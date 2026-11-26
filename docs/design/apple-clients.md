@@ -352,6 +352,7 @@ What differs by platform beyond the layout stays in the platform targets:
 | Keys from the projection, no local key table; Ctrl+C quits | `AtlasTui.Keys`, `AtlasTui.Interactions` | `ConsoleKit`; ⌘Q / system |
 | The legend, from `legend` markup | `AtlasTui.Legend`, `AtlasTui.LegendView` | macOS: the keys, by group, in the Help menu; iOS: not needed |
 | Palette (Prism tokens, light and dark), prod badge, header count | `AtlasTui.Palette`, `AtlasTui.ConsoleView` | asset colours from the same tokens; the inverted prod badge in the title bar; the count in the sidebar section's header |
+| Cards (an option, a to-do's step, what went wrong, the details under a page): a filled surface a step off the page (`:card`, the selected one `:card_selected`, a Prism gap until Prism's dark mode has surfaces), rounded with half blocks (▗▄▖ ▝▀▘), no lines; a left bar ▌ where the terminal reports no truecolor (`COLORTERM`); the page's eyebrow bold light blue, its title bold under it | `AtlasTui.View` (`card/4`), `AtlasTui.Palette` | cards; the dark-gap shim for the dark surfaces |
 | Resize: redraw, parts re-laid out | `AtlasTui.Resize` | SwiftUI layout |
 | Unknown blocks and kinds shown as fallbacks | `AtlasTui.View.known/0`, `AtlasTui.Blocks` | `Fallback` view |
 

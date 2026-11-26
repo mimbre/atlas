@@ -57,6 +57,8 @@ defmodule AtlasTui.View do
   @side_by_side 120
   # The details beside the page start this far into their column, clear of the page's text.
   @gap 4
+  # The card surfaces a segment on a card is wrapped in (`{surface, role}`).
+  @surfaces AtlasTui.Palette.surfaces()
 
   @doc """
   The contract's names this view knows: the blocks it draws, and the kinds of markup it
@@ -574,12 +576,15 @@ defmodule AtlasTui.View do
   defp related?({:markup, %{"value" => %Part{role: role}}, _}), do: role in ["details", "related"]
   defp related?(_node), do: false
 
+  defp unframed({:markup, %{"value" => %Part{role: "details"}}, _children} = node), do: node
+
   defp unframed({:markup, %{"value" => %Part{title: title}} = entry, children}),
     do: {:markup, %{entry | "value" => %Section{title: title}}, children}
 
   defp unframed(node), do: node
 
   # What the details column holds: the details without their own heading (its title).
+  defp inside({:markup, %{"value" => %Part{role: "details"}}, children}), do: children
   defp inside({:markup, %{"value" => %Section{}}, children}), do: children
   defp inside(node), do: [node]
 
@@ -617,25 +622,21 @@ defmodule AtlasTui.View do
   # Parts frame content; Console highlights retain the supplied semantic tone as
   # a text badge as well as a color, without inferring status from entity text.
   # A collapsible section is folded until the page's sections are unfolded: its heading
-  # alone, marked ▸; unfolded, ▾ above its blocks.
-  defp markup(%Section{title: title, collapsible: true}, children, model, width, room) do
-    mark = if model.unfolded, do: "▾ ", else: "▸ "
-    rule = String.duplicate("─", max(width - String.length(title) - 5, 0))
-    heading = [[{:bold, " " <> mark <> title}, {:dim, " " <> rule}]]
+  # alone, marked ▸; unfolded, ▾ above its blocks. A section's heading has a rule after it,
+  # except on a card (`{:on_card, section}`), which draws no lines.
+  defp markup({:on_card, %Section{} = section}, children, model, width, room),
+    do: section(section, children, model, width, room, false)
 
-    if model.unfolded,
-      do: heading ++ [[]] ++ nodes(children, model, width, room),
-      else: heading
+  defp markup(%Section{} = section, children, model, width, room),
+    do: section(section, children, model, width, room, true)
+
+  # The page's details: compact, in a card under their heading, whether beside the page or
+  # under it (the details column draws them without it, `inside/1`).
+  defp markup(%Part{role: "details", title: title}, children, model, width, room) do
+    heading = if title, do: [[{:bold, single_line(title)}], []], else: []
+    children = Enum.map(children, &on_card/1)
+    card(heading ++ nodes(children, model, card_width(width), room), width, :card, model)
   end
-
-  defp markup(%Section{title: title}, children, model, width, room) do
-    rule = String.duplicate("─", max(width - String.length(title) - 3, 0))
-    [[{:bold, " " <> title}, {:dim, " " <> rule}], []] ++ nodes(children, model, width, room)
-  end
-
-  # The page's details: compact, under a heading, whether beside the page or under it.
-  defp markup(%Part{role: "details", title: title}, children, model, width, room),
-    do: markup(%Section{title: title}, children, model, width, room)
 
   defp markup(%Part{title: title}, children, model, width, room) do
     inner = width - 4
@@ -665,6 +666,28 @@ defmodule AtlasTui.View do
     badge = for line <- list_wrap("[#{label}]", width), do: [{style, line}]
     badge ++ nodes(children, model, width, max(room - length(badge), 1))
   end
+
+  defp section(%Section{title: title, collapsible: true}, children, model, width, room, rule?) do
+    mark = if model.unfolded, do: "▾ ", else: "▸ "
+    heading = [[{:bold, " " <> mark <> title} | rule(rule?, width - String.length(title) - 5)]]
+
+    if model.unfolded,
+      do: heading ++ [[]] ++ nodes(children, model, width, room),
+      else: heading
+  end
+
+  defp section(%Section{title: title}, children, model, width, room, rule?) do
+    heading = [{:bold, " " <> title} | rule(rule?, width - String.length(title) - 3)]
+    [heading, []] ++ nodes(children, model, width, room)
+  end
+
+  defp rule(false, _width), do: []
+  defp rule(true, width), do: [{:dim, " " <> String.duplicate("─", max(width, 0))}]
+
+  defp on_card({:markup, %{"value" => %Section{} = section} = entry, children}),
+    do: {:markup, %{entry | "value" => {:on_card, section}}, children}
+
+  defp on_card(node), do: node
 
   # One physical line per item; titles take priority over inline metadata.
   defp block(%ListBlock{} = list, at, model, width, _room) do
@@ -839,14 +862,14 @@ defmodule AtlasTui.View do
   end
 
   # One option of a decision, in a card of its own (the selected one, which Enter answers,
-  # framed in primary and marked ▸): its number as an instruction's, its text and its badge
-  # in its tone; each of its fields under it ("Rule: …"); then its answer as a key, as far
-  # as Control projects it: Choose in green, Decline… (which asks a note) in orange, and on
-  # the selected one the keys that select and answer.
+  # on the selected surface and marked ▸): its number as an instruction's, its text and its
+  # badge in its tone; each of its fields under it ("Rule: …"); then its answer as a key, as
+  # far as Control projects it: Choose in green, Decline… (which asks a note) in orange, and
+  # on the selected one the keys that select and answer.
   defp block(%Option{} = option, _at, model, width, _room) do
     options = Model.options(model)
     selected = Enum.at(options, Model.chosen(options, model.choice)) == option
-    content = max(width - 5, 1)
+    content = card_width(width)
     lead = "#{option.n}. "
     indent = String.duplicate(" ", 2 + display_width(lead))
     room = max(content - display_width(indent), 1)
@@ -884,18 +907,22 @@ defmodule AtlasTui.View do
 
     lines = head ++ fields ++ if(answer == [], do: [], else: [[] | answer])
 
-    card(lines, width, if(selected, do: :frame, else: :rest_frame))
+    card(lines, width, if(selected, do: :card_selected, else: :card), model)
   end
 
   # Control's panel where its owner decides: what is asked of them (`heading`) and the
-  # title in the bar, how many beside it; the byline; then what it is judged on: its items
-  # (the selected one marked ▸, its details framed under them), its checks (each with a
-  # mark of its state), a box (an error's in the error colour); and the keys there are, as
-  # far as Control projects them.
+  # title under it, how many beside it; the byline; then what it is judged on: its items
+  # (the selected one marked ▸, its details in a card under them), its checks (each with a
+  # mark of its state), a box (an error's heading in the error colour); and the keys there
+  # are, as far as Control projects them. Its own rows line up with its cards' text.
   defp block(%Panel{} = panel, _at, model, width, _room) do
-    content = max(width - 5, 1)
+    content = card_width(width)
     choices = Model.panel_choices(panel)
     at = Model.panel_chosen(panel, model.choice)
+
+    indent = fn lines ->
+      for line <- lines, do: if(line == [], do: [], else: [{:plain, "  "} | line])
+    end
 
     byline =
       case byline(panel.byline || [], DateTime.utc_now()) do
@@ -904,38 +931,32 @@ defmodule AtlasTui.View do
       end
 
     sections = [
-      item_rows(panel.items || [], at, content),
-      item_details(Enum.at(panel.items || [], at), content),
-      check_rows(panel.checks || []),
-      panel_box(panel.box, content),
-      panel_keys(panel, choices, model, content)
+      indent.(item_rows(panel.items || [], at, content)),
+      item_details(Enum.at(panel.items || [], at), width, model),
+      indent.(check_rows(panel.checks || [])),
+      panel_box(panel.box, width, model),
+      indent.(panel_keys(panel, choices, model, content))
     ]
 
-    body = byline ++ Enum.flat_map(sections, &if(&1 == [], do: [], else: [[] | &1]))
-    decision_frame(keyed(panel.heading, panel.key), panel.title, panel.aside, body, width)
+    body = indent.(byline) ++ Enum.flat_map(sections, &if(&1 == [], do: [], else: [[] | &1]))
+    heading(keyed(panel.heading, panel.key), panel.title, panel.aside, width) ++ body
   end
 
-  # A page's header in the bar of a decision: its eyebrow ("TO DO FOR YOU") with the
-  # fact's key, and its title beside them.
-  defp block(%Header{} = header, _at, _model, width, _room) do
-    inner = max(width - 2, 1)
+  # A page's header: its eyebrow ("TO DO FOR YOU") with the fact's key, its title under it.
+  defp block(%Header{} = header, _at, _model, width, _room),
+    do: heading(keyed(header.eyebrow, header.key), header.title, nil, width)
 
-    for line <- decision_bar(keyed(header.eyebrow, header.key), header.title, nil, inner),
-        do: [{:plain, " "}, {:header, cell_pad(line, inner)}]
-  end
-
-  # What went wrong (`role` error): its label as a heading in the error colour over its
-  # text, in a red frame.
+  # What went wrong (`role` error): a card, its label as a heading in the error colour over
+  # its text (the label says what it is, not the colour alone).
   defp block(%TextBlock{role: "error"} = text, _at, model, width, _room) do
-    content = max(width - 5, 1)
-
     heading =
       case single_line(text.label) do
         "" -> []
         label -> [[{:error, label}]]
       end
 
-    card(heading ++ text_lines(text_words(text, model), content), width, :error_frame)
+    lines = heading ++ text_lines(text_words(text, model), card_width(width))
+    card(lines, width, :card_error, model)
   end
 
   # A paragraph, dim, after its label ("Why: ") and with how long ago its `since` was; its
@@ -947,15 +968,15 @@ defmodule AtlasTui.View do
         do: [{:plain, "   "} | line]
   end
 
-  # One numbered step, in full: a mark column (▸ beside the selected command of the page),
-  # a number column as wide as the page's widest number, so every step's number and text
-  # line up, then its lines in the order written, a blank line where the kind changes.
-  # Text is bold; a command is plain behind a bar, the selected one highlighted; a route
-  # is a muted ⌘ and its parts (`route_rows/2`). The same in both themes.
+  # One numbered step, in full, in a card: a mark column (▸ beside the selected command of
+  # the page), a number column as wide as the page's widest number, so every step's number
+  # and text line up, then its lines in the order written, a blank line where the kind
+  # changes. Text is bold; a command is plain behind a bar, the selected one highlighted; a
+  # route is a muted ⌘ and its parts (`route_rows/2`). The same in both themes.
   defp block(%Instruction{} = step, _at, model, width, _room) do
     widest = Enum.max([step.n | for(%Instruction{n: n} <- model.blocks, do: n)])
     numbers = display_width("#{widest}. ")
-    text_width = max(width - 4 - numbers, 1)
+    text_width = max(card_width(width) - 2 - numbers, 1)
     selected = Model.command(model)
 
     first =
@@ -980,11 +1001,14 @@ defmodule AtlasTui.View do
         rows -> rows
       end
 
-    for {{marked, row}, i} <- Enum.with_index(rows) do
-      mark = if marked, do: {:bold, " ▸ "}, else: {:plain, "   "}
-      number = if i == 0, do: "#{step.n}. ", else: ""
-      [mark, {:bold, String.pad_trailing(number, numbers)} | row]
-    end
+    lines =
+      for {{marked, row}, i} <- Enum.with_index(rows) do
+        mark = if marked, do: {:bold, "▸ "}, else: {:plain, "  "}
+        number = if i == 0, do: "#{step.n}. ", else: ""
+        [mark, {:bold, String.pad_trailing(number, numbers)} | row]
+      end
+
+    card(lines, width, :card, model)
   end
 
   # What the viewer can answer, each on its key as far as Control projects it (one given
@@ -1149,24 +1173,6 @@ defmodule AtlasTui.View do
   defp type_name(block),
     do: block.__struct__ |> Module.split() |> List.last() |> Macro.underscore()
 
-  # The frame of a decision: a bar with what is asked (`heading`) and its title, `aside`
-  # at its right; `body` under it, each line fitted inside.
-  defp decision_frame(heading, title, aside, body, width) do
-    inner = max(width - 3, 1)
-    content = max(inner - 2, 1)
-
-    framed =
-      for line <- body,
-          do: [{:frame, " │ "} | pad_line(fit(line, content), content)] ++ [{:frame, " │"}]
-
-    bar =
-      for line <- decision_bar(heading, title, aside, inner),
-          do: [{:frame, " │"}, {:header, cell_pad(line, inner)}, {:frame, "│"}]
-
-    [[{:frame, " ┌" <> String.duplicate("─", inner) <> "┐"}]] ++
-      bar ++ framed ++ [[{:frame, " └" <> String.duplicate("─", inner) <> "┘"}]]
-  end
-
   # What a panel asks, with the key of the fact it is about: "TO ACCEPT · UC-03".
   defp keyed(heading, key) when key in [nil, ""], do: heading
   defp keyed(heading, key) when heading in [nil, ""], do: single_line(key)
@@ -1178,7 +1184,7 @@ defmodule AtlasTui.View do
     style = if selected, do: :selected, else: :plain
 
     for {line, i} <- Enum.with_index(detail_wrap(command || "", max(width - 2, 1))),
-        do: {selected and i == 0, [{:border, "│ "}, {style, line}]}
+        do: {selected and i == 0, [{:border, "▎ "}, {style, line}]}
   end
 
   defp instruction_rows(%{kind: "route", parts: parts}, width), do: route_rows(parts || [], width)
@@ -1234,42 +1240,81 @@ defmodule AtlasTui.View do
     end)
   end
 
-  # A decision's bar: what is asked of its owner, the title beside it, wrapped under the
-  # title, and `aside` at the right of its first line; in a bar too narrow for both, the
-  # title (and `aside`) under the heading.
-  defp decision_bar(heading, title, aside, inner) do
-    lead = if single_line(heading) == "", do: " ◆ ", else: " ◆ " <> single_line(heading) <> "   "
-    title = single_line(title)
+  # A page's or a decision's heading: its eyebrow (what is asked of its owner, with the
+  # fact's key) after ◆, bold light blue, `aside` dim at its right where it fits (else
+  # under the title); the title bold under it. No bar: the page's background.
+  defp heading(eyebrow, title, aside, width) do
+    inner = max(width - 1, 1)
+    lead = if single_line(eyebrow) == "", do: "◆", else: "◆ " <> single_line(eyebrow)
     aside = single_line(aside)
-    aside_room = if aside == "", do: 0, else: display_width(aside) + 2
-    room = inner - display_width(lead) - 1 - aside_room
+    [first | rest] = detail_wrap(lead, inner)
+    room = inner - display_width(first) - 2
+    beside = aside != "" and rest == [] and display_width(aside) <= room
 
-    cond do
-      title == "" and aside == "" ->
-        [String.trim_trailing(lead)]
+    top =
+      if beside,
+        do: [
+          {:eyebrow, first},
+          {:plain, cell_pad("", room + 2 - display_width(aside))},
+          {:dim, aside}
+        ],
+        else: [{:eyebrow, first}]
 
-      room >= 12 ->
-        indent = String.duplicate(" ", display_width(lead))
-        [first | rest] = detail_wrap(title, room)
-        first = lead <> first
+    under = if aside == "" or beside, do: [], else: [[{:dim, aside}]]
 
-        first =
-          if aside == "",
-            do: first,
-            else: cell_pad(first, inner - aside_room + 1) <> aside <> " "
+    titles =
+      case single_line(title) do
+        "" -> []
+        title -> for line <- detail_wrap(title, inner), do: [{:bold, line}]
+      end
 
-        [first | Enum.map(rest, &(indent <> &1))]
-
-      true ->
-        [String.trim_trailing(lead)] ++
-          Enum.map(detail_wrap(title, max(inner - 2, 1)), &(" " <> &1)) ++
-          if(aside == "", do: [], else: [" " <> aside])
-    end
+    for line <- [top | Enum.map(rest, &[{:eyebrow, &1}])] ++ titles ++ under,
+        do: [{:plain, " "} | line]
   end
 
-  # A block's `lines` in a card of its own as wide as the header's bar, framed in `frame`.
-  defp card(lines, width, frame),
-    do: for(line <- boxed(lines, max(width - 1, 1), frame), do: [{:plain, " "} | line])
+  # A card: `lines` on a surface of their own (`AtlasTui.Palette`, cards), a column in from
+  # the page's edge, a column of padding left and right, each row filled edge to edge; its
+  # top and bottom rows half blocks in the surface's colour on the page (▗▄▄▖, ▝▀▀▘), which
+  # round its corners; no lines. `kind` is `:card`, `:card_selected` (the one selected: the
+  # primary tinted surface) or `:card_error` (what went wrong: a card, its heading in the
+  # error colour and saying so). Where the terminal reports no truecolor
+  # (`console.truecolor`), a surface could not be told from the page: a card is its lines
+  # behind a left bar ▌ instead, grey, in primary when selected, in the error colour for
+  # what went wrong. Too narrow for a card: its lines alone. Its lines fit `card_width/1`.
+  defp card([], _width, _kind, _model), do: []
+  defp card(lines, width, _kind, _model) when width < 6, do: lines
+
+  defp card(lines, width, kind, %Model{console: %{truecolor: false}}) do
+    bar = %{card: :rest_frame, card_selected: :frame, card_error: :error_frame}[kind]
+
+    for line <- lines,
+        do: [{:plain, " "}, {bar, "▌"}, {:plain, " "} | fit(line, card_width(width))]
+  end
+
+  defp card(lines, width, kind, _model) do
+    {surface, edge} =
+      if kind == :card_selected,
+        do: {:card_selected, :card_selected_edge},
+        else: {:card, :card_edge}
+
+    inner = card_width(width)
+    fill = width - 3
+    pad = {{surface, :plain}, " "}
+
+    rows =
+      for line <- lines do
+        content =
+          for {style, text} <- pad_line(fit(line, inner), inner), do: {{surface, style}, text}
+
+        [{:plain, " "}, pad | content] ++ [pad]
+      end
+
+    [[{:plain, " "}, {edge, "▗" <> String.duplicate("▄", fill) <> "▖"}]] ++
+      rows ++ [[{:plain, " "}, {edge, "▝" <> String.duplicate("▀", fill) <> "▘"}]]
+  end
+
+  # The width of a card's lines in a card `width` wide (its margin, padding or bar).
+  defp card_width(width), do: max(width - 3, 1)
 
   # A paragraph's text with how long ago its `since` was.
   defp text_words(text, model) do
@@ -1299,20 +1344,6 @@ defmodule AtlasTui.View do
     else
       []
     end
-  end
-
-  # `lines` in a frame of `width` (drawn in `frame`), each fitted inside; unframed where
-  # too narrow for a frame.
-  defp boxed([], _width, _frame), do: []
-  defp boxed(lines, width, _frame) when width < 12, do: lines
-
-  defp boxed(lines, width, frame) do
-    inner = width - 4
-    rule = String.duplicate("─", width - 2)
-
-    [[{frame, "┌" <> rule <> "┐"}]] ++
-      Enum.map(lines, &([{frame, "│ "} | pad_line(fit(&1, inner), inner)] ++ [{frame, " │"}])) ++
-      [[{frame, "└" <> rule <> "┘"}]]
   end
 
   defp text_lines(text, width), do: Enum.map(detail_wrap(text, max(width, 1)), &[{:plain, &1}])
@@ -1375,9 +1406,9 @@ defmodule AtlasTui.View do
     end)
   end
 
-  # The details of the selected item, framed, each under its label.
-  defp item_details(%PanelItem{details: [_ | _] = details}, width) do
-    inner = max(width - 4, 1)
+  # The details of the selected item, in a card, each under its label.
+  defp item_details(%PanelItem{details: [_ | _] = details}, width, model) do
+    inner = card_width(width)
     label_width = Enum.reduce(details, 0, &max(display_width(single_line(&1.label)), &2))
 
     details
@@ -1385,10 +1416,10 @@ defmodule AtlasTui.View do
       label = cell_pad(single_line(pair.label), label_width) <> " "
       hanging(label, String.trim(pair.value || ""), inner, :dim, :plain)
     end)
-    |> boxed(width, :border)
+    |> card(width, :card, model)
   end
 
-  defp item_details(_item, _width), do: []
+  defp item_details(_item, _width, _model), do: []
 
   # Its state as a mark as well as a colour.
   @check_marks %{
@@ -1412,12 +1443,12 @@ defmodule AtlasTui.View do
     end
   end
 
-  # A panel's box: its title over its text, framed; an error's in the error colour.
-  defp panel_box(nil, _width), do: []
+  # A panel's box: its title over its text, in a card; an error's heading in the error
+  # colour (its bar in the error colour where cards are bars).
+  defp panel_box(nil, _width, _model), do: []
 
-  defp panel_box(%Box{} = box, width) do
-    {frame, heading} = if box.tone == "error", do: {:error_frame, :error}, else: {:border, :bold}
-    inner = max(width - 4, 1)
+  defp panel_box(%Box{} = box, width, model) do
+    {kind, heading} = if box.tone == "error", do: {:card_error, :error}, else: {:card, :bold}
 
     title =
       case single_line(box.title) do
@@ -1425,7 +1456,7 @@ defmodule AtlasTui.View do
         title -> [[{heading, title}]]
       end
 
-    boxed(title ++ text_lines(box.text || "", inner), width, frame)
+    card(title ++ text_lines(box.text || "", card_width(width)), width, kind, model)
   end
 
   # A panel's keys, as far as Control projects them: its answers (yes, or no with a note);
@@ -1829,8 +1860,13 @@ defmodule AtlasTui.View do
 
   defp cursor_line?(line), do: Enum.any?(line, &match?({:cursor, _}, &1))
 
-  defp selected_line?(line),
-    do: Enum.any?(line, &(match?({:selected, _}, &1) or match?({{:selected, _}, _}, &1)))
+  defp selected_line?(line), do: Enum.any?(line, fn {style, _} -> selected_style?(style) end)
+
+  # The selection, as it is, muted (`{:selected, :muted}`) or on a card (`{:card, :selected}`).
+  defp selected_style?(:selected), do: true
+  defp selected_style?({:selected, _}), do: true
+  defp selected_style?({surface, style}) when surface in @surfaces, do: selected_style?(style)
+  defp selected_style?(_style), do: false
 
   defp notice(%Model{notice: nil}), do: []
 

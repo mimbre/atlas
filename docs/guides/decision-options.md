@@ -64,10 +64,12 @@ answer, the page's action on the option's key (Choose, or Decline… which opens
 the note form). A radio, dropdown or cards renderer can use the same answers
 without a model, schema or Flow change. Keyboard shortcuts are projection data.
 The TUI invokes a generic declared call and does not recognize decision kinds or
-interpret option effects. It frames each option, the selected one in the primary
-frame; ↑/↓ select an option, starting on the recommended one, and never answer;
-Enter answers the selected one exactly as its key does, so a decline still opens
-its note form. The Mac shows each option as a card with its own button.
+interpret option effects. It draws each option as a filled card (rounded with
+half blocks, no lines; without truecolor, a left bar ▌), the selected one on a
+primary-tinted surface and marked ▸; ↑/↓ select an option, starting on the
+recommended one, and never answer; Enter answers the selected one exactly as its
+key does, so a decline still opens its note form. The Mac shows each option as a
+card with its own button.
 
 The single-choice mechanism in `products/software_factory/model/generator` (`RelaDSL.DecisionOptions`) is generic:
 it knows no decision fields, statuses or wording. A kind passes them in with its
@@ -98,5 +100,6 @@ accepted is `n`, and a no answer opens the note form. Stuck work (a panel with
 `choose`) is no panel but the same stack as a decision: YOUR DECISION and its
 title, the task, the failed attempt and how long it has been stuck, the recorded
 failure in a "What went wrong" text with role error (Mac: a red-tinted card; TUI:
-a red frame), then each answer as an `option`, the first recommended, with what
-it does (Then), and the agent's log among the other answers.
+a card, its heading in the error colour), then each answer as an `option`, the
+first recommended, with what it does (Then), and the agent's log among the other
+answers.
