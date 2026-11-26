@@ -16,20 +16,42 @@ extension EnvironmentValues {
 /// An action Control marks `page` is the page's (what is done with its subject) and shows
 /// with the page's title; any other is its block's and shows under the block.
 public enum PageActions {
-    /// Every action of the page's `item` and `list` blocks, in block order.
+    /// Every action of the page's `item` and `list` blocks, and of its panels (their
+    /// answers as actions, then their own; `Panel.actions`), in block order.
     public static func all(_ page: PageMessage) -> [ActionModel] {
         page.blocks.flatMap { block -> [ActionModel] in
             switch block.content {
             case .item(let item): item.actions ?? []
             case .list(let list): list.actions ?? []
+            case .panel(let panel): Panel.actions(panel)
             default: []
             }
         }
     }
 
-    /// The page's own actions (`page`), in block order.
+    /// The page's own actions (`page`), in block order; not those a panel of the page
+    /// shows (by key, or doing what one does).
     public static func ofPage(_ page: PageMessage) -> [ActionModel] {
-        all(page).filter { $0.page == true }
+        let shown = page.blocks.flatMap { block -> [ActionModel] in
+            if case .panel(let panel) = block.content { Panel.actions(panel) } else { [] }
+        }
+        return all(page).filter { action in
+            action.page == true
+                && !shown.contains { $0.key == action.key || ($0.to == action.to && $0.submitTo == action.submitTo) }
+        }
+    }
+
+    /// The first link of the page's panels with this key that a client opens (http,
+    /// https), unless an action has the key; nil when none has.
+    public static func link(key: String, on pages: [PageMessage?]) -> URL? {
+        for page in pages.compactMap({ $0 }) {
+            if all(page).contains(where: { $0.key == key }) { return nil }
+            for block in page.blocks {
+                guard case .panel(let panel) = block.content else { continue }
+                if let link = Panel.links(panel).first(where: { $0.link.key == key }) { return link.url }
+            }
+        }
+        return nil
     }
 
     /// A block's own actions: those that are not the page's.
@@ -333,6 +355,8 @@ public struct ActionPageView: View {
             ListBlockView(list: list, selectedPath: nil, open: { _ in }, act: act)
         case .singleChoice(let choice):
             SingleChoiceView(block: choice, submit: submit)
+        case .panel(let panel):
+            PanelView(block: panel, open: { _ in }, act: act)
         case .notShown(let type): FallbackView(type: type, reason: nil)
         case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
         }

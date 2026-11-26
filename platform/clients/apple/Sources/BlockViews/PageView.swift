@@ -134,6 +134,9 @@ public struct PageView: View {
             // decision stays for another.
             SingleChoiceView(block: choice, submit: submit)
                 .id(SingleChoiceView.identity(path: presentation.path, block: choice))
+        case .panel(let panel):
+            // A view of its own per page: a selection never stays for another page.
+            PanelView(block: panel, open: open, act: act).id(presentation.path)
         // A page that asks is shown over the window (ActionPageView), not in a column.
         case .form: FallbackView(type: "form", reason: nil)
         case .confirm: FallbackView(type: "confirm", reason: nil)
@@ -219,7 +222,8 @@ struct ListRowView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(background, in: RoundedRectangle(cornerRadius: Prism.radius))
+        .background(Prism.Colors.row(scheme, selected: selected, hovering: hovering),
+                    in: RoundedRectangle(cornerRadius: Prism.radius))
         .overlay(alignment: .leading) {
             if selected {
                 RoundedRectangle(cornerRadius: Prism.radius / 2).fill(Prism.Colors.primary)
@@ -228,15 +232,6 @@ struct ListRowView: View {
         }
         .onHover { hovering = $0 }
         .accessibilityAddTraits(selected ? [.isSelected] : [])
-    }
-
-    /// Prism's selection tint: primarylight under dark text in light appearance; in dark
-    /// appearance primary, faint, so light text stays legible.
-    private var background: Color {
-        let dark = scheme == .dark
-        if selected { return dark ? Prism.Colors.primary.opacity(0.35) : Prism.Colors.primaryLight }
-        if hovering { return dark ? Color.primary.opacity(0.06) : Prism.Colors.grey5 }
-        return .clear
     }
 }
 

@@ -185,14 +185,7 @@ struct ChoiceRow: View {
                 Text(choice.option.text).bold(selected)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let label {
-                    // Grey1 on the role's light tint: readable in either appearance, and
-                    // the words say it, not the colour.
-                    Text(label.text).prism(Prism.Typography.captionSmall)
-                        .foregroundStyle(Prism.Colors.grey1)
-                        .padding(.horizontal, Prism.Spacing.s6).padding(.vertical, Prism.Spacing.s2)
-                        .background(label.tint, in: Capsule())
-                        .overlay(Capsule().strokeBorder(label.role))
-                        .fixedSize()
+                    RoleTag(text: label.text, role: label.role, tint: label.tint)
                 }
             }
             .prism(Prism.Typography.tableRow)
@@ -203,7 +196,8 @@ struct ChoiceRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(background, in: RoundedRectangle(cornerRadius: Prism.radius))
+        .background(Prism.Colors.row(scheme, selected: selected, hovering: hovering),
+                    in: RoundedRectangle(cornerRadius: Prism.radius))
         .onHover { hovering = $0 }
         .accessibilityLabel("Choice \(choice.number)\(label.map { ", " + $0.text } ?? ""): \(choice.option.text)")
         .accessibilityAddTraits(selected ? [.isSelected] : [])
@@ -214,13 +208,23 @@ struct ChoiceRow: View {
         if choice.needsNote { return ("decline · note", Prism.Colors.warning, Prism.Colors.warningLight) }
         return nil
     }
+}
 
-    /// Prism's selection tint, as the list's rows have it.
-    private var background: Color {
-        let dark = scheme == .dark
-        if selected { return dark ? Prism.Colors.primary.opacity(0.35) : Prism.Colors.primaryLight }
-        if hovering { return dark ? Color.primary.opacity(0.06) : Prism.Colors.grey5 }
-        return .clear
+/// A short word that sets a row apart ("★ recommended"): grey1 on the role's light tint,
+/// readable in either appearance, the role's colour as its border; the words say it, not
+/// the colour.
+struct RoleTag: View {
+    let text: String
+    let role: Color
+    let tint: Color
+
+    var body: some View {
+        Text(text).prism(Prism.Typography.captionSmall)
+            .foregroundStyle(Prism.Colors.grey1)
+            .padding(.horizontal, Prism.Spacing.s6).padding(.vertical, Prism.Spacing.s2)
+            .background(tint, in: Capsule())
+            .overlay(Capsule().strokeBorder(role))
+            .fixedSize()
     }
 }
 
@@ -250,18 +254,20 @@ struct ChoiceMeaning: View {
             Text(details).frame(maxWidth: .infinity, alignment: .leading).modifier(Framed())
         }
     }
+}
 
-    private struct Framed: ViewModifier {
-        @Environment(\.colorScheme) private var scheme
+/// A framed text without a title, in caption type; the border grey, or `border`.
+struct Framed: ViewModifier {
+    var border: Color?
+    @Environment(\.colorScheme) private var scheme
 
-        func body(content: Content) -> some View {
-            content
-                .prism(Prism.Typography.caption)
-                .textSelection(.enabled)
-                .padding(Prism.Spacing.s10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .overlay(RoundedRectangle(cornerRadius: Prism.radius)
-                    .strokeBorder(scheme == .dark ? Prism.Colors.grey2 : Prism.Colors.grey3))
-        }
+    func body(content: Content) -> some View {
+        content
+            .prism(Prism.Typography.caption)
+            .textSelection(.enabled)
+            .padding(Prism.Spacing.s10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(RoundedRectangle(cornerRadius: Prism.radius)
+                .strokeBorder(border ?? (scheme == .dark ? Prism.Colors.grey2 : Prism.Colors.grey3)))
     }
 }

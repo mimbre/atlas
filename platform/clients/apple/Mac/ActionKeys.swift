@@ -20,8 +20,13 @@ final class ActionKeys {
         let typing = typing
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let taken = MainActor.assumeIsolated { () -> Bool in
-                guard let action = Self.action(for: event, shell: ShellViewModel(session.state), typing: typing) else { return false }
-                session.act(action)
+                let shell = ShellViewModel(session.state)
+                if let action = Self.action(for: event, shell: shell, typing: typing) {
+                    session.act(action)
+                    return true
+                }
+                guard let url = Self.link(for: event, shell: shell) else { return false }
+                NSWorkspace.shared.open(url)
                 return true
             }
             return taken ? nil : event
@@ -43,6 +48,16 @@ final class ActionKeys {
         }
         guard window.attachedSheet == nil else { return nil }
         return PageActions.action(key: key, on: [shell.opened, shell.index], typing: typing)
+    }
+
+    /// A panel's link with the key on the shown pages, in the window (not over a sheet):
+    /// opened in the browser.
+    static func link(for event: NSEvent, shell: ShellViewModel) -> URL? {
+        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
+              let key = event.characters, key.count == 1,
+              let window = event.window, !(window.firstResponder is NSText),
+              window.sheetParent == nil, window.attachedSheet == nil else { return nil }
+        return PageActions.link(key: key, on: [shell.opened, shell.index])
     }
 }
 #endif

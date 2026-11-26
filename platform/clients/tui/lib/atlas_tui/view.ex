@@ -5,12 +5,15 @@ defmodule AtlasTui.View do
   """
 
   alias AtlasTui.Blocks.{
+    Box,
     Confirm,
     Fallback,
     Form,
     Highlight,
     Input,
     Item,
+    Panel,
+    PanelItem,
     Part,
     Plan,
     Section,
@@ -40,7 +43,7 @@ defmodule AtlasTui.View do
   """
   def known,
     do: %{
-      blocks: ~w(list groups item single_choice form confirm plan console_action),
+      blocks: ~w(list groups item single_choice panel form confirm plan console_action),
       markup: ~w(part section highlight legend)
     }
 
@@ -544,8 +547,7 @@ defmodule AtlasTui.View do
   # answers marked ▸ and selected), what the selected one means in a box under them, and
   # the keys there are. A narrow panel drops the labels before it cuts an option's text.
   defp block(%SingleChoice{} = choice, _at, model, width, _room) do
-    inner = max(width - 3, 1)
-    content = max(inner - 2, 1)
+    content = max(width - 5, 1)
     at = Model.chosen(choice, model.choice)
 
     why =
@@ -554,26 +556,90 @@ defmodule AtlasTui.View do
         text -> [[]] ++ hanging("Why: ", text, content, :dim, :dim)
       end
 
+    rows =
+      choice.options
+      |> Enum.with_index()
+      |> Enum.map(fn {option, i} ->
+        label =
+          cond do
+            option.id == choice.recommended -> {:ok, "★ recommended"}
+            option.note -> {:warning, "decline · note"}
+            true -> nil
+          end
+
+        {Model.option_key(option, i), option.text, label}
+      end)
+
     detail = choice_detail(Enum.at(choice.options, at), content)
     keys = choice_keys(choice, at, model, content)
 
     body =
       why ++
         [[]] ++
-        choice_rows(choice, at, content) ++
+        choice_rows(rows, at, content) ++
         if(detail == [], do: [], else: [[]] ++ detail) ++
         if(keys == [], do: [], else: [[]] ++ keys)
 
-    framed =
-      for line <- body,
-          do: [{:frame, " │ "} | pad_line(fit(line, content), content)] ++ [{:frame, " │"}]
+    decision_frame("YOUR DECISION", choice.question, nil, body, width)
+  end
 
-    bar =
-      for line <- choice_bar(choice.question, inner),
-          do: [{:frame, " │"}, {:header, cell_pad(line, inner)}, {:frame, "│"}]
+  # Control's panel where its owner decides, in the frame of the single choice: what is
+  # asked of them (`heading`) and the title in the bar, how many beside it; the byline;
+  # then what it is judged on: its items (the selected one marked ▸, its details framed
+  # under them), its checks (each with a mark of its state), a box (an error's in the error
+  # colour); in a choice its answers one line each, the selected one's detail framed; and
+  # the keys there are, as far as Control projects them.
+  defp block(%Panel{} = panel, _at, model, width, _room) do
+    content = max(width - 5, 1)
+    choices = Model.panel_choices(panel)
+    at = Model.panel_chosen(panel, model.choice)
+    selected = Enum.at(choices, at)
 
-    [[{:frame, " ┌" <> String.duplicate("─", inner) <> "┐"}]] ++
-      bar ++ framed ++ [[{:frame, " └" <> String.duplicate("─", inner) <> "┘"}]]
+    byline =
+      case byline(panel.byline || [], DateTime.utc_now()) do
+        "" -> []
+        text -> Enum.map(detail_wrap(text, content), &[{:dim, &1}])
+      end
+
+    # In a choice the arrows select its answers (`Model.panel_choices/1`).
+    choosing = choices != [] and choices == panel.answers
+
+    choice =
+      if choosing do
+        rows =
+          for answer <- choices do
+            label =
+              cond do
+                answer.recommended == true -> {:ok, "★ recommended"}
+                answer.note == true -> {:warning, "· note"}
+                true -> nil
+              end
+
+            {answer.key, answer.label, label}
+          end
+
+        detail = String.trim(selected.detail || "")
+
+        detail =
+          if detail == "",
+            do: [],
+            else: boxed(text_lines(detail, content - 4), content, :border)
+
+        [choice_rows(rows, at, content), detail]
+      else
+        []
+      end
+
+    sections =
+      [
+        item_rows(panel.items || [], at, content),
+        item_details(Enum.at(panel.items || [], at), content),
+        check_rows(panel.checks || []),
+        panel_box(panel.box, content)
+      ] ++ choice ++ [panel_keys(panel, choosing, choices, selected, model, content)]
+
+    body = byline ++ Enum.flat_map(sections, &if(&1 == [], do: [], else: [[] | &1]))
+    decision_frame(panel.heading, panel.title, panel.aside, body, width)
   end
 
   # Values keep their line breaks and blank lines; a heading line (`#`) is bold. A value
@@ -677,6 +743,24 @@ defmodule AtlasTui.View do
   defp block(%Fallback{type: type}, _at, _model, _width, _room),
     do: [[{:dim, "   (a #{type || "?"} block this TUI cannot show)"}]]
 
+  # The frame of a decision: a bar with what is asked (`heading`) and its title, `aside`
+  # at its right; `body` under it, each line fitted inside.
+  defp decision_frame(heading, title, aside, body, width) do
+    inner = max(width - 3, 1)
+    content = max(inner - 2, 1)
+
+    framed =
+      for line <- body,
+          do: [{:frame, " │ "} | pad_line(fit(line, content), content)] ++ [{:frame, " │"}]
+
+    bar =
+      for line <- decision_bar(heading, title, aside, inner),
+          do: [{:frame, " │"}, {:header, cell_pad(line, inner)}, {:frame, "│"}]
+
+    [[{:frame, " ┌" <> String.duplicate("─", inner) <> "┐"}]] ++
+      bar ++ framed ++ [[{:frame, " └" <> String.duplicate("─", inner) <> "┘"}]]
+  end
+
   # List prefixes and part frames can leave fewer than ten columns. Use the
   # actual budget; Text.wrap's reading/editor defaults remain unchanged.
   defp list_wrap(text, width) do
@@ -688,49 +772,44 @@ defmodule AtlasTui.View do
     end)
   end
 
-  @choice_bar " ◆ YOUR DECISION   "
-
-  # The panel's bar: the question beside its heading, wrapped under the question; in a
-  # bar too narrow for both, the question under the heading.
-  defp choice_bar(question, inner) do
-    question = single_line(question)
-    room = inner - display_width(@choice_bar) - 1
+  # A decision's bar: what is asked of its owner, the title beside it, wrapped under the
+  # title, and `aside` at the right of its first line; in a bar too narrow for both, the
+  # title (and `aside`) under the heading.
+  defp decision_bar(heading, title, aside, inner) do
+    lead = " ◆ " <> single_line(heading) <> "   "
+    title = single_line(title)
+    aside = single_line(aside)
+    aside_room = if aside == "", do: 0, else: display_width(aside) + 2
+    room = inner - display_width(lead) - 1 - aside_room
 
     cond do
-      question == "" ->
-        [String.trim_trailing(@choice_bar)]
+      title == "" and aside == "" ->
+        [String.trim_trailing(lead)]
 
       room >= 12 ->
-        indent = String.duplicate(" ", display_width(@choice_bar))
-        [first | rest] = detail_wrap(question, room)
-        [@choice_bar <> first | Enum.map(rest, &(indent <> &1))]
+        indent = String.duplicate(" ", display_width(lead))
+        [first | rest] = detail_wrap(title, room)
+        first = lead <> first
+
+        first =
+          if aside == "",
+            do: first,
+            else: cell_pad(first, inner - aside_room + 1) <> aside <> " "
+
+        [first | Enum.map(rest, &(indent <> &1))]
 
       true ->
-        [
-          String.trim_trailing(@choice_bar)
-          | Enum.map(detail_wrap(question, inner - 2), &(" " <> &1))
-        ]
+        [String.trim_trailing(lead)] ++
+          Enum.map(detail_wrap(title, max(inner - 2, 1)), &(" " <> &1)) ++
+          if(aside == "", do: [], else: [" " <> aside])
     end
   end
 
   # The options in fixed columns: the marker (▸ on the selected one), the key, the text,
-  # and a label at the right: the recommended one, one given with a note (a decline). The
-  # labels go when the texts would not fit beside them.
-  defp choice_rows(%SingleChoice{options: options, recommended: recommended}, at, width) do
-    rows =
-      options
-      |> Enum.with_index()
-      |> Enum.map(fn {option, i} ->
-        label =
-          cond do
-            option.id == recommended -> {:ok, "★ recommended"}
-            option.note -> {:warning, "decline · note"}
-            true -> nil
-          end
-
-        {single_line(Model.option_key(option, i)), single_line(option.text), label}
-      end)
-
+  # and a label at the right (`{style, text}` or nil): the recommended one, one given with
+  # a note. The labels go when the texts would not fit beside them.
+  defp choice_rows(rows, at, width) do
+    rows = for {key, text, label} <- rows, do: {single_line(key), single_line(text), label}
     widest = fn texts -> Enum.reduce(texts, 0, &max(display_width(&1), &2)) end
     key_width = widest.(for {key, _, _} <- rows, do: key)
     text_width = widest.(for {_, text, _} <- rows, do: text)
@@ -769,7 +848,7 @@ defmodule AtlasTui.View do
   # What the selected option means, framed: its rule and what then follows; for one given
   # with a note (a decline), or one without either, its details.
   defp choice_detail(option, width) do
-    inner = width - 4
+    inner = max(width - 4, 1)
 
     parts =
       [{"Rule", option.rule}, {"Then", option.consequences}]
@@ -782,45 +861,40 @@ defmodule AtlasTui.View do
       cond do
         parts != [] and option.note != true ->
           Enum.flat_map(parts, fn {label, text} ->
-            hanging(label <> "  ", text, max(inner, 1), :dim, :plain)
+            hanging(label <> "  ", text, inner, :dim, :plain)
           end)
 
         details != "" ->
-          Enum.map(detail_wrap(details, max(inner, 1)), &[{:plain, &1}])
+          text_lines(details, inner)
 
         true ->
           []
       end
 
-    cond do
-      lines == [] ->
-        []
-
-      inner < 8 ->
-        lines
-
-      true ->
-        rule = String.duplicate("─", width - 2)
-
-        [[{:border, "┌" <> rule <> "┐"}]] ++
-          Enum.map(
-            lines,
-            &([{:border, "│ "} | pad_line(fit(&1, inner), inner)] ++ [{:border, " │"}])
-          ) ++
-          [[{:border, "└" <> rule <> "┘"}]]
-    end
+    boxed(lines, width, :border)
   end
+
+  # `lines` in a frame of `width` (drawn in `frame`), each fitted inside; unframed where
+  # too narrow for a frame.
+  defp boxed([], _width, _frame), do: []
+  defp boxed(lines, width, _frame) when width < 12, do: lines
+
+  defp boxed(lines, width, frame) do
+    inner = width - 4
+    rule = String.duplicate("─", width - 2)
+
+    [[{frame, "┌" <> rule <> "┐"}]] ++
+      Enum.map(lines, &([{frame, "│ "} | pad_line(fit(&1, inner), inner)] ++ [{frame, " │"}])) ++
+      [[{frame, "└" <> rule <> "┘"}]]
+  end
+
+  defp text_lines(text, width), do: Enum.map(detail_wrap(text, max(width, 1)), &[{:plain, &1}])
 
   # The keys that answer, as far as Control projects them: the arrows and Enter select
   # and answer through an option's own key (`AtlasTui.Interactions`), so Enter is named
   # only when the selected option's key is an action now, and 0 only when it is one.
   defp choice_keys(%SingleChoice{options: options}, at, model, width) do
-    keys =
-      for action <- AtlasTui.Interactions.active(model),
-          action["props"]["available"],
-          key <- action["props"]["keys"],
-          into: MapSet.new(),
-          do: key
+    keys = projected_keys(model)
 
     [
       length(options) > 1 && {"↑↓", "choose"},
@@ -829,9 +903,24 @@ defmodule AtlasTui.View do
     ]
     |> Enum.filter(& &1)
     |> Enum.map(fn {key, what} -> [{:key, key}, {:dim, " " <> what}] end)
-    |> Enum.reduce([], fn item, lines ->
-      used = fn line -> Enum.reduce(line, 0, fn {_, text}, n -> n + display_width(text) end) end
+    |> key_lines(width)
+  end
 
+  # The keys the page's actions take now.
+  defp projected_keys(model) do
+    for action <- AtlasTui.Interactions.active(model),
+        action["props"]["available"],
+        key <- action["props"]["keys"],
+        into: MapSet.new(),
+        do: key
+  end
+
+  # Keys (each a line of segments) one after the other, " · " between, wrapped at `width`.
+  defp key_lines(items, width) do
+    used = fn line -> Enum.reduce(line, 0, fn {_, text}, n -> n + display_width(text) end) end
+
+    items
+    |> Enum.reduce([], fn item, lines ->
       case lines do
         [line | done] ->
           if used.(line) + 3 + used.(item) <= width,
@@ -843,6 +932,139 @@ defmodule AtlasTui.View do
       end
     end)
     |> Enum.reverse()
+  end
+
+  # A panel's byline: its clauses joined, each with how long ago its `since` was.
+  defp byline(clauses, now) do
+    clauses
+    |> Enum.map(fn clause ->
+      [single_line(clause.text), age(clause.since, now)]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join(" ")
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" · ")
+  end
+
+  # How long ago `since` (ISO 8601) was: "now", minutes, hours or days.
+  defp age(since, now) do
+    case DateTime.from_iso8601(since || "") do
+      {:ok, at, _} ->
+        seconds = max(DateTime.diff(now, at), 0)
+
+        cond do
+          seconds < 60 -> "now"
+          seconds < 3_600 -> "#{div(seconds, 60)}m"
+          seconds < 86_400 -> "#{div(seconds, 3_600)}h"
+          true -> "#{div(seconds, 86_400)}d"
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  # A panel's items, one line each: the marker (▸ on the selected one), the key, the label.
+  defp item_rows([], _at, _width), do: []
+
+  defp item_rows(items, at, width) do
+    key_width = Enum.reduce(items, 0, &max(display_width(single_line(&1.key)), &2))
+
+    items
+    |> Enum.with_index()
+    |> Enum.map(fn {item, i} ->
+      key = cell_pad(single_line(item.key), key_width)
+      label = "  " <> single_line(item.label)
+
+      if i == at,
+        do: [{:selected, cell_pad("▸ " <> key <> label, width)}],
+        else: [{:plain, "  "}, {:bold, key}, {:plain, label}]
+    end)
+  end
+
+  # The details of the selected item, framed, each under its label.
+  defp item_details(%PanelItem{details: [_ | _] = details}, width) do
+    inner = max(width - 4, 1)
+    label_width = Enum.reduce(details, 0, &max(display_width(single_line(&1.label)), &2))
+
+    details
+    |> Enum.flat_map(fn pair ->
+      label = cell_pad(single_line(pair.label), label_width) <> " "
+      hanging(label, String.trim(pair.value || ""), inner, :dim, :plain)
+    end)
+    |> boxed(width, :border)
+  end
+
+  defp item_details(_item, _width), do: []
+
+  # Its state as a mark as well as a colour.
+  @check_marks %{
+    "success" => {:ok, "✓"},
+    "error" => {:error, "✗"},
+    "pending" => {:pending, "…"}
+  }
+
+  # A panel's checks, one line each: the mark of its state, the label, what it says.
+  defp check_rows(checks) do
+    label_width = Enum.reduce(checks, 0, &max(display_width(single_line(&1.label)), &2))
+
+    for check <- checks do
+      {style, mark} = @check_marks[check.state] || {:dim, "—"}
+
+      [
+        {style, mark},
+        {:plain, " " <> cell_pad(single_line(check.label), label_width) <> "  "},
+        {:plain, single_line(check.text)}
+      ]
+    end
+  end
+
+  # A panel's box: its title over its text, framed; an error's in the error colour.
+  defp panel_box(nil, _width), do: []
+
+  defp panel_box(%Box{} = box, width) do
+    {frame, heading} = if box.tone == "error", do: {:error_frame, :error}, else: {:border, :bold}
+    inner = max(width - 4, 1)
+
+    title =
+      case single_line(box.title) do
+        "" -> []
+        title -> [[{heading, title}]]
+      end
+
+    boxed(title ++ text_lines(box.text || "", inner), width, frame)
+  end
+
+  # A panel's keys, as far as Control projects them: its answers (yes, or no with a note)
+  # where they are no choice; in a choice, the arrows, Enter on the selected answer and 0;
+  # with items, the arrows and Enter that opens one; what its actions and links open.
+  defp panel_keys(panel, choosing, choices, selected, model, width) do
+    keys = projected_keys(model)
+    on = &MapSet.member?(keys, &1)
+
+    answers =
+      for answer <- panel.answers || [], not choosing, on.(answer.key) do
+        if answer.note == true,
+          do: [{:key, answer.key}, {:warning, " " <> single_line(answer.label) <> " · note"}],
+          else: [{:key, answer.key}, {:ok, " " <> single_line(answer.label)}]
+      end
+
+    opens =
+      for open <- (panel.actions || []) ++ (panel.links || []),
+          on.(open.key),
+          do: [{:key, open.key}, {:dim, " " <> single_line(open.label)}]
+
+    moves =
+      [
+        length(choices) > 1 && {"↑↓", "choose"},
+        match?(%PanelItem{}, selected) && {"Enter", "open"},
+        choosing && on.(selected.key) && {"Enter", "answer"},
+        choosing && on.("0") && {"0", "recommended"}
+      ]
+      |> Enum.filter(& &1)
+      |> Enum.map(fn {key, what} -> [{:key, key}, {:dim, " " <> what}] end)
+
+    key_lines(if(choosing, do: moves ++ opens, else: answers ++ opens ++ moves), width)
   end
 
   # `label` before the first line of `text`, the rest under it; under the label when

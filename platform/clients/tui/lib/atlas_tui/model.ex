@@ -13,7 +13,7 @@ defmodule AtlasTui.Model do
   """
 
   alias AtlasTui.{Blocks, Selection, Text}
-  alias AtlasTui.Blocks.{Confirm, Form, Input, Item, Part, Plan, Section, SingleChoice}
+  alias AtlasTui.Blocks.{Confirm, Form, Input, Item, Panel, Part, Plan, Section, SingleChoice}
   alias AtlasTui.Blocks.List, as: ListBlock
 
   @scroll_step 10
@@ -32,8 +32,9 @@ defmodule AtlasTui.Model do
             ids: [],
             markup: [],
             selected: 0,
-            # The option of the page's single choice that Enter answers, by id; nil (or an
-            # id the choice no longer has) is the recommended one.
+            # The option of the page's single choice that Enter answers, by id, or what the
+            # arrows select in its panel (an item or an answer), by key; nil (or one the page
+            # no longer has) is the recommended one, else the first.
             choice: nil,
             # A page longer than the screen: nil follows the selected row or the focus;
             # a number of lines is scrolled to by page up and page down.
@@ -193,6 +194,21 @@ defmodule AtlasTui.Model do
 
   @doc "The key that answers an option: Control's shortcut, else its place from 1."
   def option_key(option, index), do: option.shortcut || Integer.to_string(index + 1)
+
+  def panel(model), do: Enum.find(model.blocks, &match?(%Panel{}, &1))
+
+  @doc "What a panel's arrows select: its items, else its answers when they are a choice."
+  def panel_choices(%Panel{items: [_ | _] = items}), do: items
+  def panel_choices(%Panel{choose: true, answers: [_ | _] = answers}), do: answers
+  def panel_choices(%Panel{}), do: []
+
+  @doc "Where in `panel_choices/1` the selected one of `panel` is (`choice` in the model)."
+  def panel_chosen(%Panel{} = panel, key) do
+    choices = panel_choices(panel)
+
+    Enum.find_index(choices, &(&1.key == key)) ||
+      Enum.find_index(choices, &(Map.get(&1, :recommended) == true)) || 0
+  end
 
   @doc """
   The form a step of the plan is edited in: the step's inputs, as Control's form for it
