@@ -20,7 +20,7 @@
 # - Hex resolves from a local registry cache, never the registry (offline_hex below).
 # - The generated targets are written once, before the jobs, by one `bin/generate` with every
 #   name the selected jobs' steps generate; the jobs' own bin/generate steps are then skipped.
-#   bin/generate needs the pinned rela installed on this machine (it is checked first).
+#   bin/generate needs the pinned rela in the machine's tools folder, ~/.cache/atlas (checked first).
 # - An installer step (pip install, mix local.hex/local.rebar, start-test.sh install) installs
 #   nothing: a pip install checks, without the network, that its requirements are installed.
 #   Install what is missing outside the sandbox.

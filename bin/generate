@@ -19,8 +19,8 @@
 # model validates the description and draws the diagrams with the rela that
 # platform/atlas_facts/rela/scripts/start-test.sh pins, from
 # ${XDG_CACHE_HOME:-~/.cache}/atlas/rela-<version>, installed there when missing; or from
-# ~/.cache/atlas/rela-<version> when only that one is there (an agent's sandbox points
-# XDG_CACHE_HOME at its private temp and reads the machine's ~/.cache/atlas). Never a rela from
+# the machine's tools folder ~/.cache/atlas/rela-<version> when only that one is there (an agent's
+# sandbox points XDG_CACHE_HOME at its private temp and reads the tools folder). Never a rela from
 # PATH or ATLAS_RELA_BIN.
 set -euo pipefail
 

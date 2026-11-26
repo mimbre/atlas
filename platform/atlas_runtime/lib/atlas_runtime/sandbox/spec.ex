@@ -58,8 +58,8 @@ defmodule AtlasRuntime.Sandbox.Spec do
   ]
 
   # The toolchain locations a folder worker may read in its denied user home: asdf and
-  # .tool-versions, Mix archives, the Hex cache, the Go module cache and the pinned rela (homeReadNames,
-  # codex.go:290).
+  # .tool-versions, Mix archives, the Hex cache, the Go module cache and the tools folder
+  # ~/.cache/atlas, the pinned tools a repository's checks need (homeReadNames, codex.go:290).
   @home_read_names [".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod", ".cache/atlas"]
 
   # A preparation also denies ~/.npmrc (setupArguments, codex.go:460).

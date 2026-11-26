@@ -76,8 +76,8 @@ done
   echo "install: warning: shell ATLAS_RUNTIME_HOME=$ATLAS_RUNTIME_HOME differs from runtime_home $HOME_DIR" >&2
 
 # What an agent's bin/check needs and cannot install in its sandbox, which has no network: ripgrep,
-# the Python packages of the Rela scripts and the pinned rela in ~/.cache/atlas (the worker
-# sandbox reads it). Installed here when missing, on the path the Runtime gives its workers.
+# the Python packages of the Rela scripts and the pinned rela in the tools folder ~/.cache/atlas
+# (the machine's pinned tools, read-only in the worker sandbox). Installed here when missing, on the path the Runtime gives its workers.
 REPO=${SRC:h:h:h:h}
 toolchain() {
   if [[ -n $DRY ]]; then echo "would $1"; else echo "$1"; eval "$2" || die "could not $1"; fi

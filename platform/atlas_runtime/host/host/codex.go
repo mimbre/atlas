@@ -357,7 +357,8 @@ var credentialPaths = []string{".codex", ".config/gh", ".ssh", ".aws", ".docker"
 // homeReadNames are the toolchain locations, relative to the user home, that materialized-folder
 // workers may read in their otherwise denied home: asdf (the shims' targets) and its fallback
 // .tool-versions, Mix archives and the Hex package cache, the Go module cache, which
-// GOMODCACHE does not redirect, and the pinned rela binaries installed outside the sandbox.
+// GOMODCACHE does not redirect, and the tools folder ~/.cache/atlas: the pinned tools a
+// repository's checks need (rela for Atlas), installed once per machine outside the sandbox.
 var homeReadNames = []string{".asdf", ".tool-versions", ".hex", ".mix", "go/pkg/mod", ".cache/atlas"}
 
 // homeReadable are the paths a materialized-folder worker may read inside the denied user home:
