@@ -2021,6 +2021,7 @@ defmodule AtlasControl.PagesTest do
      $ git tag -d v12
      $ git tag -d v13
   3. Remove the old file.
+     > Finder > Home > ".keys > old"
      $ rm old.key
   """
 
@@ -2044,7 +2045,17 @@ defmodule AtlasControl.PagesTest do
                  "text" => "Drop the old tags.",
                  "commands" => ["git tag -d v12", "git tag -d v13"]
                },
-               %{"n" => 3, "text" => "Remove the old file.", "commands" => ["rm old.key"]}
+               %{
+                 "n" => 3,
+                 "text" => "Remove the old file.",
+                 "commands" => ["rm old.key"],
+                 "routes" => [["Finder", "Home", ".keys > old"]],
+                 "lines" => [
+                   %{"kind" => "text", "text" => "Remove the old file."},
+                   %{"kind" => "route", "parts" => ["Finder", "Home", ".keys > old"]},
+                   %{"kind" => "command", "text" => "rm old.key"}
+                 ]
+               }
              ]
            } = steps
 
