@@ -236,19 +236,43 @@ struct ListRowView: View {
     }
 }
 
-/// A row's content: its id (the item's key; a row without one has no id column at all),
-/// its label, its detail, and whether a write to it is being processed. The id and the
-/// detail have narrow columns of a fixed width, so rows line up; the label has the rest.
+/// A row's content: where its work stands (a dot in the colour of Control's `tone`), its
+/// id (the item's key; a row without one has no id column at all), how long it has been
+/// where it stands (its age, from `since`), its label, its detail, and whether a write to
+/// it is being processed. The id, the age and the detail have narrow columns of a fixed
+/// width, so rows line up; the label has the rest. A done row is muted.
 struct RowLabel: View {
     let row: RowModel
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.backgroundProminence) private var prominence
 
     var body: some View {
+        let tone = RowTone(row.tone)
+        // Muted text that keeps 4.5:1; inside the list's emphasized selection the system's
+        // own secondary colour, which stays legible on it.
+        let quiet = prominence == .increased ? AnyShapeStyle(.secondary) : AnyShapeStyle(Prism.Colors.muted(scheme))
         HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.s13) {
+            if row.tone != nil || row.since != nil {
+                Circle().fill(tone.map(Self.colour) ?? .clear)
+                    .frame(width: Prism.Spacing.s9, height: Prism.Spacing.s9)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                    .help(tone?.meaning ?? "")
+                    .accessibilityLabel(tone?.meaning ?? "")
+                    .accessibilityHidden(tone == nil)
+            }
             if let id = row.id {
                 Text(id).monospaced().prism(Prism.Typography.tableRow).foregroundStyle(.secondary)
                     .lineLimit(1).frame(width: 100, alignment: .leading)
             }
-            Text(row.label).prism(Prism.Typography.tableRow).foregroundStyle(.primary).lineLimit(2)
+            if row.tone != nil || row.since != nil {
+                Text(RowAge.text(since: row.since, now: Date()) ?? "")
+                    .prism(Prism.Typography.tableRow).monospacedDigit()
+                    .foregroundStyle(quiet)
+                    .lineLimit(1).frame(width: 44, alignment: .trailing)
+            }
+            Text(row.label).prism(Prism.Typography.tableRow)
+                .foregroundStyle(tone == .done ? quiet : AnyShapeStyle(.primary))
+                .lineLimit(2)
                 .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
             if let detail = row.detail {
                 Text(detail).prism(Prism.Typography.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -262,6 +286,17 @@ struct RowLabel: View {
         .truncationMode(.tail)
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The tone's colour: needs you error red, under way warning orange, waiting primary
+    /// blue, done success green. Never the only sign: the row's words say it too.
+    static func colour(_ tone: RowTone) -> Color {
+        switch tone {
+        case .attention: Prism.Colors.error
+        case .active: Prism.Colors.warning
+        case .waiting: Prism.Colors.primary
+        case .done: Prism.Colors.success
+        }
     }
 }
 
