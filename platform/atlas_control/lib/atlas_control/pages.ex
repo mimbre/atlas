@@ -2098,6 +2098,20 @@ defmodule AtlasControl.Pages do
             waiting_pair(work) ++
             copy(answer["copy"])
 
+        # Beside what its owner decides, only what says something about the fact:
+        # its title says its key; then its own fields that are filled but its title, who it
+        # is for and from whom since when, and what it reaches. Agents read the rest with
+        # `atlas get`.
+        details_fields =
+          Enum.reject(own_fields(k, fact, [k.primary | k.hidden]), &(&1["value"] == "—")) ++
+            progress_pair(m, k, fact) ++
+            review_pair(fact) ++
+            linked(m, kind, fact) ++
+            Enum.flat_map(parts, fn {part_kind, _k, part, _made} -> linked(m, part_kind, part) end) ++
+            supervisor_pair(m, kind, work) ++
+            waiting_pair(work) ++
+            copy(answer["copy"])
+
         # The flow's next step, and one More… for everything else (`offered/6`): the
         # page's actions, which a client shows with the page's title.
         item =
@@ -2118,9 +2132,11 @@ defmodule AtlasControl.Pages do
           relations
           |> Enum.zip(child_answers)
           |> Enum.zip(create_keys(m, kind))
-          # A list of what points here through an association shows only when it has some.
-          |> Enum.reject(fn {{_relation, answer}, create_key} ->
-            create_key == nil and match?(%{"facts" => []}, answer)
+          # A list of what points here through an association shows only when it has some;
+          # where its owner decides, never the fact's own components (its Assignment).
+          |> Enum.reject(fn {{{_relation, from, _r}, answer}, create_key} ->
+            (create_key == nil and match?(%{"facts" => []}, answer)) or
+              (deciding and Enum.any?(parts, &(elem(&1, 0) == from)))
           end)
           |> Enum.map(fn {{{relation, from, r}, child_answer}, _create_key} ->
             judged = deciding and r.parent and r.set_by == nil
@@ -2137,36 +2153,61 @@ defmodule AtlasControl.Pages do
         # itself, and later what is said about it) and the related part (the related
         # lists, what names it as its cause, then the facts it points at). Each list in a
         # section that carries its title. A client lays the parts out as it sees fit.
+        # Where its owner decides, not the fact's own components (its Assignment, and whom
+        # that names): its details say for whom it is.
+        component = fn "parent:" <> name ->
+          deciding and
+            Enum.all?(rel(m, name).to, fn to -> Enum.any?(parts, &(elem(&1, 0) == to)) end)
+        end
+
         references =
           Enum.map(lists, &elem(&1, 1)) ++
             cause_lists(m, key, cause_answers, form[:by]) ++
-            parent_lists(m, kind, fact) ++
-            Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
-              parent_lists(m, part_kind, part)
-            end)
+            Enum.reject(parent_lists(m, kind, fact), &component.(elem(&1, 0))) ++
+            if(deciding,
+              do: [],
+              else:
+                Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
+                  parent_lists(m, part_kind, part)
+                end)
+            )
 
         sections =
           for {id, {title, _list}} <- references, do: Blocks.section(id, id, title: title)
 
         lists = for {id, {_title, list}} <- references, do: {id, list}
 
+        # Where its owner decides: the fact as its details (`details_fields`), with what it
+        # refers to, in a part of role details after what is decided; a client shows it
+        # beside that when there is room, else under it.
+        details = fn item ->
+          item
+          |> put_in(["props", "title"], "#{k.label} #{key}")
+          |> put_in(["props", "fields"], details_fields)
+        end
+
+        details_markup =
+          [
+            Blocks.part("item", List.last(["item" | Enum.map(lists, &elem(&1, 0))]),
+              title: "Details",
+              role: "details"
+            )
+          ] ++ sections
+
         cond do
           deciding and todo.section[:steps] != nil ->
             # Its instructions step by step, with what it answers and the page's next steps;
-            # the fact in full and what it refers to behind Item details (one key), without
-            # what the steps already show.
+            # what is judged; then the details, without what the steps already show.
             %{steps: %{field: field, from: from}} = todo.section
             shown = for f <- k.fields, f.name in [field, from], do: f.label
 
             item =
               item
+              |> details.()
               |> update_in(["props", "fields"], fn fields ->
-                Enum.reject(fields, &(&1["label"] in shown)) ++ todo_pairs(todo)
+                Enum.reject(fields, &(&1["label"] in shown))
               end)
               |> put_in(["props", "actions"], [])
-
-            lists = for({id, {_title, list}} <- judged, do: {id, list}) ++ lists
-            ids = ["item" | for({id, _} <- lists, do: id)]
 
             content =
               [
@@ -2177,24 +2218,22 @@ defmodule AtlasControl.Pages do
                    key,
                    label(k, fact),
                    next ++ more_action(kind, key, more)
-                 )},
-                {"item", item}
-              ] ++ lists
+                 )}
+              ] ++
+                for({id, {_title, list}} <- judged, do: {id, list}) ++
+                [{"item", item}] ++ lists
 
             markup =
-              [Blocks.section("item", List.last(ids), title: "Item details", collapsible: true)] ++
-                for({id, {title, _list}} <- judged, do: Blocks.section(id, id, title: title)) ++
-                sections
+              for({id, {title, _list}} <- judged, do: Blocks.section(id, id, title: title)) ++
+                details_markup
 
             page("#{k.label} #{key}", back, content, markup)
-            |> Map.put(:console_actions, [item_details_action()])
 
           deciding ->
-            # A page where its owner decides is one stretch, top down, in no parts: the to-do
-            # and its answers in one line, or the panel the model declares for its state;
-            # what is judged (the choice's options, the section of the fact the state names,
-            # the facts under it, but those the panel lists); the fact itself in full, with
-            # why it came to them and how; then what it refers to.
+            # A page where its owner decides is one stretch, top down: the to-do and its
+            # answers in one line, or the panel the model declares for its state; what is
+            # judged (the choice's options, the section of the fact the state names, the
+            # facts under it, but those the panel lists); then the details.
             {head, judged, item} =
               case panel do
                 %{} = spec ->
@@ -2214,12 +2253,12 @@ defmodule AtlasControl.Pages do
             content =
               head ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
-                [{"item", update_in(item, ["props", "fields"], &(&1 ++ todo_pairs(todo)))}] ++
+                [{"item", details.(item)}] ++
                 lists
 
             markup =
               for({id, {title, _list}} <- judged, do: Blocks.section(id, id, title: title)) ++
-                sections
+                details_markup
 
             page("#{k.label} #{key}", back, content, markup)
 
@@ -3317,12 +3356,6 @@ defmodule AtlasControl.Pages do
 
   defp instruction_line(%{kind: kind, text: text}),
     do: Blocks.instruction_line(kind: Atom.to_string(kind), text: text)
-
-  @doc """
-  The console action that folds or unfolds a to-do's Item details (`sections_toggle`,
-  key i): the fact in full, behind its steps.
-  """
-  def item_details_action, do: %{details_action() | label: "Item details", keys: ["i"]}
 
   @doc """
   Why the step `step` (text, from the path) cannot be set by the viewer of `form` on the

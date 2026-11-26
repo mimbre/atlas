@@ -1948,24 +1948,31 @@ defmodule AtlasControl.PagesTest do
 
     page = render_run({:item, "widget", "W-1"}, @todo, "check", answers, %{by: "ada"})
 
-    # One stretch, in no parts: what to do in one line, with the section it names; what
-    # is under it, each saying what it is about; then the fact, with why and how.
-    assert ["todo", "list:of_widget", "item" | _] = Enum.map(page.blocks, & &1["id"])
-    refute Enum.any?(page.markup, &(&1["kind"] == "part"))
+    # What to do in one line, with the section it names; what is under it, each saying
+    # what it is about; then the fact's details, in a part of their own.
+    assert ["todo", "list:of_widget", "item"] = Enum.map(page.blocks, & &1["id"])
     assert %{"start" => "list:of_widget", "props" => %{"title" => "Parts"}} = hd(page.markup)
+
+    assert [%{"start" => "item", "end" => "item", "props" => %{"role" => "details"}}] =
+             Enum.filter(page.markup, &(&1["kind"] == "part"))
+
     todo = by_id(page)["todo"]
     assert todo["title"] == "Your move: Check it   Keys: a Approve"
     assert [%{"label" => "Check", "value" => "the paint is even\nand dry."}] = todo["fields"]
     assert [%{"id" => "P-1", "label" => "Lid — Round"}] = by_id(page)["list:of_widget"]["rows"]
 
-    assert [
-             %{
-               "label" => "Because",
-               "value" => "Flow f: painted → ada",
-               "origin" => %{"by" => "flow"}
-             },
-             %{"label" => "How", "value" => "Look it over."}
-           ] = Enum.take(by_id(page)["item"]["fields"], -2)
+    # The details say only what says something: not its title, nor why it came to its
+    # owner or how (those are `atlas get`'s), nor its card as a list; for whom, from whom
+    # and since when, they do.
+    details = by_id(page)["item"]
+    assert details["title"] == "Widget W-1"
+    labels = Enum.map(details["fields"], & &1["label"])
+    refute "Title" in labels or "Because" in labels or "How" in labels
+
+    assert Enum.any?(
+             details["fields"],
+             &match?(%{"value" => "ada", "origin" => %{"by" => "flow"}}, &1)
+           )
 
     # The state is not a field of the fact.
     item = Enum.find(page.blocks, &(&1["id"] == "item"))
@@ -2018,12 +2025,12 @@ defmodule AtlasControl.PagesTest do
      $ rm old.key
   """
 
-  test "its owner sees the steps, the one they are at open, and the rest behind Item details" do
+  test "its owner sees the steps, the one they are at open, and the item's details after" do
     route = {:item, "widget", "W-1"}
     reads = stepped_reads(route, %{"notes" => @steps, "at" => 2})
     page = render_run(route, @stepped, "doing", reads, %{by: "ada"})
 
-    assert ["steps", "item" | _] = Enum.map(page.blocks, & &1["id"])
+    assert ["steps", "list:of_widget", "item"] = Enum.map(page.blocks, & &1["id"])
     steps = by_id(page)["steps"]
 
     assert %{
@@ -2068,16 +2075,16 @@ defmodule AtlasControl.PagesTest do
     assert done["submit_to"] == step.(3)
     assert previous["submit_to"] == step.(1)
 
-    # Everything else is the item, folded: no field list or instructions on the page, and
-    # not the notes or the step in it.
-    assert %{"kind" => "section", "start" => "item", "props" => props} =
+    # Then the item's details, in a part of their own: not the notes or the step in it,
+    # and no key to fold them.
+    assert %{"kind" => "part", "end" => "item", "props" => props} =
              Enum.find(page.markup, &(&1["start"] == "item"))
 
-    assert props == %{"title" => "Item details", "collapsible" => true}
+    assert props == %{"title" => "Details", "role" => "details"}
     labels = Enum.map(by_id(page)["item"]["fields"], & &1["label"])
     refute "Notes" in labels or "At" in labels
     refute Enum.any?(page.blocks, &(&1["id"] == "todo"))
-    assert [%{label: "Item details", keys: ["i"]}] = page.console_actions
+    refute Map.has_key?(page, :console_actions)
   end
 
   test "unstructured notes are one step; at the end no step moves forward; none is the first" do
