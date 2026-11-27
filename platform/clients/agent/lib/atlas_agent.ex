@@ -418,8 +418,12 @@ defmodule AtlasAgent do
         do: %{"title" => title, "lines" => lines}
   end
 
-  @doc "The actions Control offers on `page`: every `action` its blocks hold, in order."
-  def actions(page), do: found(page, :action)
+  @doc """
+  The actions Control offers on `page`: every `action` its blocks hold and every answer
+  (`panel_answer`: an option's Choose, Decline, Ask a question, …), in order. An answer
+  is the page's action of its key, as the TUI takes it: its `submit_to`, or its page.
+  """
+  def actions(page), do: found(page, :offered)
 
   @doc """
   Do the action labelled (or keyed) `name` on the page at `at` (a key or a path), as the
@@ -503,6 +507,7 @@ defmodule AtlasAgent do
         do: value
   end
 
+  defp of(t, value, :offered) when t in [:action, :panel_answer] and is_map(value), do: [value]
   defp of(type, value, type) when is_map(value), do: [value]
 
   defp of({:list, t}, values, type) when is_list(values),

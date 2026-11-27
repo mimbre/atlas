@@ -1526,7 +1526,6 @@ defmodule AtlasFlow.Runs.Store do
   defp moved(config, run, flow, subject, now, inputs) do
     mechanism = if run["status"] == "active", do: flow.mechanism(run["state"])
     review = config["selection"][run["flow"]]["verification"]
-    verdict = run["pending"]["verdict"]
     # Reopened work starts a new generation only when the selection declares it.
     opts = [reopen: config["selection"][run["flow"]]["reopen"]]
 
@@ -1554,10 +1553,7 @@ defmodule AtlasFlow.Runs.Store do
       Enum.any?(inputs, &(AtlasFlow.Runs.Inputs.choice(&1, run, subject, flow) != nil)) ->
         Run.step(run, flow, subject, now, inputs, opts)
 
-      run["status"] == "active" and verdict != nil and
-        is_map(verdict["fingerprint_definition"]) and
-          AtlasBus.SubjectFingerprint.of(subject, verdict["fingerprint_definition"]) !=
-            verdict["fingerprint"] ->
+      Run.stale_verdict?(run, flow, subject) ->
         Run.refresh_gate(run, flow, subject, now)
 
       review != nil and subject["values"][review["field"]] == true and
