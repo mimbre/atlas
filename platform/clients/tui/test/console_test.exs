@@ -363,6 +363,8 @@ defmodule AtlasTui.ConsoleTest do
     assert opened.console.active == "widgets"
     assert screen(opened) =~ "▸ Assigned to you"
     assert screen(opened) =~ "Assigned to you › Decision D-1"
+    assert screen(opened, 20) =~ "…"
+    assert screen(opened, 20) =~ "Decision D-1"
     {returning, [_]} = Console.back(opened)
     {returned, []} = Console.receive(returning, page("/"))
     assert returned.console.active == "widgets"

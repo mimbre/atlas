@@ -476,6 +476,7 @@ defmodule AtlasTui.Console do
   defp entry(model),
     do: %{
       path: model.path,
+      title: model.title,
       selection: Selection.of(Model.rows(model), model.selected),
       scroll: model.scroll,
       scrolls: model.scrolls,

@@ -79,7 +79,7 @@ defmodule AtlasTui.ConsoleView do
 
           cached = AtlasTui.PageCache.get(model.console.cache, entry.path)
 
-          case tab || (cached && cached["title"]) do
+          case tab || entry[:title] || (cached && cached["title"]) do
             label when is_binary(label) and label != "" -> [label]
             _ -> []
           end
@@ -87,9 +87,17 @@ defmodule AtlasTui.ConsoleView do
 
       labels = Enum.dedup(labels ++ if(is_binary(model.title), do: [model.title], else: []))
 
-      if length(labels) > 1,
-        do: [slice([{:dim, "  " <> Enum.join(labels, " › ")}], 0, width)],
-        else: []
+      if length(labels) > 1 do
+        text = "  " <> Enum.join(labels, " › ")
+
+        if String.length(text) <= width do
+          [[{:dim, text}]]
+        else
+          [[{:dim, "…" <> String.slice(text, -max(width - 1, 0), max(width - 1, 0))}]]
+        end
+      else
+        []
+      end
     else
       []
     end
