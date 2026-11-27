@@ -2401,16 +2401,18 @@ defmodule AtlasControl.Pages do
                   {decide_blocks(todo, next), judged, put_in(item, ["props", "actions"], [])}
               end
 
+            detail_item = details.(item, head)
+            {detail_item, detail_blocks, technical} = decision_details(k, fact, detail_item)
+
             content =
               iconed(head, kind_icon(m, kind)) ++
                 others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
-                [{"item", details.(item, head)}] ++
-                lists
+                [{"item", detail_item}] ++ detail_blocks ++ lists ++ technical
 
             markup =
               for({id, {title, _list}} <- judged, do: Blocks.section(id, id, title: title)) ++
-                details_markup
+                decision_details_markup(details_markup, detail_blocks, technical)
 
             page("#{k.label} #{key}", back, content, markup)
 
@@ -2434,7 +2436,18 @@ defmodule AtlasControl.Pages do
                     sections
               end
 
-            content = [{"item", item} | others] ++ lists
+            {item, detail_blocks, technical} = decision_details(k, fact, item)
+            content = [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
+
+            markup =
+              if detail_blocks != [] or technical != [] do
+                first = elem(hd(detail_blocks ++ technical), 0)
+                last = elem(List.last(detail_blocks ++ technical), 0)
+                markup ++ [Blocks.part(first, last, title: "Details", role: "details")] ++
+                  technical_section(technical)
+              else
+                markup
+              end
 
             # Its owner's part first: what to do (IS-Atlas-54).
             {content, markup} =
@@ -3093,7 +3106,10 @@ defmodule AtlasControl.Pages do
         block -> {block["type"], untitled(block, title)}
       end)
 
-    Map.merge(%{title: title, back: back}, Blocks.view_model(content, markup))
+    result = Map.merge(%{title: title, back: back}, Blocks.view_model(content, markup))
+    if Enum.any?(markup, &(get_in(&1, ["props", "collapsible"]) == true)),
+      do: Map.put(result, :console_actions, [details_action()]),
+      else: result
   end
 
   defp untitled(%{"type" => "list", "props" => %{"title" => title} = props} = block, title),
@@ -3519,6 +3535,96 @@ defmodule AtlasControl.Pages do
       end)
 
     parent || {:list, kind}
+  end
+
+  # The model names the groups and the exact offer records; raw records share one section.
+  defp decision_details(k, fact, item) do
+    case Map.get(k, :decision_options) do
+      %{"details" => groups} = rule when is_list(groups) ->
+        fields = item["props"]["fields"] || []
+        raw_names = Enum.map(~w(definition snapshot revision history), &rule[&1])
+        raw_labels = for f <- k.fields, f.name in raw_names, do: f.label
+        fields = Enum.reject(fields, &(&1["label"] in raw_labels))
+
+        {blocks, remaining} =
+          groups
+          |> Enum.with_index()
+          |> Enum.map_reduce(fields, fn {group, index}, remaining ->
+            names = group["fields"] ++ if(index == 0, do: [rule["selected"]], else: [])
+            labels = for f <- k.fields, f.name in names, do: f.label
+            {selected, rest} = Enum.split_with(remaining, &(&1["label"] in labels))
+            present = for f <- k.fields, f.name in names, fact["values"][f.name] not in [nil, ""], do: f.label
+            selected = Enum.filter(selected, &(&1["label"] in present))
+
+            block =
+              if selected == [],
+                do: [],
+                else: [{"decision-detail-#{index}", Blocks.item(title: group["title"], fields: selected)}]
+
+            {block, rest}
+          end)
+
+        history = decision_history(get_in(fact, ["values", rule["history"]]), get_in(fact, ["values", rule["definition"]]))
+        history_block =
+          if history == [], do: [], else: [{"decision-history", Blocks.item(title: "Earlier offers", fields: history)}]
+
+        technical =
+          for name <- raw_names,
+              value = get_in(fact, ["values", name]),
+              value not in [nil, ""],
+              field = Enum.find(k.fields, &(&1.name == name)),
+              field != nil do
+            {"decision-raw-#{name}",
+             Blocks.item(title: field.label, fields: [Blocks.pair(label: field.label, value: value)])}
+          end
+
+        {put_in(item, ["props", "fields"], remaining), List.flatten(blocks) ++ history_block, technical}
+
+      _ ->
+        {item, [], []}
+    end
+  end
+
+  defp decision_history(text, current) when is_binary(text) do
+    with {:ok, entries} when is_list(entries) <- JSON.decode(text) do
+      entries
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn
+        {%{"definition" => definition}, index} when is_binary(definition) and definition != current ->
+          case JSON.decode(definition) do
+            {:ok, %{"question" => question} = offer} when is_binary(question) ->
+              options =
+                for %{"text" => text} <- List.wrap(offer["options"]), is_binary(text), do: text
+
+              [Blocks.pair(label: "Offer #{index}", value: Enum.join([question | options], "\n"))]
+
+            _ -> []
+          end
+
+        _ -> []
+      end)
+    else
+      _ -> []
+    end
+  end
+
+  defp decision_history(_, _), do: []
+
+  defp decision_details_markup(markup, [], []), do: markup
+  defp decision_details_markup([part | sections], blocks, technical) do
+    last =
+      cond do
+        technical != [] -> elem(List.last(technical), 0)
+        sections != [] -> part["end"]
+        true -> elem(List.last(blocks), 0)
+      end
+    [%{part | "end" => last} | sections] ++ technical_section(technical)
+  end
+
+  defp technical_section([]), do: []
+  defp technical_section(blocks) do
+    [Blocks.section(elem(hd(blocks), 0), elem(List.last(blocks), 0),
+      title: "Technical details", collapsible: true)]
   end
 
   # The facts this one belongs under: `[{label, keys}]`.

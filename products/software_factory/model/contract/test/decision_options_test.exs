@@ -439,6 +439,54 @@ defmodule Model.DecisionOptionsTest do
     end
   end
 
+  test "decision details group important fields and retain exact records in one collapsed section" do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+    route = {:item, "decision", "D-private"}
+    previous = String.replace(@text, "Use files", "Earlier files")
+    history = JSON.encode!([%{"definition" => previous}, %{"definition" => @text}])
+
+    for status <- ["proposed", "accepted"] do
+      fact =
+        current()
+        |> Map.put("key", "D-private")
+        |> update_in(["values"], &Map.merge(&1, %{
+          "status" => status, "scope" => "software", "reversibility" => "one_way",
+          "force" => "principle", "category" => "security", "enforced_by" => "A check",
+          "unverified" => true, "option_history" => history,
+          "selected_definition" => @text, "selected_revision" => "exact revision"
+        }))
+
+      reads = AtlasControl.Pages.reads(route, m)
+      answers = [%{"fact" => fact} | for(_ <- tl(reads), do: %{"facts" => []})]
+      page = AtlasControl.Pages.render(route, m, answers, %{by: "ada", by_kind: "person"})
+      blocks = Map.new(page.blocks, &{&1["id"], &1})
+      assert blocks["decision-detail-0"]["props"]["title"] == "Authority and status"
+      assert blocks["decision-detail-1"]["props"]["title"] == "Scope and reversibility"
+      assert blocks["decision-detail-2"]["props"]["title"] == "Usage and enforcement"
+      assert blocks["decision-history"]["props"]["fields"] |> length() == 1
+      assert blocks["decision-raw-options"]["props"]["fields"] |> hd() |> Map.fetch!("value") == @text
+      assert blocks["decision-raw-option_history"]["props"]["fields"] |> hd() |> Map.fetch!("value") == history
+      assert Enum.any?(page.markup, fn mark ->
+        mark["kind"] == "section" and mark["props"] == %{"title" => "Technical details", "collapsible" => true} and
+          mark["start"] == "decision-raw-options" and mark["end"] == "decision-raw-option_history"
+      end)
+      assert Enum.any?(page.console_actions, &(&1.operation["name"] == "sections_toggle"))
+    end
+
+    legacy =
+      current(nil)
+      |> Map.put("key", "D-private")
+      |> update_in(["values"], &Map.merge(&1, %{"status" => "accepted", "option_history" => "not JSON"}))
+    reads = AtlasControl.Pages.reads(route, m)
+    answers = [%{"fact" => legacy} | for(_ <- tl(reads), do: %{"facts" => []})]
+    page = AtlasControl.Pages.render(route, m, answers)
+    blocks = Map.new(page.blocks, &{&1["id"], &1})
+    refute blocks["decision-history"]
+    refute blocks["decision-detail-1"]
+    refute blocks["decision-raw-options"]
+    assert hd(blocks["decision-raw-option_history"]["props"]["fields"])["value"] == "not JSON"
+  end
+
   # The page a TUI opens from Assigned to you, as Control serves it to a Console client:
   # its blocks besides console actions, and how a key resolves on it.
   defp served(text, values \\ %{}, state \\ "for_person") do
@@ -543,7 +591,6 @@ defmodule Model.DecisionOptionsTest do
       })
 
     {[item], main} = Enum.split_with(blocks, &(&1["id"] == "item"))
-    labels = Enum.map(item["props"]["fields"], & &1["label"])
     values = Enum.map(item["props"]["fields"], & &1["value"])
 
     shown =
@@ -560,7 +607,8 @@ defmodule Model.DecisionOptionsTest do
     end
 
     # What only the details show stays there.
-    assert "interface" in values or "Interface" in values, inspect(labels)
+    usage = Enum.find(blocks, &(&1["id"] == "decision-detail-2"))
+    assert Enum.any?(usage["props"]["fields"], &(&1["value"] in ["interface", "Interface"]))
     assert item["props"]["title"] == ""
   end
 

@@ -582,10 +582,16 @@ defmodule RelaDSL.Description.Check do
     keys(
       rule,
       names ++
-        ~w(answered_at answered_by status adopt alternative delegated content content_links legacy_fingerprint errors),
+        ~w(answered_at answered_by status adopt alternative delegated content content_links legacy_fingerprint errors details),
       path
     ) ++
       Enum.flat_map(names, &field(ctx, kind, rule[&1], path)) ++
+      Enum.flat_map(rule["details"] || [], fn group ->
+        keys(group, ~w(title fields), path ++ ["details"]) ++
+          Enum.flat_map(if(is_map(group), do: group["fields"] || [], else: []),
+            &field(ctx, kind, &1, path ++ ["details"])
+          )
+      end) ++
       Enum.flat_map(names, fn key ->
         if get_in(ctx.entities, [kind, "properties", rule[key], "type"]) == "string",
           do: [],
