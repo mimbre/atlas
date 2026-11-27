@@ -81,6 +81,26 @@ defmodule AtlasBFFContract.WorkerActionsTest do
     end
   end
 
+  test "unknown operations are visible but unavailable, without invalidating the page" do
+    for name <- ~w(sections_toggle future_operation) do
+      page = page(%{"name" => name, "future" => "value"}, nil)
+      assert {:ok, projection} = Console.compile(page)
+      assert ["guidance-history", "worker-output", "receipts"] == projection.ids
+      assert [%{"props" => props}] = projection.actions
+      assert props["label"] == "Receipts"
+      assert props["operation"]["name"] == name
+      refute props["available"]
+      assert props["reason"] == "Unsupported action"
+      current = %{path: page["path"], context: "browse", generation: 1}
+      assert Console.bindings(projection, current) == {:ok, %{}}
+      assert {:error, :unavailable_binding} = Console.capture(projection, "r", current)
+    end
+
+    for operation <- [%{"name" => "open"}, %{"name" => "refresh", "extra" => true}] do
+      assert {:error, :invalid_console_projection} = Console.compile(page(operation, nil))
+    end
+  end
+
   defp page(operation, on) do
     %{
       "path" => "/workers/box/worker/turn/attempt",
