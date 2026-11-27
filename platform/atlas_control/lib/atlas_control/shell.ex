@@ -139,8 +139,8 @@ defmodule AtlasControl.Shell do
     end
   end
 
-  # The agent the model names as the assistant, when it assists this viewer (a person
-  # with a name): "assistant: coordinator"; nil otherwise.
+  # The model's assistant, when it assists this named viewer: "assistant: coordinator";
+  # nil otherwise.
   defp assistant(agent, name, by) do
     if is_binary(agent) and is_binary(name) and is_binary(by) and
          AtlasBus.Actors.assisted(agent) == by,
