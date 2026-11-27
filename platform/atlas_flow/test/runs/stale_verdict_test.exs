@@ -9,7 +9,7 @@ defmodule AtlasFlow.Runs.StaleVerdictTest do
     def states, do: ~w(asking waiting revising done)
     def mechanism("asking"), do: {:gate, %{"gate" => "check", "version" => 1}}
     def mechanism(_), do: nil
-    def next("asking", %{"gate_result" => "person"}, :result), do: {:to, "waiting"}
+    def next("asking", %{"gate_result" => "wait"}, :result), do: {:to, "waiting"}
     def next(_state, _values, _role), do: :stay
   end
 
@@ -22,7 +22,7 @@ defmodule AtlasFlow.Runs.StaleVerdictTest do
       "pending" => %{
         "verdict" => %{
           "gate" => "check",
-          "outcome" => "person",
+          "outcome" => "wait",
           "fingerprint_definition" => @definition,
           "fingerprint" => AtlasBus.SubjectFingerprint.of(subject, @definition)
         }
