@@ -97,7 +97,7 @@ Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 | Other actions (`actions`) | One row of `plain` buttons, unpadded, quieter than the answers; a dangerous one opens Control's confirm | In the answers' key line, muted, after the answers (else a key line of its own) |
 | What went wrong (`text` role `error`) | Prism's `MessageBar` in danger: label as heading, text under it | A card, label as a heading in the error colour over its text |
 | Details (part `details`/`related`) | Own column, or a recessed card (grey5) under the page | Own column, or a compact card under its heading at the page's end |
-| Row card (list row) | A small card: kind and key in small caps (`DECISION · D-0104`), state, title on at most a few lines | One line: dot, key, age, title (state dropped below 80) |
+| Row card (list row) | A small card: kind and key in small caps (`DECISION · D-0104`) and age, the title on at most a few lines, the state under it on a line of its own | One line: dot, key, age, title (state dropped below 80) |
 | Status dot / age (row `tone`, `since`) | Dot in the tone's colour with its meaning in words (tooltip/accessibility); age as `15d`, `6h`, `46m`, `today` | Dot before the key in the tone's colour; age column in the same compact form |
 
 Tones (Control decides, the client only shows): red needs the viewer, orange under way,
@@ -114,20 +114,24 @@ blue planned or waiting, green done. An unknown tone is no dot.
   shade or the theme's text colour; the words still say what it is.
 - Every text of the Mac's own views is in a **Prism typography**
   (`.prism(Prism.Typography.…)`), as Prism's components are: one type system, no SwiftUI
-  text style and no size of Atlas's own (`TypographyTests` keeps it so). Things are as
-  large as Prism makes them; a **macOS density** is a pending Prism change, which the Mac
-  takes when Prism ships it (Atlas keeps no smaller scale of its own).
+  text style and no size of Atlas's own (`TypographyTests` keeps it so). Atlas takes
+  **one set from the smaller end of Prism's range**, the same on every page, list and
+  sheet: nothing that acts or is copied (a button, a command) is larger than the text that
+  explains it. A **macOS density** is a pending Prism change, which the Mac takes when
+  Prism ships it (Atlas keeps no smaller scale of its own).
 
 | Role | Prism typography (Mac) |
 |---|---|
-| Page title (`PageHeader`, a sheet's title) | `title6` |
-| Panel, option, list, item and section titles | `title7` (section `label`) |
-| Eyebrow, in small caps (`TO DO FOR YOU · TD-12`) | `labelsmall` |
-| Running text (a plan's text, a block said in plain words, an error) | `bodysmall`, the body font (Layout A's measure) |
-| Meta lines (why, byline, a step's text, "Sending…", details) | `caption`; a row card's top line and age, the status bar: `captionsmall` |
-| Labels and data (a row card's title, a field's label; a panel's rows, checks) | `labelsmall`; `tablerow`, the selected row and a check's name `tablehead` |
-| Sidebar tabs and their groups; the sidebar's headings, counts and foot; the environment in the title bar | `label`, groups `labelsmall`; `captionsmall` (a count's strong), the name `labelsmall`; `caption` (production `labelsmall`) |
-| Commands | `mono`, in the system's monospaced face |
+| Page title (`PageHeader`, a sheet's title) | `title6` (20) |
+| Panel, option, list and item titles; a row card's title | `title7` (16) |
+| Running text (why, a step's text, an option's Rule and Then, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
+| Labels (a section's or the details' title, a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
+| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name; production's environment in the title bar | `labelsmall` (14) |
+| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's headings and foot; the status bar; the environment in the title bar) | `caption` (14) |
+| A count's badge in the sidebar | `captionsmall` (12), strong |
+| Native buttons (a sheet's Cancel, Save, Confirm, Run; the page's and the toolbar's actions) | the system's control font: see the gaps |
+| Prism's buttons (answers, options' answers, other actions) | Prism's own `button` (18): see the gaps |
+| Commands (in a step; the launch hints) | the system's monospaced face at `bodysmall`'s size (16/24), never larger than the step's text |
 
 Prism gaps, and where Atlas's temporary shims live:
 
@@ -138,9 +142,11 @@ Prism gaps, and where Atlas's temporary shims live:
 | Success and warning too faint as text on white | TUI: dark text on warninglight in light; Mac: the badge as Prism's `Tag` in its tone |
 | White on primary is 4.30:1 | `primaryshade` (primary at 97%, 4.51:1) in `palette.ex`; `PrismDarkGap.accentText` on the Mac |
 | Plain button's size and dark label | Mac: other actions as unpadded plain buttons, label in `PrismDarkGap.text` in dark (`PrismDarkGap.buttonStyle`) |
-| `mono` names the system (proportional) font | Mac: commands (and a panel row's key, a fallback's type) in the system's monospaced face at Prism's size (`.monospaced()`) |
-| No macOS density: Prism's sizes are iOS's and the web's | Mac: Prism's sizes as they are, until Prism's macOS density |
-| No typography for native controls | Mac: the system's control font on the native controls (sheet and toolbar buttons, form fields, pickers, toggles, disclosure, window title, menus) |
+| `mono` names the system (proportional) font | Mac: commands (and a panel row's key, a fallback's type) in the system's monospaced face (`.monospaced()`) |
+| No `monosmall`: `mono` is 20/24, larger than the running text (`bodysmall`, 16/24) beside it | Mac: commands at `bodysmall` in the monospaced face |
+| `PrismButtonStyle` sets `button` (18) and takes no typography: no `buttonsmall` button | Mac: Prism's buttons as they are (18), a little larger than the text that explains them |
+| No macOS density: Prism's sizes are iOS's and the web's | Mac: Prism's smaller end, until Prism's macOS density |
+| No typography for native controls | Mac: a form's labels and text fields in `bodysmall` (SwiftUI takes the font there); the system's own font where it does not: native push buttons (a sheet's Cancel, Save, Confirm, Run; the page's and the toolbar's actions), a picker's value and pop-up menu, the window title and subtitle, the menu bar and the Actions menu |
 
 Delete each shim when Prism ships the token.
 

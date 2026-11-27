@@ -32,7 +32,7 @@ defmodule Model.RuntimeUpgrade do
     labels: [
       requested: "Requested",
       draining: "Draining",
-      waiting: "Waiting until no slot is busy",
+      waiting: "Waiting for slots",
       updating: "Updating",
       verifying: "Verifying",
       done: "Done",
@@ -123,7 +123,7 @@ defmodule Model.RuntimeUpgrade do
     start :create
     initial :requested
 
-    state :requested, label: "Waiting for the Runtime's poll" do
+    state :requested, label: "Waiting for a poll" do
       present(
         expected: "Watch the upgrade to {build}",
         why: "a Runtime upgrade was started",
@@ -156,7 +156,7 @@ defmodule Model.RuntimeUpgrade do
 
     # No timer: a turn may run for hours (its profile's max_duration), and the upgrade
     # waits for it.
-    state :waiting, label: "Waiting until no slot is busy" do
+    state :waiting, label: "Waiting for slots" do
       present(
         expected: "Watch the upgrade to {build}: waiting until no slot is busy ({busy})",
         why: "a Runtime upgrade was started",
@@ -169,7 +169,7 @@ defmodule Model.RuntimeUpgrade do
       branch to: :updating, when: "entity.step == 'updating'"
     end
 
-    state :updating, label: "Updating and restarting" do
+    state :updating, label: "Updating" do
       present(
         expected: "Watch the upgrade to {build}: the Runtime installs it and restarts",
         why: "a Runtime upgrade was started",

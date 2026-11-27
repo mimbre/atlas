@@ -177,10 +177,10 @@ struct PanelRow: View {
         Button(action: take) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
                 Text(key).monospaced().foregroundStyle(PrismDarkGap.muted(scheme)).fixedSize()
-                Text(label).prism(marker ? Prism.Typography.tablehead : Prism.Typography.tablerow)
+                Text(label).prism(marker ? Prism.Typography.label : Prism.Typography.bodysmall)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .prism(Prism.Typography.tablerow)
+            .prism(Prism.Typography.bodysmall)
             .multilineTextAlignment(.leading)
             .padding(.horizontal, Prism.Spacing.px10)
             .padding(.vertical, Prism.Spacing.px7)
@@ -206,7 +206,7 @@ struct PanelDetails: View {
         Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.px13, verticalSpacing: Prism.Spacing.px6) {
             ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
                 GridRow {
-                    Text(pair.label ?? "").foregroundStyle(PrismDarkGap.muted(scheme))
+                    Text(pair.label ?? "").prism(Prism.Typography.label).foregroundStyle(PrismDarkGap.muted(scheme))
                     Text(pair.value ?? "—").frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -225,18 +225,18 @@ struct PanelChecks: View {
             ForEach(Array(checks.enumerated()), id: \.offset) { _, check in
                 GridRow {
                     let role = Self.role(check.state ?? "")
-                    Text(Panel.glyph(check.state ?? "")).prism(Prism.Typography.tablehead)
+                    Text(Panel.glyph(check.state ?? "")).prism(Prism.Typography.labelsmall)
                         .foregroundStyle(Prism.Colors.grey1)
                         .frame(width: Prism.Spacing.px18, height: Prism.Spacing.px18)
                         .background(role.tint, in: Circle())
                         .overlay(Circle().strokeBorder(role.color))
                         .accessibilityLabel(check.state ?? "")
-                    Text(check.label ?? "").prism(Prism.Typography.tablehead)
+                    Text(check.label ?? "").prism(Prism.Typography.label)
                     Text(check.text ?? "").frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
-        .prism(Prism.Typography.tablerow)
+        .prism(Prism.Typography.bodysmall)
     }
 
     private static func role(_ state: String) -> (color: Color, tint: Color) {
@@ -258,7 +258,7 @@ struct PanelBox: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px5) {
             if let title = box.title {
-                Text(title).prism(Prism.Typography.labelsmall).foregroundStyle(PrismDarkGap.muted(scheme))
+                Text(title).prism(Prism.Typography.label).foregroundStyle(PrismDarkGap.muted(scheme))
             }
             Text(box.text ?? "").frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -266,7 +266,7 @@ struct PanelBox: View {
     }
 }
 
-/// A text without a title, in caption type, on a faint surface; framed only with `border`
+/// A text without a title, in running text (`bodysmall`), on a faint surface; framed only with `border`
 /// (an error), the one frame that says something.
 struct Framed: ViewModifier {
     var border: Color?
@@ -274,7 +274,7 @@ struct Framed: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .prism(Prism.Typography.caption)
+            .prism(Prism.Typography.bodysmall)
             .textSelection(.enabled)
             .padding(Prism.Spacing.px10)
             .frame(maxWidth: .infinity, alignment: .leading)

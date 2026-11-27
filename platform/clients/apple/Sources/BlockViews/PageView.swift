@@ -138,11 +138,11 @@ public struct PageView: View {
         }
     }
 
-    /// The details, in one recessed card beside or under the page: their title, small, then their
+    /// The details, in one recessed card beside or under the page: their title as a label, then their
     /// blocks, without cards of their own (no card inside a card).
     private func detailsView(_ details: PagePresentation.Details) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-            Text(details.title).prism(Prism.Typography.labelsmall)
+            Text(details.title).prism(Prism.Typography.label)
                 .accessibilityAddTraits(.isHeader)
             ForEach(details.groups) { group in
                 switch group {
@@ -311,12 +311,13 @@ struct ListRowView: View {
     }
 }
 
-/// A list row as a small card (the Mac list): a top line, small and muted, with where its
-/// work stands (a dot in the colour of Control's `tone`), what it is (its kind and key,
-/// `DECISION · D-0104`), its state when Control sends one (`· waiting for you`) and, at the
-/// right, how long it has been there (`3h`); under it the title, semibold, on one or two
-/// lines (… only past two, the whole of it in a tooltip), and whether a write to it is
-/// being processed. The card follows its title's height; it is a little lighter than the
+/// A list row as a small card (the Mac list): a top line, muted, with where its work stands
+/// (a dot in the colour of Control's `tone`), what it is (its kind and key, `DECISION ·
+/// D-0104`) and, at the right, how long it has been there (`3h`); under it the title on one
+/// or two lines (… only past two, the whole of it in a tooltip); under that, muted, its
+/// state when Control sends one (`Decide it · Deadline 2026-12-01 17:00`, on a line of its
+/// own so the kind and key never crowd it out), and whether a write to it is being
+/// processed. The card follows its title's height; it is a little lighter than the
 /// list's ground, rounded, without a shadow (list cards are an overview). Selected: Prism's
 /// light primary tint with a thin primary border while the list has the focus (`focused`),
 /// calm grey without it. The card covers its whole row with the list's ground around it,
@@ -355,25 +356,27 @@ struct RowCard: View {
         let tone = RowTone(row.tone)
         let muted = PrismDarkGap.listMuted(scheme, selected: selected)
         return VStack(alignment: .leading, spacing: Prism.Spacing.px5) {
-            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px6) {
+            // Centred: the dot sits on the middle of the line's text at any size; the line's
+            // texts share one typography, so their baselines still line up.
+            HStack(alignment: .center, spacing: Prism.Spacing.px6) {
                 if let tone {
                     Circle().fill(RowCard.colour(tone))
                         .frame(width: Prism.Spacing.px7, height: Prism.Spacing.px7)
-                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
                         .help(tone.meaning)
                         .accessibilityLabel(tone.meaning)
                 }
-                topLine.prism(Prism.Typography.captionsmall)
+                Text(RowCardText.kindAndKey(kind: row.kind, id: row.id) ?? "").tracking(0.6)
+                    .prism(Prism.Typography.caption)
                 Spacer(minLength: Prism.Spacing.px6)
                 if let age = RowAge.text(since: row.since, now: Date()) {
-                    Text(age).prism(Prism.Typography.captionsmall).monospacedDigit()
+                    Text(age).prism(Prism.Typography.caption).monospacedDigit()
                 }
             }
             .foregroundStyle(muted)
             .lineLimit(1)
             .truncationMode(.tail)
             Text(row.label ?? "")
-                .prism(Prism.Typography.labelsmall)
+                .prism(Prism.Typography.title7)
                 .lineSpacing(Prism.Spacing.px3)
                 .foregroundStyle(tone == .done ? muted : PrismDarkGap.text(scheme))
                 .lineLimit(RowCardText.titleLines)
@@ -381,20 +384,16 @@ struct RowCard: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .help(row.label ?? "")
+            if let state = RowCardText.state(row.detail) {
+                Text(state).prism(Prism.Typography.caption).foregroundStyle(muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(state)
+            }
             if row.pending == true {
-                Text("⋯ being processed").prism(Prism.Typography.captionsmall).foregroundStyle(muted)
+                Text("⋯ being processed").prism(Prism.Typography.caption).foregroundStyle(muted)
             }
         }
-    }
-
-    /// `DECISION · D-0104 · waiting for you`: the kind and key spaced out as small caps, the
-    /// state in plain case.
-    private var topLine: Text {
-        let what = RowCardText.kindAndKey(kind: row.kind, id: row.id)
-        let state = RowCardText.state(row.detail)
-        var line = Text(what ?? "").tracking(0.6)
-        if let state { line = line + Text(what == nil ? state : " · " + state) }
-        return line
     }
 
     /// The tone's colour: needs you error red, under way warning orange, waiting primary
@@ -412,7 +411,7 @@ struct RowCard: View {
 /// A calm card (Prism). Blank labels are prose. Nil values use the TUI's absent-value marker.
 /// Text stays literal, selectable and unbounded, including embedded blank lines. In the
 /// page's details (`inDetails`) it has no card of its own (the details' recessed card holds
-/// it): a small heading, the values smaller and muted, so the panel above keeps the focus.
+/// it): a label for its heading, the values muted, so the panel above keeps the focus.
 struct ItemBlockView: View {
     let item: ItemBlock
     var inDetails = false
@@ -422,17 +421,17 @@ struct ItemBlockView: View {
     var body: some View {
         let content = VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             if let title = item.title {
-                Text(title).prism(inDetails ? Prism.Typography.labelsmall : Prism.Typography.title7)
+                Text(title).prism(inDetails ? Prism.Typography.label : Prism.Typography.title7)
             }
             // The actions first: the next step is in reach without scrolling.
             ActionsView(actions: PageActions.ofBlock(item.actions), act: act)
             ForEach(Array((item.fields ?? []).enumerated()), id: \.offset) { _, field in
                 VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
                     if let label = field.label, !label.isEmpty {
-                        Text(label).prism(inDetails ? Prism.Typography.captionsmall : Prism.Typography.labelsmall)
+                        Text(label).prism(Prism.Typography.label)
                             .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
-                    Text(field.value ?? "—").prism(inDetails ? Prism.Typography.caption : Prism.Typography.tablerow)
+                    Text(field.value ?? "—").prism(Prism.Typography.bodysmall)
                         .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.primary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -441,7 +440,7 @@ struct ItemBlockView: View {
                 Text("Links are not supported in this client yet.").prism(Prism.Typography.caption)
                     .foregroundStyle(.secondary)
                 ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                    Text([link.label, link.url].compactMap { $0 }.joined(separator: ": ")).prism(Prism.Typography.tablerow)
+                    Text([link.label, link.url].compactMap { $0 }.joined(separator: ": ")).prism(Prism.Typography.bodysmall)
                 }
             }
         }

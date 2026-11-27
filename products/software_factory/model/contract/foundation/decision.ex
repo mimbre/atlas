@@ -530,7 +530,7 @@ defmodule Model.Decision do
         agent_unverified: :for_agent_unverified
     end
 
-    state :for_person_always, label: "A person decides" do
+    state :for_person_always, label: "Decide it" do
       owner via: :assignment,
             relation: :assigned_to,
             default: {:person, config: :decider, producer: :decided_by},
@@ -553,7 +553,7 @@ defmodule Model.Decision do
       )
     end
 
-    state :for_person, label: "Waiting for a person" do
+    state :for_person, label: "Decide it" do
       owner via: :assignment,
             relation: :assigned_to,
             default: {:person, config: :decider, producer: :decided_by},
@@ -600,7 +600,7 @@ defmodule Model.Decision do
       )
     end
 
-    state :for_agent_unverified, label: "Unverified agent decision" do
+    state :for_agent_unverified, label: "Unverified decision" do
       set unverified: true
 
       wait_for [:delegate, :decider],

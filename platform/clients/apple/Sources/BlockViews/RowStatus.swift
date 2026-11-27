@@ -49,10 +49,10 @@ public enum RowAge {
     }
 }
 
-/// The words of a list row's card (the Mac list): a small top line, what the row is (its
-/// item's kind and key, `DECISION · D-0104`) and where it stands (Control's `detail`, the
-/// row's state; none when Control sends none, as when the whole list shares it), then its
-/// title on at most `titleLines` lines.
+/// The words of a list row's card (the Mac list): a top line, what the row is (its item's
+/// kind and key, `DECISION · D-0104`); its title on at most `titleLines` lines; then where it
+/// stands (Control's `detail`, the row's state; none when Control sends none, as when the
+/// whole list shares it).
 public enum RowCardText {
     public static let titleLines = 2
 
