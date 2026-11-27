@@ -19,7 +19,8 @@ defmodule AtlasFlow.Health do
 
   every moment ISO 8601 in UTC; what a poll did not say is left out. Whether that is late
   is Control's to say. The queue is Dispatch's ready set less what a lease holds, oldest
-  first: the tasks a Runtime may take next. It is nil until Dispatch has read the leases.
+  first: the tasks a Runtime may take next. It is nil until Dispatch has read the ready
+  set and leases, and after this process restarts until Dispatch reports them again.
 
   The Engine and Dispatch write what they know into this process's table as it happens
   (`round/2`, `polled/4`, `queue/2`), and the answer is read from that table alone: it
@@ -87,7 +88,7 @@ defmodule AtlasFlow.Health do
     queue =
       case List.keyfind(rows, :queue, 0) do
         {:queue, entries} -> entries
-        nil -> []
+        nil -> nil
       end
 
     %{

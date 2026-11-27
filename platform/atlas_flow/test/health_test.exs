@@ -89,6 +89,19 @@ defmodule AtlasFlow.HealthTest do
     end
   end
 
+  test "a restarted Health reports an unknown queue until Dispatch writes it again" do
+    table = health!()
+    assert Health.report(table)["queue"] == nil
+    :ok = Health.queue([], table)
+    assert Health.report(table)["queue"] == []
+
+    stop_supervised!(Health)
+    start_supervised!({Health, name: table, endpoint: nil})
+    assert Health.report(table)["queue"] == nil
+    :ok = Health.queue([], table)
+    assert Health.report(table)["queue"] == []
+  end
+
   test "Dispatch notes each Runtime's last poll and what it said of the Runtime" do
     dir = Path.join(System.tmp_dir!(), "health-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
@@ -333,7 +346,7 @@ defmodule AtlasFlow.HealthTest do
 
     assert_receive {:atlas_bus, %Envelope{class: "answer", id: ^id}, answer}
     assert answer["runtimes"] == [%{"runtime" => "mini", "polled_at" => "2026-11-23T10:00:00Z"}]
-    assert answer["queue"] == []
+    assert answer["queue"] == nil
     assert answer["flow"]["due"] == nil
     assert is_binary(answer["at"])
   end
