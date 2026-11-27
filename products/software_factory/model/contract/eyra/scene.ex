@@ -187,6 +187,23 @@ defmodule Model.Scene do
           accepting: "Design proposed no use cases: decline it with a note to try again.",
           building: "Design starts again to propose its use cases."
         ]
+      ],
+      details: [
+        [title: "Design", fields: [:questions, :answers, :note]],
+        [title: "People", relations: [:produced_by, :assigned_to, :accepted_by]],
+        [
+          title: "Progress",
+          fields: [
+            :phase,
+            :status,
+            :children,
+            :open_children,
+            :verdict,
+            :task_result,
+            :pass_result
+          ]
+        ],
+        [title: "Scene", fields: [:title, :description, :flux_id]]
       ]
     )
   end

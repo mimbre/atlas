@@ -129,9 +129,9 @@ defmodule Model.ControlViewsTest do
     page = AtlasControl.Pages.render({:item, "scene", "SC-Atlas-01"}, m, answers)
     header = Enum.find(page.blocks, &(&1["id"] == "header"))["props"]
     assert header["title"] == "Write the first scene"
-    item = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]
-    assert item["title"] == ""
-    assert [_id, %{"label" => "Title"} | _] = item["fields"]
+    item = Enum.find(page.blocks, &(&1["id"] == "page-detail-3"))["props"]
+    assert item["title"] == "Scene"
+    assert Enum.any?(item["fields"], &(&1["label"] == "Title"))
 
     %{blocks: [%{"props" => list}]} =
       AtlasControl.Pages.render({:list, "scene"}, m, [%{"facts" => [scene]}])
@@ -169,10 +169,57 @@ defmodule Model.ControlViewsTest do
     assert Enum.find(page.blocks, &(&1["id"] == "section-answers"))["props"]["text"] ==
              "The producer answered."
 
-    fields = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]["fields"]
+    fields =
+      for block <- page.blocks,
+          block["type"] == "item",
+          pair <- block["props"]["fields"],
+          do: pair
+
     assert Enum.any?(fields, &(&1["value"] == "What happens next?"))
     assert Enum.any?(fields, &(&1["value"] == "The producer answered."))
     assert Enum.any?(fields, &(&1["value"] == "123"))
+  end
+
+  test "scene details are ordered separate blocks and retain relation origins and other pairs" do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+    route = {:item, "scene", "SC-Atlas-01"}
+
+    scene = %{
+      "key" => "SC-Atlas-01",
+      "values" => %{
+        "title" => "People can read the plan",
+        "questions" => "Who reads it?",
+        "answers" => "New team members",
+        "phase" => "break_down",
+        "children" => 2,
+        "flux_id" => "123"
+      },
+      "links" => %{"produced_by" => ["ada"]},
+      "origins" => %{"produced_by" => %{"by" => "ada", "cause" => "Created"}}
+    }
+
+    answers = [
+      %{"fact" => scene} | for(_ <- tl(AtlasControl.Pages.reads(route, m)), do: %{"facts" => []})
+    ]
+
+    page = AtlasControl.Pages.render(route, m, answers)
+    details = Enum.filter(page.blocks, &String.starts_with?(&1["id"], "page-detail-"))
+    assert Enum.map(details, & &1["props"]["title"]) == ["Design", "People", "Progress", "Scene"]
+    people = Enum.at(details, 1)["props"]["fields"]
+    assert Enum.any?(people, &(&1["value"] == "ada" and &1["origin"]["cause"] == "Created"))
+    assert Enum.any?(Enum.at(details, 2)["props"]["fields"], &(&1["value"] == "2"))
+    assert Enum.any?(Enum.at(details, 3)["props"]["fields"], &(&1["value"] == "123"))
+
+    assert Enum.any?(
+             page.blocks,
+             &(&1["id"] == "item" and &1["props"]["title"] == "Other details")
+           )
+
+    refute Enum.any?(
+             page.markup,
+             &(get_in(&1, ["props", "collapsible"]) == true or
+                 get_in(&1, ["props", "role"]) == "details")
+           )
   end
 
   test "a failed use case read is shown on the scene page" do

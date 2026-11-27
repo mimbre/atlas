@@ -2438,6 +2438,8 @@ defmodule AtlasControl.Pages do
                 do: [],
                 else: [{"answers", answers_block(remaining_next, (todo && todo.answers) || [])}]
 
+            detail_blocks = page_detail_blocks(m, k, spec, item)
+
             content =
               [{"header", header}] ++
                 if(text == "", do: [], else: [{"intro", Blocks.text(text: text)}]) ++
@@ -2454,19 +2456,19 @@ defmodule AtlasControl.Pages do
                 panel_blocks ++
                 answer_blocks ++
                 others_block(more) ++
-                [
-                  {"item",
-                   item |> put_in(["props", "title"], "") |> put_in(["props", "actions"], [])}
-                ] ++
+                detail_blocks ++
                 for({id, {_title, list}} <- remaining, do: {id, list})
 
             markup =
-              [
-                Blocks.part("item", List.last(["item" | Enum.map(remaining, &elem(&1, 0))]),
-                  title: "Details",
-                  role: "details"
-                )
-              ] ++
+              if(spec["details"],
+                do: [],
+                else: [
+                  Blocks.part("item", List.last(["item" | Enum.map(remaining, &elem(&1, 0))]),
+                    title: "Details",
+                    role: "details"
+                  )
+                ]
+              ) ++
                 for({id, {title, _list}} <- remaining, do: Blocks.section(id, id, title: title))
 
             page("#{k.label} #{key}", back, content, markup)
@@ -3673,6 +3675,49 @@ defmodule AtlasControl.Pages do
 
     parent || {:list, kind}
   end
+
+  # A declared page may group its existing pairs; anything not named stays in the item.
+  defp page_detail_blocks(m, k, %{"details" => groups}, item) when is_list(groups) do
+    {blocks, rest} =
+      groups
+      |> Enum.with_index()
+      |> Enum.map_reduce(item["props"]["fields"] || [], fn {group, index}, fields ->
+        labels =
+          for name <- List.wrap(group["fields"]),
+              f = field(k, name),
+              f != nil,
+              do: f.label
+
+        labels =
+          labels ++
+            for name <- List.wrap(group["relations"]),
+                r = rel(m, name),
+                r != nil,
+                do: String.capitalize(r.label)
+
+        {selected, remaining} = Enum.split_with(fields, &(&1["label"] in labels))
+
+        block =
+          if selected == [],
+            do: [],
+            else: [
+              {"page-detail-#{index}", Blocks.item(title: group["title"], fields: selected)}
+            ]
+
+        {block, remaining}
+      end)
+
+    other =
+      item
+      |> put_in(["props", "title"], "Other details")
+      |> put_in(["props", "fields"], rest)
+      |> put_in(["props", "actions"], [])
+
+    List.flatten(blocks) ++ [{"item", other}]
+  end
+
+  defp page_detail_blocks(_m, _k, _spec, item),
+    do: [{"item", item |> put_in(["props", "title"], "") |> put_in(["props", "actions"], [])}]
 
   # The model names the groups and the exact offer records; raw records share one section.
   defp decision_details(k, fact, item) do
