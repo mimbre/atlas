@@ -193,6 +193,38 @@ defmodule AtlasControl.SupervisionTest do
     end
   end
 
+  test "work lists put deadlines first, soonest on top, then the oldest waiting; browse lists keep theirs" do
+    dated = fn opts, times -> Map.merge(presented(opts), times) end
+
+    for m <- @models,
+        {route, opts} <- [{:open_for_you, []}, {:supervised_by_you, [supervisor: ["ada"]]}] do
+      items = [
+        work(m, "W-1", dated.(opts, %{"since" => "2026-11-20T09:00:00Z"})),
+        work(m, "W-2", dated.(opts, %{"since" => "2026-11-10T09:00:00Z"})),
+        work(m, "W-3", presented(opts)),
+        work(m, "W-4", dated.(opts, %{"deadline" => "2026-12-01T12:00:00Z"})),
+        work(
+          m,
+          "W-5",
+          dated.(opts, %{"deadline" => "2026-11-28T12:00:00Z", "since" => "2026-11-25T09:00:00Z"})
+        ),
+        work(m, "W-6", dated.(opts, %{"since" => "2026-11-10T09:00:00.000Z"}))
+      ]
+
+      page = Pages.render({route, "ada"}, m, screen_answers({route, "ada"}, m, items))
+      [list | _] = for b <- page.blocks, b["type"] == "list", do: b
+
+      assert keys_of(list["props"]["rows"]) == ~w(W-5 W-4 W-2 W-6 W-1 W-3),
+             inspect({route, span(m).written_on})
+    end
+
+    # A kind's list is for browsing: by key, as before.
+    items = for key <- ~w(W-4 W-2 W-1 W-3), do: work(@s, key, presented(), %{})
+    page = Pages.render({:list, "widget"}, @s, screen_answers({:list, "widget"}, @s, items))
+    [list | _] = for b <- page.blocks, b["type"] == "list", do: b
+    assert keys_of(list["props"]["rows"]) == ~w(W-1 W-2 W-3 W-4)
+  end
+
   test "Open for you and Supervised by you declare their groups: all, then one per span" do
     m = @s
     s = span(m)
