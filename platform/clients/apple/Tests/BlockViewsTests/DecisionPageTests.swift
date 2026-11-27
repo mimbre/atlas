@@ -5,10 +5,11 @@ import XCTest
 
 /// A decision page as Control sends it (`AtlasControl.Pages`, `decision_blocks/4`, D-0104):
 /// a stack of simple blocks — its header, why, (stuck work: what went wrong), one `option`
-/// block per option, the recommended one first, each with its own answer, then the page's
-/// other answers — and the details. Every option shows what it means; its button
-/// (`Option.action`) and its key are the same answer; a decline opens the form that asks
-/// its note.
+/// block per alternative, the recommended one first, each with its own Choose, then the
+/// page's answers (Decline all, the decline, its text as its detail) — and the details. One
+/// proposal is one card `alone`, answered by Accept and Decline below it. Every option
+/// shows what it means; its button (`Option.action`) and its key are the same answer; a
+/// decline opens the form that asks its note. No button says what follows its click.
 @MainActor
 final class DecisionPageTests: XCTestCase {
     private static func call(_ answer: String) -> [String: Any] {
@@ -16,11 +17,12 @@ final class DecisionPageTests: XCTestCase {
     }
 
     private static func option(_ n: Int, _ text: String, badge: String? = nil, tone: String? = nil,
-                               fields: [(String, String)], answer: [String: Any]) -> [String: Any] {
+                               fields: [(String, String)], answer: [String: Any], alone: Bool? = nil) -> [String: Any] {
         var props: [String: Any] = ["n": n, "text": text, "answer": answer,
                                     "fields": fields.map { ["label": $0.0, "value": $0.1] }]
         props["badge"] = badge
         props["tone"] = tone
+        props["alone"] = alone
         return ["id": "option-\(n)", "type": "option", "props": props]
     }
 
@@ -35,9 +37,10 @@ final class DecisionPageTests: XCTestCase {
                fields: [("Rule", "Store examples in Postgres."), ("Then", "A server to run.")],
                answer: ["label": "Choose", "key": "2", "to": "/k/decision/D-7/answer/2", "submit_to": call("adopt-postgres"),
                         "weight": "other"]),
-        option(3, "Decline", badge: "Decline · note", tone: "warning",
-               fields: [("Details", "Keep things as they are.")],
-               answer: ["label": "Decline", "key": "3", "to": "/k/decision/D-7/answer/3", "note": true, "weight": "no"]),
+        ["id": "answers", "type": "answers", "props": ["answers": [
+            ["label": "Decline all", "key": "3", "to": "/k/decision/D-7/answer/3", "note": true, "weight": "decline",
+             "detail": "Keep things as they are."],
+        ]]],
         ["id": "actions", "type": "actions", "props": ["actions": [["label": "Update decision", "key": "u", "to": "/k/decision/D-7/edit"]]]],
         ["id": "item", "type": "item", "props": ["title": "Decision D-7", "fields": [["label": "Id", "value": "D-7"]], "actions": []]],
     ]
@@ -47,11 +50,14 @@ final class DecisionPageTests: XCTestCase {
         ["id": "why", "type": "text", "props": ["text": "inspect · attempt 2 failed · stuck", "since": "2026-11-26T09:00:00Z"]],
         ["id": "failure", "type": "text", "props": ["label": "What went wrong", "text": "The bulb did not fit.", "role": "error"]],
         option(1, "Retry", badge: "★ Recommended", tone: "success", fields: [("Then", "Inspects it again.")],
-               answer: ["label": "Choose", "key": "r", "to": "/k/widget/W-1/answer/r",
-                        "submit_to": ["endpoint": "answer", "params": ["kind": "widget", "key": "W-1", "answer": "retry"]]]),
-        option(2, "Close it", fields: [("Then", "Ends it.")],
-               answer: ["label": "Choose", "key": "c", "to": "/k/widget/W-1/answer/c"]),
+               answer: ["label": "Choose", "key": "r", "to": "/k/widget/W-1/answer/r", "weight": "main",
+                        "submit_to": ["endpoint": "answer", "params": ["kind": "widget", "key": "W-1", "answer": "retry"]]],
+               alone: true),
         ["id": "answers", "type": "answers", "props": ["answers": [
+            ["label": "Accept", "key": "r", "to": "/k/widget/W-1/answer/r", "weight": "main",
+             "submit_to": ["endpoint": "answer", "params": ["kind": "widget", "key": "W-1", "answer": "retry"]]],
+            ["label": "Decline", "key": "c", "to": "/k/widget/W-1/answer/c", "note": true, "weight": "decline",
+             "detail": "Close it"],
             ["label": "Inspector's log", "key": "l", "to": "/k/inspection/I-1"],
         ]]],
         ["id": "actions", "type": "actions", "props": ["actions": [
@@ -86,33 +92,33 @@ final class DecisionPageTests: XCTestCase {
     func testTheBlocksKeepControlsOrderAndTheDetailsGoUnder() throws {
         let decision = PagePresentation(try Self.page("/k/decision/D-7", Self.decision))
         XCTAssertEqual(decision.groups.map(\.id),
-                       ["block:header", "block:why", "block:option-1", "block:option-2", "block:option-3", "block:actions"])
+                       ["block:header", "block:why", "block:option-1", "block:option-2", "block:answers", "block:actions"])
         XCTAssertEqual(decision.details?.title, "Details")
         XCTAssertTrue(decision.hasHeader, "the header block names the page")
         XCTAssertFalse(decision.hasPanel)
 
         let stuck = PagePresentation(try Self.page("/k/widget/W-1", Self.stuck))
         XCTAssertEqual(stuck.groups.map(\.id),
-                       ["block:header", "block:why", "block:failure", "block:option-1", "block:option-2", "block:answers",
+                       ["block:header", "block:why", "block:failure", "block:option-1", "block:answers",
                         "block:actions"])
         XCTAssertEqual(stuck.details?.title, "Details")
     }
 
     func testEveryOptionShowsItsNumberTextBadgeAndWhatItMeans() throws {
         let decision = Self.options(try Self.page("/k/decision/D-7", Self.decision))
-        XCTAssertEqual(decision.map(\.n), [1, 2, 3])
-        XCTAssertEqual(decision.map(\.text), ["Use SQLite", "Use Postgres", "Decline"])
-        XCTAssertEqual(decision.map(\.badge), ["★ Recommended", nil, "Decline · note"])
-        XCTAssertEqual(decision.map { $0.fields?.map(\.label) }, [["Rule", "Then"], ["Rule", "Then"], ["Details"]])
+        XCTAssertEqual(decision.map(\.n), [1, 2])
+        XCTAssertEqual(decision.map(\.text), ["Use SQLite", "Use Postgres"])
+        XCTAssertEqual(decision.map(\.badge), ["★ Recommended", nil])
+        XCTAssertEqual(decision.map { $0.fields?.map(\.label) }, [["Rule", "Then"], ["Rule", "Then"]])
         XCTAssertEqual(decision.map { $0.fields?.map(\.value) }, [
             ["Store examples in SQLite.", "One file per environment."],
             ["Store examples in Postgres.", "A server to run."],
-            ["Keep things as they are."],
         ])
 
         let stuck = Self.options(try Self.page("/k/widget/W-1", Self.stuck))
-        XCTAssertEqual(stuck.map(\.text), ["Retry", "Close it"])
-        XCTAssertEqual(stuck.map { $0.fields?.map(\.value) }, [["Inspects it again."], ["Ends it."]])
+        XCTAssertEqual(stuck.map(\.text), ["Retry"])
+        XCTAssertEqual(stuck.map(\.alone), [true])
+        XCTAssertEqual(stuck.map { $0.fields?.map(\.value) }, [["Inspects it again."]])
     }
 
     func testEachOptionsButtonSendsExactlyThatOptionsAnswerAsItsKeyDoes() throws {
@@ -137,25 +143,55 @@ final class DecisionPageTests: XCTestCase {
         // The options are not the page's own actions in its header again.
         XCTAssertEqual(PageActions.ofPage(page), [])
 
-        // Stuck work: an option without a call opens its page, as its key does.
+        // One proposal: its card holds only `0`; its key is the page's Accept, the same call.
         let stuck = try Self.page("/k/widget/W-1", Self.stuck)
-        let close = try XCTUnwrap(Self.options(stuck).last)
-        XCTAssertNil(Option.action(close)?.submitTo)
-        XCTAssertEqual(PageActions.action(key: "c", on: [stuck]), Option.action(close))
-        XCTAssertEqual(PageActions.action(key: "0", on: [stuck])?.submitTo,
-                       CallModel(endpoint: "answer", params: ["kind": "widget", "key": "W-1", "answer": "retry"]))
+        let retry = CallModel(endpoint: "answer", params: ["kind": "widget", "key": "W-1", "answer": "retry"])
+        XCTAssertEqual(Option.actions(try XCTUnwrap(Self.options(stuck).first)).map(\.key), ["0"])
+        XCTAssertEqual(PageActions.action(key: "0", on: [stuck])?.submitTo, retry)
+        XCTAssertEqual(PageActions.action(key: "r", on: [stuck])?.submitTo, retry)
     }
 
-    func testADeclineAsksItsNoteFirst() throws {
-        let page = try Self.page("/k/decision/D-7", Self.decision)
-        let decline = try XCTUnwrap(Self.options(page).last)
+    func testADeclineAsksItsNoteFirstAndItsTextExplainsIt() throws {
+        for (path, blocks, key, to, detail) in [
+            ("/k/decision/D-7", Self.decision, "3", "/k/decision/D-7/answer/3", "Decline all: Keep things as they are."),
+            ("/k/widget/W-1", Self.stuck, "c", "/k/widget/W-1/answer/c", "Decline: Close it"),
+        ] {
+            let page = try Self.page(path, blocks)
+            let answers = try XCTUnwrap(PagePresentation(page).entries.lazy.compactMap { entry -> AnswersBlock? in
+                if case .answers(let block) = entry.item { block } else { nil }
+            }.first)
+            let decline = try XCTUnwrap(answers.answers?.first { $0.weight == "decline" })
+            XCTAssertEqual(decline.note, true)
+            let action = Panel.action(decline)
+            XCTAssertNil(action.submitTo, "a decline submits nothing at once")
+            XCTAssertEqual(action.to, to, "it opens the form that asks its note")
+            XCTAssertTrue(PageActions.doable(action))
+            XCTAssertEqual(PageActions.action(key: key, on: [page]), action)
+            XCTAssertEqual(AnswersView.details(answers), [detail])
+        }
+    }
 
-        XCTAssertEqual(decline.answer?.note, true)
-        let action = try XCTUnwrap(Option.action(decline))
-        XCTAssertNil(action.submitTo, "a decline submits nothing at once")
-        XCTAssertEqual(action.to, "/k/decision/D-7/answer/3", "it opens the form that asks its note")
-        XCTAssertTrue(PageActions.doable(action))
-        XCTAssertEqual(PageActions.action(key: "3", on: [page]), action)
+    /// Melle: no button says what follows its click — no "…", no "· note" — on any button
+    /// of a decision page, Choose, Accept, Decline and Decline all alike.
+    func testNoButtonLabelSaysWhatFollowsItsClick() throws {
+        for (path, blocks) in [("/k/decision/D-7", Self.decision), ("/k/widget/W-1", Self.stuck)] {
+            let page = try Self.page(path, blocks)
+            var labels: [String] = []
+            for entry in PagePresentation(page).entries {
+                switch entry.item {
+                case .option(let block): if block.alone != true, let a = block.answer { labels.append(AnswerLook.label(a)) }
+                case .answers(let block): labels += (block.answers ?? []).map(AnswerLook.label)
+                default: break
+                }
+            }
+            XCTAssertFalse(labels.isEmpty)
+            for label in labels {
+                XCTAssertFalse(label.hasSuffix("…"), label)
+                XCTAssertFalse(label.contains("· note"), label)
+            }
+        }
+        let decision = try Self.page("/k/decision/D-7", Self.decision)
+        XCTAssertEqual(Self.options(decision).compactMap { $0.answer.map(AnswerLook.label) }, ["Choose", "Choose"])
     }
 
     func testWhatWentWrongHasItsLabelAsHeadingAndItsTextUnder() throws {

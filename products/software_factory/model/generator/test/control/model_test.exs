@@ -187,14 +187,14 @@ defmodule RelaDSL.Control.ModelTest do
              %{"key" => "x", "label" => "Done", "note" => true, "change" => change},
              %{"key" => "n", "label" => "Won't do", "note" => true, "change" => change},
              %{"key" => "l", "label" => "Later", "change" => change}
-           ]) == [{"Done", "main"}, {"Won't do", "no"}, {"Later", "other"}]
+           ]) == [{"Done", "main"}, {"Won't do", "decline"}, {"Later", "other"}]
 
     # Declared: a no without a note, and the main one after it.
     assert weights.([
-             %{"key" => "c", "label" => "Close it", "weight" => "no", "change" => change},
+             %{"key" => "c", "label" => "Close it", "weight" => "decline", "change" => change},
              %{"key" => "p", "label" => "Publish", "change" => change},
              %{"key" => "r", "label" => "Retry", "weight" => "main", "change" => change}
-           ]) == [{"Close it", "no"}, {"Publish", "other"}, {"Retry", "main"}]
+           ]) == [{"Close it", "decline"}, {"Publish", "other"}, {"Retry", "main"}]
   end
 
   test "a section shows the part of a field under its heading, or all of it under a label" do

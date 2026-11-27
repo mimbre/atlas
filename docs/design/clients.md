@@ -89,11 +89,11 @@ Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 |---|---|---|
 | Title / eyebrow (`header`) | On the page, no card: eyebrow and key in small caps in the accent's text colour (`TO DO FOR YOU · TD-12`), the title as the page title; the page's own actions beside it | Eyebrow with the key (`◆ YOUR DECISION · D-0104`) bold in the eyebrow colour, title under it |
 | Why / text (`text`) | On the page, muted: `Why: … · 3h ago`, its age kept current | Dim paragraph after its label, with its age |
-| Option (`option`) | A calm card: number as Prism's `StepIndicator`, text, badge in its tone (★ Recommended success, Decline · note warning), Rule/Then rows, its own answer as a Prism button | A filled card (selected one on the selected surface, marked ▸): number, text, badge, fields, then its answer on its key |
+| Option (`option`) | A calm card: number as Prism's `StepIndicator`, text, badge in its tone (★ Recommended success), Rule/Then rows, its own Choose as a Prism button (recommended `primary`, others `secondary`); none when `alone` (Accept answers it) | A filled card (selected one on the selected surface, marked ▸): number, text, badge, fields, then its answer on its key |
 | Step (`instruction`) | A calm card per step, number in a badge, lines in order | A filled card per step, numbers aligned, lines in order; text bold |
 | Command (in a step) | A light inset with a copy icon after it | Plain behind a bar; the selected one highlighted (`c` copies, `y`) |
 | Route (in a step) | Muted ⌘, parts as small labels with › between | Muted ⌘, parts bold in the route colour |
-| Answers (`answers`) | A Prism button per answer in Control's order: the first `primary` (success), one that asks a note `secondary` (warning), others `plain` | The key line: each answer on its key, the main one in green, a note answer (`Decline…`) in orange |
+| Answers (`answers`) | A Prism button per answer in Control's order by its weight: `main` `primary`, `decline` `secondary`, others `plain`; labels say nothing of what follows (no `…`, no `· note`); a `detail` small under the buttons | The key line: each answer on its key, the main one and the decline in the primary colour, a note answer `· note`; a `detail` dim under it |
 | Other actions (`actions`) | One row of `plain` buttons, unpadded, quieter than the answers; a dangerous one opens Control's confirm | In the answers' key line, muted, after the answers (else a key line of its own) |
 | What went wrong (`text` role `error`) | Prism's `MessageBar` in danger: label as heading, text under it | A card, label as a heading in the error colour over its text |
 | Details (part `details`/`related`) | Own column, or a recessed card (grey5) under the page | Own column, or a compact card under its heading at the page's end |
@@ -152,8 +152,8 @@ nothing about an action, only how it is triggered.
 | Weight | What it is | Mac | TUI |
 |---|---|---|---|
 | Main answer | the first of `answers` (or an option's Choose): the next step | `primary` button (success) | key in green |
-| No-answer | an answer with `note` (Decline…): asks a note first | `secondary` button (warning), opens the note form | key in orange |
-| Other action | the `actions` block: change, hand over, delete, create under | `plain` button, quieter | muted in the key line |
+| Decline | weight `decline` (`no`, deprecated): Won't do, Decline, Decline all | `secondary` button; one with `note` opens the note form on click, its label unchanged | key in the primary colour, `· note` when it asks one |
+| Other action | the `actions` block: change, hand over, delete, create under | `plain` button, quieter, its icon in the primary colour (dark: PrismDarkGap's readable primary) | muted in the key line |
 
 - **Mac**: buttons on the page, and the menu bar's **Actions** menu lists the shown page's
   actions with their keys. Keys are invisible on the page (a button's tooltip names its

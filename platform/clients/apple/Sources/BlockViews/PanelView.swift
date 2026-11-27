@@ -107,7 +107,7 @@ struct PanelView: View {
                 }
             }
             ForEach(Array(((block.actions ?? []) + others).enumerated()), id: \.offset) { _, action in
-                KeyButton(label: action.label ?? "", key: action.key, icon: action.icon) { act(action) }
+                KeyButton(label: AnswerLook.label(action), key: action.key, icon: action.icon) { act(action) }
             }
             ForEach(Array(Panel.links(block).enumerated()), id: \.offset) { _, link in
                 KeyButton(label: link.link.label ?? link.url.absoluteString, key: link.link.key) { openURL(link.url) }
@@ -297,21 +297,27 @@ struct AnswerButton: View {
     }
 }
 
-/// How an answer looks, by its weight: the main one Prism's `primary`, the no
-/// `secondary`, any other `plain`, all in the primary colour (Prism's default tone).
-/// One that opens a note form says so with "…" after its label.
+/// How an answer looks, by its weight: the main one Prism's `primary`, the decline (`no`
+/// before contract 0.38.0, deprecated) `secondary`, any other `plain`, all in the primary
+/// colour (Prism's default tone). Its label is what Control says a button shows (`button`,
+/// else `label`): nothing of what follows its click; one asking a note opens the note form.
 public enum AnswerLook {
     public static func of(_ answer: PanelAnswerModel) -> (variant: PrismButtonVariant, tone: PrismButtonTone) {
         switch answer.weight {
         case "main": (.primary, .accent)
-        case "no": (.secondary, .accent)
+        case "decline", "no": (.secondary, .accent)
         default: (.plain, .accent)
         }
     }
 
     public static func label(_ answer: PanelAnswerModel) -> String {
-        let label = answer.label ?? ""
-        return answer.note == true && !label.hasSuffix("…") ? label + "…" : label
+        answer.button ?? answer.label ?? ""
+    }
+
+    /// An action's button label: what Control says a button shows (`button`, "Hand to" for
+    /// "Hand to…"), else its label.
+    public static func label(_ action: ActionModel) -> String {
+        action.button ?? action.label ?? ""
     }
 }
 

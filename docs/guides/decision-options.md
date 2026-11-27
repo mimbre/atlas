@@ -57,13 +57,16 @@ alternatives or selections.
 The native model's semantic answer IDs include the displayed revision and stable
 option ID. Control shows the offer as a stack of simple blocks (D-0104): a
 `header` (YOUR DECISION, the key, the question), a `text` (Why: the rationale),
-then one `option` block per option in order, the recommended one first: its
-number, its text, a badge (`★ Recommended`, or `Decline · note` for an option
-given with a note), its Rule and Then (a decline: its Details) and its own
-answer, the page's action on the option's key (Choose, or Decline, which opens
-the note form) with its weight: the recommended Choose `main`, Decline `no`, any
-other Choose `other`; a client styles the answer by it (the Mac "Decline…", the
-TUI "Decline · note"). A radio, dropdown or cards renderer can use the same answers
+then the options to adopt (contract 0.38.0). One proposal (with a decline) is
+one `option` card (`alone`: no answer on it) and below it an `answers` block:
+Accept (`main`, the proposal's answer) and Decline (`decline`, the decline's
+answer, which opens the note form). Several alternatives are a card each, the
+recommended one first: its number, its text, a badge (`★ Recommended`), its Rule
+and Then and its own Choose (the recommended `main`, the rest `other`); below them,
+when a decline exists, Decline all (`decline`). The decline is no card: its text
+is the decline answer's `detail`, shown with it. Every answer sends exactly its
+option's answer. No Mac button says what follows its click (no "…", no "· note");
+the TUI's key line keeps "· note" (`2 Decline · note`). A radio, dropdown or cards renderer can use the same answers
 without a model, schema or Flow change. Keyboard shortcuts are projection data.
 The TUI invokes a generic declared call and does not recognize decision kinds or
 interpret option effects. It draws each option as a filled card (rounded with

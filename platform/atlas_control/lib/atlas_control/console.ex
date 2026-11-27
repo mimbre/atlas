@@ -199,11 +199,15 @@ defmodule AtlasControl.Console do
       on = block["id"]
 
       # What the viewer can answer: an `answers` block's answers, an option's own answer
-      # (the recommended one, tone success, on `0` too).
+      # (the recommended one, tone success, on `0` too). The only proposal's (`alone`) is
+      # the answers' Accept on its own key, so its card holds only `0`.
       answers =
         case block do
           %{"type" => "answers"} ->
             props["answers"]
+
+          %{"type" => "option", "props" => %{"answer" => a, "alone" => true}} ->
+            [Map.put(a, "key", "0")]
 
           %{"type" => "option", "props" => %{"answer" => a, "tone" => "success"}} ->
             [a, Map.put(a, "key", "0")]

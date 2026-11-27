@@ -173,7 +173,7 @@ public struct ActionButtons: View {
         return Button { act(action) } label: {
             HStack(spacing: Prism.Spacing.px6) {
                 if pending { ProgressView().progressViewStyle(.prism(.accent, size: .size16)) }
-                Text(action.label ?? "")
+                Text(AnswerLook.label(action))
             }
         }
         .disabled(pending)

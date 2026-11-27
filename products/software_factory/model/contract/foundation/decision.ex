@@ -149,7 +149,7 @@ defmodule Model.Decision do
       ],
       errors: [
         invalid:
-          "a decision needs a question, rationale, distinct complete options with at least one decline, and the recommended option first",
+          "a decision needs a question, rationale, distinct complete options (two to adopt, or one to adopt and a decline), and the recommended option first",
         not_json: "decision options must be a JSON definition",
         removed: "decision options cannot be removed or answered without their definition",
         unselected: "select an offered option to decide this decision",

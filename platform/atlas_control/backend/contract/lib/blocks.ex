@@ -71,11 +71,13 @@ defmodule AtlasBFFContract.Blocks do
         field :actions, {:list, :action}, required: true
       end
 
-      # One option of a decision, one block per option in Control's order (the
+      # One adopt option of a decision, one block per option in Control's order (the
       # recommended one first): its number `n` (from 1), its `text`, a `badge` in its
-      # `tone` (success: "★ Recommended", warning: "Decline · note"), what it means
-      # (`fields`: its Rule and what follows Then, or a decline's Details) and its own
-      # `answer`, the page's action of the same key (`note`: it asks a note first).
+      # `tone` (success: "★ Recommended"), what it means (`fields`: its Rule and what
+      # follows Then) and its own `answer`, the page's action of the same key. Since 0.38.0
+      # a decline is no option block but the page's decline answer (Decline, Decline all)
+      # in the `answers` block below. `alone`: the only proposal; its answer is that
+      # block's Accept, so a client shows no answer on the card.
       defblock :option do
         field :n, :integer, required: true
         field :text, :string, required: true
@@ -83,6 +85,7 @@ defmodule AtlasBFFContract.Blocks do
         field :tone, :string
         field :fields, {:list, :pair}, required: true
         field :answer, :panel_answer, required: true
+        field :alone, :boolean
       end
 
       # Where its owner decides, as a panel: `heading` (what is asked of them: "TO

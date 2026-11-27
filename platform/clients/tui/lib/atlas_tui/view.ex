@@ -870,8 +870,9 @@ defmodule AtlasTui.View do
   # One option of a decision, in a card of its own (the selected one, which Enter answers,
   # on the selected surface and marked ▸): its number as an instruction's, its text and its
   # badge in its tone; each of its fields under it ("Rule: …"); then its answer as a key, as
-  # far as Control projects it: Choose, Decline · note (which asks a note), the main and the
-  # no in the primary colour, and on the selected one the keys that select and answer.
+  # far as Control projects it (Choose; none on the only proposal, `alone`, which the
+  # answers' Accept takes), the main one in the primary colour, and on the selected one the
+  # keys that select and answer.
   defp block(%Option{} = option, _at, model, width, _room) do
     options = Model.options(model)
     selected = Enum.at(options, Model.chosen(options, model.choice)) == option
@@ -907,9 +908,15 @@ defmodule AtlasTui.View do
           line <- hanging(single_line(pair.label) <> ": ", pair.value || "—", room, :dim, :plain),
           do: [{:plain, indent} | line]
 
+    # The only proposal's answer is the answers' Accept below (`alone`): none on its card.
     answer =
-      for line <- option_answer(option.answer, selected, options, model, room),
-          do: [{:plain, indent} | line]
+      if option.alone == true,
+        do: [],
+        else:
+          for(
+            line <- option_answer(option.answer, selected, options, model, room),
+            do: [{:plain, indent} | line]
+          )
 
     lines = head ++ fields ++ if(answer == [], do: [], else: [[] | answer])
 
@@ -1040,7 +1047,19 @@ defmodule AtlasTui.View do
 
     copies = for {key, what} <- copies, do: [{:key, key}, {:dim, " " <> what}]
 
-    for line <- key_lines(answers ++ others ++ copies, max(width - 4, 1)),
+    # An answer's explanation (Reject: what declining keeps), dim under the keys.
+    details =
+      for answer <- block.answers || [],
+          MapSet.member?(keys, answer.key),
+          is_binary(answer.detail) and answer.detail != "",
+          line <-
+            detail_wrap(
+              single_line(answer.label) <> ": " <> single_line(answer.detail),
+              max(width - 4, 1)
+            ),
+          do: [{:dim, line}]
+
+    for line <- key_lines(answers ++ others ++ copies, max(width - 4, 1)) ++ details,
         do: [{:plain, "   "} | line]
   end
 
@@ -1336,8 +1355,8 @@ defmodule AtlasTui.View do
     end
   end
 
-  # An option's answer on its key, as far as Control projects it (`answer_key/1`: Choose,
-  # Decline · note); on the selected option, Enter that answers it as its key does and,
+  # An option's answer on its key, as far as Control projects it (`answer_key/1`: Choose);
+  # on the selected option, Enter that answers it as its key does and,
   # among more options, the arrows that select; wrapped at `width`.
   defp option_answer(answer, selected, options, model, width) do
     if MapSet.member?(projected_keys(model), answer.key) do
@@ -1501,7 +1520,7 @@ defmodule AtlasTui.View do
   # An answer on its key: the main one and the no in the primary colour, the rest dim; one
   # given with a note says so.
   defp answer_key(answer) do
-    style = if answer.weight in ["main", "no"], do: :info, else: :dim
+    style = if answer.weight in ["main", "decline", "no"], do: :info, else: :dim
     note = if answer.note == true, do: " · note", else: ""
     [{:key, answer.key}, {style, " " <> single_line(answer.label) <> note}]
   end
@@ -1509,7 +1528,7 @@ defmodule AtlasTui.View do
   # Answers in the order a key line shows them: the main one, the no, then the rest in
   # Control's order.
   defp by_weight(answers),
-    do: Enum.sort_by(answers, &Map.get(%{"main" => 0, "no" => 1}, &1.weight, 2))
+    do: Enum.sort_by(answers, &Map.get(%{"main" => 0, "decline" => 1, "no" => 1}, &1.weight, 2))
 
   # `label` before the first line of `text`, the rest under it; under the label when
   # too little room is left beside it.

@@ -161,7 +161,8 @@ defmodule AtlasControl.PanelTest do
                "weight" => "main"
              } =
                yes,
-             %{"key" => "n", "label" => "Not accepted", "note" => true, "weight" => "no"} = no
+             %{"key" => "n", "label" => "Not accepted", "note" => true, "weight" => "decline"} =
+               no
            ] = p["answers"]
 
     refute Map.has_key?(yes, "note")
