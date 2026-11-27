@@ -1164,22 +1164,29 @@ defmodule AtlasTui.View do
 
         indent = String.duplicate(" ", padding)
         value_width = max(width - padding, 1)
-        [first | rest] = detail_wrap(pair.value || "—", value_width)
+        rows =
+          if Map.get(pair, :format) == "markdown" do
+            AtlasTui.Markdown.render(pair.value || "—", value_width, &display_width/1)
+          else
+            Enum.map(detail_wrap(pair.value || "—", value_width), &[text_row(&1)])
+          end
+
+        [first | rest] = if rows == [], do: [[]], else: rows
 
         heading =
           cond do
             bare ->
-              [[{:plain, indent}, text_row(first)]]
+              [[{:plain, indent} | first]]
 
             stacked ->
               prefix = String.duplicate(" ", min(3, max(width - 2, 0)))
 
               Enum.map(detail_wrap(label <> ":", max(width - byte_size(prefix), 1)), fn line ->
                 [{:dim, prefix <> line}]
-              end) ++ [[{:plain, indent}, text_row(first)]]
+              end) ++ [[{:plain, indent} | first]]
 
             true ->
-              [[{:dim, "   " <> cell_pad(label, @label_width)}, text_row(first)]]
+              [[{:dim, "   " <> cell_pad(label, @label_width)} | first]]
           end
 
         origin =
@@ -1187,7 +1194,7 @@ defmodule AtlasTui.View do
               line != "",
               do: [{:plain, indent}, {:dim, line}]
 
-        heading ++ Enum.map(rest, &[{:plain, indent}, text_row(&1)]) ++ origin
+        heading ++ Enum.map(rest, &[{:plain, indent} | &1]) ++ origin
       end)
 
     # An item without a title (the details of a page whose header has it): its fields only.

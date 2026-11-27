@@ -42,6 +42,33 @@ defmodule AtlasTui.MarkdownTest do
     for line <- lines, do: assert(String.length(plain([line])) <= 8)
   end
 
+  test "item field Markdown is opt-in and retains plain fields" do
+    page = %{
+      "op" => "page", "path" => "/k/test", "title" => "Page",
+      "blocks" => [%{
+        "id" => "item", "type" => "item",
+        "props" => %{"title" => "Details", "fields" => [
+          %{"label" => "Description", "value" => "# Heading\n- **strong**"},
+          %{"label" => "Plain", "value" => "**literal**"},
+          %{"label" => "Unknown", "value" => "**unknown**"}
+        ]}
+      }], "markup" => []
+    }
+    model = PanelFixture.projected(page)
+    [item] = model.blocks
+    [marked, plain, unknown] = item.fields
+    item = %{item | fields: [Map.put(marked, :format, "markdown"), plain, Map.put(unknown, :format, "other")]}
+    model = %{model | blocks: [item]}
+
+    for width <- [24, 80] do
+      output = model |> View.render(width, 40, 30) |> View.plain()
+      assert output =~ "H1 Heading"
+      assert output =~ "- strong"
+      assert output =~ "**literal**"
+      assert output =~ "**unknown**"
+    end
+  end
+
   test "only the markdown format changes text blocks in either theme" do
     page = %{
       "op" => "page", "path" => "/k/test", "title" => "Page",
