@@ -24,6 +24,8 @@ Toolbar actions are icon-only with descriptive tooltips and accessibility labels
 page, explicitly main answers precede secondary answers and have no icon; unweighted
 actions are not promoted merely because they are first. When a row of answers sits between
 a stack of cards and details below, its lower spacing matches the cards' shadow room above.
+When a details part contains a collapsible section, its disclosure sits outside a surrounding
+details card and its revealed blocks keep their own presentation.
 
 ## Build, test, run
 
