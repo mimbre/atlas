@@ -184,6 +184,7 @@ struct CardStack: View {
 struct OptionView: View {
     let block: OptionBlock
     var room = true
+    var detailHeading = false
     let act: (ActionModel) -> Void
     @Environment(\.colorScheme) private var scheme
     @Environment(\.pendingAction) private var pending
@@ -193,7 +194,7 @@ struct OptionView: View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
                 if let n = Option.number(block) { StepNumber(n: n) }
-                Text(block.text ?? "").prism(Prism.Typography.title7)
+                Text(block.text ?? "").prism(detailHeading ? Prism.Typography.title6 : Prism.Typography.title5)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let badge = block.badge, !badge.isEmpty {
@@ -455,7 +456,7 @@ struct RouteLine: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        FlowLayout(spacing: Prism.Spacing.px6) {
+        FlowLayout(spacing: Prism.Spacing.px6, wrapOversized: true) {
             Text("⌘").foregroundStyle(PrismDarkGap.muted(scheme))
             ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                 HStack(spacing: Prism.Spacing.px6) {
@@ -471,6 +472,7 @@ struct RouteLine: View {
 
     private func label(_ part: String) -> some View {
         Text(part).textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
             .foregroundStyle(PrismDarkGap.routeText(scheme))
             .padding(.horizontal, Prism.Spacing.px6)
             .padding(.vertical, 3)
