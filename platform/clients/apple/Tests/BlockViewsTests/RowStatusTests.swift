@@ -1,3 +1,4 @@
+import AtlasControlKit
 @testable import BlockViews
 import Foundation
 import XCTest
@@ -47,6 +48,26 @@ final class RowCardTextTests: XCTestCase {
         XCTAssertEqual(RowCardText.kindAndKey(kind: nil, id: "D-0104"), "D-0104")
         XCTAssertEqual(RowCardText.kindAndKey(kind: "Decision", id: nil), "DECISION")
         XCTAssertNil(RowCardText.kindAndKey(kind: nil, id: nil))
+    }
+
+    func testTheTopLineLeadsWithTheKindsIconNeverADot() {
+        let decision = RowModel(id: "D-1", label: "Pick", tone: "attention", kind: "Decision", icon: "scales")
+        XCTAssertEqual(RowCardText.top(decision), .init(symbol: SidebarLook.symbol("scales"), text: "DECISION · D-1"))
+        XCTAssertNotNil(RowCardText.top(decision).symbol)
+        XCTAssertNotEqual(RowCardText.top(RowModel(id: "TD-1", kind: "To-Do", icon: "checklist")).symbol,
+                          RowCardText.top(decision).symbol)
+
+        // Where it stands is not on it: every tone, or none, gives the same top line.
+        for tone in ["attention", "active", "waiting", "done", nil] {
+            var row = decision
+            row.tone = tone
+            XCTAssertEqual(RowCardText.top(row), RowCardText.top(decision))
+        }
+
+        // An icon this app does not know, or none: no symbol, the words unchanged.
+        XCTAssertEqual(RowCardText.top(RowModel(id: "X-1", kind: "Odd", icon: "nonsense")),
+                       .init(symbol: nil, text: "ODD · X-1"))
+        XCTAssertNil(RowCardText.top(RowModel(id: "X-1")).symbol)
     }
 
     func testAStateIsShownOnlyWhenControlSendsOne() {

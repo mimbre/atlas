@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.39.0"
+  version "0.40.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -111,7 +111,9 @@ defmodule AtlasBFFContract.Models.Presentation do
   # the row, never instead of the row's own words. `since` (ISO 8601, UTC) is when the row
   # entered the state it is in, so a client can say how long it has been there. `kind` is
   # the kind of the item the row opens, in plain words (its label, "Decision"), so a client
-  # can say what the row is.
+  # can say what the row is; `icon` is that kind's icon, a semantic name the model gives the
+  # kind (`scales`, `checklist`), the same on its page's header and its tab, which a client
+  # draws as it likes and leaves out when it does not know it.
   defmodel :row do
     field :id, :string
     field :label, :string, required: true
@@ -123,6 +125,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :tone, :string
     field :since, :string
     field :kind, :string
+    field :icon, :string
   end
 
   # One group of a `groups` block: its name, how many items it has, the page that shows
@@ -210,8 +213,9 @@ defmodule AtlasBFFContract.Models.Presentation do
 
   # Native shell metadata, independent of page blocks and terminal key bindings. `icon`
   # is a semantic name a client may draw as it likes (a Mac app: a symbol): the model's,
-  # else one Control derives from the page the tab opens (assigned, supervised, open,
-  # workers); `section` is
+  # else, for a tab that lists one kind, that kind's icon (as on its rows), else one
+  # Control derives from the page the tab opens (assigned, supervised, open, workers);
+  # `section` is
   # what the tab is for: "work" (what needs someone; the tabs a client cycles through) or
   # "browse" (reference, after them); `key`, a browse tab's own key sequence (as "g s"),
   # which the console projection binds to opening it; `groups` are the groups the tab's
@@ -231,12 +235,14 @@ defmodule AtlasBFFContract.Models.Presentation do
   end
 
   # One group of a shell tab: its name, the page that shows only its items, and how many
-  # it has, as the tab's page says (none while it cannot be read); `for_you` as its tab's.
+  # it has, as the tab's page says (none while it cannot be read); `for_you` as its tab's;
+  # `icon`, for a group of one kind (what is assigned of it), that kind's icon.
   defmodel :shell_group do
     field :label, :string, required: true
     field :to, :string, required: true
     field :count, :integer
     field :for_you, :boolean
+    field :icon, :string
   end
 
   defmodel :boot_request do

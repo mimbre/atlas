@@ -42,6 +42,7 @@ defmodule Model.ToDo do
     person or an agent. Atlas cannot verify it: it is done when its owner says so, with
     a note. The id is TD- and a number, e.g. TD-07.
     """ do
+    icon(:checklist)
     field(:title, :string, required: true, description: "The work in a few words")
 
     field(:instructions, :string,

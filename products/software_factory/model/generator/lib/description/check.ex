@@ -427,7 +427,7 @@ defmodule RelaDSL.Description.Check do
 
     keys(
       spec,
-      ~w(top primary plural_label start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options panel),
+      ~w(top primary plural_label icon start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options panel),
       path
     ) ++
       navigation(spec["start"], at.("start")) ++
@@ -440,6 +440,12 @@ defmodule RelaDSL.Description.Check do
             [kind],
             "#{kind}.plural_label: expected the name a list of them has"
           ),
+        else: []
+      ) ++
+      if(
+        Map.has_key?(spec, "icon") and
+          not (text?(spec["icon"]) and byte_size(spec["icon"]) <= 64),
+        do: p(at.("icon"), :icon, [kind], "#{kind}.icon: expected a name of at most 64 bytes"),
         else: []
       ) ++
       if(Map.has_key?(spec, "delete_error") and not text?(spec["delete_error"]),

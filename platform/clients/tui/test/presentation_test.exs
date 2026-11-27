@@ -551,6 +551,48 @@ defmodule AtlasTui.PresentationTest do
     refute Enum.any?(lines["W-2"], &match?({:muted, _}, &1))
   end
 
+  test "a row keeps its dot and shows its kind's glyph before its key; an unknown kind, none" do
+    m = model()
+
+    rows = [
+      %AtlasTui.Blocks.Row{
+        id: "D-1",
+        label: "Pick a store",
+        to: "/k/decision/D-1",
+        tone: "attention",
+        icon: "scales"
+      },
+      %AtlasTui.Blocks.Row{id: "TD-1", label: "Rotate", to: "/k/to_do/TD-1", icon: "checklist"},
+      %AtlasTui.Blocks.Row{id: "X-1", label: "Odd", to: "/k/odd/X-1", icon: "nonsense"}
+    ]
+
+    m = %{
+      m
+      | blocks: [%AtlasTui.Blocks.List{title: "Mixed", rows: rows}],
+        ids: ["list"],
+        markup: [],
+        console: %{m.console | shell: nil}
+    }
+
+    lines = View.render(m, 100, 40, 5)
+
+    text =
+      Map.new(rows, fn row ->
+        {row.id, View.plain([Enum.find(lines, &(View.plain([&1]) =~ row.id))])}
+      end)
+
+    assert text["D-1"] =~ ~r/● ◆ D-1/
+    assert text["TD-1"] =~ ~r/☐ TD-1/
+    refute text["X-1"] =~ ~r/[◆☐□◇•]/
+
+    # The keys stay in one column, a row without a known glyph keeping its blank cell.
+    columns =
+      for id <- ["D-1", "TD-1", "X-1"],
+          do: text[id] |> String.split(id) |> hd() |> String.length()
+
+    assert Enum.uniq(columns) |> length() == 1
+  end
+
   test "a narrow list drops the age before it cuts a title" do
     widths = for width <- 20..100, do: {width, View.plain([toned(width)["W-1"]])}
 

@@ -250,6 +250,17 @@ defmodule AtlasControl.PagesTest do
     assert [%{"id" => "W-1", "kind" => "Widget"}] = list["rows"]
   end
 
+  test "a row has its kind's icon, as the model names it; a kind without one, none" do
+    answer = %{"facts" => [fact("W-1", %{"title" => "One"})]}
+    %{blocks: [%{"props" => list}]} = render({:list, "widget"}, @d, [answer])
+    assert [%{"id" => "W-1", "icon" => "widget"}] = list["rows"]
+
+    answer = %{"facts" => [fact("P-1", %{"title" => "One"})]}
+    %{blocks: [%{"props" => list}]} = render({:list, "part"}, @d, [answer])
+    assert [%{"id" => "P-1"} = row] = list["rows"]
+    refute Map.has_key?(row, "icon")
+  end
+
   test "rows that all say the same detail say none; one that differs keeps every detail" do
     dark = fn key -> fact(key, %{"title" => key, "shade" => "dark"}) end
 
@@ -2099,10 +2110,12 @@ defmodule AtlasControl.PagesTest do
 
     blocks = by_id(page)
 
+    # The header carries the icon of the fact's kind, as its rows do.
     assert blocks["header"] == %{
              "eyebrow" => "TO DO FOR YOU",
              "key" => "W-1",
-             "title" => "Rotate the key"
+             "title" => "Rotate the key",
+             "icon" => "widget"
            }
 
     assert blocks["why"] == %{

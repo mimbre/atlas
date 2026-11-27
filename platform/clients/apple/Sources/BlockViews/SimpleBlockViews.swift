@@ -3,7 +3,8 @@ import ControlSession
 import Prism
 import SwiftUI
 
-/// A `header` block, on the page itself (no card): the eyebrow and the key in small caps in
+/// A `header` block, on the page itself (no card): the icon of its fact's kind (`KindIcon`,
+/// grey; none for a kind this app does not know), the eyebrow and the key in small caps in
 /// the accent's text colour ("TO DO FOR YOU · TD-12"), then the title as the page's title;
 /// `actions`, the page's own (`PageActions.ofPage`), beside it as `PageHeader` has them,
 /// and `others` (what else can be done with its subject) at the far right.
@@ -17,9 +18,12 @@ struct HeaderBlockView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
             if let eyebrow {
-                Text(eyebrow).tracking(0.8).prism(Prism.Typography.labelsmall)
-                    .foregroundStyle(PrismDarkGap.accentText(scheme))
-                    .textSelection(.enabled)
+                HStack(alignment: .center, spacing: Prism.Spacing.px6) {
+                    if let symbol = SidebarLook.symbol(block.icon) { KindIcon(symbol: symbol) }
+                    Text(eyebrow).tracking(0.8).prism(Prism.Typography.labelsmall)
+                        .foregroundStyle(PrismDarkGap.accentText(scheme))
+                        .textSelection(.enabled)
+                }
             }
             PageHeader(title: block.title ?? "", actions: actions, others: others, act: act)
         }

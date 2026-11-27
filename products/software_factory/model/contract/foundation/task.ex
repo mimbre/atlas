@@ -40,6 +40,8 @@ defmodule Model.Task do
     One unit of work Flow defines for an assignee and submits to its machinery as
     Runtime work. Flow names it TK-<subject>-<n>; the key is the work's client key.
     """ do
+    icon(:hammer)
+
     field(:kind, :task_kind,
       required: true,
       description: "Plan, author, review, fix or diagnose",

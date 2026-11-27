@@ -50,6 +50,8 @@ defmodule Model.RuntimeUpgrade do
     the Runtime's machinery: drain, wait until no slot is busy, update, restart, verify.
     The id is RU- and a number, e.g. RU-01.
     """ do
+    icon(:upgrade)
+
     field(:build, :string,
       required: true,
       description:

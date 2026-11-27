@@ -31,11 +31,13 @@ defmodule AtlasBFFContract.Blocks do
       end
 
       # A page's own heading, the first of a stack of simple blocks: what is asked of
-      # the viewer (`eyebrow`: "TO DO FOR YOU"), the fact's `key` and the `title`.
+      # the viewer (`eyebrow`: "TO DO FOR YOU"), the fact's `key` and the `title`; `icon`,
+      # the icon of the fact's kind (as on its rows), shown with the eyebrow.
       defblock :header do
         field :title, :string, required: true
         field :eyebrow, :string
         field :key, :string
+        field :icon, :string
       end
 
       # A paragraph: its `text`, after its `label` ("Why"), and with `since` (ISO 8601,
@@ -93,12 +95,14 @@ defmodule AtlasBFFContract.Blocks do
       # title: "3 items"), the `byline`; what it is
       # judged on: `items` (a client selects one and shows its details), `checks`, a `box`;
       # then its `answers` in Control's order, each the page's action of the same key.
-      # `actions` and `links` open what it refers to.
+      # `actions` and `links` open what it refers to. `icon`: the icon of the fact's kind
+      # (as on its rows), shown with the heading.
       defblock :panel do
         field :heading, :string, required: true
         field :title, :string, required: true
         field :key, :string
         field :aside, :string
+        field :icon, :string
         field :byline, {:list, :clause}
         field :items, {:list, :panel_item}
         field :checks, {:list, :check}

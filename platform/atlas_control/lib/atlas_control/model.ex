@@ -54,10 +54,11 @@ defmodule AtlasControl.Model do
   @callback start_page() :: map
 
   @doc """
-  Every kind, sorted by name: `%{name, label, plural, about, top, newest_first, primary,
+  Every kind, sorted by name: `%{name, label, plural, icon, about, top, newest_first, primary,
   id, fields, relations, counts, progress, shows_progress, done_label,
   late, start, agent, delete_error, hidden, presented}` (`presented`: work on its facts is
-  presented, so a read of them asks Facts for their `"presentation"`). `id` is `%{prefix,
+  presented, so a read of them asks Facts for their `"presentation"`; `icon`: the kind's
+  semantic icon name, or nil). `id` is `%{prefix,
   digits, first, from, template, prefixes}`; `fields` are in the order pages show them, each
   `%{name, label, type, values, labels, required, hint, settable, set_by, multiline,
   url, cause}`; `relations` are those that start at the kind, sorted by name, each

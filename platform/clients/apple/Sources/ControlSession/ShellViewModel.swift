@@ -31,6 +31,8 @@ public struct ShellViewModel: Sendable, Equatable {
         /// Whether its count is what waits for the user, as its tab's.
         public var forYou: Bool
         public var to: String
+        /// Its kind's icon, a semantic name, for a group of one kind; nil otherwise.
+        public var icon: String? = nil
     }
 
     /// The shell's title; nil before the first boot.
@@ -93,7 +95,7 @@ public struct ShellViewModel: Sendable, Equatable {
                        groups: (tab.groups ?? []).compactMap { group in
                            group.to.map {
                                Group(label: group.label ?? $0, count: state.groupCounts[$0],
-                                     forYou: group.forYou ?? false, to: $0)
+                                     forYou: group.forYou ?? false, to: $0, icon: group.icon)
                            }
                        })
         }

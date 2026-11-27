@@ -36,7 +36,8 @@ struct PanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
-            PanelHeading(eyebrow: block.heading ?? "", title: block.title ?? "", key: block.key, trailing: block.aside)
+            PanelHeading(eyebrow: block.heading ?? "", title: block.title ?? "", key: block.key, trailing: block.aside,
+                         icon: block.icon)
             if let byline = block.byline, !byline.isEmpty {
                 // The ages keep current.
                 TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -132,18 +133,23 @@ struct PanelView: View {
 /// The top of a panel: the eyebrow (what is asked of its owner, "TO ACCEPT") in small
 /// caps, the one place in primary; under it the title as a heading with the key of the
 /// fact it is about, muted, beside it; `trailing` (how far it is, how many) muted at the
-/// right.
+/// right. Before the eyebrow, the icon of the fact's kind (`KindIcon`, grey), when this app
+/// knows it.
 struct PanelHeading: View {
     let eyebrow: String
     let title: String
     let key: String?
     let trailing: String?
+    var icon: String? = nil
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
-            Text(eyebrow.uppercased()).tracking(0.8).prism(Prism.Typography.labelsmall)
-                .foregroundStyle(PrismDarkGap.accentText(scheme))
+            HStack(alignment: .center, spacing: Prism.Spacing.px6) {
+                if let symbol = SidebarLook.symbol(icon) { KindIcon(symbol: symbol) }
+                Text(eyebrow.uppercased()).tracking(0.8).prism(Prism.Typography.labelsmall)
+                    .foregroundStyle(PrismDarkGap.accentText(scheme))
+            }
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
                 (Text(title) + Text(key.map { "   " + $0 } ?? "").font(Prism.Typography.label.emphasis(.data).font)
                     .foregroundColor(PrismDarkGap.muted(scheme)))

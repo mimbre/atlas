@@ -135,6 +135,14 @@ defmodule RelaDSL.Description.ChecksTest do
     assert Enum.find(kinds, &(&1.name == "thing")).plural == "Things to keep"
     assert Enum.find(kinds, &(&1.name == "keeper")).plural == "Keepers"
     assert checked(concept(entity: "plural_label 3")) == [{:plural_label, ["thing"]}]
+
+    # A kind's one icon is a name; a kind without one has none.
+    c = concept(entity: "icon :thing")
+    assert checked(c) == []
+    kinds = RelaDSL.Control.Model.kinds(RelaDSL.Control.Model.merge(c.schema, c.extension))
+    assert Enum.find(kinds, &(&1.name == "thing")).icon == "thing"
+    assert Enum.find(kinds, &(&1.name == "keeper")).icon == nil
+    assert checked(concept(entity: "icon 3")) == [{:icon, ["thing"]}]
   end
 
   test "each leaf has one author, and each rule is given once" do

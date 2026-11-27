@@ -332,17 +332,17 @@ struct ListRowView: View {
     }
 }
 
-/// A list row as a small card (the Mac list): a top line, muted, with where its work stands
-/// (a dot in the colour of Control's `tone`), what it is (its kind and key, `DECISION ·
-/// D-0104`) and, at the right, how long it has been there (`3h`); under it the title on one
-/// or two lines (… only past two, the whole of it in a tooltip); under that, muted, its
-/// state when Control sends one (`Decide it · Deadline 2026-12-01 17:00`, on a line of its
-/// own so the kind and key never crowd it out), and whether a write to it is being
-/// processed. The card follows its title's height; it is a little lighter than the
-/// list's ground, rounded, without a shadow (list cards are an overview). Selected: Prism's
-/// light primary tint with a thin primary border while the list has the focus (`focused`),
-/// calm grey without it. The card covers its whole row with the list's ground around it,
-/// so the system's own selection never shows.
+/// A list row as a small card (the Mac list): a top line, muted, with what it is (its
+/// kind's icon, `KindIcon`, and its kind and key, `DECISION · D-0104`) and, at the right,
+/// how long it has been there (`3h`); under it the title on one or two lines (… only past
+/// two, the whole of it in a tooltip); under that, muted, its state when Control sends one
+/// (`Decide it · Deadline 2026-12-01 17:00`, on a line of its own so the kind and key never
+/// crowd it out), and whether a write to it is being processed. No status dot: the state
+/// says where it stands in words. The card follows its title's height; it is a little
+/// lighter than the list's ground, rounded, without a shadow (list cards are an overview).
+/// Selected: Prism's light primary tint with a thin primary border, and the kind's icon in
+/// primary, while the list has the focus (`focused`), calm grey without it. The card covers
+/// its whole row with the list's ground around it, so the system's own selection never shows.
 struct RowCard: View {
     let row: RowModel
     let selected: Bool
@@ -375,18 +375,14 @@ struct RowCard: View {
 
     private var content: some View {
         let tone = RowTone(row.tone)
+        let top = RowCardText.top(row)
         let muted = PrismDarkGap.listMuted(scheme, selected: selected)
         return VStack(alignment: .leading, spacing: Prism.Spacing.px5) {
-            // Centred: the dot sits on the middle of the line's text at any size; the line's
+            // Centred: the icon sits on the middle of the line's text at any size; the line's
             // texts share one typography, so their baselines still line up.
             HStack(alignment: .center, spacing: Prism.Spacing.px6) {
-                if let tone {
-                    Circle().fill(RowCard.colour(tone))
-                        .frame(width: Prism.Spacing.px7, height: Prism.Spacing.px7)
-                        .help(tone.meaning)
-                        .accessibilityLabel(tone.meaning)
-                }
-                Text(RowCardText.kindAndKey(kind: row.kind, id: row.id) ?? "").tracking(0.6)
+                KindIcon(symbol: top.symbol, selected: selected && focused)
+                Text(top.text ?? "").tracking(0.6)
                     .prism(Prism.Typography.caption)
                 Spacer(minLength: Prism.Spacing.px6)
                 if let age = RowAge.text(since: row.since, now: Date()) {
@@ -416,16 +412,28 @@ struct RowCard: View {
             }
         }
     }
+}
 
-    /// The tone's colour: needs you error red, under way warning orange, waiting primary
-    /// blue, done success green. Never the only sign: the row's words say it too.
-    static func colour(_ tone: RowTone) -> Color {
-        switch tone {
-        case .attention: Prism.Colors.error
-        case .active: Prism.Colors.warning
-        case .waiting: Prism.Colors.primary
-        case .done: Prism.Colors.success
+/// A kind's icon (Control's `icon`, the model's semantic name for the kind, the same as on
+/// its sidebar tab), drawn as the sidebar draws it: neutral grey, primary only where it is
+/// selected (a selected card while its list has the focus). `symbol` is its SF Symbol
+/// (`SidebarLook.symbol`); without one, nothing in the same square, so what follows keeps its
+/// place.
+struct KindIcon: View {
+    let symbol: String?
+    var selected = false
+    var size: CGFloat = 12
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        ZStack {
+            if let symbol {
+                Image(systemName: symbol).resizable().scaledToFit()
+                    .foregroundStyle(PrismDarkGap.sidebarIcon(scheme, selected: selected))
+            }
         }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 
