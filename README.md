@@ -69,10 +69,12 @@ Git-agent pre-push can run `ruby platform/ops/dialyzer/check.rb` after `bin/gene
 It analyzes each tracked Mix project in the dev environment, with the platform apps
 analyzed together in the software factory umbrella. Dialyxir and its dependencies are
 locked separately under `platform/ops/dialyzer`; project dependencies must be available
-from Hex (or its offline cache). Dialyxir keeps its per-project PLTs in the build
-directories and its core PLTs in Mix home, and checks them on each run. The first run
-can take substantially longer. Findings and missing prerequisites fail the check; this
-does not change Runtime's `bin/check` or install a Git hook.
+from Hex (or its offline cache). Install the repository's Erlang/OTP and Elixir versions,
+including Erlang's Dialyzer application, and provide writable Mix home and project build
+directories. Dialyxir builds core PLTs in Mix home and per-project PLTs in the build
+directories; the first run can take substantially longer and subsequent runs check them.
+Findings and missing prerequisites fail the check; this does not change Runtime's
+`bin/check` or install a Git hook.
 
 Four commands, each with its own purpose:
 
