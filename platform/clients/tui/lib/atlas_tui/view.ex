@@ -550,7 +550,7 @@ defmodule AtlasTui.View do
     edge = {:rest_frame, if(line?, do: "│", else: " ")}
     heading = {if(focused, do: :lit, else: :dim), cell_cut(title, inner)}
 
-    [[edge, {:plain, " "}, heading]] ++
+    [[edge, if(focused, do: {:header, "▸"}, else: {:plain, " "}), heading]] ++
       Enum.map(body, &([edge, {:plain, " "}] ++ pad_line(fit(&1, inner), inner)))
   end
 
@@ -1573,12 +1573,10 @@ defmodule AtlasTui.View do
         do: [{:muted, action.key}, {:muted, " " <> single_line(action.label)}]
   end
 
-  # An answer on its key: the main one and the no in the primary colour, the rest dim; one
-  # given with a note says so.
+  # An answer on its key: the main one and the no in the primary colour, the rest dim.
   defp answer_key(answer) do
     style = if answer.weight in ["main", "decline", "no"], do: :info, else: :dim
-    note = if answer.note == true, do: " · note", else: ""
-    [{:key, answer.key}, {style, " " <> single_line(answer.label) <> note}]
+    [{:key, answer.key}, {style, " " <> single_line(answer.label)}]
   end
 
   # Answers in the order a key line shows them: the main one, the no, then the rest in

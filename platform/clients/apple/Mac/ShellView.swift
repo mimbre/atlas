@@ -57,23 +57,7 @@ struct ShellView: View {
 
     var body: some View {
         let shell = ShellViewModel(session.state)
-        NavigationSplitView(columnVisibility: $visibility) {
-            Sidebar(shell: shell, connection: connection(shell), select: session.selectTab, filter: session.filter)
-        } content: {
-            Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
-                   act: session.act)
-                .navigationSplitViewColumnWidth(WindowLayout.list)
-                // The list's own actions (Create to-do) above it, quiet icons.
-                .toolbar {
-                    ItemToolbar(actions: PageActions.listToolbar(shell.index), pending: shell.pending, act: session.act)
-                }
-        } detail: {
-            Column(page: shell.opened, header: true, selectedPath: shell.selectedPath, open: session.open,
-                   act: session.act)
-                .toolbar {
-                    ItemToolbar(actions: PageActions.toolbar(shell.opened), pending: shell.pending, act: session.act)
-                }
-        }
+        columns(shell)
         .onGeometryChange(for: Bool.self) { WindowLayout.showsSidebar(window: $0.size.width) } action: { shows in
             guard shows != sidebarShown else { return }
             sidebarShown = shows
@@ -111,6 +95,41 @@ struct ShellView: View {
         .environment(\.pendingAction, shell.pending)
         .environment(\.panelKeys, keys.panels)
     }
+
+    /// Sidebar, list and page; a tab's block page (`indexIsPage`) has no list: it is the
+    /// page, shown as an opened one is (a page opened from it takes its place).
+    @ViewBuilder
+    private func columns(_ shell: ShellViewModel) -> some View {
+        if shell.indexIsPage {
+            NavigationSplitView(columnVisibility: $visibility) {
+                Sidebar(shell: shell, connection: connection(shell), select: session.selectTab, filter: session.filter)
+            } detail: {
+                page(shell.opened ?? shell.index, shell)
+            }
+        } else {
+            NavigationSplitView(columnVisibility: $visibility) {
+                Sidebar(shell: shell, connection: connection(shell), select: session.selectTab, filter: session.filter)
+            } content: {
+                Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
+                       act: session.act)
+                    .navigationSplitViewColumnWidth(WindowLayout.list)
+                    // The list's own actions (Create to-do) above it, quiet icons.
+                    .toolbar {
+                        ItemToolbar(actions: PageActions.listToolbar(shell.index), pending: shell.pending, act: session.act)
+                    }
+            } detail: {
+                page(shell.opened, shell)
+            }
+        }
+    }
+
+    /// A page in the page column, what else can be done with it in the toolbar.
+    private func page(_ page: PageMessage?, _ shell: ShellViewModel) -> some View {
+        Column(page: page, header: true, selectedPath: shell.selectedPath, open: session.open, act: session.act)
+            .toolbar {
+                ItemToolbar(actions: PageActions.toolbar(page), pending: shell.pending, act: session.act)
+            }
+    }
 }
 
 /// The tabs, in boot's order, each with its icon and count, under its section's heading;
@@ -133,7 +152,8 @@ struct Sidebar: View {
             work: SidebarItem.rows(shell, section: "work", folded: foldedIds),
             browse: SidebarItem.rows(shell, section: "browse", folded: foldedIds),
             selection: shell.activeGroup.map(SidebarItem.ID.group) ?? shell.activeTab.map(SidebarItem.ID.tab),
-            stale: shell.stale, name: shell.name, env: shell.env, production: shell.isProduction,
+            stale: shell.stale, name: shell.name, assistant: shell.assistant, env: shell.env,
+            production: shell.isProduction,
             connection: connection,
             select: { choice in
                 switch choice {

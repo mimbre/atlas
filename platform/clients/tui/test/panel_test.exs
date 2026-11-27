@@ -24,7 +24,7 @@ defmodule AtlasTui.PanelTest do
     refute line(screen, "IS-Atlas-163  Show") =~ "▸"
     assert line(screen, "What ") =~ "Record who produced each item"
     assert line(screen, "Done ") =~ "Every new item names its producer."
-    assert screen =~ "a Accept" and screen =~ "n Not accepted · note"
+    assert screen =~ "a Accept" and screen =~ "n Not accepted"
     assert screen =~ "i Full proposal" and screen =~ "↑↓ choose"
   end
 

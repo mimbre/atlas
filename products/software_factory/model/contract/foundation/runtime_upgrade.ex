@@ -17,7 +17,11 @@ defmodule Model.RuntimeUpgrade do
     4. the Runtime polls again from its new boot: Flow checks it reports the build, a
        new incarnation (`from_incarnation` was the old one), and, once Flow ordered it
        to resume, mode open with slots to offer, so it accepts work again (`verifying`);
-    5. `done`, or `failed` with the step that failed (`failed_step`) and why (`reason`).
+    5. if the update fails, Flow keeps its current `updating` or `verifying` step with
+       `failed_step` and `reason` while it safely resumes the confirmed old build;
+       after it reports open, `failed`.
+       If safety cannot be established, it waits for its supervisor rather than resuming
+       an unknown Runtime. Otherwise the verified upgrade ends `done`.
 
   Flow writes every field but `build` (`set_by: [:flow]`), so its create sets no `step`:
   Flow reads none as `requested`, where its run starts. One upgrade at a time per
@@ -84,7 +88,7 @@ defmodule Model.RuntimeUpgrade do
     )
 
     field(:failed_step, :string,
-      description: "The step that failed: drain, update, restart or verify",
+      description: "The step that failed; while not terminal, recovery is still in progress",
       set_by: [:flow]
     )
 
@@ -121,9 +125,9 @@ defmodule Model.RuntimeUpgrade do
 
   subflow :runtime_upgrade, label: "Runtime upgrade", subject: :runtime_upgrade do
     # Its supervisor watches it; the steps are Flow's and the Runtime's.
-    owner default: {:person, config: :decider}
-    start :create
-    initial :requested
+    owner(default: {:person, config: :decider})
+    start(:create)
+    initial(:requested)
 
     state :requested, label: "Waiting for a poll" do
       present(
@@ -133,12 +137,12 @@ defmodule Model.RuntimeUpgrade do
           "Flow orders the Runtime to drain on its next poll (within 25 s). Nothing to type on the machine."
       )
 
-      branch to: :failed, when: "entity.step == 'failed'"
-      branch to: :verifying, when: "entity.step == 'verifying'"
-      branch to: :updating, when: "entity.step == 'updating'"
-      branch to: :waiting, when: "entity.step == 'waiting'"
-      branch to: :draining, when: "entity.step == 'draining'"
-      timer :not_polled, "10m", to: :stalled, label: "The Runtime did not poll in ten minutes"
+      branch(to: :failed, when: "entity.step == 'failed'")
+      branch(to: :verifying, when: "entity.step == 'verifying'")
+      branch(to: :updating, when: "entity.step == 'updating'")
+      branch(to: :waiting, when: "entity.step == 'waiting'")
+      branch(to: :draining, when: "entity.step == 'draining'")
+      timer(:not_polled, "10m", to: :stalled, label: "The Runtime did not poll in ten minutes")
     end
 
     state :draining, label: "Draining" do
@@ -149,11 +153,11 @@ defmodule Model.RuntimeUpgrade do
           "The Runtime takes no new work and returns what it had not started; its running turns finish."
       )
 
-      branch to: :failed, when: "entity.step == 'failed'"
-      branch to: :verifying, when: "entity.step == 'verifying'"
-      branch to: :updating, when: "entity.step == 'updating'"
-      branch to: :waiting, when: "entity.step == 'waiting'"
-      timer :not_drained, "10m", to: :stalled, label: "Not drained in ten minutes"
+      branch(to: :failed, when: "entity.step == 'failed'")
+      branch(to: :verifying, when: "entity.step == 'verifying'")
+      branch(to: :updating, when: "entity.step == 'updating'")
+      branch(to: :waiting, when: "entity.step == 'waiting'")
+      timer(:not_drained, "10m", to: :stalled, label: "Not drained in ten minutes")
     end
 
     # No timer: a turn may run for hours (its profile's max_duration), and the upgrade
@@ -166,9 +170,9 @@ defmodule Model.RuntimeUpgrade do
           "The upgrade waits until every running turn has ended; then the Runtime updates itself."
       )
 
-      branch to: :failed, when: "entity.step == 'failed'"
-      branch to: :verifying, when: "entity.step == 'verifying'"
-      branch to: :updating, when: "entity.step == 'updating'"
+      branch(to: :failed, when: "entity.step == 'failed'")
+      branch(to: :verifying, when: "entity.step == 'verifying'")
+      branch(to: :updating, when: "entity.step == 'updating'")
     end
 
     state :updating, label: "Updating" do
@@ -179,13 +183,14 @@ defmodule Model.RuntimeUpgrade do
           "The Runtime's update command installs the release; its launch agent starts it again."
       )
 
-      branch to: :failed, when: "entity.step == 'failed'"
-      branch to: :verifying, when: "entity.step == 'verifying'"
-      branch to: :done, when: "entity.step == 'done'"
+      branch(to: :failed, when: "entity.step == 'failed'")
+      branch(to: :verifying, when: "entity.step == 'verifying'")
+      branch(to: :done, when: "entity.step == 'done'")
 
-      timer :not_back, "20m",
+      timer(:not_back, "20m",
         to: :stalled,
         label: "The Runtime did not come back in twenty minutes"
+      )
     end
 
     state :verifying, label: "Verifying" do
@@ -196,9 +201,9 @@ defmodule Model.RuntimeUpgrade do
           "Flow checks the Runtime's build, its new incarnation, mode open and its offer."
       )
 
-      branch to: :failed, when: "entity.step == 'failed'"
-      branch to: :done, when: "entity.step == 'done'"
-      timer :not_verified, "10m", to: :stalled, label: "Not verified in ten minutes"
+      branch(to: :failed, when: "entity.step == 'failed'")
+      branch(to: :done, when: "entity.step == 'done'")
+      timer(:not_verified, "10m", to: :stalled, label: "Not verified in ten minutes")
     end
 
     # The Runtime fell silent or did not move on: its supervisor looks on the machine
@@ -211,16 +216,16 @@ defmodule Model.RuntimeUpgrade do
           "Look at the machine's update.log and service.log in the Runtime home. The upgrade goes on by itself once the Runtime reports again."
       )
 
-      branch to: :failed, when: "entity.step == 'failed'"
-      branch to: :done, when: "entity.step == 'done'"
-      branch to: :verifying, when: "entity.step == 'verifying'"
-      branch to: :updating, when: "entity.step == 'updating'"
-      branch to: :waiting, when: "entity.step == 'waiting'"
-      branch to: :draining, when: "entity.step == 'draining'"
+      branch(to: :failed, when: "entity.step == 'failed'")
+      branch(to: :done, when: "entity.step == 'done'")
+      branch(to: :verifying, when: "entity.step == 'verifying'")
+      branch(to: :updating, when: "entity.step == 'updating'")
+      branch(to: :waiting, when: "entity.step == 'waiting'")
+      branch(to: :draining, when: "entity.step == 'draining'")
     end
 
-    final :done, label: "Done"
-    final :failed, label: "Failed"
+    final(:done, label: "Done")
+    final(:failed, label: "Failed")
   end
 
   # How the runs of runtime_upgrade are selected and imported: an ended one as completed

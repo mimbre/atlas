@@ -14,7 +14,7 @@ defmodule AtlasTui.ShellTabsTest do
   @external_resource @product
 
   # The routes `AtlasControl.Shell` lets a tab open, one path each.
-  @tab_paths ["/", "/k/widget", "/workers", "/_open", "/_supervised"]
+  @tab_paths ["/", "/k/widget", "/machines", "/workers", "/_open", "/_supervised"]
 
   defp handshake do
     model = %{Model.new("test") | console: Console.new()}

@@ -39,7 +39,7 @@ defmodule AtlasTui.DecisionTest do
           "Files need nothing to run.",
           "1. Use files",
           "2. Use memory",
-          "3 Decline all · note",
+          "3 Decline all",
           "Decline all: None of these fits; say why.",
           ~r/^  Details$/,
           "Status"
@@ -81,7 +81,7 @@ defmodule AtlasTui.DecisionTest do
 
     assert line(model, "1 Choose")
     assert line(model, "2 Choose")
-    assert line(model, "3 Decline all · note") =~ "l Inspector's log"
+    assert line(model, "3 Decline all") =~ "l Inspector's log"
 
     # The main answer and the decline in the primary colour, another Choose dim.
     role =
@@ -90,11 +90,11 @@ defmodule AtlasTui.DecisionTest do
         role -> role
       end)
 
-    assert :info in role.("1 Choose") and :info in role.("3 Decline all · note")
+    assert :info in role.("1 Choose") and :info in role.("3 Decline all")
     assert :dim in role.("2 Choose") and :info not in role.("2 Choose")
   end
 
-  test "one proposal: its card without an answer, then 1 Accept · 2 Decline · note" do
+  test "one proposal: its card without an answer, then Accept and Decline" do
     model = PanelFixture.model(:proposal)
     lines = lines(model)
 
@@ -106,7 +106,7 @@ defmodule AtlasTui.DecisionTest do
     rule = String.split("Rule " <> PanelFixture.long_rule())
     assert Enum.join(flat, " ") =~ Enum.join(rule, " ")
     refute at(lines, "1 Choose")
-    assert line(model, "1 Accept") =~ "2 Decline · note"
+    assert line(model, "1 Accept") =~ "2 Decline"
     assert line(model, "Decline: None of these fits; say why.")
 
     {_, by_one} = Model.key(model, {:char, "1"})
@@ -192,7 +192,7 @@ defmodule AtlasTui.DecisionTest do
     assert {:card, :error} in styles(model, "What went wrong")
     assert {:card, :plain} in styles(model, "could not reach the database")
     refute line(model, "Retry") =~ "★"
-    assert line(model, "t Accept") =~ "c Decline · note"
+    assert line(model, "t Accept") =~ "c Decline"
   end
 
   test "stuck work: Enter retries as t does; c opens its note form" do

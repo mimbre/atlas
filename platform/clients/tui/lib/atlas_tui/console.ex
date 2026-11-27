@@ -476,6 +476,7 @@ defmodule AtlasTui.Console do
   defp entry(model),
     do: %{
       path: model.path,
+      title: model.title,
       selection: Selection.of(Model.rows(model), model.selected),
       scroll: model.scroll,
       scrolls: model.scrolls,
@@ -517,6 +518,11 @@ defmodule AtlasTui.Console do
           (tab["to"] != "/" and is_binary(model.path) and
              String.starts_with?(model.path, tab["to"] <> "/")) or
             Enum.any?(tab["groups"] || [], &(&1["to"] == model.path))
+        end) ||
+        Enum.find_value(model.console.history, fn entry ->
+          Enum.find(tabs, fn tab ->
+            tab["to"] == entry.path or Enum.any?(tab["groups"] || [], &(&1["to"] == entry.path))
+          end)
         end)
 
     %{model | console: %{model.console | active: active && active["id"]}}
@@ -555,18 +561,23 @@ defmodule AtlasTui.Console do
         is_list(tabs) and length(tabs) in 1..64 and Enum.all?(tabs, &valid_tab?/1) and
         distinct?(tabs, "id") and distinct?(tabs, "to") and path?(message["initial_to"]) and
         (is_nil(message["active_tab"]) or Enum.any?(tabs, &(&1["id"] == message["active_tab"]))) and
-        (is_nil(message["greeting"]) or text?(message["greeting"], 1_024))
+        (is_nil(message["greeting"]) or text?(message["greeting"], 1_024)) and
+        (is_nil(message["assistant"]) or text?(message["assistant"], 1_024))
 
     if valid,
       do:
-        {:ok, Map.take(message, ~w(title env spec revision tabs initial_to active_tab greeting))},
+        {:ok,
+         Map.take(
+           message,
+           ~w(title env spec revision tabs initial_to active_tab greeting assistant)
+         )},
       else: {:error, "Invalid Console boot response"}
   end
 
   # The index pages a tab may open: the ones Control's shell serves as tabs
-  # (`AtlasControl.Shell`): what is assigned, a kind's list, the workers and the
-  # supervision screens (Open for you, Supervised by you; M3b P4).
-  @tab_pages [:home, :list, :workers, :open_for_you, :supervised_by_you]
+  # (`AtlasControl.Shell`): what is assigned, a kind's list, the machines, the workers and
+  # the supervision screens (Open for you, Supervised by you; M3b P4).
+  @tab_pages [:home, :list, :machines, :workers, :open_for_you, :supervised_by_you]
 
   defp valid_tab?(%{"id" => id, "label" => label, "to" => to} = tab) do
     text?(id, 64) and text?(label, 128) and path?(to) and
