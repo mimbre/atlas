@@ -788,7 +788,7 @@ defmodule AtlasControl.PagesTest do
            }
   end
 
-  test "only explicitly Markdown fields become formatted text blocks" do
+  test "formatted fields remain in the item for older clients" do
     notes = "# Heading\n\n- one\n- two"
     answer = %{"fact" => fact("W-01", %{"title" => "One", "notes" => notes})}
 
@@ -800,18 +800,13 @@ defmodule AtlasControl.PagesTest do
       end)
     end
 
-    %{blocks: blocks} = render({:item, "widget", "W-01"}, catalog.("markdown"), [answer])
-    assert %{"type" => "text", "props" => %{"label" => "Notes", "text" => ^notes, "format" => "markdown"}} =
-             Enum.find(blocks, &(&1["id"] == "field:notes"))
-
-    item = Enum.find(blocks, &(&1["id"] == "item"))
-    refute Enum.any?(item["props"]["fields"], &(&1["label"] == "Notes"))
-
-    for format <- [nil, "future-format"] do
+    for format <- ["markdown", nil, "future-format"] do
       %{blocks: blocks} = render({:item, "widget", "W-01"}, catalog.(format), [answer])
       item = Enum.find(blocks, &(&1["id"] == "item"))
-      assert Enum.find(item["props"]["fields"], &(&1["label"] == "Notes"))["value"] == notes
-      refute Enum.any?(blocks, &(&1["id"] == "field:notes"))
+      pair = Enum.find(item["props"]["fields"], &(&1["label"] == "Notes"))
+      assert pair["value"] == notes
+      assert pair["format"] == format
+      if is_nil(format), do: refute(Map.has_key?(pair, "format"))
     end
   end
 

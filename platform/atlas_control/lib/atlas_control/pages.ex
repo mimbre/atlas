@@ -2354,17 +2354,15 @@ defmodule AtlasControl.Pages do
               end)
               |> put_in(["props", "actions"], [])
 
-            {item, text_blocks} = formatted_fields(k, item)
-
             content =
               head ++
                 others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
-                [{"item", item}] ++ text_blocks ++ lists
+                [{"item", item}] ++ lists
 
             markup =
               for({id, {title, _list}} <- judged, do: Blocks.section(id, id, title: title)) ++
-                decision_details_markup(details_markup, text_blocks, [])
+                details_markup
 
             page("#{k.label} #{key}", back, content, markup)
 
@@ -2405,8 +2403,6 @@ defmodule AtlasControl.Pages do
 
             detail_item = details.(item, head)
             {detail_item, detail_blocks, technical} = decision_details(k, fact, detail_item)
-            {detail_item, text_blocks} = formatted_fields(k, detail_item)
-            detail_blocks = text_blocks ++ detail_blocks
 
             content =
               iconed(head, kind_icon(m, kind)) ++
@@ -2441,8 +2437,6 @@ defmodule AtlasControl.Pages do
               end
 
             {item, detail_blocks, technical} = decision_details(k, fact, item)
-            {item, text_blocks} = formatted_fields(k, item)
-            detail_blocks = text_blocks ++ detail_blocks
             content = [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
 
             markup =
@@ -3751,23 +3745,6 @@ defmodule AtlasControl.Pages do
         do: {String.capitalize(r.label), keys}
   end
 
-  # Marked long fields are blocks so clients can render their declared format.
-  defp formatted_fields(k, item) do
-    {fields, blocks} =
-      Enum.reduce(item["props"]["fields"], {[], []}, fn pair, {fields, blocks} ->
-        field = Enum.find(k.fields, &(&1.label == pair["label"] and Map.get(&1, :format) == "markdown"))
-
-        if field do
-          block = Blocks.text(label: pair["label"], text: pair["value"], format: field.format)
-          {fields, [{"field:#{field.name}", block} | blocks]}
-        else
-          {[pair | fields], blocks}
-        end
-      end)
-
-    {put_in(item, ["props", "fields"], Enum.reverse(fields)), Enum.reverse(blocks)}
-  end
-
   # The fields a page shows of a fact: those a user may set, and the others once they have a
   # value. `made` names those a component's values are made from (the fact's key), and the
   # fields a flow keeps to itself: not shown.
@@ -3777,7 +3754,13 @@ defmodule AtlasControl.Pages do
 
       # A field only a connector or the system fills shows only once it has a value.
       if f.name not in made and (f.settable or value not in [nil, ""]),
-        do: [Blocks.pair(label: f.label, value: show(f, value) <> late(k, fact, f.name))],
+        do: [
+          Blocks.pair(
+            label: f.label,
+            value: show(f, value) <> late(k, fact, f.name),
+            format: Map.get(f, :format)
+          )
+        ],
         else: []
     end)
   end

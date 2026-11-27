@@ -18,4 +18,12 @@ defmodule AtlasBFFContract.TextFormatTest do
                Server.text(text: text, format: format)
     end
   end
+
+  test "a formatted pair retains its labelled value for older clients" do
+    text = "# Heading"
+    assert %{"label" => "Description", "value" => ^text, "format" => "markdown"} =
+             Server.pair(label: "Description", value: text, format: "markdown")
+
+    refute Map.has_key?(Server.pair(label: "Description", value: text), "format")
+  end
 end

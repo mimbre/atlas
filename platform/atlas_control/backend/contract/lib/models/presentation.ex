@@ -150,10 +150,11 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :cause, :string
   end
 
-  # A labelled value, with the fact that set it when that is known.
+  # A labelled value, with its origin and optional format (markdown; otherwise plain).
   defmodel :pair do
     field :label, :string, required: true
     field :value, :string
+    field :format, :string
     field :origin, :origin
   end
 

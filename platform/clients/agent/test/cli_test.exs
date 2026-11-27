@@ -60,19 +60,6 @@ defmodule AtlasAgent.CLITest do
     assert %{"values" => %{"title" => "A — B", "description" => "ü"}} = JSON.decode!(out)
   end
 
-  test "get includes formatted text fields for workers", %{control: c} do
-    widget = FakeControl.put(c, "widget", %{"title" => "A widget"})
-    text = "## Context\n\n- one"
-
-    FakeControl.lead(c, widget, [
-      %{"id" => "field:description", "type" => "text",
-        "props" => %{"label" => "Description", "text" => text, "format" => "markdown"}}
-    ])
-
-    {0, out, ""} = atlas(["get", widget, "--json"])
-    assert ["Description", text] in JSON.decode!(out)["fields"]
-  end
-
   test "help: the kinds from Control under its heading" do
     {0, out, ""} = atlas(["help"])
     assert out =~ ~r/^Kinds \(from rela's description, through Control\):\n\nWidget \(widget\)\n/
