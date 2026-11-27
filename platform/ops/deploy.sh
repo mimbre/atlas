@@ -40,13 +40,6 @@ as() { # rela|core, then a flyctl command
 }
 machines() { as "$1" status -a "$2" --json | jq '.Machines | length'; }
 
-# A label is not proof that post-deploy checks and cleanup completed. Invalidate
-# before any test deployment, including direct invocations and failed preflights.
-if [ "$env" = test ] && [ "$(machines rela "$rela_app")" -gt 0 ]; then
-  as rela ssh console -q -a "$rela_app" -C "rm -f /data/test-deploy-verified" ||
-    fail 'cannot invalidate test deployment evidence'
-fi
-
 # 1. The targets, generated from the model with the pinned toolchain.
 "$root/bin/generate" model
 
@@ -142,10 +135,4 @@ else
   else
     "$root/platform/ops/smoke.sh" "$env" "$label"
   fi
-fi
-
-if [ "$env" = test ] && [ -z "$held" ] && [[ "$label" =~ ^develop-[0-9a-f]{40}$ ]]; then
-  as rela ssh console -q -a "$rela_app" \
-    -C "sh -c 'printf \"%s\\n\" \"$label\" > /data/test-deploy-verified.tmp && mv /data/test-deploy-verified.tmp /data/test-deploy-verified'" ||
-    fail 'cannot record verified test deployment'
 fi

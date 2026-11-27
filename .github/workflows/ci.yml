@@ -36,7 +36,7 @@ jobs:
       run_id: ${{ steps.find.outputs.run_id }}
       # The macOS jobs (swift, apple) run only when this change touches what they test.
       apple: ${{ steps.apple.outputs.apple }}
-      # Prod's push-relative Fly change filter; test reconciles against its deployed pair.
+      # The production Fly deploy runs only when something that ends up on Fly changed.
       deploy: ${{ steps.apple.outputs.deploy }}
     steps:
       - uses: actions/checkout@v4
@@ -742,8 +742,6 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"

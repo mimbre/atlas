@@ -21,24 +21,6 @@ defmodule AtlasE2E.DeployOrderTest do
     work = Path.join(dir, "work")
     origin = Path.join(dir, "origin.git")
     File.mkdir_p!(Path.join(work, "platform/ops"))
-    File.mkdir_p!(Path.join(work, "products/software_factory/environments"))
-    File.write!(Path.join(work, "products/software_factory/environments/test.json"), """
-    {"fly":{"app":"core","rela_app":"rela"}}
-    """)
-    File.mkdir_p!(Path.join(dir, "bin"))
-    File.write!(Path.join(dir, "bin/flyctl"), """
-    #!/bin/sh
-    set -eu
-    if [ "$1" = ssh ]; then
-      [ "${FLY_FAIL:-}" != evidence ] || exit 1
-      printf '%s\\n' "${VERIFIED_TAG:-}"
-      exit 0
-    fi
-    if [ "${FLY_FAIL:-}" = "$3" ]; then exit 1; fi
-    if [ "$3" = core ]; then tag="${CORE_TAG:-unknown}"; else tag="${RELA_TAG:-unknown}"; fi
-    printf '{"Machines":[{"image_ref":{"tag":"%s"}}]}' "$tag"
-    """)
-    File.chmod!(Path.join(dir, "bin/flyctl"), 0o755)
     git!(dir, ["init", "--bare", origin])
     git!(work, ["init", "-b", "develop"])
     git!(work, ["config", "user.name", "Deployment fixture"])
@@ -106,72 +88,12 @@ defmodule AtlasE2E.DeployOrderTest do
     git!(c.work, ["push", "origin", "HEAD:develop"])
     client_head = git!(c.work, ["rev-parse", "HEAD"])
     git!(c.work, ["checkout", "--detach", fly_change])
-    assert {out, 0} = deliver(c, fly_change, deployed(c.old))
+    assert {out, 0} = deliver(c, fly_change)
     assert out =~ "skipping stale"
     git!(c.work, ["checkout", "--detach", client_head])
-    assert {_, 0} = deliver(c, client_head, deployed(c.old))
+    assert {_, 0} = deliver(c, client_head)
     assert lines(c) == ["rela develop-#{client_head}", "core develop-#{client_head}"]
-    assert {out, 0} = deliver(c, client_head, deployed(client_head))
-    assert out =~ "already has the Fly-relevant tree"
-    assert length(lines(c)) == 2
   end
-
-  test "client-only changes do not redeploy an equivalent pair", c do
-    File.mkdir_p!(Path.join(c.work, "platform/clients/apple"))
-    File.write!(Path.join(c.work, "platform/clients/apple/client"), "client")
-    git!(c.work, ["add", "."])
-    git!(c.work, ["commit", "-m", "client only"])
-    git!(c.work, ["push", "origin", "HEAD:develop"])
-    current = git!(c.work, ["rev-parse", "HEAD"])
-    assert {out, 0} = deliver(c, current, deployed(c.old))
-    assert out =~ "already has the Fly-relevant tree"
-    assert lines(c) == []
-  end
-
-  test "unknown or mismatched deployed labels reconcile, while status failure refuses", c do
-    assert {_, 0} = deliver(c, c.old, [{"CORE_TAG", "develop-#{c.old}"}, {"RELA_TAG", "unknown"}])
-    assert length(lines(c)) == 2
-    assert {_, code} = deliver(c, c.old, [{"FLY_FAIL", "core"}])
-    assert code != 0
-    assert length(lines(c)) == 2
-  end
-
-  test "matching labels without successful completion evidence redeploy", c do
-    assert {_, 0} = deliver(c, c.old, [{"CORE_TAG", "develop-#{c.old}"}, {"RELA_TAG", "develop-#{c.old}"}])
-    assert lines(c) == ["rela develop-#{c.old}", "core develop-#{c.old}"]
-    assert {_, code} = deliver(c, c.old, deployed(c.old) ++ [{"FLY_FAIL", "evidence"}])
-    assert code != 0
-    assert length(lines(c)) == 2
-  end
-
-  test "deployment evidence is invalidated before preflight and recorded after smoke" do
-    script = File.read!(Path.join(@root, "platform/ops/deploy.sh"))
-    [{invalidate, _}] = :binary.matches(script, "rm -f /data/test-deploy-verified")
-    [{generate, _}] = :binary.matches(script, ~s("$root/bin/generate" model))
-    [{smoke, _}] = :binary.matches(script, ~s(FLY_API_TOKEN="$ATLAS_FLY_TOKEN_CORE" "$root/platform/ops/smoke.sh"))
-    [{record, _}] = :binary.matches(script, "> /data/test-deploy-verified.tmp")
-    assert invalidate < generate
-    assert smoke < record
-    assert script =~ ~s([ "$env" = test ] && [ -z "$held" ])
-  end
-
-  test "moving a Fly-relevant file to an excluded path still deploys", c do
-    previous = advance(c)
-    File.mkdir_p!(Path.join(c.work, "platform/clients/apple"))
-    git!(c.work, ["mv", "newer", "platform/clients/apple/newer"])
-    git!(c.work, ["commit", "-m", "move to client"])
-    git!(c.work, ["push", "origin", "HEAD:develop"])
-    current = git!(c.work, ["rev-parse", "HEAD"])
-    assert {_, 0} = deliver(c, current, deployed(previous))
-    assert lines(c) == ["rela develop-#{current}", "core develop-#{current}"]
-  end
-
-  defp deployed(sha),
-    do: [
-      {"CORE_TAG", "develop-#{sha}"},
-      {"RELA_TAG", "develop-#{sha}"},
-      {"VERIFIED_TAG", "develop-#{sha}"}
-    ]
 
   test "unavailable or missing remote head refuses before any deployment", c do
     for remote <- [Path.join(c.dir, "does-not-exist"), Path.join(c.dir, "empty.git")] do
@@ -226,8 +148,6 @@ defmodule AtlasE2E.DeployOrderTest do
              "queue" => "max"
            }
     refute c.job["if"] =~ "outputs.deploy"
-    checkout = Enum.find(c.job["steps"], &(&1["uses"] == "actions/checkout@v4"))
-    assert checkout["with"]["fetch-depth"] == 0
 
     assert Enum.any?(
              c.jobs["deploy-prod"]["steps"],
@@ -255,12 +175,7 @@ defmodule AtlasE2E.DeployOrderTest do
             "PAIR_READY" => nil,
             "PAIR_RELEASE" => nil,
             "ATLAS_FLY_TOKEN_RELA" => "unused-fixture",
-            "ATLAS_FLY_TOKEN_CORE" => "unused-fixture",
-            "PATH" => Path.join(c.dir, "bin") <> ":" <> System.fetch_env!("PATH"),
-            "CORE_TAG" => nil,
-            "RELA_TAG" => nil,
-            "VERIFIED_TAG" => nil,
-            "FLY_FAIL" => nil
+            "ATLAS_FLY_TOKEN_CORE" => "unused-fixture"
           },
           Map.new(extra)
         )
