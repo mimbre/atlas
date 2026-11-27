@@ -517,6 +517,11 @@ defmodule AtlasTui.Console do
           (tab["to"] != "/" and is_binary(model.path) and
              String.starts_with?(model.path, tab["to"] <> "/")) or
             Enum.any?(tab["groups"] || [], &(&1["to"] == model.path))
+        end) ||
+        Enum.find_value(model.console.history, fn entry ->
+          Enum.find(tabs, fn tab ->
+            tab["to"] == entry.path or Enum.any?(tab["groups"] || [], &(&1["to"] == entry.path))
+          end)
         end)
 
     %{model | console: %{model.console | active: active && active["id"]}}

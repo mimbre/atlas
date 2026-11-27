@@ -73,6 +73,8 @@ What gives way as the room narrows, in this order:
 3. **The list.** Mac: below a window of 1080 pt the split view folds its sidebar into the
    sidebar toggle (macOS's three-column split view cannot hide its middle column). TUI:
    below 144 columns, one column at a time (Enter opens the page, Esc returns).
+   The originating tab stays selected; an opened page shows a breadcrumb from its
+   navigation history beneath the tab bar.
 
 Below 80 columns a TUI row keeps its dot, key and title only. Chrome (title bar, toolbar,
 status and key lines) is not a column and takes the full width. Text wraps at its
@@ -93,7 +95,7 @@ Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 | Step (`instruction`) | A calm card per step, number in a badge, lines in order | A filled card per step, numbers aligned, lines in order; text bold |
 | Command (in a step) | A light inset with a copy icon right after the command, in the primary colour at the action icons' 16pt; after a copy a brief ✓, also primary | Plain behind a bar; the selected one highlighted (`c` copies, `y`) |
 | Route (in a step) | Muted ⌘, parts as small labels with › between | Muted ⌘, parts bold in the route colour |
-| Answers (`answers`) | A Prism button per answer in Control's order by its weight: `main` `primary`, `decline` `secondary`; labels say nothing of what follows (no `…`, no `· note`); a `detail` small under the buttons. On the opened item the page's bottom keeps only these (a Choose per card and Decline all, Accept and Decline, Done and Won't do): its `other` answers are in the window's toolbar (below); in a sheet they stay `plain` buttons with their icon | The key line: each answer on its key, the main one and the decline in the primary colour, a note answer `· note`; a `detail` dim under it |
+| Answers (`answers`) | A Prism button per answer in Control's order by its weight: `main` `primary`, `decline` `secondary`; labels say nothing of what follows (no `…`, no `· note`); a `detail` small under the buttons. On the opened item the page's bottom keeps only these (a Choose per card and Decline all, Accept and Decline, Done and Won't do): its `other` answers are in the window's toolbar (below); in a sheet they stay `plain` buttons with their icon | The key line: each answer on its key, the main one and the decline in the primary colour, without a `· note` suffix; a `detail` dim under it |
 | Other actions (`actions`) | The opened item's in the window's toolbar at the right, never on the page, in this order at the same spacing: its actions (Update first), then its `other` answers in Control's order (each taken as its key takes it: its call, else its page or note form), then Delete last; each its SF Symbol (edit `pencil`, question `questionmark.bubble`, hand_over `person.and.arrow.left.and.arrow.right`, delegate `arrow.uturn.backward`, faults `exclamationmark.triangle`, …) in the primary colour, Delete's red; Update and Delete their icon alone, every other its short label too (Ask, Delegate, Hand to, Failures), whatever the toolbar's display setting; its tooltip Control's `help`, else its label. The same in the page's context menu and the Actions menu; none when nothing is open. Elsewhere (a sheet) one row of quiet icon buttons. A dangerous one opens Control's confirm | In the answers' key line, muted, after the answers (else a key line of its own) |
 | What went wrong (`text` role `error`) | Prism's `MessageBar` in danger: label as heading, text under it | A card, label as a heading in the error colour over its text |
 | Details (part `details`/`related`) | Own column, or a recessed card (grey5) under the page | Own column, or a compact card under its heading at the page's end |
@@ -159,7 +161,7 @@ nothing about an action, only how it is triggered.
 | Weight | What it is | Mac | TUI |
 |---|---|---|---|
 | Main answer | the first of `answers` (or an option's Choose): the next step | `primary` button (success) | key in green |
-| Decline | weight `decline` (`no`, deprecated): Won't do, Decline, Decline all | `secondary` button; Decline all under several alternatives (icon `decline`) a quiet `plain` button with a blue `xmark.circle`; one with `note` opens the note form on click, its label unchanged | key in the primary colour, `· note` when it asks one |
+| Decline | weight `decline` (`no`, deprecated): Won't do, Decline, Decline all | `secondary` button; Decline all under several alternatives (icon `decline`) a quiet `plain` button with a blue `xmark.circle`; one with `note` opens the note form on click, its label unchanged | key in the primary colour; its label stays unchanged when a note is needed |
 | Other answer | weight `other`: Ask, Delegate (a decision, D-0106: its form chooses the proposer or another person), Pick up | the opened item's in the window's toolbar after its actions, its icon and short label; in a sheet a `plain` button with its icon | in the key line, in order |
 | Other action | the `actions` block: change, hand over, delete, create under, Failures… (test only) | the opened item's in the window's toolbar, never a button on the page; its icon in the primary colour (dark: PrismDarkGap's readable primary), Delete red and last | muted in the key line |
 
