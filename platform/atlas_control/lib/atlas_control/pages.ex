@@ -2546,22 +2546,21 @@ defmodule AtlasControl.Pages do
               end
 
             detail_item = details.(item, head)
-            {detail_item, detail_blocks, technical} = decision_details(k, fact, detail_item)
+            {detail_item, detail_blocks, technical} = decision_details(m, k, fact, detail_item)
 
             groups = panel && panel["detail_groups"]
 
             {detail_content, detail_markup} =
-              if is_list(groups) do
-                {
-                  panel_detail_blocks(m, k, groups, detail_item) ++
-                    detail_blocks ++
-                    lists ++
-                    technical,
-                  sections ++ technical_section(technical)
-                }
-              else
-                {[{"item", detail_item}] ++ detail_blocks ++ lists ++ technical,
-                 decision_details_markup(details_markup, detail_blocks, technical)}
+              cond do
+                is_list(groups) ->
+                  {panel_detail_blocks(m, k, groups, detail_item) ++
+                     detail_blocks ++ lists ++ technical, sections}
+
+                is_list(get_in(k, [:decision_options, "details"])) ->
+                  {[{"item", detail_item}] ++ detail_blocks ++ lists ++ technical, sections}
+
+                true ->
+                  {[{"item", detail_item}] ++ detail_blocks ++ lists ++ technical, details_markup}
               end
 
             content =
@@ -2596,20 +2595,8 @@ defmodule AtlasControl.Pages do
                     sections
               end
 
-            {item, detail_blocks, technical} = decision_details(k, fact, item)
+            {item, detail_blocks, technical} = decision_details(m, k, fact, item)
             content = [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
-
-            markup =
-              if detail_blocks != [] or technical != [] do
-                first = elem(hd(detail_blocks ++ technical), 0)
-                last = elem(List.last(detail_blocks ++ technical), 0)
-
-                markup ++
-                  [Blocks.part(first, last, title: "Details", role: "details")] ++
-                  technical_section(technical)
-              else
-                markup
-              end
 
             # Its owner's part first: what to do (IS-Atlas-54).
             {content, markup} =
@@ -3766,41 +3753,44 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  # The model names the groups and the exact offer records; raw records share one section.
-  defp decision_details(k, fact, item) do
+  # The model names the groups and the exact offer records.
+  defp decision_details(m, k, fact, item) do
     case Map.get(k, :decision_options) do
       %{"details" => groups} = rule when is_list(groups) ->
-        fields = item["props"]["fields"] || []
         raw_names = Enum.map(~w(definition snapshot revision history), &rule[&1])
         raw_labels = for f <- k.fields, f.name in raw_names, do: f.label
-        fields = Enum.reject(fields, &(&1["label"] in raw_labels))
+        grouped_names = Enum.flat_map(groups, & &1["fields"]) ++ [rule["selected"]]
 
-        {blocks, remaining} =
+        absent_labels =
+          for f <- k.fields,
+              f.name in grouped_names,
+              fact["values"][f.name] in [nil, ""],
+              do: f.label
+
+        fields =
+          Enum.reject(
+            item["props"]["fields"] || [],
+            &(&1["label"] in (raw_labels ++ absent_labels))
+          )
+
+        groups =
           groups
           |> Enum.with_index()
-          |> Enum.map_reduce(fields, fn {group, index}, remaining ->
-            names = group["fields"] ++ if(index == 0, do: [rule["selected"]], else: [])
-            labels = for f <- k.fields, f.name in names, do: f.label
-            {selected, rest} = Enum.split_with(remaining, &(&1["label"] in labels))
-
-            present =
-              for f <- k.fields,
-                  f.name in names,
-                  fact["values"][f.name] not in [nil, ""],
-                  do: f.label
-
-            selected = Enum.filter(selected, &(&1["label"] in present))
-
-            block =
-              if selected == [],
-                do: [],
-                else: [
-                  {"decision-detail-#{index}",
-                   Blocks.item(title: group["title"], fields: selected)}
-                ]
-
-            {block, rest}
+          |> Enum.map(fn
+            {first, 0} -> Map.update!(first, "fields", &(&1 ++ [rule["selected"]]))
+            {group, _} -> group
           end)
+
+        grouped_item = put_in(item, ["props", "fields"], fields)
+        grouped = page_detail_blocks(m, k, %{"details" => groups}, grouped_item)
+
+        remaining =
+          case List.keyfind(grouped, "item", 0) do
+            nil -> []
+            {_, block} -> block["props"]["fields"]
+          end
+
+        blocks = Enum.reject(grouped, &(elem(&1, 0) == "item"))
 
         history_blocks = decision_history(k, rule, fact)
 
@@ -3817,8 +3807,7 @@ defmodule AtlasControl.Pages do
              )}
           end
 
-        {put_in(item, ["props", "fields"], remaining), List.flatten(blocks) ++ history_blocks,
-         technical}
+        {put_in(item, ["props", "fields"], remaining), blocks ++ history_blocks, technical}
 
       _ ->
         {item, [], []}
@@ -3936,30 +3925,6 @@ defmodule AtlasControl.Pages do
         value != "",
         do: Blocks.pair(label: label, value: value)
       )
-
-  defp decision_details_markup(markup, [], []), do: markup
-
-  defp decision_details_markup([part | sections], blocks, technical) do
-    last =
-      cond do
-        technical != [] -> elem(List.last(technical), 0)
-        sections != [] -> part["end"]
-        true -> elem(List.last(blocks), 0)
-      end
-
-    [%{part | "end" => last} | sections] ++ technical_section(technical)
-  end
-
-  defp technical_section([]), do: []
-
-  defp technical_section(blocks) do
-    [
-      Blocks.section(elem(hd(blocks), 0), elem(List.last(blocks), 0),
-        title: "Technical details",
-        collapsible: true
-      )
-    ]
-  end
 
   # The facts this one belongs under: `[{label, keys}]`.
   defp parents(m, kind, fact) do
