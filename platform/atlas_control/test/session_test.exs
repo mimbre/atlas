@@ -335,7 +335,8 @@ defmodule AtlasControl.SessionTest do
       "label" => "Failures…",
       "to" => "/faults",
       "icon" => "faults",
-      "button" => "Failures"
+      "button" => "Failures",
+      "help" => "Cause a failure here, to see how it is shown (test only)"
     }
 
     assert ["c"] = for(a <- get_in(hd(home["blocks"]), ["props", "actions"]), do: a["key"])
