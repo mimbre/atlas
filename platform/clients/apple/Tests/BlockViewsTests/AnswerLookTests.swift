@@ -44,13 +44,15 @@ final class AnswerLookTests: XCTestCase {
         XCTAssertEqual(ActionIcon.symbol("edit"), "pencil")
         XCTAssertEqual(ActionIcon.symbol("delete"), "trash")
         XCTAssertEqual(ActionIcon.symbol("hand_over"), "person.and.arrow.left.and.arrow.right")
+        XCTAssertEqual(ActionIcon.symbol("question"), "questionmark.bubble")
+        XCTAssertEqual(ActionIcon.symbol("delegate"), "arrow.uturn.backward")
         XCTAssertEqual(ActionIcon.symbol("create"), "plus")
         XCTAssertEqual(ActionIcon.symbol("open"), "arrow.up.right.square")
         XCTAssertNil(ActionIcon.symbol("launch_rockets"))
         XCTAssertNil(ActionIcon.symbol(nil))
 
         // Every symbol is one the system has: one it lacks would show no icon at all.
-        for name in ["edit", "delete", "hand_over", "create", "open"] {
+        for name in ["edit", "delete", "hand_over", "question", "delegate", "create", "open"] {
             let symbol = try XCTUnwrap(ActionIcon.symbol(name))
             XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), symbol)
         }

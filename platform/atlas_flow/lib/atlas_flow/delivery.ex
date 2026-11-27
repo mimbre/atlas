@@ -42,8 +42,9 @@ defmodule AtlasFlow.Delivery do
   notice on that lease, or the next start, ends it. Delivery stays the only attempt writer.
 
   **The run.** On an ended result, a refusal or a lease fenced at its expiry (a silent
-  turn), `{:reconcile, kind, key}` is cast to the Engine for the run that holds the task
-  (Delivery never writes a run).
+  turn), `{:reconcile, kind, key}` is cast to the Engine for the run that holds the task;
+  on each stored write of a Runtime's upgrade, for that upgrade's run (Delivery never
+  writes a run).
 
   Options of `start_link/1`: `name`, `model`, `clock`, `accept_deadline` (30 s), `engine`
   (default `AtlasFlow.Engine`) and `bases` (its server).
@@ -163,7 +164,8 @@ defmodule AtlasFlow.Delivery do
   end
 
   def handle_call({:upgrade, {runtime_id, _holder}, input}, _from, state) do
-    {:reply, Upgrade.poll(runtime_id, input), state}
+    stored = &GenServer.cast(state.engine, {:reconcile, Upgrade.kind(), &1})
+    {:reply, Upgrade.poll(runtime_id, input, "flow", stored), state}
   end
 
   def handle_call({:scope, {runtime_id, _}, lease_id, sha}, _from, state) do

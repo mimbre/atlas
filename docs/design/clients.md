@@ -89,11 +89,11 @@ Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 |---|---|---|
 | Title / eyebrow (`header`) | On the page, no card: eyebrow and key in small caps in the accent's text colour (`TO DO FOR YOU · TD-12`), the title as the page title; the page's own actions beside it | Eyebrow with the key (`◆ YOUR DECISION · D-0104`) bold in the eyebrow colour, title under it |
 | Why / text (`text`) | On the page, muted: `Why: … · 3h ago`, its age kept current | Dim paragraph after its label, with its age |
-| Option (`option`) | A calm card: number as Prism's `StepIndicator`, text, badge in its tone (★ Recommended success), Rule/Then rows, its own Choose as a Prism button (recommended `primary`, others `secondary`); none when `alone` (Accept answers it) | A filled card (selected one on the selected surface, marked ▸): number, text, badge, fields, then its answer on its key |
+| Option (`option`) | A calm card: number as Prism's `StepIndicator`, text, badge in its tone (★ Recommended success; `melle's alternative` neutral), Rule/Then rows, its own Choose as a Prism button (recommended `primary`, others `secondary`); none when `alone` (Accept answers it) | A filled card (selected one on the selected surface, marked ▸): number, text, badge, fields, then its answer on its key |
 | Step (`instruction`) | A calm card per step, number in a badge, lines in order | A filled card per step, numbers aligned, lines in order; text bold |
 | Command (in a step) | A light inset with a copy icon after it | Plain behind a bar; the selected one highlighted (`c` copies, `y`) |
 | Route (in a step) | Muted ⌘, parts as small labels with › between | Muted ⌘, parts bold in the route colour |
-| Answers (`answers`) | A Prism button per answer in Control's order by its weight: `main` `primary`, `decline` `secondary`, others `plain`; labels say nothing of what follows (no `…`, no `· note`); a `detail` small under the buttons | The key line: each answer on its key, the main one and the decline in the primary colour, a note answer `· note`; a `detail` dim under it |
+| Answers (`answers`) | A Prism button per answer in Control's order by its weight: `main` `primary`, `decline` `secondary`, others `plain`, with the SF Symbol of its `icon` (question `questionmark.bubble`, hand_over `person.and.arrow.left.and.arrow.right`, delegate `arrow.uturn.backward`) in the primary colour; labels say nothing of what follows (no `…`, no `· note`); a `detail` small under the buttons | The key line: each answer on its key, the main one and the decline in the primary colour, a note answer `· note`; a `detail` dim under it |
 | Other actions (`actions`) | One row of `plain` buttons, unpadded, quieter than the answers; a dangerous one opens Control's confirm | In the answers' key line, muted, after the answers (else a key line of its own) |
 | What went wrong (`text` role `error`) | Prism's `MessageBar` in danger: label as heading, text under it | A card, label as a heading in the error colour over its text |
 | Details (part `details`/`related`) | Own column, or a recessed card (grey5) under the page | Own column, or a compact card under its heading at the page's end |
@@ -124,10 +124,10 @@ blue planned or waiting, green done. An unknown tone is no dot.
 |---|---|
 | Page title (`PageHeader`, a sheet's title) | `title6` (20) |
 | Panel, option, list and item titles; a row card's title | `title7` (16) |
-| Running text (why, a step's text, an option's Rule and Then, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
+| Running text (why, a step's text, an option's Rule and Consequences, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
 | Labels (a section's or the details' title, a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
-| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name; production's environment in the title bar | `labelsmall` (14) |
-| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's headings and foot; the status bar; the environment in the title bar) | `caption` (14) |
+| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name | `labelsmall` (14) |
+| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's headings and foot, with the environment there (production as Prism's danger tag); the status bar) | `caption` (14) |
 | A count's badge in the sidebar | `captionsmall` (12), strong |
 | Native buttons (a sheet's Cancel, Save, Confirm, Run; the page's and the toolbar's actions) | the system's control font: see the gaps |
 | Prism's buttons (answers, options' answers, other actions) | Prism's own `button` (18): see the gaps |
@@ -159,6 +159,7 @@ nothing about an action, only how it is triggered.
 |---|---|---|---|
 | Main answer | the first of `answers` (or an option's Choose): the next step | `primary` button (success) | key in green |
 | Decline | weight `decline` (`no`, deprecated): Won't do, Decline, Decline all | `secondary` button; one with `note` opens the note form on click, its label unchanged | key in the primary colour, `· note` when it asks one |
+| Other answer | weight `other`: Ask a question, Hand over, Leave it to the proposer (a decision, D-0106) | `plain` button, its `icon` in the primary colour as an other action's | in the key line, in order |
 | Other action | the `actions` block: change, hand over, delete, create under | `plain` button, quieter, its icon in the primary colour (dark: PrismDarkGap's readable primary) | muted in the key line |
 
 - **Mac**: buttons on the page, and the menu bar's **Actions** menu lists the shown page's

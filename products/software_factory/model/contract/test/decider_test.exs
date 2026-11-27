@@ -59,16 +59,22 @@ defmodule Model.DeciderTest do
     definition = decide(:prod)
 
     for state <- ~w(for_person for_person_always) do
+      # The configured decider, or the one who declined or asked last (D-0106).
       assert definition.owner(state) == %{
                "via" => "assignment",
                "relation" => "assigned_to",
-               "default" => %{"kind" => "person", "config" => "decider"},
+               "default" => %{
+                 "kind" => "person",
+                 "config" => "decider",
+                 "producer" => "decided_by"
+               },
                "preserve_kind" => "person"
              }
 
       assert [
                %{
                  "key" => "a",
+                 "weight" => "main",
                  "change" => %{
                    "self" => "decided_by",
                    "values" => %{"status" => "accepted", "decided_at" => "$now"}
@@ -76,16 +82,63 @@ defmodule Model.DeciderTest do
                },
                %{
                  "key" => "f",
+                 "label" => "Decline",
                  "note" => true,
+                 "prompt" => "What is your alternative?",
+                 "weight" => "decline",
                  "change" => %{
                    "self" => "decided_by",
-                   "values" => %{"status" => "rejected", "decided_at" => "$now"}
+                   "values" => %{"status" => "revising", "alternative" => "$note"}
                  }
-               }
+               },
+               %{
+                 "key" => "q",
+                 "label" => "Ask a question",
+                 "note" => true,
+                 "prompt" => "What do you need to know?",
+                 "cause" => "asked: {note}",
+                 "weight" => "other",
+                 "icon" => "question",
+                 "change" => %{
+                   "self" => "decided_by",
+                   "values" => %{"status" => "answering", "question" => "$note"}
+                 }
+               },
+               %{"key" => "h", "label" => "Hand over", "hand_over" => true, "icon" => "hand_over"}
+               | leave
              ] = get_in(definition.present(state, %{}), ["todo", "answers"])
+
+      # Leaving it to the proposer is no answer where a fixed person rule holds.
+      assert leave ==
+               if(state == "for_person",
+                 do: [
+                   %{
+                     "key" => "l",
+                     "label" => "Leave it to the proposer",
+                     "weight" => "other",
+                     "icon" => "delegate",
+                     "change" => %{
+                       "self" => "delegated_by",
+                       "values" => %{"left_to_proposer" => true}
+                     }
+                   }
+                 ],
+                 else: []
+               )
     end
 
-    for state <- ~w(for_agent for_agent_unverified accepted rejected) do
+    # Left to its proposer, revising or answering a question: its proposer, the person
+    # who put it in, else the coordinator (D-0106).
+    for state <- ~w(for_agent revising answering) do
+      assert definition.owner(state)["default"] == %{
+               "kind" => "agent",
+               "key" => "coordinator",
+               "producer" => "proposed_by",
+               "producer_kind" => "person"
+             }
+    end
+
+    for state <- ~w(for_agent_unverified accepted rejected) do
       assert definition.owner(state) == definition.owner()
       assert get_in(definition.present(state, %{}) || %{}, ["todo", "answers"]) == nil
     end
@@ -153,6 +206,33 @@ defmodule Model.DeciderTest do
 
     assert [%{"period" => "48h"}] = decide(:prod).timers("for_person")
 
+    # D-0106: a decline or a question is the decider's choice and goes back to the
+    # proposer; nothing ends declined by it.
+    for state <- ~w(for_person for_person_always),
+        {status, to} <- [{"revising", "revising"}, {"answering", "answering"}] do
+      [role | _] = definition.waiting_for(state)
+      input = %{roles: [role], changed: %{"status" => status}}
+      assert definition.next(state, %{"status" => status}, input) == {:to, to}
+    end
+
+    # Left to its proposer: the gate is asked again, and sees the delegation.
+    assert definition.next("for_person", %{"left_to_proposer" => true}, nil) == {:to, "deciding"}
+    assert definition.next("for_person_always", %{"left_to_proposer" => true}, nil) == :stay
+
+    # Its proposer returns it; Flow proposes it again and clears what sent it on.
+    for state <- ~w(revising answering) do
+      assert definition.next(state, %{"returned" => false}, nil) == :stay
+      assert definition.next(state, %{"returned" => true}, nil) == {:to, "deciding"}
+    end
+
+    assert [{:set, set} | _] = definition.enter("deciding", %{})
+
+    assert Map.take(set, ~w(left_to_proposer returned status)) == %{
+             "left_to_proposer" => false,
+             "returned" => false,
+             "status" => "proposed"
+           }
+
     runs = Model.AtlasEyra.runs()
     assert runs["inputs"]["roles"]["decider"] == "decided_by"
 
@@ -174,18 +254,28 @@ defmodule Model.DeciderTest do
     assert selection["subject"] == definition.subject()
 
     # An accepted decision is follow_through's, not decide's: their admissions are disjoint.
-    assert selection["admission"] == %{"status" => ["proposed", "rejected", "superseded"]}
+    assert selection["admission"] == %{
+             "status" => ["proposed", "rejected", "superseded", "revising", "answering"]
+           }
 
     assert Model.AtlasEyra.selection("follow_through")["admission"] == %{
              "status" => ["accepted"]
            }
 
+    # A decision that ended rejected stays so: history, no migration (D-0106).
     for status <- ~w(rejected superseded) do
       subject = %{"key" => "D-history", "values" => %{"status" => status}}
       run = Run.new("decide", definition, subject, selection["imports"], ~U[2026-11-12 00:00:00Z])
       assert run["status"] == "completed"
       assert run["pending"]["writes"] == []
       assert run["state"] == if(status == "rejected", do: "rejected", else: "accepted")
+    end
+
+    for status <- ~w(revising answering) do
+      subject = %{"key" => "D-back", "values" => %{"status" => status}}
+      run = Run.new("decide", definition, subject, selection["imports"], ~U[2026-11-12 00:00:00Z])
+      assert run["status"] == "active"
+      assert run["state"] == status
     end
   end
 
@@ -285,79 +375,59 @@ defmodule Model.DeciderTest do
     Verdict.settle(r, Rules.evaluate(r.definition, evidence), 0)
   end
 
-  test "fixed rules win before timeout, person and agent rules, without reading later fields" do
+  test "fixed rules win before delegation, without reading later fields" do
     assert %{outcome: "person_always", unsettled: nil} =
              ask(%{"forces" => ["direction", "principle"]})
 
     assert %{outcome: "person_always"} =
              ask(evidence(%{"production_release" => true, "timed_out" => true}))
-
-    assert %{outcome: "agent_unverified"} =
-             ask(
-               evidence(%{
-                 "production_release" => true,
-                 "rollback_automated" => true,
-                 "timed_out" => true
-               })
-             )
   end
 
-  test "timeout wins over tunable person rules" do
-    assert %{outcome: "agent_unverified"} =
-             ask(
-               evidence(%{
-                 "timed_out" => true,
-                 "category" => "product",
-                 "reversibility" => "one_way"
-               })
-             )
+  # D-0106: a decider leaving it to the proposer is the one way an agent decides; a person
+  # who did not answer in time never hands it to one.
+  test "a timeout hands nothing to an agent" do
+    for extra <- [
+          %{"timed_out" => true, "delegated" => false},
+          %{"timed_out" => true, "delegated" => false, "category" => "product"},
+          %{"timed_out" => true, "delegated" => false, "reversibility" => "one_way"}
+        ] do
+      assert %{outcome: "person"} = ask(evidence(extra))
+    end
   end
 
-  test "person rules win over delegation" do
+  test "a delegation, the decider's explicit choice, wins over the tunable person rules" do
     for extra <- [
           %{"category" => "product"},
           %{"category" => "security"},
           %{"reversibility" => "one_way"},
-          %{"overrule_rate" => 0.2, "verdicts_seen" => 10}
+          %{"overrule_rate" => 0.2, "verdicts_seen" => 10},
+          %{}
         ] do
-      assert %{outcome: "person", unsettled: nil} = ask(evidence(extra))
-    end
+      assert %{outcome: "agent", unsettled: nil} = ask(evidence(extra))
 
-    for extra <- [
-          %{"overrule_rate" => 0.199, "verdicts_seen" => 10},
-          %{"overrule_rate" => 0.2, "verdicts_seen" => 9}
-        ] do
-      assert %{outcome: "agent"} = ask(evidence(extra))
+      assert %{outcome: "person", unsettled: nil} =
+               ask(evidence(Map.put(extra, "delegated", false)))
     end
   end
 
-  test "delegation allows an agent after earlier rules" do
-    assert %{outcome: "agent", unsettled: nil} = ask(evidence())
-  end
-
-  test "otherwise advises and v1 settles advice as person" do
+  test "otherwise advises and settles advice as person" do
     assert %{outcome: "person", rule_outcome: "advise", unsettled: nil} =
              ask(evidence(%{"delegated" => false}))
   end
 
   test "a missing field is uncertain and settles as person" do
-    for field <- [
-          "forces",
-          "production_release",
-          "rollback_automated",
-          "timed_out",
-          "category",
-          "reversibility",
-          "overrule_rate",
-          "verdicts_seen",
-          "delegated"
-        ] do
+    for field <- ["forces", "production_release", "rollback_automated", "delegated"] do
       assert %{outcome: "person", unsettled: "uncertain"} =
                ask(Map.delete(evidence(), field))
     end
+
+    for field <- ["category", "reversibility", "overrule_rate", "verdicts_seen"] do
+      assert %{outcome: "person", unsettled: "uncertain"} =
+               ask(Map.delete(evidence(%{"delegated" => false}), field))
+    end
   end
 
-  test "fresh verdict enforcement preserves the prior split for the complete classification matrix" do
+  test "fresh verdict enforcement: an agent decides only what its decider left to it" do
     types = Model.AtlasEyra.__rela__(:description).schema["types"]
     values = &types[&1]["values"]
 
@@ -374,9 +444,9 @@ defmodule Model.DeciderTest do
       fields = %{"category" => category, "reversibility" => reversibility, "force" => force}
       result = ask(evidence(Map.merge(fields, %{"forces" => [force], "delegated" => delegated})))
 
-      expected_agent =
-        category not in ["product", "security"] and reversibility != "one_way" and
-          force != "principle" and delegated
+      # D-0106: the decider's explicit choice, whatever the classification; never where a
+      # fixed person rule holds.
+      expected_agent = force != "principle" and delegated
 
       assert result.outcome == "agent" == expected_agent
       # An accepted write by its named writer, the one decided_by links; a delegation
@@ -414,13 +484,13 @@ defmodule Model.DeciderTest do
     end
   end
 
-  test "the gate declares the decided limits, v1 and fixed prefix" do
+  test "the gate declares the decided limits, v2 and fixed prefix" do
     {:ok, gate} = Definitions.fetch("accept_decision")
     authority = @authority
     refute Map.has_key?(authority, "only_kind_when")
     refute Map.has_key?(authority, "delegated_by")
     assert authority["decider"]["fingerprint"] == gate["fingerprint"]
-    assert gate["version"] == 1
+    assert gate["version"] == 2
     assert gate["flavor"] == "rule"
     assert gate["answer_within"] == %{"test" => "5m", "prod" => "48h"}
     assert :ok = Definitions.check_fixed(gate)

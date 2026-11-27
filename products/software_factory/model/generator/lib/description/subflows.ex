@@ -239,9 +239,10 @@ defmodule RelaDSL.Description.Subflows do
   end
 
   # A default that asks the subject's producer: its relation leads from the subject to one
-  # fact of the default's kind.
-  defp producer(%{producer: name, kind: k}, kind, schema, here) do
+  # fact of the default's kind, or of the kind it names (`producer_kind`).
+  defp producer(%{producer: name, kind: k} = default, kind, schema, here) do
     r = relation(schema, name) || %{}
+    k = default[:producer_kind] || k
 
     if kind in (r["from"] || []) and to_string(k) in (r["to"] || []) and r["max_outgoing"] == 1,
       do: [],
