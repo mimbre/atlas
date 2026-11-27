@@ -201,7 +201,11 @@ defmodule AtlasControl.MachinesPage do
          title: "Health",
          fields: fields(health_fields(runtime, c, offer)),
          actions: [
-           Blocks.action(label: "Health", key: "h", to: Pages.path({:worker_page, :health, %{}}))
+           Blocks.action(
+             label: "Overall health",
+             key: "h",
+             to: Pages.path({:worker_page, :health, %{}})
+           )
          ]
        )}
       | health_error(key, runtime, late, c)
