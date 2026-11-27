@@ -8,8 +8,8 @@ defmodule AtlasControl.Answers do
   asked again, with its `prompt` (the question its form asks) when it has one. Its cause
   is the note, or its `cause` with `{note}` filled in when it words one (`asked: {note}`).
   An answer an agent gives for whom it assists (`on_behalf`) stays the agent's; its cause
-  says on whose behalf. One given under a person's delegation (`delegated`, D-0106: that
-  person left it to its proposer) says it is decided by `by` on their behalf, delegated.
+  says on whose behalf. One given under a delegation (`delegated`, D-0106: its decider
+  left it to its proposer) says it is decided by `by` on their behalf, delegated.
   """
 
   def change(answer, key, by, note, now) do

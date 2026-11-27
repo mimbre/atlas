@@ -4384,7 +4384,7 @@ defmodule AtlasControl.Pages do
   by hand (`set_by`), as the producer: both are refused, `{:refuse, reasons}`. A kind
   whose create names no producer links nobody (`%{}`). A kind whose create names a
   proposer (`form.proposer`, D-0106) links the client itself through it, when it is a
-  fact of the kind that relation leads to and assists nobody (a person); an agent's
+  fact of the kind that relation leads to and assists nobody; an agent's
   proposal links nobody there, and is not refused for it.
   """
   def put_in_by(m, kind, raw, viewer) do

@@ -74,7 +74,7 @@ defmodule AtlasControl.Model do
   value of `writes` links the client that makes it through `relation`, `producer` is nil
   or the relation a create links to who puts the fact in (the client, or whom the agent
   assists; never from the form), and `proposer` nil or the relation a create links to
-  the person who proposes it (the client, when it is one). Nil for no kind.
+  the one who proposes it (the client, when it assists nobody). Nil for no kind.
   """
   @callback form(kind :: String.t(), :create | :edit) :: nil | map
 

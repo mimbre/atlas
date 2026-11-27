@@ -138,8 +138,8 @@ defmodule AtlasFlow.Model do
   run's `producer` (`%{"kind", "key"}` or nil): the human supervisor of the run that made
   the subject. With none (an item made by hand, or before its producer was recorded), it
   is the configured actor, or the named one (`%{"kind", "key", "producer"}`). The
-  producer is of the owner's kind, unless the owner names another (`"producer_kind"`: a
-  decision's revision goes to the person who proposed it, else to the coordinator agent).
+  producer is of the owner's kind, unless the owner names another (`"producer_kind"`: the
+  producer of one kind, else the configured actor of another).
   Never the run's own supervisor. The projection passes the run with
   its subflow's `spans` and its supervisor as the run's fact links it, of the
   supervision relation's holder kind (`AtlasFlow.Runs.Projection`). A run of a subflow a
