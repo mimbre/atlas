@@ -766,9 +766,17 @@ defmodule AtlasTui.ConsoleTest do
     assert Interactions.context(saved) == "plan_proposed"
   end
 
-  test "unknown operations, tokens and inconsistent scopes disable projection visibly" do
+  test "unknown operations remain visible but unavailable; invalid tokens and scopes disable projection" do
+    unknown = declared(page(), "browse", [action("next", "Tab", "system_eval")])
+    {model, []} = Console.receive(ready(), unknown)
+    assert model.console.projection != nil
+
+    assert [%{"props" => %{"available" => false, "reason" => "Unsupported action"}}] =
+             model.console.projection.actions
+
+    assert Model.key(model, :tab) == {model, []}
+
     for {field, value} <- [
-          {"operation", %{"name" => "system_eval"}},
           {"keys", ["NoSuchKey"]},
           {"scope", %{"page" => "/k/part", "revision" => "r", "context" => "browse"}}
         ] do
