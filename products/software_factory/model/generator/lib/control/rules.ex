@@ -268,7 +268,7 @@ defmodule RelaDSL.Control.Rules do
 
       own = for a <- answers(todo), a["weight"] != "main", do: a
 
-      case RelaDSL.DecisionOptions.decode(rule, text) do
+      case RelaDSL.DecisionOptions.decode_stored(rule, text) do
         {:ok, definition} ->
           # The question and recommendation only; how keys select a choice is Control's.
           instructions =
@@ -284,7 +284,9 @@ defmodule RelaDSL.Control.Rules do
           |> Map.put("decision_options", true)
           |> Map.put(
             "single_choice",
-            Map.put(definition, "revision", RelaDSL.DecisionOptions.revision(rule, text, fact))
+            definition
+            |> Map.put("options", RelaDSL.DecisionOptions.ordered(definition))
+            |> Map.put("revision", RelaDSL.DecisionOptions.revision(rule, text, fact))
           )
 
         _ ->

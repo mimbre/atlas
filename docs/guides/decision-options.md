@@ -17,9 +17,10 @@ consequences. A definition holds alternatives only, at least one (one proposal, 
 alternatives), and no "no" option: Decline is always available, so a definition
 with a `decline` option is refused with "A decision has no 'no' option; Decline is
 always available". There must be one `recommended` ID, first in the options array,
-and a short `rationale`. An open decision whose stored definition still has a
-decline option takes a definition without it (`atlas set <D> options=<json>`); its
-`option_history` keeps the old one as plain past data.
+and a short `rationale`. An open decision with a legacy decline option still shows
+its question and adopting alternatives; the old decline option is never selectable.
+The complete original definition remains in the selection snapshot or offer history.
+Any newly supplied definition must omit the decline option.
 
 ```sh
 atlas put decision --env test --title 'Example storage' \
@@ -52,8 +53,10 @@ maintenance without changing what was offered or chosen.
 No option entities, parallel database or new event stream are introduced. Facts'
 existing retry ledger retains acknowledgements rather than complete old values.
 `option_history` therefore retains prior complete offer revisions on the decision,
-derived in the same Facts write; callers cannot replace this history. The selected
-snapshot is also present on the decision itself and survives reload.
+derived in the same Facts write; callers cannot replace this history. If stored history
+is malformed, Facts refuses any write that would replace an offer, including a decline
+that adds an alternative, until the history is repaired. The selected snapshot is also
+present on the decision itself and survives reload.
 Options are optional. A decision created without them, and every historical
 decision, keeps its existing rule and status without invented alternatives or
 selections; its decider has the same answers (Accept instead of Choose), and an

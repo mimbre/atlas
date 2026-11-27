@@ -2,6 +2,7 @@ defmodule Model.DecisionOptionsTest do
   use ExUnit.Case, async: true
   alias RelaDSL.DecisionOptions, as: Options
   @text File.read!(Path.expand("../../../e2e/fixtures/decision-options.json", __DIR__))
+  @legacy File.read!(Path.expand("../../generator/test/legacy_d0105.json", __DIR__))
   @rule Model.AtlasEyra.__rela__(:description).extension["entities"]["decision"][
           "decision_options"
         ]
@@ -707,6 +708,83 @@ defmodule Model.DecisionOptionsTest do
       assert %{"text" => "Use the database we have", "badge" => ^badge} = card
       assert for(f <- card["fields"], do: f["label"]) == labels
     end
+  end
+
+  test "stored D-0105 offers only its adoption and preserves its original definition" do
+    {blocks, _, _} = served(@legacy)
+
+    assert %{"props" => %{"title" => "Should a contract version difference block a client?"}} =
+             Enum.find(blocks, &(&1["id"] == "header"))
+
+    assert [%{"props" => %{"text" => "Tolerant clients; a version difference is a warning"}}] =
+             Enum.filter(blocks, &(&1["type"] == "option"))
+
+    fact = Map.put(current(@legacy), "key", "D-0105")
+    decide = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "decide"))
+
+    presentation =
+      decide.present("for_person", fact["values"])
+      |> Map.merge(%{"owner" => ["ada"], "actionable" => true})
+
+    parts = %{"assignment" => %{"presentation" => presentation}}
+    viewer = %{key: "ada", kind: "person"}
+    item = %{"fact" => fact, "parts" => parts}
+    todo = Model.AtlasEyra.todo("decision", fact, parts, viewer)
+
+    assert todo.choice["question"] == "Should a contract version difference block a client?"
+    assert Enum.map(todo.choice["options"], & &1["id"]) == ["tolerant"]
+    assert Enum.map(todo.answers, & &1.key) == ~w(1 f q l)
+    [choice | _] = todo.answers
+    assert {:write, semantic} = Model.AtlasEyra.answer("decision", choice.name, item, viewer)
+
+    assert {:ok, %{"values" => values}, _} =
+             AtlasControl.Answers.change(semantic, "D-0105", "ada", "", ~U[2026-11-16 12:00:00Z])
+
+    assert values["selected_option"] == "tolerant"
+    assert values["selected_definition"] == @legacy
+    assert :ok == check(fact, values)
+    legacy_option = @legacy |> JSON.decode!() |> Map.fetch!("options") |> List.last()
+    forged = Options.values(@rule, @legacy, legacy_option, fact)
+    forged = Map.put(forged, "decided_at", "2026-11-16T12:00:00Z")
+    assert {:refuse, _} = check(fact, forged)
+
+    [chosen] =
+      Model.AtlasEyra.with_change(
+        "decision",
+        %{"op" => "change", "key" => "D-0105", "values" => values, "links" => %{}},
+        %{"current" => fn -> fact end}
+      )
+
+    assert [%{"definition" => @legacy}] = JSON.decode!(chosen["values"]["option_history"])
+
+    assert {:refuse, _} =
+             Model.AtlasEyra.answer(
+               "decision",
+               choice.name,
+               put_in(item, ["fact", "values", "force"], "guardrail"),
+               viewer
+             )
+
+    assert {:refuse, _} = check(fact, %{"options" => @legacy})
+
+    assert {:write, declined} = Model.AtlasEyra.answer("decision", "f", item, viewer)
+
+    assert {:ok, change, _} =
+             AtlasControl.Answers.change(
+               declined,
+               "D-0105",
+               "ada",
+               "Another approach",
+               ~U[2026-11-16 12:00:00Z]
+             )
+
+    assert :ok == check(fact, change["values"])
+    change = Map.merge(change, %{"op" => "change", "key" => "D-0105", "by" => "ada"})
+    [written] = Model.AtlasEyra.with_change("decision", change, %{"current" => fn -> fact end})
+    assert [%{"definition" => @legacy}] = JSON.decode!(written["values"]["option_history"])
+    revised = JSON.decode!(written["values"]["options"])
+    assert Enum.map(revised["options"], & &1["id"]) == ~w(tolerant gate alternative)
+    assert List.last(revised["options"])["text"] == "Another approach"
   end
 
   test "owner projection separates semantic answer identity from numeric shortcuts" do

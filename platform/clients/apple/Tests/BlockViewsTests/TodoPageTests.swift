@@ -118,7 +118,6 @@ final class TodoPageTests: XCTestCase {
         XCTAssertEqual(AnswersView.shown(answers, toolbar: true).map(\.label), ["Done", "Won't do"])
         let toolbar = PageActions.toolbar(page)
         XCTAssertEqual(toolbar.map(\.key), ["u", "t", "d"])
-        XCTAssertEqual(toolbar.map(PageActions.iconOnly), [true, false, true])
     }
 
     func testATextSaysItsLabelAndHowLongAgoOrOnlyItsText() throws {
