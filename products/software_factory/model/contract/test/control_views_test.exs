@@ -450,6 +450,112 @@ defmodule Model.ControlViewsTest do
     refute Enum.any?(other.blocks, &(&1["id"] == "page-detail-1"))
   end
 
+  test "an issue's merge page groups its details without changing the panel or references" do
+    values = %{
+      "title" => "Build the feature",
+      "description" => "The requested behavior",
+      "stage" => "development",
+      "order" => 4,
+      "flux_ref" => "NEXT-42",
+      "pr_url" => "https://github.com/mimbre/atlas/pull/42",
+      "pr_state" => "open",
+      "pr_checks" => "success",
+      "pr_checks_head" => "checked-revision",
+      "pr_head" => "published-revision",
+      "pr_mergeable" => "clean",
+      "ci_fixes" => "one",
+      "pass_result" => "delivered"
+    }
+
+    page = merge_issue_page(values, "ada")
+    ids = Enum.map(page.blocks, & &1["id"])
+    assert Enum.find_index(ids, &(&1 == "panel")) < Enum.find_index(ids, &(&1 == "page-detail-0"))
+
+    assert Enum.filter(ids, &(&1 in ~w(page-detail-0 page-detail-1 page-detail-2 item))) ==
+             ~w(page-detail-0 page-detail-1 page-detail-2 item)
+
+    groups = Map.new(page.blocks, &{&1["id"], &1["props"]})
+    assert groups["page-detail-0"]["title"] == "Issue"
+    assert groups["page-detail-1"]["title"] == "Pull request"
+    assert groups["page-detail-2"]["title"] == "Build and checks"
+
+    assert Enum.any?(
+             groups["page-detail-0"]["fields"],
+             &(&1["value"] == "The requested behavior")
+           )
+
+    assert Enum.any?(groups["page-detail-1"]["fields"], &(&1["value"] == "checked-revision"))
+    assert Enum.any?(groups["page-detail-2"]["fields"], &(&1["value"] == "delivered"))
+
+    panel = groups["panel"]
+    assert panel["heading"] == "TO MERGE"
+    assert Enum.any?(panel["links"], &(&1["key"] == "o"))
+    assert Enum.any?(panel["actions"], &(&1["key"] == "r"))
+    assert Enum.map(panel["checks"], & &1["label"]) == ~w(CI Review GitHub)
+    assert Enum.any?(page.blocks, &(&1["type"] == "list"))
+    refute Enum.any?(page.markup, &(get_in(&1, ["props", "collapsible"]) == true))
+
+    pairs =
+      for id <- ~w(page-detail-0 page-detail-1 page-detail-2 item),
+          pair <- groups[id]["fields"],
+          do: pair
+
+    for value <- [
+          "The requested behavior",
+          "NEXT-42",
+          "checked-revision",
+          "published-revision",
+          "delivered",
+          "one"
+        ] do
+      assert Enum.count(pairs, &(&1["value"] == value)) == 1
+    end
+  end
+
+  test "sparse merge details and another viewer keep their existing behavior" do
+    values = %{"title" => "Sparse"}
+    owner = merge_issue_page(values, "ada")
+    assert Enum.any?(owner.blocks, &(&1["id"] == "panel"))
+    refute Enum.any?(owner.blocks, &(&1["id"] in ~w(page-detail-0 page-detail-1 page-detail-2)))
+    assert Enum.any?(owner.blocks, &(&1["id"] == "item"))
+
+    other = merge_issue_page(values, "other")
+    refute Enum.any?(other.blocks, &(&1["id"] == "panel"))
+    refute Enum.any?(other.blocks, &(&1["id"] in ~w(page-detail-0 page-detail-1 page-detail-2)))
+  end
+
+  defp merge_issue_page(values, viewer) do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+    flow = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "issue"))
+
+    presentation =
+      flow.present("merging", values)
+      |> Map.merge(%{"state" => "merging", "owner" => ["ada"], "actionable" => true})
+
+    issue = %{"key" => "IS-Atlas-01", "values" => values, "links" => %{}}
+    assignment = %{"key" => "AS-IS-Atlas-01", "values" => %{}, "presentation" => presentation}
+
+    review = %{
+      "key" => "TK-review",
+      "values" => %{"kind" => "review", "verdict" => "approved"},
+      "links" => %{}
+    }
+
+    route = {:item, "issue", issue["key"]}
+
+    answers =
+      for {{kind, _}, i} <- Enum.with_index(AtlasControl.Pages.reads(route, m)) do
+        cond do
+          i == 0 -> %{"fact" => issue}
+          kind == "assignment" -> %{"fact" => assignment}
+          kind == "task" -> %{"facts" => [review]}
+          true -> %{"facts" => []}
+        end
+      end
+
+    AtlasControl.Pages.render(route, m, answers, %{by: viewer, by_kind: "person"})
+  end
+
   # Every action and answer a page offers explains itself (`help`, a client's tooltip):
   # the model's words for its own, Control's for the rest. A to-do's page, an item's page
   # and a list (the decisions' pages: Model.DecisionOptionsTest).
