@@ -127,7 +127,8 @@ defmodule AtlasControl.MachinesPageTest do
              {"finished", "list"},
              {"upgrades", "list"},
              {"actions", "actions"},
-             {"details", "item"}
+             {"identity", "item"},
+             {"versions", "item"}
            ]
 
     assert page.title == "Mac mini"
@@ -164,14 +165,25 @@ defmodule AtlasControl.MachinesPageTest do
     assert [%{"label" => "Edit configuration", "to" => "/k/bench/mini/edit"}] =
              props(page, "actions")["actions"]
 
-    assert pairs(page, "details") == %{
+    assert pairs(page, "identity") == %{
              "Incarnation" => "inc-7",
-             "Machine name" => "mac-mini.local",
+             "Machine name" => "mac-mini.local"
+           }
+
+    assert pairs(page, "versions") == %{
              "Installed version" => "develop-aaaaaaaaaaaa",
              "Policy version" => "3"
            }
 
-    assert [%{"kind" => "part", "props" => %{"role" => "details"}}] = page.markup
+    assert page.markup == []
+  end
+
+  test "missing machine details remain unknown without empty detail cards" do
+    page = tab(flow: %{"runtimes" => [], "queue" => []}, shifts: :unavailable)
+    assert block(page, "identity") == nil
+    assert block(page, "versions") == nil
+    assert props(page, "slots")["empty"] == "Slot activity is unknown: Facts did not answer."
+    assert props(page, "health")["fields"] != []
   end
 
   test "refused or pending configuration never makes desired slots free" do

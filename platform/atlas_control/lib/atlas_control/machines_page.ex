@@ -292,29 +292,30 @@ defmodule AtlasControl.MachinesPage do
     ]
 
     details =
-      fields([
-        {"Incarnation", runtime && runtime["incarnation"]},
-        {"Machine name", machine_name(attempts, c)},
-        {"Installed version", runtime && runtime["build"]},
-        {"Policy version", text(fact["values"][c.n["policy_version"]])}
-      ])
-
-    {details_block, markup} =
-      case details do
-        [] ->
-          {[], []}
-
-        fields ->
-          {[{"details", Blocks.item(title: "", fields: fields)}],
-           [Blocks.part("details", "details", title: "Details", role: "details")]}
-      end
+      [
+        {"identity", "Identity",
+         [
+           {"Incarnation", runtime && runtime["incarnation"]},
+           {"Machine name", machine_name(attempts, c)}
+         ]},
+        {"versions", "Versions",
+         [
+           {"Installed version", runtime && runtime["build"]},
+           {"Policy version", text(fact["values"][c.n["policy_version"]])}
+         ]}
+      ]
+      |> Enum.flat_map(fn {id, title, pairs} ->
+        case fields(pairs) do
+          [] -> []
+          fields -> [{id, Blocks.item(title: title, fields: fields)}]
+        end
+      end)
 
     view(
       name(fact, c),
       back,
-      head ++ health ++ lists ++ answers ++ actions ++ details_block,
-      markup ++
-        if(late, do: [Blocks.highlight("health", "health-error", tone: "error")], else: [])
+      head ++ health ++ lists ++ answers ++ actions ++ details,
+      if(late, do: [Blocks.highlight("health", "health-error", tone: "error")], else: [])
     )
   end
 
