@@ -137,10 +137,12 @@ defmodule AtlasControl.SessionTest do
 
     name = :"machines_gateway_#{System.unique_integer([:positive])}"
     settings = %{"workers" => %{"read" => %{"actors" => ["ada"]}}}
+
     start_supervised!(
       {AtlasControl.Gateway, port: 0, name: name, model: Shop.Benched, settings: settings},
       id: name
     )
+
     port = AtlasControl.Gateway.port(name)
 
     endpoint = "flow/health-#{System.unique_integer([:positive])}"
@@ -157,10 +159,12 @@ defmodule AtlasControl.SessionTest do
           receive do
             {:atlas_bus, request, _} ->
               send(parent, :health_asked)
+
               AtlasBus.send(
                 AtlasBus.Envelope.reply(request, "answer"),
                 %{"runtimes" => [], "queue" => []}
               )
+
               serve.(serve)
           end
         end
@@ -182,6 +186,7 @@ defmodule AtlasControl.SessionTest do
         "as" => actor,
         "spec" => AtlasControl.Blocks.version()
       })
+
       next(socket, "page")
       socket
     end
@@ -197,10 +202,12 @@ defmodule AtlasControl.SessionTest do
 
     put(denied, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
     assert %{"reason" => "refused", "title" => "Worker unavailable"} = next(denied, "page")
+
     refute Enum.any?(
              Enum.drop(FakeStore.reads(), length(before)),
              &(&1 in ["bench", "refit", "shift"])
            )
+
     refute_received :health_asked
     assert FakeStore.sent() == []
 
