@@ -46,9 +46,7 @@ defmodule AtlasControl.WorkerPages do
     end
   end
 
-  # The page leads with what the worker is doing (Worker), and in Conversation with what
-  # it said; guidance, the execution record and the output stream's own state are in a
-  # collapsible Details section, behind one key. A field nothing says is left out.
+  # The page leads with the worker's state and identity, then its conversation and records.
   defp detail(view, about, execution, m, actor, read) do
     identity = execution["worker"]
     descriptor = view["descriptor"] || %{}
@@ -96,12 +94,19 @@ defmodule AtlasControl.WorkerPages do
         do: actions ++ [Blocks.action(label: "Open current item", key: "i", to: view["item_to"])],
         else: actions
 
+    {identity_pairs, state_pairs} =
+      Enum.split_with(pairs, fn {label, _} ->
+        label in ["Worker", "Machine", "Environment", "Turn"]
+      end)
+
     content =
       Blocks.item(
         title: about["title"] || "Worker #{identity["worker"]}",
-        fields: fields(pairs),
+        fields: fields(state_pairs),
         actions: AtlasControl.Pages.page_actions(actions)
       )
+
+    worker_identity = Blocks.item(title: "Worker identity", fields: fields(identity_pairs))
 
     newer =
       case about["newer"] do
@@ -145,27 +150,23 @@ defmodule AtlasControl.WorkerPages do
           ])
       )
 
-    main_end = if newer == [], do: "worker", else: "worker-newer"
+    main_end = if newer == [], do: "worker-identity", else: "worker-newer"
 
     page(
       "Worker #{identity["worker"]}",
       "/machines",
-      [{"worker", content}] ++
+      [{"worker", content}, {"worker-identity", worker_identity}] ++
         newer ++
         [{"worker-output", output}, {"worker-output-details", output_details}] ++
         history ++ [{"worker-record", record}],
       [
         Blocks.part("worker", main_end, title: "Worker", role: "main"),
-        Blocks.part("worker-output", "worker-record", title: "Conversation", role: "related"),
-        Blocks.section("worker-output-details", "worker-record",
-          title: "Details",
-          collapsible: true
-        )
+        Blocks.part("worker-output", "worker-record", title: "Conversation", role: "related")
       ]
     )
     |> Map.put(
       :console_actions,
-      [Pages.details_action()] ++ history_actions ++ output_actions
+      history_actions ++ output_actions
     )
   end
 
