@@ -121,6 +121,125 @@ defmodule Model.ControlViewsTest do
     refute AtlasControl.Pages.settable_relation?(m, "produced_by", "ada")
   end
 
+  defp plan_page(values, viewer, proposal \\ true) do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+    route = {:item, "use_case", "UC-1"}
+
+    fact = %{
+      "key" => "UC-1",
+      "values" => Map.merge(%{"title" => "A use case", "phase" => "break_down"}, values),
+      "links" => %{"produced_by" => ["ada"], "in_scene" => ["SC-1"]}
+    }
+
+    assignment = %{
+      "key" => "AS-UC-1",
+      "values" => %{"flow_state" => "accepting", "expected" => "Accept it"},
+      "links" => %{"assigned_to" => ["ada"]}
+    }
+
+    run = %{
+      "key" => "R-1",
+      "flow" => "break_down_use_case",
+      "generation" => 1,
+      "status" => "active",
+      "state" => "accepting"
+    }
+
+    presenter = Enum.find(Model.AtlasEyra.presentation(), &(&1["subject"] == "use_case"))
+    shown = AtlasFacts.Presentation.view(presenter, assignment, fact, [run], fn -> false end)
+    assignment = Map.put(assignment, "presentation", shown)
+    task = %{"key" => "TK-1", "values" => %{"kind" => "plan", "title" => "Plan"}}
+
+    answers =
+      for {{kind, query}, index} <- Enum.with_index(AtlasControl.Pages.reads(route, m)) do
+        cond do
+          index == 0 ->
+            %{"fact" => fact}
+
+          kind == "assignment" and Map.has_key?(query, "key") ->
+            %{"fact" => assignment}
+
+          kind == "task" and get_in(query, ["linked", "task_of"]) == "UC-1" ->
+            %{"facts" => if(proposal, do: [task], else: [])}
+
+          true ->
+            %{"facts" => []}
+        end
+      end
+
+    AtlasControl.Pages.render(route, m, answers, %{by: viewer, by_kind: "person"})
+  end
+
+  test "Plan acceptance groups existing details without changing its proposal or answers" do
+    page =
+      plan_page(
+        %{
+          "description" => "Behaviour",
+          "design" => "Construction",
+          "note" => "Choice",
+          "supervisor_note" => "Try again",
+          "questions" => "Question?",
+          "answers" => "Answer",
+          "status" => "refine",
+          "children" => 2,
+          "open_children" => 1,
+          "verdict" => "none",
+          "flux_id" => "123"
+        },
+        "ada"
+      )
+
+    blocks = Map.new(page.blocks, &{&1["id"], &1})
+    ids = Enum.map(page.blocks, & &1["id"])
+
+    assert Enum.find_index(ids, &(&1 == "panel")) <
+             Enum.find_index(ids, &(&1 == "page-detail-0"))
+
+    assert Enum.filter(ids, &String.starts_with?(&1, "page-detail-")) ==
+             ~w(page-detail-0 page-detail-1 page-detail-2 page-detail-3)
+
+    fields = fn id -> blocks[id]["props"]["fields"] end
+
+    for value <- ["Behaviour", "Construction", "Choice"],
+        do: assert(Enum.any?(fields.("page-detail-0"), &(&1["value"] == value)))
+
+    for value <- ["Try again", "Question?", "Answer"],
+        do: assert(Enum.any?(fields.("page-detail-1"), &(&1["value"] == value)))
+
+    assert Enum.any?(
+             fields.("page-detail-2"),
+             &(&1["label"] == "Produced by" and &1["value"] == "ada")
+           )
+
+    assert Enum.any?(fields.("page-detail-3"), &(&1["label"] == "Phase"))
+    assert Enum.any?(fields.("item"), &(&1["value"] == "123"))
+    assert Enum.any?(page.blocks, &(&1["id"] == "parent:in_scene"))
+    assert Enum.any?(blocks["panel"]["props"]["actions"], &(&1["to"] == "/k/task/TK-1"))
+
+    assert Enum.map(blocks["panel"]["props"]["answers"], & &1["label"]) == [
+             "Accept",
+             "Not accepted"
+           ]
+
+    refute Enum.any?(page.markup, &(&1["kind"] == "part" and &1["props"]["role"] == "details"))
+  end
+
+  test "sparse Plan acceptance and a non-owner retain their existing behavior" do
+    sparse = plan_page(%{}, "ada", false)
+    ids = Enum.map(sparse.blocks, & &1["id"])
+    assert "panel" in ids
+    refute "page-detail-0" in ids
+    refute "page-detail-1" in ids
+    assert "item" in ids
+    panel = Enum.find(sparse.blocks, &(&1["id"] == "panel"))["props"]
+    assert panel["actions"] == []
+    assert length(panel["answers"]) == 2
+
+    other = plan_page(%{"description" => "Behaviour"}, "bob")
+    refute Enum.any?(other.blocks, &String.starts_with?(&1["id"], "page-detail-"))
+    refute Enum.any?(other.blocks, &(&1["id"] == "panel"))
+  end
+
   test "a scene's page and row are named by its title" do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     scene = %{"key" => "SC-Atlas-01", "values" => %{"title" => "Write the first scene"}}

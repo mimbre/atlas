@@ -91,6 +91,24 @@ defmodule RelaDSL.Description.ChecksTest do
     assert selects(c) == []
   end
 
+  test "panel detail groups validate their fields and relations" do
+    panel = fn groups ->
+      concept(
+        entity: ~s(panel open: [heading: "Review", title: "Review", detail_groups: #{groups}])
+      )
+    end
+
+    assert checked(panel.("[[title: \"Details\", fields: [:title], relations: [:kept_by]]]")) ==
+             []
+
+    assert {:unknown_field, ["thing", "missing"]} in checked(
+             panel.("[[title: \"Details\", fields: [:missing]]]")
+           )
+
+    assert checked(panel.("[[title: \"Details\", relations: [:missing]]]")) != []
+    assert checked(panel.("[[fields: [:title]]]")) != []
+  end
+
   # IS-Atlas-70: a create links who puts the fact in through a relation from its kind, to
   # one fact at most, that nobody sets by hand; anything else is refused where it is said.
   test "a create's producer is a relation from the kind, to one, that nobody sets by hand" do
