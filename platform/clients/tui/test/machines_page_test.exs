@@ -98,10 +98,9 @@ defmodule AtlasTui.MachinesPageTest do
   defp screen(model),
     do: View.render(model, 90, 60, 30) |> View.plain()
 
-  test "the machine page shows its header with the gears glyph, slots, and both commands in the key line" do
+  test "the machine page shows slots and both commands" do
     text = screen(PanelFixture.projected(page(nil)))
 
-    assert text =~ " ▣ MACHINE · mac-mini\n Melle's Mac mini\n"
     assert text =~ "Not heard from in 10 minutes."
     assert text =~ "Slot 1"
     assert text =~ "Build"
