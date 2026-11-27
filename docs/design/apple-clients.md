@@ -228,9 +228,9 @@ Above the columns is the title bar; there is no status bar: the shell's state is
 
 | Part | Source in the BFF | macOS |
 |---|---|---|
-| Tabs | `boot`: `tabs` (`icon`, `count`, `for_you`, `groups`), `active_tab`, `initial_to`, `name` | Sidebar items in Next's style (`SidebarViews`): bold labels, a grey icon per tab (the selected one primary; an unknown icon name, none), a soft grey pill for the selection, counts as round badges (primary when `for_you`, grey otherwise, none at 0), groups indented under their tab one size smaller; at the bottom the person's `name`, the environment and the connection. Up and down move the selection; `⌘1`–`⌘9` switches. Scales to the 64-tab limit. |
+| Tabs | `boot`: `tabs` (`icon`, `count`, `for_you`), `active_tab`, `initial_to`, `name` | Sidebar shows only top-level tabs, their icons and counts, with the person and connection at the bottom. Up and down move the selection; `⌘1`–`⌘9` switches. |
 | Title and env | `boot`: `title`, `env` | Title bar. The prod badge is the same inverted badge as in the TUI. |
-| Index page of a tab | the tab's `to` (a list page) | Middle column. A pending row shows `⋯ being processed`, muted. |
+| Index page of a tab | the tab's `to` and its `groups` block | Middle column. Control's groups and counts are horizontal Prism-style filter pills above the list; choosing one opens its destination in the middle column. A pending row shows `⋯ being processed`, muted. |
 | Opened page | `open` on a row | Right column. Back and Forward (`⌘[` / `⌘]`, Esc) use the app's own history, as in the TUI. |
 | Actions and forms | `action`/`form` blocks, `submit` | Buttons under the page. A form opens as a sheet over the right column; a confirm opens as a dialog. |
 | Agent behind `:` | the steer agent | A toolbar button, and `:` or `⌘K`. Its plan shows in a panel. |

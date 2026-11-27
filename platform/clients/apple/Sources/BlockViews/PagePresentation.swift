@@ -13,6 +13,8 @@ public struct PagePresentation: Sendable, Equatable {
     public enum Item: Sendable, Equatable {
         /// A list: its rows open the page they name.
         case list(ListBlock)
+        /// The page's own filter destinations.
+        case groups(GroupsBlock)
         /// Read-only detail, including full multiline field values.
         case item(ItemBlock)
         /// A panel where its owner decides: its items, checks, box and answers.
@@ -113,7 +115,7 @@ public struct PagePresentation: Sendable, Equatable {
             case .confirm(let confirm): item = .confirm(confirm)
             case .fallback(let fallback): item = .fallback(fallback)
             case .consoleAction: return nil  // the Console's actions: ConsoleKit, S5
-            case .groups: return nil  // the page's groups: the shell's sidebar (ShellViewModel)
+            case .groups(let groups): item = .groups(groups)
             default: item = .notShown(type: block.type ?? "")
             }
             return (offset, Entry(id: block.id ?? "#\(offset)", item: item))

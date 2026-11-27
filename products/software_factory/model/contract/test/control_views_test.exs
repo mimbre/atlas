@@ -127,14 +127,74 @@ defmodule Model.ControlViewsTest do
     reads = AtlasControl.Pages.reads({:item, "scene", "SC-Atlas-01"}, m)
     answers = [%{"fact" => scene} | for(_ <- tl(reads), do: %{"facts" => []})]
     page = AtlasControl.Pages.render({:item, "scene", "SC-Atlas-01"}, m, answers)
+    header = Enum.find(page.blocks, &(&1["id"] == "header"))["props"]
+    assert header["title"] == "Write the first scene"
     item = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]
-    assert item["title"] == "Scene SC-Atlas-01: Write the first scene"
+    assert item["title"] == ""
     assert [_id, %{"label" => "Title"} | _] = item["fields"]
 
     %{blocks: [%{"props" => list}]} =
       AtlasControl.Pages.render({:list, "scene"}, m, [%{"facts" => [scene]}])
 
     assert [%{"label" => "Write the first scene"}] = list["rows"]
+  end
+
+  test "a scene's block page keeps its description, questions and other fields" do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+    route = {:item, "scene", "SC-Atlas-01"}
+
+    scene = %{
+      "key" => "SC-Atlas-01",
+      "values" => %{
+        "title" => "A scene",
+        "description" => "First line\n\nAlready built: Existing work\n\n# Next\nMore",
+        "questions" => "What happens next?",
+        "answers" => "The producer answered.",
+        "flux_id" => "123"
+      }
+    }
+
+    answers = [
+      %{"fact" => scene} | for(_ <- tl(AtlasControl.Pages.reads(route, m)), do: %{"facts" => []})
+    ]
+
+    page = AtlasControl.Pages.render(route, m, answers)
+
+    assert Enum.find(page.blocks, &(&1["id"] == "intro"))["props"]["text"] ==
+             scene["values"]["description"]
+
+    assert Enum.find(page.blocks, &(&1["id"] == "section-questions"))["props"]["text"] ==
+             "What happens next?"
+
+    assert Enum.find(page.blocks, &(&1["id"] == "section-answers"))["props"]["text"] ==
+             "The producer answered."
+
+    fields = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]["fields"]
+    assert Enum.any?(fields, &(&1["value"] == "What happens next?"))
+    assert Enum.any?(fields, &(&1["value"] == "The producer answered."))
+    assert Enum.any?(fields, &(&1["value"] == "123"))
+  end
+
+  test "a failed use case read is shown on the scene page" do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+    route = {:item, "scene", "SC-Atlas-01"}
+    scene = %{"key" => "SC-Atlas-01", "values" => %{"title" => "A scene"}}
+
+    answers =
+      for {{kind, _}, i} <- Enum.with_index(AtlasControl.Pages.reads(route, m)) do
+        cond do
+          i == 0 -> %{"fact" => scene}
+          kind == "use_case" -> %{"error" => "Use cases unavailable"}
+          true -> %{"facts" => []}
+        end
+      end
+
+    page = AtlasControl.Pages.render(route, m, answers)
+
+    assert Enum.any?(page.blocks, fn block ->
+             block["type"] == "list" and
+               get_in(block, ["props", "empty"]) == "Use cases unavailable."
+           end)
   end
 
   # Every action and answer a page offers explains itself (`help`, a client's tooltip):

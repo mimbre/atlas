@@ -171,6 +171,24 @@ defmodule Model.Scene do
         ]
       ]
     )
+
+    page(
+      state: [:phase, :status],
+      intro: [field: :description],
+      sections: [:questions, :answers, :note],
+      items: [
+        relation: :in_scene,
+        empty: [
+          pick_up: "Once someone picks up its Design, its agent proposes the use cases here.",
+          break_down:
+            "Design's agent is working out the use cases; they show here once it proposes them.",
+          clarifying:
+            "Design's agent asked its producer questions first; once they are answered, it proposes the use cases.",
+          accepting: "Design proposed no use cases: decline it with a note to try again.",
+          building: "Design starts again to propose its use cases."
+        ]
+      ]
+    )
   end
 
   # A use case has no Accept of its own (D-0099): it is accepted once its issues are done.
