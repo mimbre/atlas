@@ -1,4 +1,4 @@
-{"client":"capture","env":"test","op":"hello","spec":"0.43.0"}
+{"client":"capture","env":"test","op":"hello","spec":"0.44.0"}
 {"op":"boot"}
 {"op":"boot","to":"/k/part"}
 {"op":"open","to":"/k/widget"}
@@ -9,7 +9,7 @@
 {"op":"open","to":"/k/widget/new"}
 {"op":"open","to":"/_kinds"}
 {"op":"open","to":"/no/such/page"}
-{"client":"capture","env":"test","op":"hello","spec":"0.43.0"}
+{"client":"capture","env":"test","op":"hello","spec":"0.44.0"}
 {"op":"open","to":"/k/widget/W-01/edit"}
 {"cause":"fixture","endpoint":"update","op":"submit","params":{"key":"W-01","kind":"widget"},"values":{"title":"After"}}
 {"op":"open","to":"/k/widget/new"}
@@ -18,4 +18,4 @@
 {"op":"refresh"}
 {"op":"turn"}
 {"key":"stale","op":"turn_end","outcome":"done"}
-{"client":"capture","env":"prod","op":"hello","spec":"0.43.0"}
+{"client":"capture","env":"prod","op":"hello","spec":"0.44.0"}

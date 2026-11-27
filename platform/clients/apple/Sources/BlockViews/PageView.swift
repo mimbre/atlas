@@ -90,8 +90,18 @@ public struct PageView: View {
                     still(PageHeader(title: presentation.title, actions: pageActions, act: act))
                 case .title(let title):
                     still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.px10))
+                case .heading(let title, let aside):
+                    still(HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
+                        Text(title).prism(Prism.Typography.label).accessibilityAddTraits(.isHeader)
+                        if let aside {
+                            Text(aside).prism(Prism.Typography.caption).foregroundStyle(PrismDarkGap.muted(scheme))
+                        }
+                    }
+                    .padding(.horizontal, Prism.Spacing.px15)
+                    .padding(.top, Prism.Spacing.px10))
                 case .empty(let empty):
-                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary))
+                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, header ? Prism.Spacing.px15 : 0))
                 case .row(let row):
                     RowCard(row: row, selected: line.to == selectedPath, focused: listFocused)
                         .listRowInsets(EdgeInsets())
@@ -137,6 +147,7 @@ public struct PageView: View {
         enum Content {
             case header
             case title(String)
+            case heading(String, aside: String?)
             case empty(String)
             case row(RowModel)
             case actions([ActionModel])
@@ -197,7 +208,12 @@ public struct PageView: View {
             case .entry(let entry):
                 switch entry.item {
                 case .list(let list):
-                    if let title = list.title { blocks.append(Line(id: group.id + "/title", content: .title(title))) }
+                    if header, list.title != nil || list.aside != nil {
+                        blocks.append(Line(id: group.id + "/title",
+                                           content: .heading(list.title ?? "", aside: list.aside)))
+                    } else if let title = list.title {
+                        blocks.append(Line(id: group.id + "/title", content: .title(title)))
+                    }
                     let rows = list.rows ?? []
                     if rows.isEmpty, let empty = list.empty {
                         blocks.append(Line(id: group.id + "/empty", content: .empty(empty)))

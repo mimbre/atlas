@@ -130,6 +130,23 @@ final class TodoPageTests: XCTestCase {
         XCTAssertEqual(TextLine.line(TextBlock(text: "Odd.", since: "not a time"), now: now), "Odd.")
     }
 
+    func testGenericItemPresentationFieldsDecodeAndRender() throws {
+        let blocks: [[String: Any]] = [
+            ["id": "header", "type": "header", "props": [
+                "title": "Widget", "detail": "Refine", "since": "2026-11-24T09:00:00Z"]],
+            ["id": "list", "type": "list", "props": [
+                "title": "Parts", "aside": "2 of 3 done", "rows": []]],
+        ]
+        let entries = PagePresentation(try Self.page(blocks)).entries
+        guard case .header(let header) = entries[0].item,
+              case .list(let list) = entries[1].item else { return XCTFail("missing blocks") }
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-27T12:00:00Z"))
+        XCTAssertEqual(HeaderState.line(header, now: now), "Refine · 3d")
+        XCTAssertEqual(HeaderState.line(HeaderBlock(detail: "Refine"), now: now), "Refine")
+        XCTAssertNil(HeaderState.line(HeaderBlock(since: "2026-11-24T09:00:00Z"), now: now))
+        XCTAssertEqual(list.aside, "2 of 3 done")
+    }
+
     func testCopyPutsExactlyThatCommandOnThePasteboard() throws {
         let command = try XCTUnwrap(Self.instructions(try Self.page())[1].lines?[3].text)
         let pasteboard = NSPasteboard.withUniqueName()
