@@ -93,7 +93,8 @@ defmodule Model.DeciderTest do
                },
                %{
                  "key" => "q",
-                 "label" => "Ask a question",
+                 "label" => "Ask",
+                 "help" => "Ask the proposer a question",
                  "note" => true,
                  "prompt" => "What do you need to know?",
                  "cause" => "asked: {note}",
@@ -104,27 +105,38 @@ defmodule Model.DeciderTest do
                    "values" => %{"status" => "answering", "question" => "$note"}
                  }
                },
-               %{"key" => "h", "label" => "Hand over", "hand_over" => true, "icon" => "hand_over"}
-               | leave
+               delegate
              ] = get_in(definition.present(state, %{}), ["todo", "answers"])
 
-      # Leaving it to the proposer is no answer where a fixed person rule holds.
-      assert leave ==
-               if(state == "for_person",
-                 do: [
-                   %{
-                     "key" => "l",
-                     "label" => "Leave it to the proposer",
-                     "weight" => "other",
-                     "icon" => "delegate",
-                     "change" => %{
-                       "self" => "delegated_by",
-                       "values" => %{"left_to_proposer" => true}
-                     }
-                   }
-                 ],
-                 else: []
-               )
+      # Delegate, on one key: to another person, and, unless a fixed person rule holds,
+      # to its proposer (`delegated_by`), each worded for its form.
+      assert %{
+               "key" => "l",
+               "label" => "Delegate",
+               "hand_over" => true,
+               "weight" => "other",
+               "icon" => "delegate"
+             } = delegate
+
+      if state == "for_person" do
+        assert delegate["help"] == "Let someone else decide: the proposer or another person"
+
+        assert delegate["change"] == %{
+                 "self" => "delegated_by",
+                 "values" => %{"left_to_proposer" => true}
+               }
+
+        assert %{
+                 "change" => %{
+                   "label" => "The proposer ({proposed_by}) — decides on your behalf",
+                   "help" => "The proposer decides, as you delegate"
+                 },
+                 "hand_over" => %{"label" => "Another person"}
+               } = delegate["choices"]
+      else
+        assert delegate["help"] == "Let another person decide"
+        refute Map.has_key?(delegate, "change")
+      end
     end
 
     # Left to its proposer, revising or answering a question: its proposer, the person

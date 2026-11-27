@@ -169,7 +169,12 @@ defmodule AtlasControl.PanelTest do
     refute Map.has_key?(no, "submit_to")
 
     assert p["actions"] == [
-             %{"label" => "Full proposal", "key" => "i", "to" => "/k/inspection/I-2"}
+             %{
+               "label" => "Full proposal",
+               "key" => "i",
+               "to" => "/k/inspection/I-2",
+               "help" => "Open inspection I-2"
+             }
            ]
 
     assert ["a"] in keys(page) and ["n"] in keys(page) and ["i"] in keys(page)
@@ -241,7 +246,12 @@ defmodule AtlasControl.PanelTest do
            ]
 
     assert p["actions"] == [
-             %{"label" => "Full inspection", "key" => "r", "to" => "/k/inspection/I-1"}
+             %{
+               "label" => "Full inspection",
+               "key" => "r",
+               "to" => "/k/inspection/I-1",
+               "help" => "Open inspection I-1"
+             }
            ]
 
     # One o on the page: the panel's.

@@ -36,7 +36,7 @@ defmodule AtlasTui.DecisionTest do
         [
           "◆ YOUR DECISION · D-7",
           "How do we store examples?",
-          "Why: Files need nothing to run.",
+          "Files need nothing to run.",
           "1. Use files",
           "2. Use memory",
           "3 Decline all · note",

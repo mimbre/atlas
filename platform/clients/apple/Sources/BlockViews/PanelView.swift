@@ -108,10 +108,13 @@ struct PanelView: View {
                 }
             }
             ForEach(Array(((block.actions ?? []) + others).enumerated()), id: \.offset) { _, action in
-                KeyButton(label: AnswerLook.label(action), key: action.key, icon: action.icon) { act(action) }
+                KeyButton(label: AnswerLook.label(action), help: PageActions.tooltip(action), icon: action.icon) {
+                    act(action)
+                }
             }
             ForEach(Array(Panel.links(block).enumerated()), id: \.offset) { _, link in
-                KeyButton(label: link.link.label ?? link.url.absoluteString, key: link.link.key) { openURL(link.url) }
+                KeyButton(label: link.link.label ?? link.url.absoluteString,
+                          help: link.link.label ?? link.url.absoluteString) { openURL(link.url) }
             }
         }
         .textSelection(.disabled)
@@ -291,8 +294,8 @@ struct Framed: ViewModifier {
 
 /// An answer as Prism's button (`AnswerLabelButton`), styled by the weight Control gives
 /// it (`AnswerLook`), never by whether it asks a note, with the icon Control names
-/// (`ActionIcon`: Ask a question, Hand over, Leave it to the proposer) in the primary
-/// colour, as other plain buttons. Its key only in its tooltip.
+/// (`ActionIcon`: Ask, Delegate) in the primary colour, as other plain buttons. Its
+/// tooltip says what it does in full (`AnswerLook.tooltip`).
 struct AnswerButton: View {
     let answer: PanelAnswerModel
     let pending: Bool
@@ -300,7 +303,7 @@ struct AnswerButton: View {
 
     var body: some View {
         let look = AnswerLook.of(answer)
-        PrismActionButton(label: AnswerLook.label(answer), key: answer.key, pending: pending,
+        PrismActionButton(label: AnswerLook.label(answer), help: AnswerLook.tooltip(answer), pending: pending,
                           variant: look.variant, tone: look.tone, icon: ActionIcon.symbol(answer.icon), take: take)
     }
 }
@@ -324,10 +327,24 @@ public enum AnswerLook {
         answer.button ?? answer.label ?? ""
     }
 
+    /// An answer's tooltip: what Control says it does in full (`help`), else its label.
+    public static func tooltip(_ answer: PanelAnswerModel) -> String {
+        Tooltip.of(help: answer.help, label: answer.label)
+    }
+
     /// An action's button label: what Control says a button shows (`button`, "Hand to" for
     /// "Hand to…"), else its label.
     public static func label(_ action: ActionModel) -> String {
         action.button ?? action.label ?? ""
+    }
+}
+
+/// What a button's or toolbar item's tooltip says (`.help`), on every one: Control's full
+/// explanation (`help`) when it sends one, else its label.
+public enum Tooltip {
+    public static func of(help: String?, label: String?) -> String {
+        if let help, !help.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return help }
+        return label ?? ""
     }
 }
 
@@ -351,15 +368,15 @@ public enum ActionIcon {
 }
 
 /// An action or link of a panel as Prism's `plain` button, with its icon when Control
-/// names one; its key only in its tooltip.
+/// names one; `help` its tooltip.
 struct KeyButton: View {
     let label: String
-    let key: String?
+    let help: String
     var icon: String? = nil
     let take: () -> Void
 
     var body: some View {
-        PrismActionButton(label: label, key: key, pending: false, variant: .plain,
+        PrismActionButton(label: label, help: help, pending: false, variant: .plain,
                           icon: ActionIcon.symbol(icon), take: take)
     }
 }

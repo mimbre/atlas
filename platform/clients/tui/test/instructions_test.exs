@@ -47,7 +47,6 @@ defmodule AtlasTui.InstructionsTest do
           "id" => "why",
           "type" => "text",
           "props" => %{
-            "label" => "Why",
             "text" => "The old key leaked.",
             "since" => DateTime.utc_now() |> DateTime.add(-3 * 3600 - 60) |> DateTime.to_iso8601()
           }
@@ -124,7 +123,8 @@ defmodule AtlasTui.InstructionsTest do
   test "the header, the why and every step in full, one under the other, then the answers" do
     text = screen(model())
     assert text =~ " ◆ TO DO FOR YOU · TD-12\n Rotate the key\n"
-    assert text =~ "Why: The old key leaked. · 3h ago"
+    assert text =~ "The old key leaked. · 3h ago"
+    refute text =~ "Why:"
 
     assert text =~
              ~r/1\. Open a terminal\n\n.*▎ cd ~\n.*\n\n.*\n +2\. Make its folder\n +In your home\./

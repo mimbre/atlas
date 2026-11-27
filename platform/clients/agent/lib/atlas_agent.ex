@@ -420,7 +420,7 @@ defmodule AtlasAgent do
 
   @doc """
   The actions Control offers on `page`: every `action` its blocks hold and every answer
-  (`panel_answer`: an option's Choose, Decline, Ask a question, …), in order. An answer
+  (`panel_answer`: an option's Choose, Decline, Ask, …), in order. An answer
   is the page's action of its key, as the TUI takes it: its `submit_to`, or its page.
   """
   def actions(page), do: found(page, :offered)

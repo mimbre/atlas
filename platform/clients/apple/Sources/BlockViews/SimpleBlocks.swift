@@ -4,7 +4,7 @@ import Foundation
 import AppKit
 #endif
 
-/// A `text` block in one line: its label before it ("Why: …"), and how long ago `since` was
+/// A `text` block in one line: its label before it, when it has one, and how long ago `since` was
 /// after it ("· 3h ago"), when Control sends them.
 public enum TextLine {
     public static func line(_ block: TextBlock, now: Date) -> String {

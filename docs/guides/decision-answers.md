@@ -22,13 +22,12 @@ atlas tui --env test
 
 | Step | Keys | What you should see |
 |---|---|---|
-| A decision for a person | on **Assigned to you**: a proposed decision, `↵` | **What to do: Have a person decide**, with **Answers** `a Accept   f Decline   q Ask a question   h Hand over   l Leave it to the proposer`. **Deadline** is the time the answer limit ends (`for_person` only; there is no `l` in `for_person_always`). Besides them `u Update`; there is no `d Delete`. `?` lists the same. |
+| A decision for a person | on **Assigned to you**: a proposed decision, `↵` | **What to do: Have a person decide**, with **Answers** `a Accept   f Decline   q Ask   l Delegate`. **Deadline** is the time the answer limit ends (`for_person` only). Besides them `u Update`; there is no `d Delete`. `?` lists the same. The Mac shows each answer's full words as its tooltip (`help`: "Ask the proposer a question", "Let someone else decide: the proposer or another person"). |
 | Accept | `a`, `y` | Stored as one change: `status` accepted, `decided_by` you, `decided_at` now. It leaves Assigned to you; Flow moves it to accepted. |
 | Decline | on another one: `f`, an alternative, `ctrl-s` | The form asks "What is your alternative?"; it is required (empty, it asks again). Stored as one change with "declined, with an alternative: …" as its cause: `status` revising, `alternative` your text, `decided_by` you. It goes to its proposer (below). |
-| Ask a question | `q`, a question, `ctrl-s` | "What do you need to know?". Stored as `status` answering, `question` your text, `decided_by` you; the history says "asked: …". It goes to its proposer. |
+| Ask | `q`, a question, `ctrl-s` | "What do you need to know?". Stored as `status` answering, `question` your text, `decided_by` you; the history says "asked: …". It goes to its proposer. |
 | Its proposer answers | as the proposer, on its page | Revising: **Revise it with its decider's alternative**, the alternative under **Their alternative**, Update to word it, then `p Propose again`. Answering: **Their question**, then `a Answer` with a note ("answered: …", stored in `answer`). Either sets `returned`: Flow proposes it again (`status` proposed) and it comes back to you, its `decided_by`. |
-| Hand over | `h`, a person | The page's Hand to…: it is theirs to decide. |
-| Leave it to the proposer | `l`, `y` | Only from your own session: `delegated_by` you, `left_to_proposer` set. Flow asks the gate again, which gives it to its proposer; they decide, recorded as "decided by coordinator on behalf of melle, delegated". |
+| Delegate | `l`: the form "Delegate D-NNNN to…", nothing chosen; ←/→ choose, `ctrl-s` (refused until you chose, and for another person until you picked one) | **The proposer (melle) — decides on your behalf**: only from your own session, `delegated_by` you, `left_to_proposer` set; Flow asks the gate again, which gives it to its proposer, who carries out what you delegated, recorded as "decided by coordinator on behalf of melle, delegated". **Another person**, then whom: the page's Hand to… of its assignment to them; it is theirs to decide. In `for_person_always` there is no proposer to choose: `l` is the Hand to… itself. |
 | Update instead | `u`, set Status to accepted, save | Also accepted: setting a deciding status through Update names you as `decided_by` in the same change. Fill **Decided at** yourself there. |
 | Not yours | a decision an agent owns (`for_agent`), or one that is someone else's | None of these answers; Update and Hand to stay. |
 | Delete anyway | a client that submits to `/k/decision/D-NNNN/delete` | Not sent; Facts refuses any delete too: "Decisions are an append-only ledger; a decision is never deleted. Record a new one that supersedes it instead." |
@@ -55,12 +54,13 @@ again and retry." or "Only the one its decided_by names may make this choice; �
 
 The answers grant no authority. Facts checks the decider gate (`accept_decision`,
 version 2) on every write that sets `status` to accepted. A person may always
-decide. An agent may decide only when it is `decided_by` and a fresh verdict for the
-decision as written permits an agent, which only Leave it to the proposer gives
-(`delegated`); principles and production releases always go to a person. Only the
-decider, from their own session, sets `delegated_by`: Control refuses an agent
-acting on their behalf or another person, Facts refuses an agent or anyone else. A
-timeout never hands a decision to an agent.
+decide; agents never decide unless the decider delegates it. Delegating to the
+proposer is the decider's decision: an agent may then decide only when it is
+`decided_by` and a fresh verdict for the decision as written permits it
+(`delegated`), carrying out what was delegated; principles and production releases
+always go to a person. Only the decider, from their own session, sets
+`delegated_by`: Control refuses an agent acting on their behalf or another person,
+Facts refuses an agent or anyone else. A timeout never hands a decision to an agent.
 
 ## Deadline
 
@@ -77,15 +77,20 @@ does not stay. `for_person_always` never times out and shows no deadline.
   and `present(answers: …)`. Each answer is `change: %{self: …, values: …}`
   (`"$now"` is filled when it is sent, and `"$note"`, where a value names it, with the
   note it is sent with; `self` names the relation the sender is linked by:
-  `decided_by`, or `delegated_by` for Leave). Decline and Ask have `note: true` and
-  their own `prompt`; Ask, Hand over and Leave weigh `other` with an `icon`
-  (`question`, `hand_over`, `delegate`); Hand over (`hand_over: true`) is the page's
-  Hand to…. `for_person` has `deadline: :no_answer`. `revising` and `answering`
+  `decided_by`, or `delegated_by` for Delegate). Decline and Ask have `note: true` and
+  their own `prompt`; Ask and Delegate weigh `other` with an `icon` (`question`,
+  `delegate`); every answer has its `help`. Delegate is `hand_over: true` with the
+  `change` to the proposer and the words of both choices (`choices:`): Control's form
+  sends the change, or the page's Hand to… of the assignment to the person chosen;
+  under a fixed person rule it is `hand_over: true` alone, the Hand to… itself.
+  `for_person` has `deadline: :no_answer`. `revising` and `answering`
   branch back to `deciding` on `returned`, which resets it, `left_to_proposer` and
   `status` proposed.
-- **Control:** an answer is `/k/:kind/:key/answer/:answer`. It is a confirm, or
-  a note form when the answer needs a note. Submitting it reads the fact again
-  and checks that you are still its owner in that state.
+- **Control:** an answer is `/k/:kind/:key/answer/:answer`. It is a confirm, a
+  note form when the answer needs a note, or Delegate's form (`to`: a required
+  choice without a value; `whom`: required, `shown_when` `to` is `other`; its label the delegate kind's).
+  Submitting it reads the fact again and checks that you are still its owner in that
+  state.
 - **Facts:** a kind with `delete_error` (here `decision`, declared in
   `products/software_factory/model/contract/foundation/decision.ex` and generated into `products/software_factory/model/targets/rela/atlas.json`) refuses every delete with that sentence.
   Control then offers no `d`.

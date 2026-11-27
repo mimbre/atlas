@@ -26,7 +26,10 @@ defmodule Model.Profiles.Incident.Service do
     max_outgoing: 1,
     inverse: {:resolved_incidents, "resolved incidents"},
     only_target: [error: "only a person records service restoration"],
-    actions: [set: [key: "a", label: "Resolve"], remove: [key: "a", label: "Reopen"]]
+    actions: [
+      set: [key: "a", label: "Resolve", help: "Record that you restored the service"],
+      remove: [key: "a", label: "Reopen", help: "Reopen it: the service is not restored"]
+    ]
   )
 end
 

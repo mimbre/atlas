@@ -16,3 +16,34 @@ Application.put_env(:atlas_flow, :effect_receivers, %{
     "operations" => ["integrate", "publish"]
   }
 })
+
+defmodule Model.Offered do
+  @moduledoc """
+  What a page Control serves offers: every action and answer in its blocks (a map with a
+  `label` and a `to`, under `actions`, `answers` or an option's `answer`).
+  """
+  def all(%{} = map) do
+    own = if is_binary(map["label"]) and is_binary(map["to"]), do: [map], else: []
+
+    own ++
+      Enum.flat_map(map, fn
+        {k, v} when k in ["actions", "answers", "answer", "props"] -> all(v)
+        _ -> []
+      end)
+  end
+
+  def all(list) when is_list(list), do: Enum.flat_map(list, &all/1)
+  def all(_), do: []
+
+  @doc """
+  The ones that do not explain themselves: no `help`, or only their label again (the
+  model words its own, Control the rest).
+  """
+  def unexplained(blocks),
+    do:
+      for(
+        o <- all(blocks),
+        not is_binary(o["help"]) or String.trim(o["help"]) in ["", o["label"]],
+        do: o
+      )
+end

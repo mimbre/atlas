@@ -15,7 +15,6 @@ defmodule RelaDSL.DecisionOptionsTest do
       "field" => "state",
       "open" => "open",
       "adopt" => "taken",
-      "decline" => "passed",
       "superseded" => "replaced",
       "replaceable" => ["taken", "replaced"]
     },
@@ -24,31 +23,54 @@ defmodule RelaDSL.DecisionOptionsTest do
     "content_links" => ["after"],
     "legacy_fingerprint" => %{"fields" => ["name"], "relations" => []},
     "errors" =>
-      Map.new(~w(invalid not_json removed unselected changed selection), &{&1, "no #{&1}"})
+      Map.new(
+        ~w(invalid no_option not_json removed unselected changed selection),
+        &{&1, "no #{&1}"}
+      )
   }
+
+  @soup %{
+    "id" => "soup",
+    "text" => "Soup",
+    "details" => "Warm",
+    "effect" => "adopt",
+    "rule" => "Serve soup",
+    "consequences" => "Bowls"
+  }
+
+  @bread %{
+    "id" => "bread",
+    "text" => "Bread",
+    "details" => "Quick",
+    "effect" => "adopt",
+    "rule" => "Serve bread",
+    "consequences" => "Crumbs"
+  }
+
+  # A "no" option, as definitions held one before Decline was always offered (D-0106).
+  @none %{
+    "id" => "none",
+    "text" => "None",
+    "details" => "Skip",
+    "effect" => "decline",
+    "rule" => "",
+    "consequences" => ""
+  }
+
+  defp menu(options),
+    do:
+      JSON.encode!(%{
+        "question" => "Which?",
+        "rationale" => "Soup is warm",
+        "recommended" => "soup",
+        "options" => options
+      })
 
   @text JSON.encode!(%{
           "question" => "Which?",
           "rationale" => "Soup is warm",
           "recommended" => "soup",
-          "options" => [
-            %{
-              "id" => "soup",
-              "text" => "Soup",
-              "details" => "Warm",
-              "effect" => "adopt",
-              "rule" => "Serve soup",
-              "consequences" => "Bowls"
-            },
-            %{
-              "id" => "none",
-              "text" => "None",
-              "details" => "Skip",
-              "effect" => "decline",
-              "rule" => "",
-              "consequences" => ""
-            }
-          ]
+          "options" => [@soup, @bread]
         })
 
   defp fact(values \\ %{}),
@@ -67,14 +89,25 @@ defmodule RelaDSL.DecisionOptionsTest do
     assert %{"picked" => "soup", "state" => "taken", "dish" => "Serve soup", "effects" => "Bowls"} =
              answer("soup")
 
-    passed = answer("none")
-    assert passed["state"] == "passed"
-    refute Map.has_key?(passed, "dish")
+    assert %{"picked" => "bread", "state" => "taken", "dish" => "Serve bread"} = answer("bread")
     assert [] == Options.check(@rule, "change", fact(), answer("soup"), %{})
-    assert [] == Options.check(@rule, "change", fact(), passed, %{})
+    assert [] == Options.check(@rule, "change", fact(), answer("bread"), %{})
 
-    assert [%{"self" => "picked_by"} | _] =
+    assert [%{"self" => "picked_by"}, %{"self" => "picked_by"}] =
              Enum.map(Options.answers(@rule, fact()), & &1["change"])
+  end
+
+  test "a definition holds alternatives only: a no option is refused, Decline is always there" do
+    assert {:error, "no no_option"} = Options.decode(@rule, menu([@soup, @none]))
+    assert {:error, "no invalid"} = Options.decode(@rule, menu([]))
+
+    assert ["no no_option"] ==
+             Options.check(@rule, "change", fact(), %{"menu" => menu([@soup, @none])}, %{})
+
+    # An open record whose stored definition still has one takes a definition without it.
+    old = fact(%{"menu" => menu([@soup, @none])})
+    assert [] == Options.check(@rule, "change", old, %{"menu" => menu([@soup])}, %{})
+    assert Options.answers(@rule, old) == []
   end
 
   test "refusals are the annotation's" do

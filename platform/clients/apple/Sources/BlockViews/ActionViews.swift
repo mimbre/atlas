@@ -87,9 +87,48 @@ public enum PageActions {
         return (buttons.filter { $0.icon != "delete" }, delete)
     }
 
-    /// An action's tooltip: its button label, and its key when it has one ("Update (u)").
+    /// Whether an answer of an `answers` block goes in the window's toolbar with the opened
+    /// item's actions rather than at the page's bottom: one of weight `other` (Ask a
+    /// question, Hand over, Leave it to the proposer, Pick up). The main answer and the
+    /// decline (Accept, Decline, Decline all, Done, Won't do) stay on the page.
+    public static func inToolbar(_ answer: PanelAnswerModel) -> Bool {
+        answer.weight == "other"
+    }
+
+    /// Everything in the window's toolbar for the opened page (and its context menu): its
+    /// item's actions (`others`, Update first), then its `answers` blocks' `other` answers
+    /// in Control's order, each taken as its key's action is (its call, else its page: one
+    /// asking a note opens the note form), with its icon and short label; Delete last. One
+    /// button per thing to do (`buttons`). None when nothing is open.
+    public static func toolbar(_ page: PageMessage?) -> [ActionModel] {
+        let answers = (page?.blocks ?? []).flatMap { block -> [ActionModel] in
+            guard case .answers(let answers) = block.content else { return [] }
+            return (answers.answers ?? []).filter(inToolbar).map { answer in
+                ActionModel(label: answer.label, key: answer.key, to: answer.to, submitTo: answer.submitTo,
+                            icon: answer.icon, button: answer.button, help: answer.help)
+            }
+        }
+        let (rest, delete) = split(others(page) + answers)
+        return rest + [delete].compactMap { $0 }
+    }
+
+    /// The index page's own actions (`ofPage`: Create to-do, …) in the list column's
+    /// toolbar, above the list, one per thing to do (`buttons`): quiet icons as the opened
+    /// item's are, never a prominent button. None without an index page.
+    public static func listToolbar(_ page: PageMessage?) -> [ActionModel] {
+        page.map { buttons(ofPage($0)) } ?? []
+    }
+
+    /// Whether its toolbar item is its icon alone (its tooltip says what it is): Update
+    /// (icon `edit`), Delete and Create (`create`, a `+`), which everyone knows by their
+    /// icon. Every other (Ask, Delegate, Hand to, Failures) shows its short label too.
+    public static func iconOnly(_ action: ActionModel) -> Bool {
+        ["edit", "delete", "create"].contains(action.icon)
+    }
+
+    /// An action's tooltip: what Control says it does in full (`help`), else its label.
     public static func tooltip(_ action: ActionModel) -> String {
-        [AnswerLook.label(action), KeyGlyph.glyph(action.key).map { "(\($0))" }].compactMap { $0 }.joined(separator: " ")
+        Tooltip.of(help: action.help, label: action.label)
     }
 
     /// The page's first action with this key.
@@ -165,8 +204,8 @@ struct ActionsView: View {
     }
 }
 
-/// The buttons of `actions` (`PageActions.buttons`), side by side in whatever lays them
-/// out (a row, a toolbar): the first prominent, each with its key.
+/// The buttons of `actions` (`PageActions.buttons`), side by side in a row on the page:
+/// the first prominent. Never in a toolbar: there they are quiet icons (`ItemToolbar`).
 public struct ActionButtons: View {
     let actions: [ActionModel]
     let act: (ActionModel) -> Void
@@ -187,12 +226,11 @@ public struct ActionButtons: View {
         }
     }
 
-    /// Its key is not shown (the menu bar lists it; its tooltip names it). Pending (clicked,
-    /// or its key pressed, and not answered yet), the button shows a spinner before its
-    /// label and takes no second click.
+    /// Its key is not shown (the menu bar lists it); its tooltip says what it does
+    /// (`PageActions.tooltip`). Pending (clicked, or its key pressed, and not answered yet),
+    /// the button shows a spinner before its label and takes no second click.
     private func button(_ action: ActionModel) -> some View {
         let pending = PageActions.isPending(action, pending)
-        let glyph = KeyGlyph.glyph(action.key)
         return Button { act(action) } label: {
             HStack(spacing: Prism.Spacing.px6) {
                 if pending { ProgressView().progressViewStyle(.prism(.accent, size: .size16)) }
@@ -200,7 +238,7 @@ public struct ActionButtons: View {
             }
         }
         .disabled(pending)
-        .help(pending ? (self.pending?.text ?? action.label ?? "") : glyph.map { "\(action.label ?? "") (\($0))" } ?? action.label ?? "")
+        .help(pending ? (self.pending?.text ?? PageActions.tooltip(action)) : PageActions.tooltip(action))
         .accessibilityValue(pending ? Text(self.pending?.text ?? "") : Text(""))
     }
 }
@@ -441,7 +479,11 @@ struct ConfirmView: View {
 
 /// A form: its inputs by kind (text, multiline, choice, read-only; any other kind as
 /// text), Control's errors, and Save (⌘S) or Cancel (Esc). Tab moves between fields.
-/// What is typed goes to `edit` (the session's draft); Save sends every input's value.
+/// What is typed goes to `edit` (the session's draft); Save sends every shown input's
+/// value. An input with `shown_when` is shown, required and sent only while the input it
+/// names holds that value (`shown`). Save stays disabled until every shown required input
+/// has a value (`complete`). A required choice without a value starts with none chosen,
+/// as radio buttons; each choice's `help` is its tooltip.
 struct FormView: View {
     let block: FormBlock
     let draft: [String: String]
@@ -459,7 +501,7 @@ struct FormView: View {
                     .foregroundStyle(Prism.Colors.error)
             }
             Form {
-                ForEach(Self.named(block), id: \.name) { input in
+                ForEach(Self.shown(block, draft), id: \.name) { input in
                     field(input)
                 }
             }
@@ -476,7 +518,7 @@ struct FormView: View {
                 Button(block.submitLabel ?? "Save") { if let call = block.submitTo { submit(call, Self.values(block, draft)) } }
                     .keyboardShortcut("s", modifiers: .command)
                     .buttonStyle(.borderedProminent)
-                    .disabled(submitting || block.submitTo == nil)
+                    .disabled(submitting || block.submitTo == nil || !Self.complete(block, draft))
                     .help("\(block.submitLabel ?? "Save") (⌘S)")
             }
         }
@@ -487,14 +529,43 @@ struct FormView: View {
         (block.inputs ?? []).filter { $0.name != nil }
     }
 
-    /// Every input's value: what was typed, else the value Control sent.
+    /// An input's value: what was typed, else the value Control sent, else none ("").
+    static func value(_ input: InputModel, _ draft: [String: String]) -> String {
+        draft[input.name ?? ""] ?? input.value ?? ""
+    }
+
+    /// The inputs shown: every named one, but one with `shown_when` only while the input it
+    /// names holds its value.
+    static func shown(_ block: FormBlock, _ draft: [String: String]) -> [InputModel] {
+        let inputs = named(block)
+        return inputs.filter { input in
+            guard let condition = input.shownWhen else { return true }
+            guard let other = inputs.first(where: { $0.name == condition.name }) else { return false }
+            return value(other, draft) == condition.value
+        }
+    }
+
+    /// Every shown input's value; one that is not shown is not sent.
     static func values(_ block: FormBlock, _ draft: [String: String]) -> [String: String] {
-        Dictionary(named(block).map { ($0.name ?? "", draft[$0.name ?? ""] ?? $0.value ?? "") }) { first, _ in first }
+        Dictionary(shown(block, draft).map { ($0.name ?? "", value($0, draft)) }) { first, _ in first }
+    }
+
+    /// Whether every shown required input has a value, so the form may be saved.
+    static func complete(_ block: FormBlock, _ draft: [String: String]) -> Bool {
+        shown(block, draft).allSatisfy { input in
+            input.required != true || input.kind == "readonly"
+                || !value(input, draft).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// Whether a choice starts with none chosen, as radio buttons: required, without a value.
+    static func radio(_ input: InputModel) -> Bool {
+        input.kind == "choice" && input.required == true && input.value == nil
     }
 
     private func binding(_ input: InputModel) -> Binding<String> {
         let name = input.name ?? ""
-        return Binding(get: { draft[name] ?? input.value ?? "" }, set: { edit(name, $0) })
+        return Binding(get: { Self.value(input, draft) }, set: { edit(name, $0) })
     }
 
     private func label(_ input: InputModel) -> String {
@@ -506,18 +577,37 @@ struct FormView: View {
         switch input.kind {
         case "readonly":
             LabeledContent(input.label ?? input.name ?? "") { Text(input.value ?? "—").textSelection(.enabled) }
+        case "choice" where Self.radio(input):
+            Picker(label(input), selection: binding(input)) { choices(input) }
+                .radioGroup()
+                .help(input.hint ?? "")
         case "choice", "boolean":
-            Picker(label(input), selection: binding(input)) {
-                ForEach(input.choices ?? [], id: \.value) { choice in
-                    Text(choice.label ?? choice.value ?? "").tag(choice.value ?? "")
-                }
-            }
-            .help(input.hint ?? "")
+            Picker(label(input), selection: binding(input)) { choices(input) }
+                .help(input.hint ?? "")
         case "multiline":
             TextField(label(input), text: binding(input), prompt: input.hint.map(Text.init), axis: .vertical)
                 .lineLimit(3...12)
         default:
             TextField(label(input), text: binding(input), prompt: input.hint.map(Text.init))
         }
+    }
+
+    /// A choice's options, each its label, its `help` its tooltip.
+    private func choices(_ input: InputModel) -> some View {
+        ForEach(input.choices ?? [], id: \.value) { choice in
+            Text(choice.label ?? choice.value ?? "").tag(choice.value ?? "")
+                .help(choice.help ?? "")
+        }
+    }
+}
+
+private extension View {
+    /// Radio buttons on macOS; iOS has none, and keeps its own picker.
+    @ViewBuilder func radioGroup() -> some View {
+        #if os(macOS)
+        pickerStyle(.radioGroup)
+        #else
+        self
+        #endif
     }
 }
