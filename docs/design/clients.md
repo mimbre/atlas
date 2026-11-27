@@ -77,16 +77,17 @@ gutter between them. Room left over is only at the **far right**, after the last
 
 | Column | Mac | TUI |
 |---|---|---|
-| Sidebar: the tabs, their counts and groups | fixed, about 240 pt | 24 cells, from 290 columns (else the tab bar) |
-| List: the tab's rows | fixed, about 360 pt | 60 cells |
+| Sidebar: top-level tabs and their counts | fixed, about 240 pt | 24 cells, from 290 columns (else the tab bar) |
+| List: the tab's filters and rows | fixed, about 360 pt | 60 cells |
 | Page: the item's main blocks | at most 720 pt (100 characters of the body font) | at most 100 cells |
 | Details: the page's details group | 280–720 pt (as wide as the page at most), growing with the room | 40–100 cells, growing with the room |
 
 What gives way as the room narrows, in this order:
 
-1. **The sidebar.** TUI: below 290 columns the tabs move to the tab bar (from 210 with a
-   row of the active tab's groups and counts under it). Mac: the sidebar stays until
-   step 3.
+1. **The sidebar.** TUI: below 290 columns the tabs move to the tab bar. Filters
+   stay on the list at every width: bracketed labels and counts, a coloured `•` on the
+   active filter, and `[` / `]` keys for previous / next.
+   Mac: the sidebar stays until step 3.
 2. **The details** go under the main blocks. Mac: beside while the page's column holds
    720 + 280 pt (a window of about 1600 pt), else as a recessed card under the page.
    TUI: beside from 210 columns (from 140 in one column), else as the page's last blocks.
