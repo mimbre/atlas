@@ -59,14 +59,7 @@ if config_env() != :test do
     # What this environment adds to the model's pages (AtlasControl.Model.catalog/2): the
     # shell's extra tabs ("tabs") and who may read and submit worker guidance
     # ("workers": "read" and "submit", each {"actors": [key]}). None by default.
-    settings: Map.take(settings["control"], ["tabs", "workers"]),
-    # Candidate Runtime build corresponding to the core image. Control checks that the
-    # release assets exist and its commit descends from the installed build before offering it.
-    runtime_release:
-      (case Regex.run(~r/:([a-z]+)-([0-9a-f]{12})[0-9a-f]*$/, System.get_env("FLY_IMAGE_REF", "")) do
-         [_, branch, commit] -> "#{branch}-#{commit}"
-         _ -> nil
-       end)
+    settings: Map.take(settings["control"], ["tabs", "workers"])
 
   # Flow looks at each open fact again this often, and at once on a hint.
   config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60

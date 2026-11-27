@@ -65,7 +65,7 @@ defmodule AtlasControl.MachinesPageTest do
   end
 
   # Flow's health answer: the bench polled `ago` seconds before now, on `build`.
-  defp flow(opts \\ []) do
+  defp flow(opts) do
     polled = DateTime.add(@now, -Keyword.get(opts, :ago, 12), :second)
 
     %{
@@ -89,9 +89,7 @@ defmodule AtlasControl.MachinesPageTest do
       @m,
       reader(opts),
       Keyword.get_lazy(opts, :flow, fn -> flow(opts) end),
-      @now,
-      Keyword.get(opts, :newest, "develop-bbbbbbbbbbbb"),
-      Keyword.get(opts, :verify, fn _, _ -> true end)
+      @now
     )
   end
 
@@ -100,7 +98,7 @@ defmodule AtlasControl.MachinesPageTest do
   defp props(page, id), do: block(page, id)["props"]
   defp pairs(page, id), do: Map.new(props(page, id)["fields"], &{&1["label"], &1["value"]})
 
-  test "with one machine the tab is its page: header, state, health, the lists, the main action, actions and details" do
+  test "with one machine the tab shows its health, lists, actions and details" do
     page =
       tab(
         benches: [
@@ -126,7 +124,6 @@ defmodule AtlasControl.MachinesPageTest do
              {"queue", "list"},
              {"finished", "list"},
              {"upgrades", "list"},
-             {"answers", "answers"},
              {"actions", "actions"},
              {"details", "item"}
            ]
@@ -141,8 +138,7 @@ defmodule AtlasControl.MachinesPageTest do
     assert pairs(page, "health") == %{
              "Last seen" => "12 s ago, 27 Nov 11:59:48 UTC",
              "Polls" => "each poll waits up to 25 s for work",
-             "Running since" => "27 Nov 09:00:00 UTC",
-             "Core build" => "develop-bbbbbbbbbbbb, published and newer than develop-aaaaaaaaaaaa"
+             "Running since" => "27 Nov 09:00:00 UTC"
            }
 
     # Desired slots are not evidence of free capacity.
@@ -293,89 +289,14 @@ defmodule AtlasControl.MachinesPageTest do
     assert props(tab(refits: updating), "state")["text"] =~ "Upgrading (RF-02)"
   end
 
-  describe "the main action, Upgrade to the newest build" do
-    defp offered?(page), do: block(page, "answers") != nil
-
-    test "is offered when a newer build exists, as the page's main answer opening its confirm" do
-      assert [answer] = props(tab(), "answers")["answers"]
-
-      assert %{
-               "label" => "Upgrade to the core's build",
-               "weight" => "main",
-               "to" => "/machines/mini/upgrade",
-               "detail" => "develop-aaaaaaaaaaaa → develop-bbbbbbbbbbbb"
-             } = answer
+  test "upgrade is unavailable, including a directly opened confirmation" do
+    for opts <- [[], [build: "develop-bbbbbbbbbbbb"], [flow: nil]] do
+      refute block(tab(opts), "answers")
     end
 
-    test "is not offered when the machine runs the newest build" do
-      page = tab(build: "develop-bbbbbbbbbbbb")
-      refute offered?(page)
-
-      assert pairs(page, "health")["Core build"] ==
-               "develop-bbbbbbbbbbbb, which it runs; newer release unknown"
-    end
-
-    test "is not offered while an upgrade is under way" do
-      refits = [refit("RF-01", "develop-bbbbbbbbbbbb", "requested", "2026-11-27T11:00:00Z")]
-      refute offered?(tab(refits: refits))
-
-      # An ended one does not hold it back.
-      refits = [refit("RF-01", "develop-cccccccccccc", "failed", "2026-11-27T11:00:00Z")]
-      assert offered?(tab(refits: refits))
-    end
-
-    test "is not offered when the newest build or the machine's build is not known" do
-      refute offered?(tab(newest: nil))
-      refute offered?(tab(flow: %{"runtimes" => [], "queue" => []}))
-      refute offered?(tab(flow: nil))
-    end
-
-    test "an unavailable or unproven candidate is neither offered nor submitted" do
-      verify = fn _, _ -> false end
-      page = tab(verify: verify)
-      refute offered?(page)
-      assert pairs(page, "health")["Core build"] =~ "availability or ordering unknown"
-
-      assert {:refuse, _} =
-               MachinesPage.upgrade(
-                 @m,
-                 "mini",
-                 reader([]),
-                 flow(),
-                 "develop-bbbbbbbbbbbb",
-                 verify
-               )
-    end
-
-    test "its confirm names both builds; the upgrade it makes is the newest build under the machine" do
-      page = render({:machine_page, :machine_upgrade, %{machine: "mini"}})
-
-      assert %{
-               "title" => "Upgrade Mac mini to the core's build?",
-               "confirm_to" => %{
-                 "endpoint" => "upgrade_machine",
-                 "params" => %{"machine" => "mini"}
-               },
-               "cancel_to" => "/machines/mini"
-             } = props(page, "confirm")
-
-      assert props(page, "confirm")["text"] =~ "runs develop-aaaaaaaaaaaa"
-
-      assert MachinesPage.upgrade(@m, "mini", reader([]), flow(), "develop-bbbbbbbbbbbb", fn _,
-                                                                                             _ ->
-               true
-             end) ==
-               {:ok, "refit", %{"build" => "develop-bbbbbbbbbbbb"}, %{"refit_of" => ["mini"]}}
-
-      assert {:refuse, why} =
-               MachinesPage.upgrade(@m, "mini", reader([]), flow(), "develop-aaaaaaaaaaaa")
-
-      assert why =~ "runs the core's build"
-
-      # Without an offer the confirm only says why.
-      page = render({:machine_page, :machine_upgrade, %{machine: "mini"}}, newest: nil)
-      refute Map.has_key?(props(page, "confirm"), "confirm_to")
-    end
+    page = render({:machine_page, :machine_upgrade, %{machine: "mini"}})
+    assert props(page, "confirm")["text"] == MachinesPage.upgrade_unavailable()
+    refute Map.has_key?(props(page, "confirm"), "confirm_to")
   end
 
   test "a machine not seen within the limit says so in the error tone, and what to do" do

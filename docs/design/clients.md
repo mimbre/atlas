@@ -39,12 +39,10 @@ A decision, a to-do's steps and stuck work are such stacks (`header`, `text` id 
 
 The **Machines** tab (contract 0.43.0; Runtimes in the code) is such a stack when there is
 one machine: its page is the tab's page (`header` MACHINE · its key, the state line,
-Health, Slots, Queue, Recently finished, Upgrades, Upgrade to the core's build as the main
-answer when its published Runtime release is proven newer, Edit configuration in the toolbar,
-Details). Desired but unverified slots and an unavailable queue are marked unknown. The
-candidate is the core image's build, not necessarily the newest release; Control checks both
-release assets and commit ancestry before offering and again before submitting the upgrade.
-Failure to verify means no offer. A client shows a tab page with a
+Health, Slots, Queue, Recently finished, Upgrades, Edit configuration in the toolbar and
+Details). Desired but unverified slots and an unavailable queue are marked unknown. Machines
+does not offer or submit upgrades: a failed update can leave the Runtime draining, and safe
+durable recovery must exist before the action can be enabled. A client shows a tab page with a
 `header` as an opened page, without a list column. With more than one machine the tab
 is a simple list of them for now; the compact overview per machine, grouped, comes
 when a second Runtime exists.

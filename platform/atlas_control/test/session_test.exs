@@ -134,9 +134,17 @@ defmodule AtlasControl.SessionTest do
     stop_supervised!(FakeStore)
     start_supervised!({FakeStore, model: Shop.Benched})
     FakeStore.put("mini", %{"name" => "Mac mini"}, "bench")
+    FakeStore.put("ada", %{"name" => "Ada"}, "member")
+    FakeStore.put("carl", %{"name" => "Carl"}, "member")
 
     name = :"machines_gateway_#{System.unique_integer([:positive])}"
-    settings = %{"workers" => %{"read" => %{"actors" => ["ada"]}}}
+
+    settings = %{
+      "workers" => %{
+        "read" => %{"actors" => ["ada", "carl"]},
+        "submit" => %{"actors" => ["carl"]}
+      }
+    }
 
     start_supervised!(
       {AtlasControl.Gateway, port: 0, name: name, model: Shop.Benched, settings: settings},
@@ -200,15 +208,15 @@ defmodule AtlasControl.SessionTest do
       assert %{"title" => "Worker unavailable"} = next(denied, "page")
     end
 
-    put(denied, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
-    assert %{"reason" => "refused", "title" => "Worker unavailable"} = next(denied, "page")
-
     refute Enum.any?(
              Enum.drop(FakeStore.reads(), length(before)),
              &(&1 in ["bench", "refit", "shift"])
            )
 
     refute_received :health_asked
+    put(denied, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+    assert %{"reason" => "refused", "refused" => ["forbidden"]} = next(denied, "page")
+
     assert FakeStore.sent() == []
 
     allowed = connect.("ada")
@@ -218,6 +226,18 @@ defmodule AtlasControl.SessionTest do
     assert inspect(page["blocks"]) =~ "Mac mini"
     assert_receive :health_asked
     assert "bench" in FakeStore.reads()
+
+    put(allowed, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+    assert %{"reason" => "refused", "refused" => ["forbidden"]} = next(allowed, "page")
+    assert FakeStore.sent() == []
+
+    submitter = connect.("carl")
+    on_exit(fn -> :gen_tcp.close(submitter) end)
+    put(submitter, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+
+    assert %{"reason" => "refused", "refused" => [reason]} = next(submitter, "page")
+    assert reason == AtlasControl.MachinesPage.upgrade_unavailable()
+    assert FakeStore.sent() == []
   end
 
   test "exact fact reads preserve named values and links for evidence", %{port: port} do
