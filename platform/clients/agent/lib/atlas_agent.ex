@@ -173,15 +173,35 @@ defmodule AtlasAgent do
         steps_of(page["blocks"] || []) || options_of(page["blocks"] || []) ||
           Enum.find_value(items, fn {id, props} -> id == "todo" && props end)
 
-      case for({id, props} <- items, id != "todo", do: props) do
-        [item] ->
+      details = Enum.reject(items, fn {id, _props} -> id == "todo" end)
+
+      header =
+        Enum.find_value(page["blocks"] || [], fn
+          %{"type" => "header", "props" => %{"title" => title}} when is_binary(title) -> title
+          _ -> nil
+        end)
+
+      anchor =
+        Enum.find(details, fn {id, _props} -> id == "item" end) ||
+          if(length(details) == 1, do: hd(details), else: if(header, do: {nil, %{}}))
+
+      case anchor do
+        {_, item} ->
+          fields =
+            for {_id, props} <- details, field <- List.wrap(props["fields"]), do: field
+
+          title =
+            if header && (length(details) != 1 or item["title"] in [nil, ""]),
+              do: header || page["title"],
+              else: item["title"]
+
           # The change form holds the exact values; it answers at its path also for a kind
           # that offers no key to change it (one only the agent writes).
           values = edit_values(client, page["path"] <> "/edit")
 
           # The fact that set a value (a link): since, by, cause, by the field's label.
           origins =
-            for %{"origin" => %{} = origin} = pair <- item["fields"] || [],
+            for %{"origin" => %{} = origin} = pair <- fields,
                 into: %{},
                 do: {pair["label"], origin}
 
@@ -189,8 +209,8 @@ defmodule AtlasAgent do
            %{
              "key" => key,
              "path" => page["path"],
-             "title" => item["title"],
-             "fields" => pairs(item["fields"]),
+             "title" => title,
+             "fields" => pairs(fields),
              "origins" => origins,
              "lists" => lists(page),
              "values" => values,
