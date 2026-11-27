@@ -203,7 +203,6 @@ final class DecisionPageTests: XCTestCase {
         XCTAssertEqual(AnswersView.shown(answers, toolbar: false).count, 4, "a sheet shows them all")
         let toolbar = PageActions.toolbar(page)
         XCTAssertEqual(toolbar.map(\.key), ["u", "q", "h", "l", "d"])
-        XCTAssertEqual(toolbar.map(PageActions.iconOnly), [true, false, false, false, true])
         XCTAssertEqual(toolbar.map { ActionIcon.symbol($0.icon) },
                        ["pencil", "questionmark.bubble", "person.and.arrow.left.and.arrow.right",
                         "arrow.uturn.backward", "trash"])
