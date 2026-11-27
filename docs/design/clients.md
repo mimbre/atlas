@@ -88,7 +88,7 @@ Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 | Role (block) | Mac renders | TUI renders |
 |---|---|---|
 | Title / eyebrow (`header`) | On the page, no card: eyebrow and key in small caps in the accent's text colour (`TO DO FOR YOU · TD-12`), the title as the page title; the page's own actions beside it | Eyebrow with the key (`◆ YOUR DECISION · D-0104`) bold in the eyebrow colour, title under it |
-| Why / text (`text`) | On the page, muted: `Why: … · 3h ago`, its age kept current | Dim paragraph after its label, with its age |
+| Intro / text (`text`) | On the page, muted, no label (the why is an intro paragraph): `… · 3h ago`, its age kept current | Dim paragraph (after its label when it has one), with its age |
 | Option (`option`) | A calm card: number as Prism's `StepIndicator`, text, badge in its tone (★ Recommended success; `melle's alternative` neutral), Rule/Then rows (a field without a text shows no section: an alternative not worked out yet has only its title), its own Choose as a Prism button (recommended `primary`, others `secondary`); none when `alone` (Accept answers it) | A filled card (selected one on the selected surface, marked ▸): number, text, badge, fields, then its answer on its key |
 | Step (`instruction`) | A calm card per step, number in a badge, lines in order | A filled card per step, numbers aligned, lines in order; text bold |
 | Command (in a step) | A light inset with a copy icon right after the command, in the primary colour at the action icons' 16pt; after a copy a brief ✓, also primary | Plain behind a bar; the selected one highlighted (`c` copies, `y`) |

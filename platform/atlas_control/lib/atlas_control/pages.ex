@@ -3375,7 +3375,7 @@ defmodule AtlasControl.Pages do
 
     why =
       if why,
-        do: [{"why", Blocks.text(label: "Why", text: why, since: todo.why.since)}],
+        do: [{"why", Blocks.text(text: why, since: todo.why.since)}],
         else: []
 
     [{"header", Blocks.header(eyebrow: "TO DO FOR YOU", key: key, title: title)}] ++
@@ -3483,7 +3483,7 @@ defmodule AtlasControl.Pages do
     decision_blocks(
       [
         {"header", Blocks.header(eyebrow: "YOUR DECISION", key: key, title: choice["question"])},
-        {"why", Blocks.text(label: "Why", text: choice["rationale"])}
+        {"why", Blocks.text(text: choice["rationale"])}
       ],
       options,
       others,

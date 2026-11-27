@@ -536,7 +536,9 @@ defmodule Model.DecisionOptionsTest do
     definition = JSON.decode!(@text)
     assert header["title"] == definition["question"]
     assert why["text"] == definition["rationale"]
-    assert why["label"] == "Why" and why["text"] != ""
+    # The intro paragraph without a label: no page text starts with "Why:".
+    assert why["text"] != "" and not Map.has_key?(why, "label")
+    refute inspect(blocks) =~ "Why:"
     assert Enum.any?(rest, &(&1["id"] == "item"))
     refute Enum.any?(blocks, &(&1["type"] in ["single_choice", "panel"]))
 

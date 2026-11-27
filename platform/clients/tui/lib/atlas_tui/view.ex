@@ -1026,7 +1026,7 @@ defmodule AtlasTui.View do
     card(lines, width, :card_error, model)
   end
 
-  # A paragraph, dim, after its label ("Why: ") and with how long ago its `since` was; its
+  # A paragraph, dim, after its label when it has one and with how long ago its `since` was; its
   # lines under the first.
   defp block(%TextBlock{} = text, _at, model, width, _room) do
     label = if single_line(text.label) == "", do: "", else: single_line(text.label) <> ": "

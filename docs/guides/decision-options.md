@@ -61,7 +61,7 @@ Decisions that ended `rejected` before D-0106 stay so.
 
 The native model's semantic answer IDs include the displayed revision and stable
 option ID. Control shows the offer as a stack of simple blocks (D-0104): a
-`header` (YOUR DECISION, the key, the question), a `text` (Why: the rationale),
+`header` (YOUR DECISION, the key, the question), a `text` (the rationale, an intro paragraph without a label),
 then the options to adopt (contract 0.39.0). One proposal is one `option` card
 (`alone`: no answer, badge or number on it, its Rule and Consequences in full) and below it an `answers` block: Accept (`main`, the
 proposal's answer) and Decline (`decline`). Several alternatives are a card each, the

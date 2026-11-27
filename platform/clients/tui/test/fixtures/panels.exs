@@ -58,7 +58,7 @@ defmodule AtlasTui.PanelFixture do
     blocks =
       [
         header("YOUR DECISION", "D-7", "How do we store examples?"),
-        text("why", %{"label" => "Why", "text" => "Files need nothing to run."}),
+        text("why", %{"text" => "Files need nothing to run."}),
         adopt.(1, "files", "Use files", %{
           "badge" => "★ Recommended",
           "tone" => "success",

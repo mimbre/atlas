@@ -2118,11 +2118,13 @@ defmodule AtlasControl.PagesTest do
              "icon" => "widget"
            }
 
+    # The intro paragraph has no label: nothing on the page says "Why:".
     assert blocks["why"] == %{
-             "label" => "Why",
              "text" => "the old key leaked.",
              "since" => "2026-11-20T10:00:00Z"
            }
+
+    refute inspect(page.blocks) =~ "Why"
 
     # Every step whole, its lines in the order written; none is current or done.
     assert blocks["step-1"] == %{

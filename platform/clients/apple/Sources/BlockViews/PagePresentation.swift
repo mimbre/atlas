@@ -19,7 +19,7 @@ public struct PagePresentation: Sendable, Equatable {
         case panel(PanelBlock)
         /// A page's header: its eyebrow and key over its title.
         case header(HeaderBlock)
-        /// A line of text, with its label and how long ago, when it has them ("Why: …").
+        /// A line of text, with its label and how long ago, when it has them.
         case text(TextBlock)
         /// One numbered step of instructions, all its lines.
         case instruction(InstructionBlock)

@@ -38,7 +38,7 @@ struct HeaderBlockView: View {
     }
 }
 
-/// A `text` block, on the page itself, muted: "Why: the old key leaked. · 3h ago"
+/// A `text` block, on the page itself, muted: "the old key leaked. · 3h ago"
 /// (`TextLine`), its age kept current. With role `error` (something went wrong), as
 /// Prism's `MessageBar` in its danger tone: its label as a heading, its text under it.
 struct TextBlockView: View {

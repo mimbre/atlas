@@ -28,7 +28,7 @@ final class DecisionPageTests: XCTestCase {
 
     private static let decision: [[String: Any]] = [
         ["id": "header", "type": "header", "props": ["eyebrow": "YOUR DECISION", "key": "D-7", "title": "How do we store examples?"]],
-        ["id": "why", "type": "text", "props": ["label": "Why", "text": "Nothing to run."]],
+        ["id": "why", "type": "text", "props": ["text": "Nothing to run."]],
         option(1, "Use SQLite", badge: "★ Recommended", tone: "success",
                fields: [("Rule", "Store examples in SQLite."), ("Consequences", "One file per environment.")],
                answer: ["label": "Choose", "key": "1", "to": "/k/decision/D-7/answer/1", "submit_to": call("adopt-sqlite"),
