@@ -176,8 +176,8 @@ public struct PageView: View {
                 .padding(.horizontal, inCard ? 0 : Prism.Spacing.px15)
             ForEach(details.groups) { group in
                 switch group {
-                case .entry(let entry): entryView(entry, inDetails: inCard)
-                case .section(let section): sectionView(section, inDetails: inCard)
+                case .entry(let entry): entryView(entry, inDetails: inCard, detailHeading: true)
+                case .section(let section): sectionView(section, inDetails: inCard, detailHeading: true)
                 }
             }
         }
@@ -244,14 +244,14 @@ public struct PageView: View {
     }
 
     @ViewBuilder private func entryView(_ entry: PagePresentation.Entry, inDetails: Bool = false,
-                                        followsCardsBeforeDetails: Bool = false) -> some View {
+                                        detailHeading: Bool = false, followsCardsBeforeDetails: Bool = false) -> some View {
         switch entry.item {
         case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
-        case .item(let item): ItemBlockView(item: item, inDetails: inDetails, act: act)
-        case .option(let option): OptionView(block: option, act: act)
+        case .item(let item): ItemBlockView(item: item, inDetails: inDetails, detailHeading: detailHeading, act: act)
+        case .option(let option): OptionView(block: option, detailHeading: detailHeading, act: act)
         case .panel(let panel):
             // A view of its own per page: a selection never stays for another page.
-            PanelView(block: panel, others: panelActions, open: open, act: act).id(presentation.path)
+            PanelView(block: panel, others: panelActions, detailHeading: detailHeading, open: open, act: act).id(presentation.path)
         case .header(let block):
             HeaderBlockView(block: block, actions: headerActions, act: act)
         case .text(let text): TextBlockView(block: text)
@@ -276,17 +276,18 @@ public struct PageView: View {
         }
     }
 
-    private func blocks(_ section: PagePresentation.Section, inDetails: Bool) -> some View {
+    private func blocks(_ section: PagePresentation.Section, inDetails: Bool, detailHeading: Bool) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
-            ForEach(section.entries) { entryView($0, inDetails: inDetails) }
+            ForEach(section.entries) { entryView($0, inDetails: inDetails, detailHeading: detailHeading) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false) -> some View {
+    @ViewBuilder private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false,
+                                          detailHeading: Bool = false) -> some View {
         if section.collapsible {
             DisclosureGroup(isExpanded: expansion(section)) {
-                blocks(section, inDetails: inDetails).padding(.top, Prism.Spacing.px10)
+                blocks(section, inDetails: inDetails, detailHeading: detailHeading).padding(.top, Prism.Spacing.px10)
             } label: {
                 Text(section.title).prism(Prism.Typography.title6)
                     .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
@@ -297,7 +298,7 @@ public struct PageView: View {
                     .accessibilityAddTraits(.isHeader)
                     .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
                 Divider()
-                blocks(section, inDetails: inDetails)
+                blocks(section, inDetails: inDetails, detailHeading: detailHeading)
             }
         }
     }
@@ -466,13 +467,15 @@ struct KindIcon: View {
 struct ItemBlockView: View {
     let item: ItemBlock
     var inDetails = false
+    var detailHeading = false
     let act: (ActionModel) -> Void
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let content = VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             if let title = item.title, !title.isEmpty {
-                Text(title).prism(inDetails ? Prism.Typography.label : Prism.Typography.title5)
+                Text(title).prism(inDetails ? Prism.Typography.label
+                                  : detailHeading ? Prism.Typography.title6 : Prism.Typography.title5)
             }
             // The actions first: the next step is in reach without scrolling.
             ActionsView(actions: PageActions.ofBlock(item.actions), act: act)

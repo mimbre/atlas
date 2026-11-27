@@ -148,7 +148,7 @@ blue planned or waiting, green done. An unknown tone uses the row's text colour.
 | Role | Prism typography (Mac) |
 |---|---|
 | Page title (`PageHeader`) | `title3` |
-| Panel, option and item card titles | `title5`; details labels remain `label` |
+| Main panel, option and item card titles | `title5`; details card titles use `title6`, and details labels remain `label` |
 | List-row card titles | `title7` (16) |
 | Running text (why, a step's text, an option's Rule and Consequences, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
 | Section and details headings | `title6` (20); aligned with their cards, and with the main content when alongside |
