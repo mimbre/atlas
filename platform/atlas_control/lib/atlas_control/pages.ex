@@ -889,7 +889,6 @@ defmodule AtlasControl.Pages do
 
     list =
       Blocks.list(
-        title: rule.title || "",
         rows:
           work_order(
             for {from, fact, link} = item <- items do
