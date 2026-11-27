@@ -341,8 +341,12 @@ defmodule Model.Decision do
     to: [:person, :agent],
     max_outgoing: 1,
     inverse: {:decided, "decided"},
+    # Its decider left it to its proposer (D-0106): the proposer it is assigned to then
+    # takes their place, deciding on their behalf (`only_target.delegated`, where the
+    # assignment is: `Model.AtlasEyra`).
     only_target: [
-      error: "only the one who decides sets decided_by, to themselves",
+      error:
+        "only the one who decides sets decided_by, to themselves; another only once its decider left it to them, its proposer",
       also: [:migration]
     ]
   )

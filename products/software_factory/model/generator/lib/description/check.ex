@@ -978,11 +978,42 @@ defmodule RelaDSL.Description.Check do
       else
         []
       end ++
-      if(note["only_target"],
-        do: keys(note["only_target"], ~w(error also), path ++ ["only_target"]),
-        else: []
-      ) ++
+      only_target(ctx, spec, note["only_target"], path ++ ["only_target"]) ++
       actions(ctx, spec, note["actions"] || %{}, path ++ ["actions"])
+  end
+
+  defp only_target(_ctx, _spec, nil, _path), do: []
+
+  defp only_target(ctx, spec, only, path) do
+    keys(only, ~w(error also delegated), path) ++
+      case is_map(only) && only["delegated"] do
+        nil ->
+          []
+
+        false ->
+          []
+
+        %{"owner" => %{} = owner} = delegated ->
+          at = path ++ ["delegated"]
+
+          keys(delegated, ~w(by owner), at) ++
+            keys(owner, ~w(via relation), at ++ ["owner"]) ++
+            Enum.flat_map(spec["from"] || [], fn kind ->
+              relation(ctx, delegated["by"], kind, at) ++
+                relation(ctx, owner["via"], kind, at)
+            end) ++
+            Enum.flat_map((rel(ctx, owner["via"]) || %{})["to"] || [], fn kind ->
+              relation(ctx, owner["relation"], kind, at ++ ["owner"])
+            end)
+
+        _ ->
+          p(
+            path ++ ["delegated"],
+            :only_target_delegated,
+            path,
+            "#{Enum.join(path, ".")}.delegated: needs by and owner (via, relation)"
+          )
+      end
   end
 
   defp actions(ctx, spec, actions, path) do
