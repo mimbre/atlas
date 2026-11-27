@@ -210,10 +210,11 @@ defmodule AtlasTui.ColumnsSidebarTest do
       model = wide(max(width, 160))
       model = put_in(model.console.viewport, {width, 40})
       model = %{model | console: %{model.console | cache: AtlasTui.PageCache.new(), history: []}}
-      {model, [{:send, %{"op" => "open"}}]} = AtlasTui.Console.to_tab(model, "/_open/build")
+      {model, [{:send, %{"op" => "open"}}]} =
+        AtlasTui.Console.to_tab(model, "/_supervised/decide/open")
 
       page =
-        list("/_open/build", "Build", ["W-3", "W-4"])
+        list("/_supervised/decide/open", "Build", ["W-3", "W-4"])
         |> Map.put("back", "/_supervised")
         |> Map.update!("blocks", fn blocks ->
           [
@@ -222,7 +223,7 @@ defmodule AtlasTui.ColumnsSidebarTest do
               "type" => "groups",
               "props" => %{
                 "groups" => [
-                  %{"label" => "Build", "to" => "/_open/build", "count" => 2, "active" => true}
+                  %{"label" => "Build", "to" => "/_supervised/decide/open", "count" => 2, "active" => true}
                 ]
               }
             }
@@ -232,16 +233,16 @@ defmodule AtlasTui.ColumnsSidebarTest do
 
       {model, effects} = ConsoleProjectionFixture.receive(model, page)
       assert model.console.active == "supervised"
-      assert model.columns.list == "/_open/build"
+      assert model.columns.list == "/_supervised/decide/open"
       assert screen(model, width) =~ "Build"
 
       if width >= 160 do
         assert [{:send, %{"op" => "open", "to" => "/k/widget/W-3"}}] = effects
         {model, []} = ConsoleProjectionFixture.receive(model, widget("W-3"))
         assert model.console.active == "supervised"
-        assert model.columns.list == "/_open/build"
+        assert model.columns.list == "/_supervised/decide/open"
         {model, [{:send, %{"op" => "open", "to" => "/k/widget/W-4"}}]} = Model.key(model, :down)
-        assert model.columns.list == "/_open/build"
+        assert model.columns.list == "/_supervised/decide/open"
       else
         assert effects == []
         {model, []} = Model.key(model, :down)

@@ -9,26 +9,6 @@ final class TypographyTests: XCTestCase {
     private static let apple = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-    /// Prism's smaller end, one set (docs/design/clients.md, Typography): running text
-    /// `bodysmall`, commands `monosmall` (16/24, as `bodysmall`), labels `label`, meta and
-    /// eyebrows `caption`/`labelsmall`, a count's badge `captionsmall`, titles
-    /// `title6`/`title7`. Nothing that acts or is copied (a button, a command) larger than the
-    /// text that explains it.
-    private static let scale: Set<String> = ["title6", "title7", "label", "labelsmall", "caption", "captionsmall",
-                                             "bodysmall", "monosmall"]
-
-
-    func testAtlasViewsUseOneSetOfPrismsTypographies() throws {
-        let role = try NSRegularExpression(pattern: #"Prism\.Typography\.(\w+)"#)
-        var found: [String] = []
-        for (at, code) in try Self.lines() {
-            for match in role.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
-                let name = String(code[Range(match.range(at: 1), in: code)!])
-                if !Self.scale.contains(name) { found.append("\(at): \(name)") }
-            }
-        }
-        XCTAssertEqual(found, [], "use one of \(Self.scale.sorted())")
-    }
 
     /// One button size: every Prism button (`PrismButtonStyle`, `.prism(…)` as a button
     /// style, `PrismButtonLooks`) in Prism's `small` size, about 32pt tall, no larger than

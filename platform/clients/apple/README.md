@@ -31,6 +31,8 @@ actions are not promoted merely because they are first. When a row of answers si
 a stack of cards and details below, its lower spacing matches the cards' shadow room above.
 When a details part contains a collapsible section, its disclosure sits outside a surrounding
 details card and its revealed blocks keep their own presentation.
+Item pages show a header's optional state and current age beneath its title and a list's
+optional progress aside alongside its heading.
 
 ## Build, test, run
 
