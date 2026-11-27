@@ -24,6 +24,8 @@ struct ShellView: View {
     /// sidebar toggle still shows and hides it in between.
     @State private var visibility: NavigationSplitViewVisibility = .all
     @State private var sidebarShown: Bool?
+    /// The status bar's height, kept clear under the sidebar.
+    @State private var statusBar: CGFloat = 0
 
     /// A submit, with what it is in the words of the page that declares it.
     private func submit(_ call: CallModel, _ values: [String: String]) {
@@ -37,6 +39,9 @@ struct ShellView: View {
         NavigationSplitView(columnVisibility: $visibility) {
             Sidebar(shell: shell, connection: StatusViewModel(session.state).mark, select: session.selectTab,
                     filter: session.filter)
+                // The sidebar runs to the window's bottom edge under the status bar: its
+                // foot stays above the bar.
+                .safeAreaPadding(.bottom, statusBar)
         } content: {
             Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
                    act: session.act)
@@ -91,6 +96,7 @@ struct ShellView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             StatusBar(status: StatusViewModel(session.state), shell: shell,
                       update: updater.status.statusText(installed: updater.installed))
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { statusBar = $0 }
         }
         .environment(\.pendingAction, shell.pending)
         .environment(\.panelKeys, keys.panels)
@@ -191,10 +197,10 @@ struct NotLaunchedView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Start the app with the environment it is for:").prism(Prism.Typography.title7)
-            Text("bin/atlas mac --env test").monospaced().prism(Prism.Typography.mono).textSelection(.enabled)
+            Text("bin/atlas mac --env test").monospaced().prism(Prism.Typography.bodysmall).textSelection(.enabled)
             Text("or, against a Control already listening:").foregroundStyle(.secondary)
             Text("swift run AtlasMac --env test --host 127.0.0.1 --port <control port>").monospaced()
-                .prism(Prism.Typography.mono).textSelection(.enabled)
+                .prism(Prism.Typography.bodysmall).textSelection(.enabled)
             switch problem {
             case .notLaunched: EmptyView()
             case .missing(let name): Text("Missing: \(name)").foregroundStyle(.red)

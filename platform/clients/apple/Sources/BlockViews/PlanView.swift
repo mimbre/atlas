@@ -117,7 +117,7 @@ public struct PlanView: View {
                         .prism(Prism.Typography.caption).foregroundStyle(.secondary)
                 }
                 if let why = step.why, !why.isEmpty {
-                    Text(why).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                    Text(why).prism(Prism.Typography.bodysmall).foregroundStyle(.secondary)
                 }
                 if let detail = step.detail, !detail.isEmpty {
                     Text(detail).prism(Prism.Typography.bodysmall)

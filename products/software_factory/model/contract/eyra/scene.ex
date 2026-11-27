@@ -187,7 +187,7 @@ defmodule Model.Scene do
     initial(:break_down)
     supervise(:break_down, label: "Design", states: [:break_down, :accepting, :clarifying])
 
-    state :break_down, label: "Break it down into use cases" do
+    state :break_down, label: "Break it down" do
       present(
         expected: "Break it down into use cases",
         why: "it is to be broken down",
@@ -302,7 +302,7 @@ defmodule Model.Scene do
     # Nothing is built on the scene itself, and nobody has anything to do on it: it is
     # assigned to nobody (no default, so Flow removes the owner it gave), and it gives no
     # to-do (no instructions, no answers). Its producer gets it once Accept is next.
-    state :building, label: "Waiting for its use cases" do
+    state :building, label: "Waiting for use cases" do
       owner(via: :assignment, relation: :assigned_to)
 
       present(

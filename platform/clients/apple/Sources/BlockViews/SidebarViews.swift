@@ -164,7 +164,7 @@ public struct SidebarView: View {
     private func section(_ title: String, _ items: [SidebarItem]) -> some View {
         if !items.isEmpty {
             Text(title)
-                .prism(Prism.Typography.captionsmall)
+                .prism(Prism.Typography.caption)
                 .foregroundStyle(PrismDarkGap.muted(scheme))
                 .padding(.horizontal, 10)
                 .padding(.top, 12)
@@ -208,7 +208,7 @@ struct SidebarRow: View {
         HStack(spacing: 0) {
             Button(action: fold) {
                 Image(systemName: "chevron.right")
-                    .prism(Prism.Typography.captionsmall.emphasis(.strong))
+                    .prism(Prism.Typography.caption.emphasis(.strong))
                     .foregroundStyle(PrismDarkGap.sidebarIcon(scheme, selected: false))
                     .rotationEffect(.degrees(item.open == true ? 90 : 0))
                     .frame(width: SidebarLook.chevron)
@@ -292,12 +292,12 @@ struct SidebarFoot: View {
             }
             HStack(spacing: 6) {
                 Text(env)
-                    .prism(production ? Prism.Typography.captionsmall.emphasis(.strong) : Prism.Typography.captionsmall)
+                    .prism(production ? Prism.Typography.caption.emphasis(.strong) : Prism.Typography.caption)
                 Text("·")
                 Circle().fill(dot).frame(width: 7, height: 7)
                 Text(SidebarLook.connection(connection))
             }
-            .prism(Prism.Typography.captionsmall)
+            .prism(Prism.Typography.caption)
             .foregroundStyle(PrismDarkGap.muted(scheme))
         }
         .frame(maxWidth: .infinity, alignment: .leading)

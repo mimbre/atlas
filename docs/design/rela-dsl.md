@@ -204,7 +204,7 @@ defmodule Model.Decision do
         agent: :for_agent, agent_unverified: :for_agent_unverified
     end
 
-    state :for_person_always, label: "A person decides" do
+    state :for_person_always, label: "Decide it" do
       owner default: {:person, config: :decider}         # slice 7; #109 names a person here
       wait_for [:principle_authority, :decider], on: :status, reset: false,
         accepted: :accepted, rejected: :rejected
@@ -212,7 +212,7 @@ defmodule Model.Decision do
         instructions: "...", answers: [:accept, :reject]                          # #109
     end
 
-    state :for_person, label: "Waiting for a person" do
+    state :for_person, label: "Decide it" do
       owner default: {:person, config: :decider}         # slice 7
       wait_for :decider, on: :status, reset: false, accepted: :accepted, rejected: :rejected
       timer :no_answer, {:gate_limit, :accept_decision}, to: :deciding
@@ -225,7 +225,7 @@ defmodule Model.Decision do
       present expected: "Have it decided", why: "the recorded gate permits an agent", instructions: "..."
     end
 
-    state :for_agent_unverified, label: "Unverified agent decision" do
+    state :for_agent_unverified, label: "Unverified decision" do
       set unverified: true
       wait_for [:delegate, :decider], on: :status, reset: false, accepted: :accepted, rejected: :rejected
       present expected: "Have it decided (unverified)", why: "a person did not answer in time", instructions: "..."
