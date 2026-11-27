@@ -76,16 +76,7 @@ defmodule AtlasTui.ConsoleView do
 
       labels =
         Enum.flat_map(paths, fn entry ->
-          tab =
-            Enum.find_value(tabs, fn tab ->
-              if tab["to"] == entry.path do
-                tab["label"]
-              else
-                Enum.find_value(tab["groups"] || [], fn group ->
-                  if group["to"] == entry.path, do: group["label"]
-                end)
-              end
-            end)
+          tab = Enum.find_value(tabs, fn tab -> if tab["to"] == entry.path, do: tab["label"] end)
 
           cached = AtlasTui.PageCache.get(model.console.cache, entry.path)
 

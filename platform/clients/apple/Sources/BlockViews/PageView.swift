@@ -26,13 +26,16 @@ public struct PageView: View {
     let selectedPath: String?
     let open: (String) -> Void
     let act: (ActionModel) -> Void
+    let filter: (String) -> Void
+    let selectedGroup: String?
     @Environment(\.colorScheme) private var scheme
     /// Whether the list has the keys: its selected card shows Prism's tint, else calm grey.
     @FocusState private var listFocused: Bool
 
     public init(page: PageMessage, header: Bool = false, selectedPath: String? = nil,
                 open: @escaping (String) -> Void,
-                act: @escaping (ActionModel) -> Void = { _ in }) {
+                act: @escaping (ActionModel) -> Void = { _ in },
+                filter: ((String) -> Void)? = nil, selectedGroup: String? = nil) {
         presentation = PagePresentation(page)
         pageActions = PageActions.ofPage(page)
         itemActions = header ? PageActions.toolbar(page) : []
@@ -40,6 +43,8 @@ public struct PageView: View {
         self.selectedPath = selectedPath
         self.open = open
         self.act = act
+        self.filter = filter ?? open
+        self.selectedGroup = selectedGroup
     }
 
     /// The page from the left of its column (`WindowLayout.columns`): its main blocks at most
@@ -263,6 +268,7 @@ public struct PageView: View {
                                         followsCardsBeforeDetails: Bool = false) -> some View {
         switch entry.item {
         case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
+        case .groups(let groups): GroupFilters(groups: groups, selected: selectedGroup, filter: filter)
         case .item(let item): ItemBlockView(item: item, inDetails: inDetails, act: act)
         case .option(let option): OptionView(block: option, act: act)
         case .panel(let panel):

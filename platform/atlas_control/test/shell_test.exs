@@ -120,19 +120,16 @@ defmodule AtlasControl.ShellTest do
 
     assert %{"icon" => "assigned", "for_you" => true} = tabs["/"]
     assert %{"for_you" => false} = tabs["/k/part"]
-    assert Enum.all?(tabs["/"]["groups"] || [], &(&1["for_you"] == true))
+    assert Enum.all?(shell["tabs"], &(not Map.has_key?(&1, "groups")))
   end
 
-  test "a tab or group of one kind has that kind's icon, as its rows; a kind without one has none" do
+  test "a tab of one kind has that kind's icon, as its rows; a kind without one has none" do
     d = description(Shop.ShelledAssigned)
     assert {:ok, shell} = Shell.boot(d, "member")
     tabs = Map.new(shell["tabs"], &{&1["to"], &1})
 
     assert tabs["/k/widget"]["icon"] == "widget"
     refute Map.has_key?(tabs["/k/part"], "icon")
-
-    groups = Map.new(tabs["/"]["groups"], &{&1["to"], &1})
-    assert groups["/_assigned/widget"]["icon"] == "widget"
   end
 
   test "a member is greeted and named by its name; an agent, or a model without a greeting, is not greeted" do
@@ -467,5 +464,28 @@ defmodule AtlasControl.ShellTest do
       tab = %{"id" => "screen", "label" => "Screen", "to" => to}
       assert {:error, _} = Shell.boot(description(Shop.Shelled, %{"tabs" => [tab]}), nil)
     end
+  end
+
+  test "group boot targets select their parent tab without exposing group destinations" do
+    d = description(Shop.Supervised)
+
+    for {screen, parent} <- [
+          {:assigned, "/"},
+          {:open_for_you, "/_open"},
+          {:supervised_by_you, "/_supervised"}
+        ] do
+      assert [{key, _} | _] = AtlasControl.Pages.groups(d, screen)
+      to = AtlasControl.Pages.path({:group, screen, key, nil})
+      assert {:ok, shell} = Shell.boot(d, "member", to)
+      assert shell["initial_to"] == to
+      assert Enum.find(shell["tabs"], &(&1["id"] == shell["active_tab"]))["to"] == parent
+      assert Enum.all?(shell["tabs"], &(not Map.has_key?(&1, "groups")))
+    end
+
+    assert [{key, _} | _] = AtlasControl.Pages.groups(d, :assigned)
+    to = AtlasControl.Pages.path({:group, :assigned, key, nil})
+    assert {:ok, shell} = Shell.boot(d, nil, to)
+    assert shell["initial_to"] == to
+    refute Map.has_key?(shell, "active_tab")
   end
 end

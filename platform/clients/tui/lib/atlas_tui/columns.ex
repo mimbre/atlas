@@ -429,12 +429,9 @@ defmodule AtlasTui.Columns do
 
   # A tab's page, or one of its groups, on screen becomes the list; the focus goes to it,
   # unless it is in the sidebar, which chose it.
-  defp track(%{console: %{shell: %{"tabs" => tabs}, expected: expected}} = model)
+  defp track(%{console: %{shell: %{"tabs" => _tabs}, expected: expected}} = model)
        when expected in [nil, model.path] do
-    tab? =
-      Enum.any?(tabs, fn tab ->
-        tab["to"] == model.path or Enum.any?(tab["groups"] || [], &(&1["to"] == model.path))
-      end)
+    tab? = Console.tab_for_path(model, model.path) != nil
 
     if model.path != model.columns.list and tab? and list_page?(model) do
       focus = if model.columns.focus == :sidebar, do: :sidebar, else: :list

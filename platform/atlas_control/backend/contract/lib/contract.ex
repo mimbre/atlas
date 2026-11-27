@@ -101,7 +101,8 @@ defmodule AtlasBFFContract.Contract do
   # `upgrade_machine` submit); `/workers` shows the Machines page (deprecated). The shell
   # says who assists its viewer (`assistant`), shown under their name.
   # 0.44.0: headers may show state and age, and lists may show an aside.
-  version "0.44.0"
+  # 0.45.0: shell tabs no longer carry groups; group navigation remains in list pages.
+  version "0.45.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup
