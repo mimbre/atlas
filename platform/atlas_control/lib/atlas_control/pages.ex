@@ -2337,7 +2337,7 @@ defmodule AtlasControl.Pages do
           ] ++ sections
 
         cond do
-          is_map(Map.get(k, :page)) ->
+          is_map(Map.get(k, :page)) and Map.drop(k.page, ["details"]) != %{} ->
             spec = k.page
 
             {_tone, since} =
@@ -2491,15 +2491,22 @@ defmodule AtlasControl.Pages do
               end)
               |> put_in(["props", "actions"], [])
 
+            {detail_blocks, detail_markup} =
+              if is_list(get_in(k, [:page, "details"])) do
+                {page_detail_blocks(m, k, k.page, item), sections}
+              else
+                {[{"item", item}], details_markup}
+              end
+
             content =
               head ++
                 others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
-                [{"item", item}] ++ lists
+                detail_blocks ++ lists
 
             markup =
               for({id, {title, _list}} <- judged, do: Blocks.section(id, id, title: title)) ++
-                details_markup
+                detail_markup
 
             page("#{k.label} #{key}", back, content, markup)
 
@@ -3714,7 +3721,10 @@ defmodule AtlasControl.Pages do
       |> put_in(["props", "fields"], rest)
       |> put_in(["props", "actions"], [])
 
-    List.flatten(blocks) ++ [{"item", other}]
+    remaining =
+      if rest == [] and item["props"]["links"] in [nil, []], do: [], else: [{"item", other}]
+
+    List.flatten(blocks) ++ remaining
   end
 
   defp page_detail_blocks(_m, _k, _spec, item),

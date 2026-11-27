@@ -60,6 +60,14 @@ defmodule Model.ToDo do
 
     field(:evidence, :string, description: "Optional: a link, location or reference")
 
+    page(
+      details: [
+        [title: "Status", fields: [:status]],
+        [title: "Outcome", fields: [:note, :evidence]],
+        [title: "Assignment", relations: [:assigned_to]]
+      ]
+    )
+
     primary(:title)
     plural_label("To-Dos")
     order(:newest)
