@@ -52,7 +52,7 @@ defmodule AtlasTui.View do
     "ticket" => "•",
     "sparkles" => "✦",
     "gears" => "✹",
-    "figure" => "♟",
+    "figure" => "✚",
     "hammer" => "▪",
     "merge" => "⇄",
     "magnifier" => "◉",
