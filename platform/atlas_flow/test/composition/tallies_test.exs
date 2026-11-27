@@ -2,11 +2,14 @@ defmodule AtlasFlow.Composition.TalliesTest do
   @moduledoc """
   A tally of the composition: by itself (`AtlasFlow.Composition.Tallies`), and through the
   run store and fake Facts on the neutral shelf (`AtlasFlow.Shelf`), whose subflow waits
-  until something of any kind stands on it. No timer is waited on: each step is one
-  synchronous reconcile.
+  until something of any kind stands on it. No timer is waited on: the store tests use
+  synchronous reconciles, and the engine test waits for the hint's settlement.
   """
   use ExUnit.Case, async: false
 
+  require AtlasTestAwait, as: Await
+
+  alias AtlasBus.Envelope
   alias AtlasFlow.Composition.Tallies
   alias AtlasFlow.FakeFacts
   alias AtlasFlow.Runs.{Run, Store}
@@ -127,6 +130,7 @@ defmodule AtlasFlow.Composition.TalliesTest do
         "relations" => %{"on_shelf" => %{"from" => ["jar", "tin"], "to" => ["shelf"]}}
       }
 
+      Application.put_env(:atlas_bus, :store, "tallies-#{System.unique_integer([:positive])}")
       start_supervised!({FakeFacts, description: description})
       FakeFacts.put("shelf", %{"key" => "S-1"})
       config = AtlasFlow.Model.load(AtlasFlow.Shelf, :prod).config
@@ -144,14 +148,20 @@ defmodule AtlasFlow.Composition.TalliesTest do
 
       :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
 
-      {:stored, _} =
+      {:stored, position} =
         AtlasFlow.Talk.put("tin", %{
           "op" => "create",
           "key" => "T-1",
           "links" => %{"on_shelf" => ["S-1"]}
         })
 
-      :sys.get_state(engine)
+      # The writer's acknowledgement can arrive before the Router sends the hint to Flow.
+      request = %{Envelope.new("request", "_settled") | address: "flow"}
+      :ok = AtlasBus.send(request, %{"position" => position})
+      id = request.id
+      Await.message({:atlas_bus, %Envelope{id: ^id, class: "answer"}, %{"settled" => settled}})
+      assert settled >= position
+
       assert {:ok, %{"state" => "stocked"}} = Store.decode(config, FakeFacts.get("cursor", key))
     end
   end
