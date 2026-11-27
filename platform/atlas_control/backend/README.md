@@ -193,6 +193,8 @@ Supervision (contract 0.18.0; work acquisition decision 2026-11-17, §5.6–5.8)
 
 The assigned list has no separate list title, including on a filtered group page; the
 page title and group filters retain the context and counts.
+Control omits the group filter and its navigation keys when there is no alternative
+to All. Tab counts remain available, including zero.
 
 ### The agent behind `:`
 
