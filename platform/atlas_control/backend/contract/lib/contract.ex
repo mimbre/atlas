@@ -100,6 +100,7 @@ defmodule AtlasBFFContract.Contract do
   # (`/machines`, `/machines/:machine`, the Upgrade to the newest build confirm and its
   # `upgrade_machine` submit); `/workers` shows the Machines page (deprecated). The shell
   # says who assists its viewer (`assistant`), shown under their name.
+  # 0.44.0: headers may show state and age, and lists may show an aside.
   # 0.45.0: text blocks and labelled values may explicitly declare Markdown.
   version "0.45.0"
 

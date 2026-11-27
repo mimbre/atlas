@@ -145,6 +145,49 @@ defmodule RelaDSL.Description.ChecksTest do
     assert checked(concept(entity: "icon 3")) == [{:icon, ["thing"]}]
   end
 
+  test "a page declares its fields, incoming items and empty labels" do
+    c =
+      concept(
+        entity:
+          ~s(page state: [:state], intro: [field: :title], sections: [:title], items: [relation: :contains, empty: [open: "Nothing yet"]]),
+        concept: ~s(relation :contains, label: "contains", from: [:keeper], to: [:thing])
+      )
+
+    assert shape(c) == []
+    assert checked(c) == []
+    kinds = RelaDSL.Control.Model.kinds(RelaDSL.Control.Model.merge(c.schema, c.extension))
+
+    assert Enum.find(kinds, &(&1.name == "thing")).page == %{
+             "state" => ["state"],
+             "intro" => %{"field" => "title"},
+             "sections" => ["title"],
+             "items" => %{"relation" => "contains", "empty" => %{"open" => "Nothing yet"}}
+           }
+
+    assert Enum.find(kinds, &(&1.name == "keeper")).page == nil
+
+    assert checked(concept(entity: "page state: [:colour]")) ==
+             [{:unknown_field, ["thing", "colour"]}]
+
+    assert checked(concept(entity: "page sections: [:colour]")) ==
+             [{:unknown_field, ["thing", "colour"]}]
+
+    assert checked(concept(entity: "page items: [relation: :kept_by]")) ==
+             [{:relation_end, ["kept_by", "to", "thing"]}]
+
+    assert checked(concept(entity: "page shape: 3")) == [{:unknown_keys, ["shape"]}]
+
+    for declaration <- [
+          "page state: :state",
+          "page sections: :title",
+          "page intro: 3",
+          "page items: 3",
+          "page items: [relation: :kept_by, empty: 3]"
+        ] do
+      assert Enum.any?(checked(concept(entity: declaration)), &(elem(&1, 0) == :page))
+    end
+  end
+
   test "each leaf has one author, and each rule is given once" do
     c = concept(entity: "primary :title")
     again = %{kind: :extend_entity, value: {:thing, [primary: :title]}, file: "c.exs", line: 9}

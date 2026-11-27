@@ -18,7 +18,7 @@ public struct ShellViewModel: Sendable, Equatable {
         /// Whether its count is what waits for the user (what is assigned to them), not a
         /// plain count.
         public var forYou: Bool
-        /// The groups of its page, under it in the sidebar whichever tab is shown.
+        /// The destinations of its page's groups, from boot.
         public var groups: [Group]
     }
 
@@ -83,12 +83,9 @@ public struct ShellViewModel: Sendable, Equatable {
     public var droppedSteps: Set<Int>
 
     /// The row selected: the page asked for in the right column while it is on its way (the
-    /// clicked row stays selected while its page loads, as the sidebar's group does), else
-    /// the page displayed.
+    /// clicked row stays selected while its page loads), else the page displayed.
     public var selectedPath: String?
-    /// The group the middle column shows, or was asked to show (chosen in the sidebar, its
-    /// page still on the way), when it is one rather than its tab's page: the sidebar
-    /// selects it once, on the click, and keeps it while its page loads.
+    /// The group requested or shown in the middle column, when it is not the tab's page.
     public var activeGroup: String?
 
     public init(_ state: SessionState) {
