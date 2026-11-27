@@ -2184,11 +2184,18 @@ defmodule AtlasControl.Pages do
 
         # Where its owner decides: the fact as its details (`details_fields`), with what it
         # refers to, in a part of role details after what is decided; a client shows it
-        # beside that when there is room, else under it.
-        details = fn item ->
+        # beside that when there is room, else under it. The part is titled Details; the
+        # item no title of its own (the header has key and title), and no field whose text
+        # a main block already shows (`head`).
+        details = fn item, head ->
+          shown = shown_texts(head)
+
           item
-          |> put_in(["props", "title"], "#{k.label} #{key}")
-          |> put_in(["props", "fields"], details_fields)
+          |> put_in(["props", "title"], "")
+          |> put_in(
+            ["props", "fields"],
+            Enum.reject(details_fields, &(normalize_text(&1["value"]) in shown))
+          )
         end
 
         details_markup =
@@ -2207,16 +2214,18 @@ defmodule AtlasControl.Pages do
             %{steps: %{from: from}} = todo.section
             shown = for f <- k.fields, f.name == from, do: f.label
 
+            head = todo_blocks(todo, key, label(k, fact), next)
+
             item =
               item
-              |> details.()
+              |> details.(head)
               |> update_in(["props", "fields"], fn fields ->
                 Enum.reject(fields, &(&1["label"] in shown))
               end)
               |> put_in(["props", "actions"], [])
 
             content =
-              todo_blocks(todo, key, label(k, fact), next) ++
+              head ++
                 others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
                 [{"item", item}] ++ lists
@@ -2266,7 +2275,7 @@ defmodule AtlasControl.Pages do
               head ++
                 others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
-                [{"item", details.(item)}] ++
+                [{"item", details.(item, head)}] ++
                 lists
 
             markup =
@@ -3089,22 +3098,25 @@ defmodule AtlasControl.Pages do
   defp others_block(more), do: [{"actions", Blocks.actions(actions: more)}]
 
   # The operations and actions the model offers on a fact's page, for this client; no
-  # Delete when the fact is `removed?` instead (Remove).
+  # Delete when the fact is `removed?` instead (Remove). On its own page a button needs
+  # not name the kind: Update, Delete (the label, for menus and tools, keeps it).
   defp fact_actions(m, k, fact, form, removed?) do
     for action <- m.module.actions(k.name, fact, viewer(form)),
         not (removed? and action == %{op: :delete}) do
       case action do
         %{op: :update} ->
-          action(:update, k, path({:edit, k.name, fact["key"]}))
+          own_page(action(:update, k, path({:edit, k.name, fact["key"]})), :update)
 
         %{op: :delete} ->
-          action(:delete, k, path({:delete, k.name, fact["key"]}))
+          own_page(action(:delete, k, path({:delete, k.name, fact["key"]})), :delete)
 
         %{label: label, key: key, to: to} ->
           Blocks.action(label: label, key: key, to: to, icon: "open", button: button(label))
       end
     end
   end
+
+  defp own_page(action, op), do: Map.put(action, "button", elem(operation(op, nil), 0))
 
   # A Create in each related list a fact of the kind may be made by hand in: not under a
   # relation marked to add nothing, nor an association (no create key), nor of a kind a
@@ -3421,7 +3433,7 @@ defmodule AtlasControl.Pages do
             do: [Blocks.pair(label: "Details", value: option["details"])],
             else: [
               Blocks.pair(label: "Rule", value: option["rule"]),
-              Blocks.pair(label: "Then", value: option["consequences"])
+              Blocks.pair(label: "Consequences", value: option["consequences"])
             ]
 
         %{
@@ -3473,7 +3485,9 @@ defmodule AtlasControl.Pages do
           answer: a,
           fields:
             if(detail,
-              do: [Blocks.pair(label: if(a.note, do: "Details", else: "Then"), value: detail)],
+              do: [
+                Blocks.pair(label: if(a.note, do: "Details", else: "Consequences"), value: detail)
+              ],
               else: []
             )
         }
@@ -3513,6 +3527,30 @@ defmodule AtlasControl.Pages do
       todo
     )
   end
+
+  # Every text the page's main blocks show (`{id, block}`): their texts, titles and field
+  # values, whitespace-normalized, so details leave out what is already on the page.
+  defp shown_texts(blocks) do
+    blocks
+    |> Enum.flat_map(fn {_id, block} -> texts_in(block["props"]) end)
+    |> MapSet.new(&normalize_text/1)
+    |> MapSet.delete("")
+  end
+
+  defp texts_in(%{} = map),
+    do:
+      Enum.flat_map(map, fn
+        {k, v} when k in ["text", "title", "value"] and is_binary(v) -> [v]
+        {_k, v} -> texts_in(v)
+      end)
+
+  defp texts_in(list) when is_list(list), do: Enum.flat_map(list, &texts_in/1)
+  defp texts_in(_), do: []
+
+  defp normalize_text(text) when is_binary(text),
+    do: text |> String.replace(~r/\s+/u, " ") |> String.trim()
+
+  defp normalize_text(_), do: ""
 
   # A decision as a stack of simple blocks (D-0104): `intro` (its header, why, what went
   # wrong), then its adopt options as `option` blocks, the recommended one first, and below
@@ -3555,8 +3593,8 @@ defmodule AtlasControl.Pages do
          Blocks.option(
            n: n,
            text: o.text,
-           badge: if(o.recommended, do: "★ Recommended"),
-           tone: if(o.recommended, do: "success"),
+           badge: if(o.recommended and !alone?, do: "★ Recommended"),
+           tone: if(o.recommended and !alone?, do: "success"),
            fields: o.fields,
            answer: answer.(o, "Choose", if(n == 1, do: "main", else: "other")),
            alone: if(alone?, do: true)

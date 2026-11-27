@@ -3,6 +3,7 @@ import AtlasControlKit
 import ControlSession
 import Foundation
 import Prism
+import SwiftUI
 import XCTest
 
 /// The sidebar in Next's style: a count's badge by what it means (none at 0), a tab's icon
@@ -68,6 +69,37 @@ final class SidebarTests: XCTestCase {
         XCTAssertEqual(browse.map(\.label), ["Scenes"])
         XCTAssertNil(SidebarLook.symbol(browse[0].icon))
     }
+
+    /// Every icon an environment's configured tabs name is one the Mac draws (Workers
+    /// named `machines`, which it did not know, and so showed none).
+    func testEveryEnvironmentTabIconMapsToASymbol() throws {
+        let environments = URL(fileURLWithPath: #filePath)
+            .appendingPathComponent("../../../../../../products/software_factory/environments").standardized
+        let files = ["test.json", "prod.json", "test/core.json", "prod/core.json"]
+        for file in files {
+            let data = try Data(contentsOf: environments.appendingPathComponent(file))
+            let config = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let control = try XCTUnwrap(config["control"] as? [String: Any], file)
+            for tab in control["tabs"] as? [[String: Any]] ?? [] {
+                XCTAssertNotNil(SidebarLook.symbol(tab["icon"] as? String), "\(file): \(tab["id"] ?? "")")
+            }
+        }
+        XCTAssertEqual(SidebarLook.symbol("workers"), "cpu")
+    }
+
+    #if canImport(AppKit)
+    /// A tab without an icon keeps the icon's column, so its label lines up with the rest.
+    @MainActor
+    func testATabWithoutAnIconKeepsTheIconColumn() {
+        func width(_ icon: String?) -> CGFloat {
+            let item = SidebarItem(id: .tab("t"), label: "Workers", icon: icon, count: nil, forYou: false, open: nil)
+            return NSHostingView(rootView: SidebarRow(item: item, selected: false, stale: false, select: {}, fold: {}))
+                .fittingSize.width
+        }
+        XCTAssertEqual(width(nil), width("workers"))
+        XCTAssertEqual(width("something-new"), width("workers"))
+    }
+    #endif
 
     func testGroupsAreIndentedUnderTheirTabOneSizeSmallerAndFoldAway() {
         let shell = Self.shell(Self.tabs)

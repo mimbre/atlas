@@ -60,7 +60,7 @@ gutter between them. Room left over is only at the **far right**, after the last
 | Sidebar: the tabs, their counts and groups | fixed, about 240 pt | 24 cells, from 290 columns (else the tab bar) |
 | List: the tab's rows | fixed, about 360 pt | 60 cells |
 | Page: the item's main blocks | at most 720 pt (100 characters of the body font) | at most 100 cells |
-| Details: the page's details group | 280–480 pt, growing with the room | 40–100 cells, growing with the room |
+| Details: the page's details group | 280–720 pt (as wide as the page at most), growing with the room | 40–100 cells, growing with the room |
 
 What gives way as the room narrows, in this order:
 
