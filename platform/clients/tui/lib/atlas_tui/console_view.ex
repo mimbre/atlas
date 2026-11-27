@@ -90,10 +90,23 @@ defmodule AtlasTui.ConsoleView do
       if length(labels) > 1 do
         text = "  " <> Enum.join(labels, " › ")
 
-        if String.length(text) <= width do
+        graphemes = String.graphemes(text)
+
+        if Enum.sum(Enum.map(graphemes, &cell_width/1)) <= width do
           [[{:dim, text}]]
         else
-          [[{:dim, "…" <> String.slice(text, -max(width - 1, 0), max(width - 1, 0))}]]
+          {suffix, _} =
+            graphemes
+            |> Enum.reverse()
+            |> Enum.reduce_while({[], max(width - 1, 0)}, fn grapheme, {acc, room} ->
+              cells = cell_width(grapheme)
+
+              if cells <= room,
+                do: {:cont, {[grapheme | acc], room - cells}},
+                else: {:halt, {acc, room}}
+            end)
+
+          [[{:dim, "…" <> Enum.join(suffix)}]]
         end
       else
         []
@@ -101,6 +114,15 @@ defmodule AtlasTui.ConsoleView do
     else
       []
     end
+  end
+
+  defp cell_width(grapheme) do
+    {width, emoji} =
+      for <<cp::utf8 <- grapheme>>, reduce: {0, false} do
+        {width, emoji} -> {width + :prim_tty.npwcwidth(cp), emoji or cp in [0xFE0F, 0x20E3]}
+      end
+
+    if emoji, do: max(width, 2), else: width
   end
 
   @doc """
