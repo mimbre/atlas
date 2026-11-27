@@ -156,7 +156,7 @@ struct PanelHeading: View {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
                 (Text(title) + Text(key.map { "   " + $0 } ?? "").font(Prism.Typography.label.emphasis(.data).font)
                     .foregroundColor(PrismDarkGap.muted(scheme)))
-                    .prism(Prism.Typography.title7)
+                    .prism(Prism.Typography.title6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let trailing, !trailing.isEmpty {
                     Text(trailing).prism(Prism.Typography.caption).foregroundStyle(PrismDarkGap.muted(scheme))

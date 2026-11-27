@@ -443,7 +443,7 @@ struct RowCard: View {
             .lineLimit(1)
             .truncationMode(.tail)
             Text(row.label ?? "")
-                .prism(Prism.Typography.title7)
+                .prism(Prism.Typography.title6)
                 .lineSpacing(Prism.Spacing.px3)
                 .foregroundStyle(tone == .done ? muted : PrismDarkGap.text(scheme))
                 .lineLimit(RowCardText.titleLines)
@@ -500,7 +500,7 @@ struct ItemBlockView: View {
     var body: some View {
         let content = VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             if let title = item.title, !title.isEmpty {
-                Text(title).prism(inDetails ? Prism.Typography.label : Prism.Typography.title7)
+                Text(title).prism(inDetails ? Prism.Typography.label : Prism.Typography.title6)
             }
             // The actions first: the next step is in reach without scrolling.
             ActionsView(actions: PageActions.ofBlock(item.actions), act: act)
