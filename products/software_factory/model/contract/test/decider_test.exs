@@ -180,13 +180,15 @@ defmodule Model.DeciderTest do
       assert AtlasFlow.Model.owner(accept.owner("to_accept")["default"], actors) == decider
 
       # While its use cases are not all accepted, it waits assigned to nobody, not its
-      # producer nor the coordinator: nothing is built on it, and it gives nobody a to-do.
+      # producer nor the coordinator: nothing is built on it, and it gives nobody a to-do;
+      # its one answer is its producer's (Suggest a use case, Model.ScenePageTest).
       assert accept.owner("building")["default"] == nil
 
       assert %{"expected" => "Waiting for its use cases"} =
                waiting = accept.present("building", %{})
 
-      assert waiting["todo"] == nil
+      assert [%{"by" => "produced_by"}] = waiting["todo"]["answers"]
+      assert Map.keys(waiting["todo"]) == ["answers"]
     end
 
     assert {:error, why} = AtlasBus.Actors.resolve(Model.AtlasEyra.actors(), %{})

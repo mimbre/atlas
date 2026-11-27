@@ -8,12 +8,16 @@ defmodule AtlasBFFContract.Blocks do
 
   defmacro __using__(_opts) do
     quote do
-      # A list inside a section may leave its title to the section.
+      # A list inside a section may leave its title to the section. On an item page (a
+      # stack of simple blocks), a list titled itself (`title`: "Parts") may say how
+      # far its items are beside its title (`aside`: "2 of 3 done"), and with no rows what
+      # comes next (`empty`); a client shows its rows as it shows a list's.
       defblock :list do
         field :title, :string
         field :rows, {:list, :row}, required: true
         field :empty, :string
         field :actions, {:list, :action}
+        field :aside, :string
       end
 
       # The groups a page's items fall into, each a filter of the page: opening a group's
@@ -31,19 +35,25 @@ defmodule AtlasBFFContract.Blocks do
       end
 
       # A page's own heading, the first of a stack of simple blocks: what is asked of
-      # the viewer (`eyebrow`: "TO DO FOR YOU"), the fact's `key` and the `title`; `icon`,
-      # the icon of the fact's kind (as on its rows), shown with the eyebrow.
+      # the viewer (`eyebrow`: "TO DO FOR YOU") or what the fact is ("WIDGET"), the fact's
+      # `key` and the `title`; `icon`, the icon of the fact's kind (as on its rows), shown
+      # with the eyebrow. `detail`: where it stands, a state line under the title ("Break
+      # down · Refine"), with `since` (ISO 8601, UTC) how long it has been so, which a client
+      # shows after it ("· 3d") and keeps current.
       defblock :header do
         field :title, :string, required: true
         field :eyebrow, :string
         field :key, :string
         field :icon, :string
+        field :detail, :string
+        field :since, :string
       end
 
       # A paragraph: its `text`, after its `label` when it has one (an intro paragraph has none), and with `since` (ISO 8601,
       # UTC) how long ago that was, which a client shows after the text ("· 3h ago") and
       # keeps current. `role` error: something went wrong (what a client shows in Prism's
-      # error, a tinted card or a red frame).
+      # error, a tinted card or a red frame); `context`: what is there already, beside the
+      # page's subject ("Already built"), a calm card under its label as heading.
       defblock :text do
         field :text, :string, required: true
         field :label, :string

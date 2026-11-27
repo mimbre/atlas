@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Wire.Control.Session do
   @moduledoc "Control page/session and agent wire operations."
   use AtlasBFF.Schema
-  version "0.41.0"
+  version "0.42.0"
 
   models_from(AtlasBFFContract.Models.Presentation)
 

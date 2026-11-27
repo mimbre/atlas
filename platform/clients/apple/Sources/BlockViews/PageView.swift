@@ -55,7 +55,7 @@ public struct PageView: View {
 
     @ViewBuilder
     private func columns(_ columns: WindowLayout.Columns) -> some View {
-        let main = lines(presentation.groups, header: header)
+        let main = PageLine.lines(presentation, header: header)
         if let details = presentation.details, let width = columns.details {
             HStack(alignment: .top, spacing: 0) {
                 list(main).frame(width: columns.page)
@@ -67,13 +67,13 @@ public struct PageView: View {
                 Spacer(minLength: 0)
             }
         } else {
-            list(main + (presentation.details.map { [Line(id: "\u{0}details", content: .details($0))] } ?? []))
+            list(main + (presentation.details.map { [PageLine(id: "\u{0}details", content: .details($0))] } ?? []))
                 .frame(width: columns.page)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func list(_ lines: [Line]) -> some View {
+    private func list(_ lines: [PageLine]) -> some View {
         // The list selects a row by its id (the line's), never by a tag inside it; the row
         // selected is the first whose `to` is `selectedPath`, and selecting one opens its `to`.
         List(selection: Binding(
@@ -90,8 +90,18 @@ public struct PageView: View {
                     still(PageHeader(title: presentation.title, actions: pageActions, act: act))
                 case .title(let title):
                     still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.px10))
+                case .heading(let title, let aside):
+                    still(HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
+                        Text(title).prism(Prism.Typography.label).accessibilityAddTraits(.isHeader)
+                        if let aside {
+                            Text(aside).prism(Prism.Typography.caption).foregroundStyle(PrismDarkGap.muted(scheme))
+                        }
+                    }
+                    .padding(.horizontal, Prism.Spacing.px15)
+                    .padding(.top, Prism.Spacing.px10))
                 case .empty(let empty):
-                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary))
+                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, header ? Prism.Spacing.px15 : 0))
                 case .row(let row):
                     RowCard(row: row, selected: line.to == selectedPath, focused: listFocused)
                         .listRowInsets(EdgeInsets())
@@ -126,31 +136,6 @@ public struct PageView: View {
         presentation.details == nil && !presentation.hasPanel
     }
 
-    /// A row of the page's list: the page's header, a list block's title, its empty text,
-    /// one of its rows (the page's selection), its actions; cards that follow each other
-    /// (steps, options: one stack); or any other block, or a section, as one row.
-    private struct Line: Identifiable {
-        enum Content {
-            case header
-            case title(String)
-            case empty(String)
-            case row(RowModel)
-            case actions([ActionModel])
-            case entry(PagePresentation.Entry)
-            case cards([PagePresentation.Item])
-            case section(PagePresentation.Section)
-            case details(PagePresentation.Details)
-        }
-
-        let id: String
-        let content: Content
-
-        /// The page a row opens; nil for any other line.
-        var to: String? {
-            if case .row(let row) = content { row.to } else { nil }
-        }
-    }
-
     /// The details, in one recessed card beside or under the page: their title as a label, then their
     /// blocks, without cards of their own (no card inside a card).
     private func detailsView(_ details: PagePresentation.Details) -> some View {
@@ -165,46 +150,6 @@ public struct PageView: View {
             }
         }
         .modifier(RecessedCard())
-    }
-
-    /// The rows of `groups`, top down, each id made of its block's (the header's, which no
-    /// block's id can be, its own); cards that follow each other are one row, by the first's.
-    private func lines(_ groups: [PagePresentation.Group], header: Bool) -> [Line] {
-        var blocks: [Line] = []
-        for group in groups {
-            switch group {
-            case .section(let section):
-                blocks.append(Line(id: group.id, content: .section(section)))
-            case .entry(let entry) where CardStack.stacks(entry.item):
-                if let last = blocks.last, case .cards(let cards) = last.content {
-                    blocks[blocks.count - 1] = Line(id: last.id, content: .cards(cards + [entry.item]))
-                } else {
-                    blocks.append(Line(id: group.id, content: .cards([entry.item])))
-                }
-            case .entry(let entry):
-                switch entry.item {
-                case .list(let list):
-                    if let title = list.title { blocks.append(Line(id: group.id + "/title", content: .title(title))) }
-                    let rows = list.rows ?? []
-                    if rows.isEmpty, let empty = list.empty {
-                        blocks.append(Line(id: group.id + "/empty", content: .empty(empty)))
-                    }
-                    for (offset, row) in rows.enumerated() {
-                        blocks.append(Line(id: group.id + "/row/\(offset)", content: .row(row)))
-                    }
-                    let actions = PageActions.ofBlock(list.actions)
-                    if !actions.isEmpty {
-                        blocks.append(Line(id: group.id + "/actions", content: .actions(actions)))
-                    }
-                case .actions where header:
-                    break
-                default:
-                    blocks.append(Line(id: group.id, content: .entry(entry)))
-                }
-            }
-        }
-        let own = header && !presentation.hasPanel && !presentation.hasHeader
-        return own ? [Line(id: "\u{0}header", content: .header)] + blocks : blocks
     }
 
     /// The page's actions a panel shows at its bottom: on a page with a header, which a
@@ -290,6 +235,80 @@ public struct PageView: View {
         let key = presentation.path + "\u{0}" + section.id
         return Binding(get: { expanded.contains(key) },
                        set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } })
+    }
+}
+
+/// A row of a page's list (`PageView`): the page's header, a list block's title (the list
+/// column's, `title`; on an opened item's page, `heading`, with its `aside` beside it), its
+/// empty text, one of its rows (the page's selection: the list column's row cards, wherever
+/// the list is), its actions; cards that follow each other (steps, options: one stack); or
+/// any other block, or a section, as one row.
+struct PageLine: Identifiable, Equatable {
+    enum Content: Equatable {
+        case header
+        case title(String)
+        case heading(String, aside: String?)
+        case empty(String)
+        case row(RowModel)
+        case actions([ActionModel])
+        case entry(PagePresentation.Entry)
+        case cards([PagePresentation.Item])
+        case section(PagePresentation.Section)
+        case details(PagePresentation.Details)
+    }
+
+    let id: String
+    let content: Content
+
+    /// The page a row opens; nil for any other line.
+    var to: String? {
+        if case .row(let row) = content { row.to } else { nil }
+    }
+
+    /// The rows of the page's `groups` but its details, top down, each id made of its
+    /// block's (the header's, which no block's id can be, its own); cards that follow each
+    /// other are one row, by the first's. `header`: the page is the opened item's.
+    static func lines(_ presentation: PagePresentation, header: Bool) -> [PageLine] {
+        var blocks: [PageLine] = []
+        for group in presentation.groups {
+            switch group {
+            case .section(let section):
+                blocks.append(PageLine(id: group.id, content: .section(section)))
+            case .entry(let entry) where CardStack.stacks(entry.item):
+                if let last = blocks.last, case .cards(let cards) = last.content {
+                    blocks[blocks.count - 1] = PageLine(id: last.id, content: .cards(cards + [entry.item]))
+                } else {
+                    blocks.append(PageLine(id: group.id, content: .cards([entry.item])))
+                }
+            case .entry(let entry):
+                switch entry.item {
+                case .list(let list):
+                    if header, list.title != nil || list.aside != nil {
+                        blocks.append(PageLine(id: group.id + "/title",
+                                               content: .heading(list.title ?? "", aside: list.aside)))
+                    } else if let title = list.title {
+                        blocks.append(PageLine(id: group.id + "/title", content: .title(title)))
+                    }
+                    let rows = list.rows ?? []
+                    if rows.isEmpty, let empty = list.empty {
+                        blocks.append(PageLine(id: group.id + "/empty", content: .empty(empty)))
+                    }
+                    for (offset, row) in rows.enumerated() {
+                        blocks.append(PageLine(id: group.id + "/row/\(offset)", content: .row(row)))
+                    }
+                    let actions = PageActions.ofBlock(list.actions)
+                    if !actions.isEmpty {
+                        blocks.append(PageLine(id: group.id + "/actions", content: .actions(actions)))
+                    }
+                case .actions where header:
+                    break
+                default:
+                    blocks.append(PageLine(id: group.id, content: .entry(entry)))
+                }
+            }
+        }
+        let own = header && !presentation.hasPanel && !presentation.hasHeader
+        return own ? [PageLine(id: "\u{0}header", content: .header)] + blocks : blocks
     }
 }
 
