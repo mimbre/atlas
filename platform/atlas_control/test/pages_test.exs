@@ -2329,11 +2329,12 @@ defmodule AtlasControl.PagesTest do
     assert [%{"to" => "/k/part/P-1"}] = by_id(page)["list"]["rows"]
     refute Map.has_key?(by_id(page)["list"], "title")
 
-    # Nothing kept: the groups and the empty list.
+    # Nothing kept: show the empty list without a filter that has no alternative.
     page =
       render_run({:assigned, "K-1"}, @assigning, "open", [%{"facts" => []}, %{"facts" => []}])
 
-    assert Enum.map(page.blocks, & &1["id"]) == ["groups", "list"]
+    refute by_id(page)["groups"]
+    assert page.console_actions == []
     assert page.markup == []
     empty = by_id(page)["list"]
     refute Map.has_key?(empty, "title")

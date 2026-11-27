@@ -705,14 +705,9 @@ defmodule AtlasControl.Session do
   defp count_tabs(state, to) do
     {page, _answers, set} = page(state, to |> route(state) |> start(state), %{})
 
-    count =
-      for %{"id" => "groups", "props" => %{"groups" => groups}} <- page.blocks,
-          %{"to" => ^to, "count" => n} <- groups,
-          do: n
-
-    case count do
-      [n | _] -> put_in(state.tab_counts[to], %{count: n, set: set})
-      [] -> state
+    case Map.get(page, :group_total) do
+      n when is_integer(n) -> put_in(state.tab_counts[to], %{count: n, set: set})
+      _ -> state
     end
   end
 
