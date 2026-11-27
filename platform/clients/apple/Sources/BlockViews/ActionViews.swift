@@ -387,7 +387,7 @@ struct ConfirmView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
             if let title = block.title { Text(title).prism(Prism.Typography.title6) }
-            Text(block.text ?? "").prism(Prism.Typography.caption)
+            Text(block.text ?? "").prism(Prism.Typography.bodysmall)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
             HStack(spacing: Prism.Spacing.px10) {
@@ -433,6 +433,7 @@ struct FormView: View {
                 }
             }
             .formStyle(.grouped)
+            .prism(Prism.Typography.bodysmall)
             .frame(minHeight: 240, idealHeight: 420)
             HStack(spacing: Prism.Spacing.px10) {
                 if submitting {

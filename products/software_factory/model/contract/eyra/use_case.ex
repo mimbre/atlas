@@ -192,7 +192,7 @@ defmodule Model.UseCase do
     initial(:break_down)
     supervise(:break_down, label: "Plan", states: [:break_down, :accepting, :clarifying])
 
-    state :break_down, label: "Break it down into issues" do
+    state :break_down, label: "Break it down" do
       present(
         expected: "Break it down into issues",
         why: "nothing is under it yet",
