@@ -1340,6 +1340,27 @@ defmodule AtlasControl.SessionTest do
     assert %{"tone" => "pending"} = next(tui, "notice")
     assert %{"tone" => "error", "text" => "Facts refused: W-1 has R-1 open"} = next(tui, "notice")
     assert %{"reason" => "refused", "refused" => ["W-1 has R-1 open"]} = next(tui, "page")
+
+    # Submitted without opening its page first (as an agent does): the page is still a
+    # confirm, and says why, never a bare refusal.
+    {:ok, other} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+    on_exit(fn -> :gen_tcp.close(other) end)
+
+    put(other, %{
+      "op" => "hello",
+      "env" => "test",
+      "client" => "tui",
+      "spec" => AtlasControl.Blocks.version()
+    })
+
+    next(other, "page")
+    put(other, %{"op" => "submit", "to" => "/k/widget/W-1/answer/a", "values" => %{}})
+
+    assert %{
+             "reason" => "refused",
+             "refused" => ["W-1 has R-1 open"],
+             "blocks" => [%{"type" => "confirm"}]
+           } = next(other, "page")
   end
 
   test "setting a relation an answer of the presented state sets writes that answer's values" do

@@ -54,6 +54,8 @@ ATLAS_AS=coordinator bin/atlas set "$D" --env test \
 
 After the recorded five-minute deadline, repeat the two Facts reads above. Expect `for_agent_unverified`, a second verdict with `timed_out: true`, `waited_from`, and `follows` pointing to the first verdict. Accept, then inspect both flags:
 
+> **Since D-0106 (`accept_decision` version 2)** a timeout no longer hands a decision to an agent: after the deadline expect `for_person` again, with a second verdict (`timed_out: true`, `waited_from`, `follows`) whose outcome is `person`. Only the decider's own Leave it to the proposer (`delegated_by`) leads to `for_agent`. The steps below describe version 1, kept for the runs and verdicts recorded with it.
+
 ```sh
 ATLAS_AS=coordinator bin/atlas set "$D" --env test \
   decided_by=coordinator status=accepted decided_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

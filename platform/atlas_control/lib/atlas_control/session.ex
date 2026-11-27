@@ -234,7 +234,7 @@ defmodule AtlasControl.Session do
         if form_shown?(state, state.route) do
           form = Map.put(state.form, :errors, reasons)
           state = notice(state, "error", "Facts refused it; the form says why.")
-          {:noreply, show(%{state | form: form}, state.route, "refused", nil)}
+          {:noreply, show(%{state | form: form}, state.route, "refused", nil, reasons)}
         else
           # No form to say why (a confirm page, such as an answer without a note): the
           # notice and the page (`refused`) say it.
@@ -1308,7 +1308,7 @@ defmodule AtlasControl.Session do
   defp not_sent(state, route, reasons) do
     if form_shown?(state, route) do
       state = notice(state, "error", "Not sent: the form says why.")
-      show(put_in(state.form[:errors], reasons), route, "refused", nil)
+      show(put_in(state.form[:errors], reasons), route, "refused", nil, reasons)
     else
       state = notice(state, "error", "Not sent: " <> Enum.join(reasons, "; "))
       show(state, route, "refused", nil, reasons)
@@ -1365,7 +1365,7 @@ defmodule AtlasControl.Session do
     if form_shown?(state, state.route) do
       form = Map.put(state.form, :errors, [@restarting <> "."])
       state = notice(state, "error", @restarting)
-      show(%{state | form: form}, state.route, "refused", nil)
+      show(%{state | form: form}, state.route, "refused", nil, [@restarting <> "."])
     else
       state = notice(state, "error", @restarting)
       show(state, state.route, "refused", nil, [@restarting <> "."])
@@ -1839,13 +1839,19 @@ defmodule AtlasControl.Session do
       last_sent: now_ms()
     }
 
+  # A refusal's reasons go with the page (`refused`) unless the page has a form, whose
+  # errors say them: a client that submits without opening the page first (an agent) gets
+  # a confirm page, which says nothing by itself.
   defp message(state, route, page, reason, position, refused) do
+    blocks = RowKey.put(page.blocks)
+    refused = if refused && not Enum.any?(blocks, &(&1["type"] == "form")), do: refused
+
     %{
       "op" => "page",
       "path" => current_path(route),
       "title" => page.title,
       "back" => page.back,
-      "blocks" => RowKey.put(page.blocks),
+      "blocks" => blocks,
       "markup" => page.markup,
       "reason" => reason,
       "position" => position,

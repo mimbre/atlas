@@ -52,7 +52,10 @@ defmodule RelaDSL.Facts.Writes do
 
   - `only_target`: only the linked fact itself, or a writer named in `also`, changes the
     relation. Replacing or removing a link requires being its old target too; sending the
-    same links changes nothing.
+    same links changes nothing. With `delegated: %{"by", "owner" => %{"via", "relation"}}`,
+    a writer may also replace the old targets with itself when the fact as stored links
+    exactly them through `by` (they left it to someone) and the writer owns the fact: the
+    fact linked through `owner.via` links the writer through `owner.relation`.
   - `set_by`: only a writer named there (or `<name>/…`, a connector of a system) changes it.
     One exception, per kind: the relation its `create.producer` names is set by the create
     of a fact of that kind too, in that write only, and only to who puts the fact in
@@ -468,14 +471,22 @@ defmodule RelaDSL.Facts.Writes do
         current = if op == "create", do: nil, else: lookup["current"].()
         values = normalized(values)
 
+        kind_of = fn relation, linked ->
+          Enum.find(
+            get_in(d, ["relations", relation, "to"]) || [],
+            &(lookup["fact"].(&1, linked) != nil)
+          )
+        end
+
         check_rules(rules, op, key, current, values, links, %{
           "writer" => actor["by"],
           "sender" => actor["sender"],
-          "kind_of" => fn relation, linked ->
-            Enum.find(
-              get_in(d, ["relations", relation, "to"]) || [],
-              &(lookup["fact"].(&1, linked) != nil)
-            )
+          "kind_of" => kind_of,
+          "links_of" => fn relation, linked ->
+            with kind when is_binary(kind) <- kind_of.(relation, linked),
+                 %{links: %{} = links} <- lookup["fact"].(kind, linked),
+                 do: links,
+                 else: (_ -> %{})
           end,
           "verdict" => fn gate, subject ->
             config = get_in(rules, ["authority", "decider"]) || %{}
@@ -592,9 +603,10 @@ defmodule RelaDSL.Facts.Writes do
   `{:refused, reasons}`. `current` is the fact as stored (nil for a new one), `values` and
   `links` what the write sets, `env` what the rules may look up: `"writer"` (who sends
   the write), `"sender"` (its endpoint), `"kind_of"` (`fn relation, key -> kind`),
-  `"fetch"` (`fn key -> values`, a fact of the same kind), `"incoming"` (`fn relation ->
-  [key]`), `"verdict"` (`fn gate, key -> verdict`, the newest decider verdict) and
-  `"fingerprint"` (`fn fact, spec -> digest`).
+  `"links_of"` (`fn relation, key -> links`, of the fact a relation leads to), `"fetch"`
+  (`fn key -> values`, a fact of the same kind), `"incoming"` (`fn relation -> [key]`),
+  `"verdict"` (`fn gate, key -> verdict`, the newest decider verdict) and `"fingerprint"`
+  (`fn fact, spec -> digest`).
   """
   def check_rules(rules, _op, _key, _current, _values, _links, _env) when rules == %{}, do: :ok
 
@@ -654,7 +666,7 @@ defmodule RelaDSL.Facts.Writes do
 
         reasons =
           RelaDSL.DecisionOptions.check(rules["decision_options"], op, current, values, links) ++
-            only_target(rules["only_target"], current, links, env["writer"]) ++
+            only_target(rules["only_target"], current, links, env) ++
             requires(rules["requires"], fact) ++
             authority_reasons ++
             decides(authority_rule, current, values, fact, env["writer"], kind_of) ++
@@ -720,7 +732,9 @@ defmodule RelaDSL.Facts.Writes do
       else: {:refused, ["only the configured machine writer may write this kind"]}
   end
 
-  defp only_target(rules, current, links, writer) do
+  defp only_target(rules, current, links, env) do
+    writer = env["writer"]
+
     for {relation, rule} <- rules || %{},
         Map.has_key?(links, relation),
         was = List.wrap(get_in(current || %{}, ["links", relation])),
@@ -728,9 +742,31 @@ defmodule RelaDSL.Facts.Writes do
         Enum.sort(was) != Enum.sort(keys),
         not (is_binary(writer) and
                (writer in List.wrap(rule["also"]) or
-                  Enum.all?(was ++ keys, &(&1 == writer)))),
+                  Enum.all?(was ++ keys, &(&1 == writer)) or
+                  handed_on?(rule["delegated"], current, was, keys, writer, env))),
         do: rule["error"] || "only the target sets #{relation}, to themselves"
   end
+
+  # Its old targets left it to someone (`delegated.by` links exactly them, as stored), and
+  # the writer, who owns the fact, takes their place.
+  defp handed_on?(
+         %{"by" => by, "owner" => %{"via" => via, "relation" => relation}},
+         %{} = current,
+         [_ | _] = was,
+         [writer],
+         writer,
+         env
+       ) do
+    links_of = env["links_of"] || fn _, _ -> %{} end
+
+    Enum.sort(List.wrap(get_in(current, ["links", by]))) == Enum.sort(was) and
+      Enum.any?(
+        List.wrap(get_in(current, ["links", via])),
+        &(writer in List.wrap(links_of.(via, &1)[relation]))
+      )
+  end
+
+  defp handed_on?(_delegated, _current, _was, _keys, _writer, _env), do: false
 
   defp frozen(%{"when" => condition} = rule, op, key, %{} = current, values, links) do
     if holds?(condition, current["values"]) do

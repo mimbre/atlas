@@ -67,6 +67,15 @@ defmodule AtlasFacts.FlowInputsTest do
     use AtlasFacts.TestModel, description: AtlasFacts.FlowInputsTest.Description.of()
   end
 
+  defmodule Chosen do
+    @moduledoc "The same, with the sort flow waiting for a box's choice."
+    use AtlasFacts.TestModel,
+      description:
+        put_in(AtlasFacts.FlowInputsTest.Description.of(), ["flow_runtime", "selection"], %{
+          "sort" => %{"subject" => "box", "choices" => ["choice"]}
+        })
+  end
+
   def description, do: Description.of()
 
   defmodule Backend do
@@ -780,6 +789,42 @@ defmodule AtlasFacts.FlowInputsTest do
       :ok = AtlasBus.send(e, %{"op" => "submit", "by" => actor, "values" => c.v})
       assert {^class, _} = reply_to(id, facts)
     end
+  end
+
+  @tag :tmp_dir
+  test "a choice an answer gives keeps who set its links and why, as any write does", c do
+    Application.put_env(:atlas_bus, :store, "input-cause-#{System.unique_integer([:positive])}")
+
+    facts =
+      start_supervised!(
+        {AtlasFacts.Server,
+         rela: c.rela, data_dir: c.tmp_dir, model: Chosen, flow_input_clock: fn -> @now end}
+      )
+
+    :ok = AtlasBus.attach("control/session-cause")
+    cause = "Yes: decided by ada on behalf of bea, delegated"
+    e = Envelope.new("fact", "box")
+
+    :ok =
+      AtlasBus.send(e, %{
+        "op" => "change",
+        "key" => "B-1",
+        "by" => "ada",
+        "version" => c.v["source_version"],
+        "values" => %{"choice" => "yes"},
+        "links" => %{"chosen_by" => ["ada"]},
+        "cause" => cause
+      })
+
+    assert {"stored", %{"run" => "R-1"}} = reply_to(e.id, facts)
+
+    read = Envelope.new("read", "box")
+    :ok = AtlasBus.send(read, %{"key" => "B-1"})
+
+    assert {"answer", %{"fact" => %{"values" => %{"choice" => "yes"}, "origins" => origins}}} =
+             reply_to(read.id, facts)
+
+    assert %{"chosen_by" => %{"keys" => ["ada"], "by" => "ada", "cause" => ^cause}} = origins
   end
 
   # -- Pickup and hand-over (work acquisition design 2026-11-17, §5.6) ------------------

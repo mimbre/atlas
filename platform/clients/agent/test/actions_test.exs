@@ -125,6 +125,75 @@ defmodule AtlasAgent.ActionsTest do
     Task.await(peer)
   end
 
+  test "do takes a page's answers as the TUI does: a Choose by its call, a Decline by its note form",
+       %{listener: listener} do
+    choose = %{"endpoint" => "answer", "params" => %{"kind" => "decision", "key" => "D-1"}}
+    decline = %{"endpoint" => "answer", "params" => %{"answer" => "f", "key" => "D-1"}}
+
+    decision = [
+      %{
+        "type" => "option",
+        "props" => %{
+          "n" => 1,
+          "text" => "Use files",
+          "answer" => %{"label" => "Choose", "key" => "1", "to" => "/c", "submit_to" => choose}
+        }
+      },
+      %{
+        "type" => "answers",
+        "props" => %{
+          "answers" => [
+            %{"label" => "Decline", "key" => "f", "to" => "/f", "note" => true},
+            %{"label" => "Ask a question", "key" => "q", "to" => "/q", "icon" => "question"}
+          ]
+        }
+      }
+    ]
+
+    form = %{
+      "type" => "form",
+      "props" => %{
+        "title" => "Decline D-1",
+        "submit_label" => "Decline",
+        "submit_to" => decline,
+        "inputs" => [
+          %{"name" => "note", "label" => "What is your alternative?", "kind" => "multiline"}
+        ]
+      }
+    }
+
+    peer =
+      control(listener, fn socket ->
+        assert %{"client" => "tui"} = receive_line(socket)
+        welcome(socket)
+        assert %{"to" => "/k/_/D-1"} = receive_line(socket)
+        page(socket, "open", "/k/decision/D-1", decision)
+        assert %{"to" => "/f"} = receive_line(socket)
+        page(socket, "open", "/f", [form])
+
+        assert %{"endpoint" => "answer", "values" => %{"note" => "Use a database"}} =
+                 receive_line(socket)
+
+        page(socket, "stored", "/k/decision/D-1", decision)
+      end)
+
+    assert {0, _} = cli(["do", "D-1", "Decline", "--note", "Use a database"])
+    Task.await(peer)
+
+    peer =
+      control(listener, fn socket ->
+        assert %{"client" => "tui"} = receive_line(socket)
+        welcome(socket)
+        assert %{"to" => "/k/_/D-1"} = receive_line(socket)
+        page(socket, "open", "/k/decision/D-1", decision)
+        assert %{"op" => "submit", "endpoint" => "answer"} = receive_line(socket)
+        page(socket, "stored", "/k/decision/D-1", decision)
+      end)
+
+    assert {0, _} = cli(["do", "D-1", "1"])
+    Task.await(peer)
+  end
+
   defp cli(args) do
     parent = self()
 
