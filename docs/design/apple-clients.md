@@ -245,6 +245,10 @@ Rules:
   it shows, and list → page becomes a navigation stack. iPad keeps the three columns.
 - **Rejected alternative:** tabs as a segmented control in the toolbar. It breaks down once
   a description has more than about 5 tabs.
+- Text blocks and item or option fields render Markdown only when `format` is `markdown`;
+  missing or unknown formats stay plain text. Markdown headings remain below the page
+  title, code is displayed as text, and only clicked HTTP(S) links can open. Content with
+  raw HTML is shown as literal source, not rendered or silently discarded.
 
 What differs by platform beyond the layout stays in the platform targets:
 
