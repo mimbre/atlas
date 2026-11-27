@@ -228,7 +228,7 @@ Above the columns is the title bar; there is no status bar: the shell's state is
 
 | Part | Source in the BFF | macOS |
 |---|---|---|
-| Tabs | `boot`: `tabs` (`icon`, `count`, `for_you`), `active_tab`, `initial_to`, `name` | Sidebar shows only top-level tabs, their icons and counts, with the person and connection at the bottom. Up and down move the selection; `⌘1`–`⌘9` switches. |
+| Tabs | `boot`: `tabs` (`icon`, `count`, `for_you`), `active_tab`, `initial_to`, `name` | Sidebar shows only top-level tabs, their icons and counts, with the person and connection at the bottom. A page matching a tab's destination selects that tab before considering its `back` link. Up and down move the selection; `⌘1`–`⌘9` switches. |
 | Title and env | `boot`: `title`, `env` | Title bar. The prod badge is the same inverted badge as in the TUI. |
 | Index page of a tab | the tab's `to` and its `groups` block | Middle column. Control's groups and counts are horizontal Prism-style filter pills above the list; choosing one opens its destination in the middle column. A pending row shows `⋯ being processed`, muted. |
 | Opened page | `open` on a row | Right column. Back and Forward (`⌘[` / `⌘]`, Esc) use the app's own history, as in the TUI. |
