@@ -105,12 +105,15 @@ try do
   assert blocks["decision-detail-0"]["title"] == "Authority and status"
   assert blocks["decision-detail-1"]["title"] == "Scope and reversibility"
   assert blocks["decision-detail-2"]["title"] == "Usage and enforcement"
-  assert hd(blocks["decision-raw-options"]["fields"])["value"] == definition
+  assert Enum.any?(blocks["decision-offer"]["fields"], &(&1["value"] == "Use files"))
+  refute blocks["decision-raw-options"]
 
-  assert Enum.any?(page["markup"], fn mark ->
-           mark["kind"] == "section" and mark["props"]["title"] == "Technical details" and
-             mark["props"]["collapsible"] == true
+  refute Enum.any?(page["blocks"], fn block ->
+           Enum.any?(block["props"]["fields"] || [], &(&1["value"] == definition))
          end)
+
+  assert {:ok, %{"fact" => %{"values" => %{"options" => ^definition}}}} =
+           AtlasAgent.Client.facts(client, "decision", "D-private-details")
 
   AtlasAgent.Client.close(client)
   Process.unlink(gateway)

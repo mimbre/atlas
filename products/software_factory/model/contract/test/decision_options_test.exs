@@ -439,7 +439,7 @@ defmodule Model.DecisionOptionsTest do
     end
   end
 
-  test "decision details group important fields and retain exact records in one collapsed section" do
+  test "decision details show readable offers and history without raw stored blobs" do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     route = {:item, "decision", "D-private"}
 
@@ -511,22 +511,45 @@ defmodule Model.DecisionOptionsTest do
       assert Enum.any?(fields, &(&1["value"] == "D-early"))
       refute blocks["decision-history-2"]
 
-      assert blocks["decision-raw-options"]["props"]["fields"] |> hd() |> Map.fetch!("value") ==
-               @text
-
-      assert blocks["decision-raw-option_history"]["props"]["fields"]
-             |> hd()
-             |> Map.fetch!("value") == history
+      assert Enum.any?(blocks["decision-offer"]["props"]["fields"], &(&1["value"] == "Use files"))
+      refute blocks["decision-selected-offer"]
+      refute blocks["decision-raw-options"]
+      refute blocks["decision-raw-selected_definition"]
+      refute blocks["decision-raw-option_history"]
+      values = for block <- page.blocks, pair <- block["props"]["fields"] || [], do: pair["value"]
+      refute @text in values
+      refute history in values
 
       assert Enum.any?(page.markup, fn mark ->
                mark["kind"] == "section" and
                  mark["props"] == %{"title" => "Technical details", "collapsible" => true} and
-                 mark["start"] == "decision-raw-options" and
-                 mark["end"] == "decision-raw-option_history"
+                 mark["start"] == "decision-raw-selected_revision" and
+                 mark["end"] == "decision-raw-selected_revision"
              end)
 
       assert Enum.any?(page.console_actions, &(&1.operation["name"] == "sections_toggle"))
     end
+
+    selected = String.replace(@text, "Use files", "Previously chosen files")
+
+    fact =
+      current()
+      |> Map.put("key", "D-private")
+      |> put_in(["values", "selected_definition"], selected)
+
+    reads = AtlasControl.Pages.reads(route, m)
+    answers = [%{"fact" => fact} | for(_ <- tl(reads), do: %{"facts" => []})]
+    page = AtlasControl.Pages.render(route, m, answers)
+    blocks = Map.new(page.blocks, &{&1["id"], &1})
+
+    assert Enum.any?(
+             blocks["decision-selected-offer"]["props"]["fields"],
+             &(&1["value"] == "Previously chosen files")
+           )
+
+    refute Enum.any?(page.blocks, fn block ->
+             Enum.any?(block["props"]["fields"] || [], &(&1["value"] == selected))
+           end)
 
     legacy =
       current(nil)
@@ -541,9 +564,15 @@ defmodule Model.DecisionOptionsTest do
     page = AtlasControl.Pages.render(route, m, answers)
     blocks = Map.new(page.blocks, &{&1["id"], &1})
     refute blocks["decision-history-1"]
+    assert hd(blocks["decision-history"]["props"]["fields"])["value"] =~ "Facts"
     refute blocks["decision-detail-1"]
     refute blocks["decision-raw-options"]
-    assert hd(blocks["decision-raw-option_history"]["props"]["fields"])["value"] == "not JSON"
+    refute blocks["decision-raw-option_history"]
+    unknown = put_in(legacy, ["values", "options"], ~s({"future":"content"}))
+    answers = [%{"fact" => unknown} | for(_ <- tl(reads), do: %{"facts" => []})]
+    unknown_page = AtlasControl.Pages.render(route, m, answers)
+    unknown_blocks = Map.new(unknown_page.blocks, &{&1["id"], &1})
+    assert hd(unknown_blocks["decision-offer"]["props"]["fields"])["value"] =~ "Facts"
   end
 
   test "unselected current offers use full content identity, not definition text" do
@@ -734,6 +763,11 @@ defmodule Model.DecisionOptionsTest do
 
   test "alternatives: a card each with its own Choose, then Decline all with an alternative" do
     {blocks, resolve, note} = served(@text)
+    refute Enum.any?(blocks, &(&1["id"] == "decision-offer"))
+
+    refute Enum.any?(blocks, fn block ->
+             Enum.any?(block["props"]["fields"] || [], &(&1["value"] == @text))
+           end)
 
     # In order: the question, why, each alternative (recommended first), the answers, the
     # details.

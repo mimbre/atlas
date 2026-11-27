@@ -2402,7 +2402,9 @@ defmodule AtlasControl.Pages do
               end
 
             detail_item = details.(item, head)
-            {detail_item, detail_blocks, technical} = decision_details(k, fact, detail_item)
+
+            {detail_item, detail_blocks, technical} =
+              decision_details(k, fact, detail_item, panel == nil and is_map(choice))
 
             content =
               iconed(head, kind_icon(m, kind)) ++
@@ -2436,7 +2438,7 @@ defmodule AtlasControl.Pages do
                     sections
               end
 
-            {item, detail_blocks, technical} = decision_details(k, fact, item)
+            {item, detail_blocks, technical} = decision_details(k, fact, item, false)
             content = [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
 
             markup =
@@ -3540,8 +3542,8 @@ defmodule AtlasControl.Pages do
     parent || {:list, kind}
   end
 
-  # The model names the groups and the exact offer records; raw records share one section.
-  defp decision_details(k, fact, item) do
+  # The model names the groups; full stored records remain available through Facts.
+  defp decision_details(k, fact, item, choice_shown) do
     case Map.get(k, :decision_options) do
       %{"details" => groups} = rule when is_list(groups) ->
         fields = item["props"]["fields"] || []
@@ -3577,9 +3579,21 @@ defmodule AtlasControl.Pages do
           end)
 
         history_blocks = decision_history(k, rule, fact)
+        definition = get_in(fact, ["values", rule["definition"]])
+        snapshot = get_in(fact, ["values", rule["snapshot"]])
+
+        offer_blocks =
+          if(choice_shown,
+            do: [],
+            else: offer_summary(k, definition, "decision-offer", "Options")
+          ) ++
+            if(snapshot == definition,
+              do: [],
+              else: offer_summary(k, snapshot, "decision-selected-offer", "Selected offer")
+            )
 
         technical =
-          for name <- raw_names,
+          for name <- [rule["revision"]],
               value = get_in(fact, ["values", name]),
               value not in [nil, ""],
               field = Enum.find(k.fields, &(&1.name == name)),
@@ -3591,12 +3605,29 @@ defmodule AtlasControl.Pages do
              )}
           end
 
-        {put_in(item, ["props", "fields"], remaining), List.flatten(blocks) ++ history_blocks,
-         technical}
+        {put_in(item, ["props", "fields"], remaining),
+         List.flatten(blocks) ++ offer_blocks ++ history_blocks, technical}
 
       _ ->
         {item, [], []}
     end
+  end
+
+  defp offer_summary(_k, definition, _id, _title) when definition in [nil, ""], do: []
+
+  defp offer_summary(k, definition, id, title) do
+    fields = history_fields(k, %{"definition" => definition})
+    fields = if fields == [], do: unavailable_offer(), else: fields
+    [{id, Blocks.item(title: title, fields: fields)}]
+  end
+
+  defp unavailable_offer do
+    [
+      Blocks.pair(
+        label: "Unavailable",
+        value: "This stored record cannot be displayed here; read it through Facts."
+      )
+    ]
   end
 
   defp decision_history(k, rule, fact) do
@@ -3626,20 +3657,29 @@ defmodule AtlasControl.Pages do
               do: entry["revision"] == selected_revision,
               else: Map.take(entry, ~w(definition values links)) == current
 
-          fields = if same, do: [], else: history_fields(k, entry)
+          if same do
+            []
+          else
+            fields = history_fields(k, entry)
+            fields = if fields == [], do: unavailable_offer(), else: fields
 
-          if fields == [],
-            do: [],
-            else: [
+            [
               {"decision-history-#{index}",
                Blocks.item(title: "Earlier offer #{index}", fields: fields)}
             ]
+          end
 
-        _ ->
-          []
+        {_entry, index} ->
+          [
+            {"decision-history-#{index}",
+             Blocks.item(title: "Earlier offer #{index}", fields: unavailable_offer())}
+          ]
       end)
     else
-      _ -> []
+      _ ->
+        if text in [nil, ""],
+          do: [],
+          else: [{"decision-history", Blocks.item(title: "History", fields: unavailable_offer())}]
     end
   end
 
