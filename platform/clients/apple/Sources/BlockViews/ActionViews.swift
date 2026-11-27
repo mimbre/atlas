@@ -119,12 +119,6 @@ public enum PageActions {
         page.map { buttons(ofPage($0)) } ?? []
     }
 
-    /// Whether its toolbar item is its icon alone (its tooltip says what it is): Update
-    /// (icon `edit`), Delete and Create (`create`, a `+`), which everyone knows by their
-    /// icon. Every other (Ask, Delegate, Hand to, Failures) shows its short label too.
-    public static func iconOnly(_ action: ActionModel) -> Bool {
-        ["edit", "delete", "create"].contains(action.icon)
-    }
 
     /// An action's tooltip: what Control says it does in full (`help`), else its label.
     public static func tooltip(_ action: ActionModel) -> String {
@@ -188,8 +182,7 @@ public enum PageActions {
     }
 }
 
-/// A button per action, in Control's order; the first, the next step, prominent. Each
-/// shows its key.
+/// A button per action, in Control's order.
 struct ActionsView: View {
     let actions: [ActionModel]
     let act: (ActionModel) -> Void
@@ -204,8 +197,7 @@ struct ActionsView: View {
     }
 }
 
-/// The buttons of `actions` (`PageActions.buttons`), side by side in a row on the page:
-/// the first prominent. Never in a toolbar: there they are quiet icons (`ItemToolbar`).
+/// The buttons of `actions` (`PageActions.buttons`), side by side on the page.
 public struct ActionButtons: View {
     let actions: [ActionModel]
     let act: (ActionModel) -> Void
@@ -217,12 +209,8 @@ public struct ActionButtons: View {
     }
 
     public var body: some View {
-        ForEach(Array(PageActions.buttons(actions).enumerated()), id: \.offset) { offset, action in
-            if offset == 0 {
-                button(action).buttonStyle(.borderedProminent)
-            } else {
-                button(action).buttonStyle(.bordered)
-            }
+        ForEach(Array(PageActions.buttons(actions).enumerated()), id: \.offset) { _, action in
+            button(action).buttonStyle(.bordered)
         }
     }
 

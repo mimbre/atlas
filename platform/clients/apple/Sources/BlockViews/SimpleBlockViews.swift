@@ -277,11 +277,8 @@ struct PrismActionButton: View {
     }
 }
 
-/// An `answers` block, on the page itself: a button per answer, in Control's order, each
-/// taking its answer as the page's action of that key (`Panel.action`), as Prism's buttons
-/// by the weight Control gives each (`AnswerLook`). On the opened item (`toolbar`) only
-/// the main answer and the decline: its `other` answers are in the window's toolbar
-/// (`PageActions.toolbar`).
+/// An `answers` block, with primary answers before other answers. On the opened item
+/// the `other` answers are in the window's toolbar (`PageActions.toolbar`).
 struct AnswersView: View {
     let block: AnswersBlock
     var toolbar = false
@@ -313,7 +310,7 @@ struct AnswersView: View {
     /// The answers the page shows: all of them, or on the opened item (`toolbar`) those
     /// that are not the toolbar's (`PageActions.inToolbar`).
     static func shown(_ block: AnswersBlock, toolbar: Bool) -> [PanelAnswerModel] {
-        (block.answers ?? []).filter { !toolbar || !PageActions.inToolbar($0) }
+        AnswerLook.ordered((block.answers ?? []).filter { !toolbar || !PageActions.inToolbar($0) })
     }
 
     /// Each answer's explanation, after its label ("Decline: Keeps one block per kind").
@@ -371,15 +368,8 @@ struct OtherActionsView: View {
     }
 }
 
-/// Toolbar actions as quiet toolbar items, never the system's prominent capsule: the opened
-/// item's (`PageActions.toolbar`: its actions, Update first, then its `other` answers,
-/// Delete last) in the window's toolbar at its right, and the index page's own
-/// (`PageActions.listToolbar`: Create to-do) above the list. At the same spacing: each its
-/// icon (`ActionIcon`) in the primary colour, Delete's in the danger colour (it opens
-/// Control's confirm first); Update, Delete and Create icon-only, every other its short
-/// label (`button`) beside its icon (`PageActions.iconOnly`), whatever the toolbar's
-/// display setting; each Control's `help`, else its label, as its tooltip. None when there
-/// are none.
+/// Quiet icon-only toolbar actions with descriptive tooltips and accessibility labels.
+/// Delete uses the danger colour and opens Control's confirm first.
 public struct ItemToolbar: ToolbarContent {
     let actions: [ActionModel]
     let pending: SessionState.Pending?
@@ -392,7 +382,7 @@ public struct ItemToolbar: ToolbarContent {
     }
 
     public var body: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
+        ToolbarItemGroup(placement: .automatic) {
             ForEach(Array(actions.enumerated()), id: \.offset) { _, action in button(action) }
         }
     }
@@ -402,15 +392,10 @@ public struct ItemToolbar: ToolbarContent {
         // A view of its own, not a `Label`: the toolbar's display setting neither hides
         // nor adds a title.
         return Button { act(action) } label: {
-            HStack(spacing: Prism.Spacing.px6) {
-                if busy {
-                    ProgressView().progressViewStyle(.prism(.accent, size: .size16))
-                } else {
-                    ToolbarIcon(icon: action.icon)
-                }
-                if !PageActions.iconOnly(action) {
-                    Text(AnswerLook.label(action))
-                }
+            if busy {
+                ProgressView().progressViewStyle(.prism(.accent, size: .size16))
+            } else {
+                ToolbarIcon(icon: action.icon)
             }
         }
         .disabled(busy)
