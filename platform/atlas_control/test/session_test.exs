@@ -130,6 +130,177 @@ defmodule AtlasControl.SessionTest do
     use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Contract, channel: :control
   end
 
+  test "Machines and upgrade reads require the Workers reader permission" do
+    stop_supervised!(FakeStore)
+    start_supervised!({FakeStore, model: Shop.Benched})
+    FakeStore.put("mini", %{"name" => "Mac mini"}, "bench")
+    FakeStore.put("ada", %{"name" => "Ada"}, "member")
+    FakeStore.put("carl", %{"name" => "Carl"}, "member")
+
+    name = :"machines_gateway_#{System.unique_integer([:positive])}"
+
+    settings = %{
+      "workers" => %{
+        "read" => %{"actors" => ["ada", "carl"]},
+        "submit" => %{"actors" => ["carl"]}
+      }
+    }
+
+    start_supervised!(
+      {AtlasControl.Gateway, port: 0, name: name, model: Shop.Benched, settings: settings},
+      id: name
+    )
+
+    port = AtlasControl.Gateway.port(name)
+
+    endpoint = "flow/health-#{System.unique_integer([:positive])}"
+    Application.put_env(:atlas_control, :health_endpoint, endpoint)
+    on_exit(fn -> Application.delete_env(:atlas_control, :health_endpoint) end)
+    parent = self()
+
+    server =
+      spawn_link(fn ->
+        :ok = AtlasBus.attach(endpoint)
+        send(parent, :health_attached)
+
+        serve = fn serve ->
+          receive do
+            {:atlas_bus, request, _} ->
+              send(parent, :health_asked)
+
+              AtlasBus.send(
+                AtlasBus.Envelope.reply(request, "answer"),
+                %{
+                  "runtimes" => [
+                    %{
+                      "runtime" => "mini",
+                      "build" => "develop-aaaaaaaaaaaa",
+                      "polled_at" => DateTime.to_iso8601(DateTime.utc_now())
+                    }
+                  ],
+                  "queue" => []
+                }
+              )
+
+              serve.(serve)
+          end
+        end
+
+        serve.(serve)
+      end)
+
+    on_exit(fn -> Process.exit(server, :kill) end)
+    assert_receive :health_attached
+
+    connect = fn actor ->
+      {:ok, socket} =
+        :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+
+      put(socket, %{
+        "op" => "hello",
+        "env" => "test",
+        "client" => "agent",
+        "as" => actor,
+        "spec" => AtlasControl.Blocks.version()
+      })
+
+      next(socket, "page")
+      socket
+    end
+
+    denied = connect.("bea")
+    on_exit(fn -> :gen_tcp.close(denied) end)
+    before = FakeStore.reads()
+
+    for path <- ["/machines", "/machines/mini", "/machines/mini/upgrade"] do
+      put(denied, %{"op" => "open", "to" => path})
+      assert %{"title" => "Worker unavailable"} = next(denied, "page")
+    end
+
+    refute Enum.any?(
+             Enum.drop(FakeStore.reads(), length(before)),
+             &(&1 in ["bench", "refit", "shift"])
+           )
+
+    refute_received :health_asked
+    put(denied, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+    assert %{"reason" => "refused", "refused" => ["forbidden"]} = next(denied, "page")
+
+    assert FakeStore.sent() == []
+
+    allowed = connect.("ada")
+    on_exit(fn -> :gen_tcp.close(allowed) end)
+    put(allowed, %{"op" => "open", "to" => "/machines"})
+    assert page = next(allowed, "page")
+    assert inspect(page["blocks"]) =~ "Mac mini"
+    assert_receive :health_asked
+    assert "bench" in FakeStore.reads()
+
+    put(allowed, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+    assert %{"reason" => "refused", "refused" => ["forbidden"]} = next(allowed, "page")
+    assert FakeStore.sent() == []
+
+    submitter = connect.("carl")
+    on_exit(fn -> :gen_tcp.close(submitter) end)
+    put(submitter, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+
+    assert %{"reason" => "refused", "refused" => [reason]} = next(submitter, "page")
+    assert reason == "The core's Runtime build candidate is unknown."
+    assert FakeStore.sent() == []
+
+    old_req = Application.get_env(:req, :default_options)
+    old_release = Application.get_env(:atlas_control, :runtime_release)
+
+    on_exit(fn ->
+      if old_req,
+        do: Application.put_env(:req, :default_options, old_req),
+        else: Application.delete_env(:req, :default_options)
+
+      if old_release,
+        do: Application.put_env(:atlas_control, :runtime_release, old_release),
+        else: Application.delete_env(:atlas_control, :runtime_release)
+    end)
+
+    Application.put_env(:atlas_control, :runtime_release, "develop-bbbbbbbbbbbb")
+    archive = "atlas-runtime-develop-bbbbbbbbbbbb-darwin-arm64.tar.gz"
+
+    Application.put_env(:req, :default_options,
+      adapter: fn request ->
+        body =
+          if String.contains?(request.url.path, "/releases/") do
+            %{
+              "draft" => false,
+              "assets" =>
+                for(
+                  name <- [archive, archive <> ".sha256"],
+                  do: %{"name" => name, "state" => "uploaded", "size" => 12}
+                )
+            }
+          else
+            %{"status" => "ahead", "ahead_by" => 1}
+          end
+
+        {request, %Req.Response{status: 200, body: body}}
+      end
+    )
+
+    assert AtlasControl.RuntimeRelease.newer?("develop-aaaaaaaaaaaa", "develop-bbbbbbbbbbbb")
+
+    put(allowed, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+    assert %{"reason" => "refused", "refused" => ["forbidden"]} = next(allowed, "page")
+    assert FakeStore.sent() == []
+
+    put(submitter, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+    assert %{"reason" => "stored"} = next(submitter, "page")
+
+    assert %{
+             "op" => "create",
+             "by" => "carl",
+             "values" => %{"build" => "develop-bbbbbbbbbbbb"},
+             "links" => %{"refit_of" => ["mini"]}
+           } = FakeStore.last_fact()
+  end
+
   test "exact fact reads preserve named values and links for evidence", %{port: port} do
     FakeStore.put("W-01", %{"title" => "A", "done" => false}, "widget", %{"made_by" => ["M-1"]})
     socket = client(port)
@@ -261,7 +432,8 @@ defmodule AtlasControl.SessionTest do
   test "a client sees the top list at once", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
-    assert %{"env" => "test", "spec" => "0.41.0"} = next(c, "welcome")
+    assert %{"env" => "test", "spec" => spec} = next(c, "welcome")
+    assert spec == AtlasControl.Blocks.version()
     assert %{"path" => "/", "title" => "Widgets", "reason" => "open"} = page = next(c, "page")
     assert rows(page) == ["One"]
   end

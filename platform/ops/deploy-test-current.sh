@@ -10,7 +10,7 @@ checkout="$(git -C "$root" rev-parse --verify HEAD)" || fail 'cannot identify ch
 [[ "$checkout" =~ ^[0-9a-f]{40}$ ]] || fail 'invalid checkout identity'
 [ "$label" = "develop-$checkout" ] || fail 'build label does not identify this checkout'
 
-# Use the checkout's existing read credentials. No new token, auth scope or Fly I/O.
+# Use the checkout's existing read credentials.
 remote="$(git -C "$root" ls-remote --exit-code origin refs/heads/develop)" ||
   fail 'cannot resolve current origin/develop'
 [[ "$remote" =~ ^([0-9a-f]{40})[[:space:]]refs/heads/develop$ ]] ||

@@ -129,7 +129,11 @@ defmodule AtlasControl.PagesTest do
       route = Pages.route(path)
 
       refute route == :unknown, "page #{page.name} (#{path}) is not served"
-      assert Pages.path(route) == path
+
+      # The Workers board's path (deprecated) shows the Machines page, at its own path.
+      if page.name == :workers,
+        do: assert(Pages.path(route) == "/machines"),
+        else: assert(Pages.path(route) == path)
     end
 
     for path <- ["/nothing", "/k", "/k/widget/W-1/sideways", "/k/widget/W-1/links", "/k/"] do

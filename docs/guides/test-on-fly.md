@@ -60,9 +60,12 @@ an in-flight update. Pending jobs queue instead of replacing one another. After
 acquiring its slot, `platform/ops/deploy-test-current.sh` compares the checkout/build label
 with the current authenticated `origin/develop` head. A stale job exits successfully
 without any Fly operations; unresolved or inconsistent identities fail closed.
-If develop advances after admission, the admitted pair finishes normally, and a
-later eligible job deploys the newer head. CI readiness order alone never determines
-which source revision may deploy. Production delivery is unchanged.
+Every current tested develop head deploys, including a client-only change: an
+earlier Fly-changing job may have skipped itself as stale. This can redeploy an
+unchanged Fly tree. If develop advances after admission, the admitted pair
+finishes normally and the newer head deploys afterward. The CI slot does not
+serialize direct invocations of `deploy.sh`; do not run those concurrently with CI.
+Production is unchanged.
 
 A successful stale skip is not delivery evidence: confirm the intended paired
 image labels, manifest checks and positive smoke result in the deployment log.
@@ -97,10 +100,10 @@ the optional field keep working; smoke fails closed if an older server drops the
 
 ## Test-only worker access
 
-Test's settings add them, not the model: `control.tabs` (the generic Workers tab,
-after the model's tabs) and `control.workers` (the grants) in `products/software_factory/environments/test/core.json`,
+Test's settings add them, not the model: `control.workers` (the grants) in `products/software_factory/environments/test/core.json`,
 which test's core runs on, and in `products/software_factory/environments/test.json` for a local test instance;
-`config/runtime.exs` hands both to Control. Production's settings add the same tab
+`config/runtime.exs` hands them to Control. The Machines tab is the model's (it replaced
+the Workers tab the settings added). Production's settings grant the same
 with only `melle` as reader and submitter (`docs/guides/prod.md`). In test, named actors `melle` and `releasewriter` may read and
 submit; `releaseviewer` may only read. All other actors remain denied. A listed actor must still exist in
 Facts; the grant does not create a person or authenticate a new identity.

@@ -76,6 +76,10 @@ defmodule AtlasFlow.Dispatch do
   Otherwise each Runtime would drop its running work as lost while the leases on the task
   facts stayed live and were never swept: their tasks leased forever.
 
+  The health queue is the ready work not held by a known lease; it is updated when the
+  ready set or held leases change, including after parked polls and lease recovery. It is
+  unknown until leases are recovered and the latest ready-set read succeeds.
+
   Options of `start_link/1`: `name` (default `AtlasFlow.Dispatch`), `model` (default the
   configured one), `clock`, `delivery` (the server fences are cast to, default
   `AtlasFlow.Delivery`), `health` (the table each poll is noted in, `AtlasFlow.Health`), and the timing (`config :atlas_flow, :work_source`):
@@ -184,6 +188,7 @@ defmodule AtlasFlow.Dispatch do
       sweep_ms: conf[:sweep_ms],
       resync_ms: conf[:resync_ms],
       ready: %{},
+      ready_loaded: false,
       leases: %{},
       parked: %{},
       polls: %{},
@@ -199,7 +204,7 @@ defmodule AtlasFlow.Dispatch do
 
   @impl true
   def handle_continue(:boot, state) do
-    state = state |> resync_ready() |> boot_leases()
+    state = state |> note_queue() |> resync_ready() |> boot_leases() |> note_queue()
     every(state, :sweep_ms, :tick)
     every(state, :resync_ms, :resync_tick)
     {:noreply, state}
@@ -213,12 +218,20 @@ defmodule AtlasFlow.Dispatch do
         # No sweep here (IS-Atlas-110): it runs on its own, in `Sweep`.
         budget = budget(state)
         state = put_in(state.polls[runtime_id], now(state))
-        # Each Runtime's last poll, for Control's health page; never waits.
-        AtlasFlow.Health.polled(runtime_id, state.polls[runtime_id], state.health)
+        # Each Runtime's last poll and what it said of the Runtime, for Control's health
+        # and machines pages; never waits.
+        AtlasFlow.Health.polled(
+          runtime_id,
+          state.polls[runtime_id],
+          about(input, state),
+          state.health
+        )
+
         state = late_accepts(state, runtime_id, holdings, budget)
         {renewed, lost, state} = renew(state, runtime_id, holdings)
         cancel = for id <- renewed, state.leases[id].cancel, do: id
         {leases, state} = grant_offer(state, client, offer, budget)
+        note_queue(state)
 
         answer = %{leases: leases, cancel: cancel, lease_lost: lost, timing: timing(state)}
 
@@ -280,8 +293,11 @@ defmodule AtlasFlow.Dispatch do
     do: {:noreply, state |> resync_ready() |> serve_parked()}
 
   # The lease is cancelled once the task fact says so (`cancel/3`); here only the ready set.
-  def handle_cast({:cancel, task_key, _cause}, state),
-    do: {:noreply, %{state | ready: Map.delete(state.ready, task_key)}}
+  def handle_cast({:cancel, task_key, _cause}, state) do
+    state = %{state | ready: Map.delete(state.ready, task_key)}
+    note_queue(state)
+    {:noreply, state}
+  end
 
   def handle_cast({:swept, id, what}, state), do: {:noreply, learn(state, id, what)}
 
@@ -349,6 +365,48 @@ defmodule AtlasFlow.Dispatch do
   end
 
   defp timing(state), do: %{lease_ttl: state.ttl, poll_max: state.poll_max}
+
+  # What a poll says of its Runtime, for the health table: its build and incarnation, and
+  # the longest this Dispatch holds a poll.
+  defp about(input, state) do
+    input = Translate.normal(input)
+    text = fn value -> if is_binary(value) and value != "", do: value end
+
+    %{
+      "build" => text.(input["build"]),
+      "incarnation" => text.(input["incarnation"]),
+      "poll_max" => state.poll_max
+    }
+  end
+
+  # The work waiting for a Runtime, for the health table: the ready set less what a lease
+  # holds, oldest first.
+  defp note_queue(%{booted: booted, ready_loaded: ready_loaded} = state)
+       when not booted or not ready_loaded do
+    AtlasFlow.Health.queue(nil, state.health)
+    state
+  end
+
+  defp note_queue(state) do
+    held = MapSet.new(Map.values(state.leases), & &1.task_key)
+
+    state.ready
+    |> Map.values()
+    |> Enum.reject(&MapSet.member?(held, &1.key))
+    |> Enum.sort_by(&{&1.intent["created_at"], &1.key})
+    |> Enum.map(
+      &%{
+        task: &1.key,
+        title: &1.intent["work"]["title"],
+        profile: &1.intent["work"]["profile"],
+        subject: &1.subject,
+        since: &1.intent["created_at"]
+      }
+    )
+    |> AtlasFlow.Health.queue(state.health)
+
+    state
+  end
 
   # Holdings this Runtime holds a live lease of are renewed; every other is lost to it, once
   # Dispatch has read the leases (before that, an unknown holding is neither).
@@ -437,16 +495,20 @@ defmodule AtlasFlow.Dispatch do
   defp serve_parked(state) do
     budget = budget(state)
 
-    Enum.reduce(state.parked, state, fn {runtime_id, parked}, state ->
-      case grant_offer(state, parked.client, parked.offer, budget) do
-        {[], state} ->
-          state
+    state =
+      Enum.reduce(state.parked, state, fn {runtime_id, parked}, state ->
+        case grant_offer(state, parked.client, parked.offer, budget) do
+          {[], state} ->
+            state
 
-        {leases, state} ->
-          GenServer.reply(parked.from, {:polled, %{parked.answer | leases: leases}})
-          %{state | parked: Map.delete(state.parked, runtime_id)}
-      end
-    end)
+          {leases, state} ->
+            state = note_queue(state)
+            GenServer.reply(parked.from, {:polled, %{parked.answer | leases: leases}})
+            %{state | parked: Map.delete(state.parked, runtime_id)}
+        end
+      end)
+
+    note_queue(state)
   end
 
   ## Grants
@@ -713,7 +775,7 @@ defmodule AtlasFlow.Dispatch do
     end
   end
 
-  defp drop(state, id), do: %{state | leases: Map.delete(state.leases, id)}
+  defp drop(state, id), do: state |> Map.update!(:leases, &Map.delete(&1, id)) |> note_queue()
 
   ## Ready set and boot
 
@@ -742,11 +804,11 @@ defmodule AtlasFlow.Dispatch do
             {id, %{l | subject: l.subject || (ready[l.task_key] && ready[l.task_key].subject)}}
           end)
 
-        %{state | ready: ready, leases: leases}
+        %{state | ready: ready, leases: leases, ready_loaded: true}
 
       other ->
         Logger.warning("flow dispatch could not read the runs: #{inspect(other)}")
-        state
+        %{state | ready_loaded: false}
     end
   end
 
@@ -799,7 +861,7 @@ defmodule AtlasFlow.Dispatch do
          }}
       end
 
-    %{state | leases: Map.merge(leases, state.leases), booted: true}
+    %{state | leases: Map.merge(leases, state.leases), booted: true} |> note_queue()
   end
 
   defp parse(%DateTime{} = at), do: at

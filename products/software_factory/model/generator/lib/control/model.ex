@@ -5,7 +5,11 @@ defmodule RelaDSL.Control.Model do
 
     * `shell(settings)`: the title and tabs of the native shell (`shell`), with the tabs
       the environment's settings add (`"tabs"`), and the id of the tab a client opens
-      on without a target (`"default"`, when the shell names one); nil without `shell`;
+      on without a target (`"default"`, when the shell names one) and the agent whose line
+      a client shows under the viewer's name (`"assistant"`, when it names one); nil
+      without `shell`;
+    * `machines/0`: the names of the machines a Runtime runs work on (`machines`), as
+      written, string-keyed; nil without `machines`;
     * `start_page/0`: what a client opens on (`start_page`): `assigned` (what is assigned
       to it; its `greeting`, nil or the words a client greets its viewer with, `{name}`
       its name), `open` (open work, for everyone), `open_for_you` (the supervised spans a
@@ -52,6 +56,9 @@ defmodule RelaDSL.Control.Model do
       @doc "The native shell: its title and tabs, with the tabs `settings` add; nil without one."
       def shell(settings),
         do: RelaDSL.Control.Rules.shell(unquote(Macro.escape(d["shell"])), settings)
+
+      @doc "The names of the machines a Runtime runs work on; nil without `machines`."
+      def machines, do: unquote(Macro.escape(d["machines"]))
 
       @doc "What a client opens on: what is assigned to it, open work and the start actions."
       def start_page,
@@ -283,6 +290,7 @@ defmodule RelaDSL.Control.Model do
         agent: spec["agent"],
         delete_error: if(is_binary(spec["delete_error"]), do: spec["delete_error"]),
         hidden: state_fields(presenters, kind),
+        decision_options: spec["decision_options"],
         presented: Enum.any?(presenters, &(&1["kind"] == kind)),
         # Whom its decider may delegate it to (a Delegate's other person): the kinds the
         # relation its single choice names as the delegating one points at.

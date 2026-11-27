@@ -510,3 +510,48 @@ defmodule Shop.Stepped do
 
   todo_words(title: "Your move", why: "Because", instructions: "How", answers: "Keys")
 end
+
+defmodule Shop.Benched do
+  @moduledoc "The shelled shop with benches (`Shop.Benches`): the Machines tab, and an assistant."
+  use Shop.Composition,
+    name: "shop-benched",
+    concepts: Shop.Base.concepts() ++ [Shop.Benches]
+
+  start_page(assigned: [relation: :checked_by])
+
+  machines(
+    kind: :bench,
+    configuration: :setup,
+    policy_version: :setup_version,
+    upgrades: [
+      kind: :refit,
+      of: :refit_of,
+      build: :build,
+      step: :step,
+      ended: [:done, :failed],
+      failed_step: :failed_step,
+      reason: :reason
+    ],
+    attempts: [
+      kind: :shift,
+      on: :shift_on,
+      of: :shift_of,
+      slot: :slot,
+      machine: :host,
+      started: :began,
+      ended: :finished,
+      result: :result
+    ],
+    work: [of: :order_of, stage: :phase]
+  )
+
+  shell(
+    title: "Private Console",
+    tabs: [
+      [id: "assigned", label: "Assigned", to: "/", assigned: true],
+      [id: "widgets", label: "Widgets", to: "/k/widget"],
+      [id: "machines", label: "Machines", to: "/machines", section: :browse, key: "g m"]
+    ],
+    assistant: :helper
+  )
+end

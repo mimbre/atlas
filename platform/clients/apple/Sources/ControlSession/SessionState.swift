@@ -945,7 +945,7 @@ public struct SessionState: Sendable, Equatable {
     /// The index pages a tab may open: the ones Control's shell serves as tabs
     /// (`AtlasControl.Shell`): what is assigned, a kind's list, the workers and the
     /// supervision screens (Open for you, Supervised by you; M3b P4).
-    static let tabPages: Set<Page> = [.home, .list, .workers, .openForYou, .supervisedByYou]
+    static let tabPages: Set<Page> = [.home, .list, .workers, .machines, .openForYou, .supervisedByYou]
 
     /// What is wrong with `shell` for `env`, if anything (the TUI's `validate_shell`).
     /// A boot shell must name its environment, its tabs (an id and a page each) and the

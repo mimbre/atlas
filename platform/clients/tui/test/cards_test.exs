@@ -1,7 +1,7 @@
 defmodule AtlasTui.CardsTest do
   @moduledoc """
   Cards (an option, a step, what went wrong, the details under a page): a filled surface,
-  rounded with half blocks, no lines; the selected one on the selected surface; their text
+  square, no lines; the selected one on the selected surface; their text
   readable on both surfaces in both themes; a left bar where the terminal has no truecolor.
   """
   use ExUnit.Case, async: true
@@ -73,23 +73,9 @@ defmodule AtlasTui.CardsTest do
     end
   end
 
-  test "a card's corners are half blocks in its surface's colour, its rows filled edge to edge" do
+  test "card rows fill their surface edge to edge" do
     for model <- pages() do
       rows = render(model, 90)
-      tops = Enum.filter(rows, &(text(&1) =~ "▗"))
-      bottoms = Enum.filter(rows, &(text(&1) =~ "▝"))
-
-      assert tops != [] and length(tops) == length(bottoms)
-
-      for row <- tops do
-        assert [{:plain, " "}, {edge, "▗" <> rim}] = row
-        assert edge in @edges and rim =~ ~r/^▄+▖$/u
-      end
-
-      for row <- bottoms do
-        assert [{:plain, " "}, {edge, "▝" <> rim}] = row
-        assert edge in @edges and rim =~ ~r/^▀+▘$/u
-      end
 
       for row <- rows, Enum.any?(row, &match?({{s, _}, _} when s in @surfaces, &1)) do
         [{:plain, " "} | card] = row
@@ -97,18 +83,6 @@ defmodule AtlasTui.CardsTest do
         assert String.length(text(card)) == 89
       end
     end
-  end
-
-  test "one empty row between cards" do
-    lines = PanelFixture.model(:choice) |> render(90) |> View.plain() |> String.split("\n")
-
-    for {line, i} <- Enum.with_index(lines), line =~ "▝", Enum.at(lines, i + 2) =~ "▗" do
-      assert Enum.at(lines, i + 1) == ""
-    end
-
-    assert Enum.any?(Enum.with_index(lines), fn {line, i} ->
-             line =~ "▝" and Enum.at(lines, i + 2) =~ "▗"
-           end)
   end
 
   test "the selected option is on the selected surface, the others on the card surface" do
@@ -183,7 +157,6 @@ defmodule AtlasTui.CardsTest do
     for model <- pages() do
       rows = render(model, 90, false)
       refute Enum.any?(rows, &card_row?/1)
-      refute rows |> View.plain() =~ ~r/[▗▖▝▘]/u
     end
 
     rows = render(PanelFixture.model(:choice), 90, false)

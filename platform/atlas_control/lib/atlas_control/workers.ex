@@ -13,7 +13,6 @@ defmodule AtlasControl.Workers do
   @capabilities ~w(queued_input durable_accept_query consumption_evidence)
   @submission ~w(client_key body cause)
   @max_body 16_384
-  @finished 20
 
   def handle(operation, request, m, actor, read, write) do
     permission = if operation == "worker_submit", do: "submit", else: "read"
@@ -81,28 +80,6 @@ defmodule AtlasControl.Workers do
 
   def authorize(_, _, _, _), do: {:error, "forbidden"}
 
-  @doc """
-  What the Workers page shows, from one read of the turns: `"running"`, the views of the
-  turns whose state is the model's running value and whose lease has not run out (as
-  `worker_overview` returns them), newest activity first; and `"finished"`, the #{@finished}
-  turns that ended most recently, newest end first, each with its exact execution, state,
-  status (as `about/4` says it), why it ended, when, its model and its item. A finished turn
-  without a full execution identity cannot be opened and is left out.
-  """
-  def board(m, actor, read) do
-    with :ok <- authorize(m, actor, "read", read),
-         {:ok, n} <- names(m),
-         {:ok, turns} <- turns(n, read),
-         {:ok, running} <- running(m, actor, n, turns, read) do
-      {:ok,
-       %{
-         "running" => Enum.sort_by(running, &recency(&1["lease_until"]), :desc),
-         "finished" => finished(n, turns),
-         "confirmed_at" => now()
-       }}
-    end
-  end
-
   defp overview(m, actor, read) do
     with {:ok, n} <- names(m),
          {:ok, turns} <- turns(n, read),
@@ -158,40 +135,6 @@ defmodule AtlasControl.Workers do
     case DateTime.from_iso8601(get_in(turn, ["values", n["lease"]]) || "") do
       {:ok, until, _} -> DateTime.compare(until, now) == :gt
       _ -> false
-    end
-  end
-
-  # Read from the turn itself: a finished turn takes no guidance, so listing it needs
-  # no execution record (opening it inspects that).
-  defp finished(n, turns) do
-    if filled?(n["ended"]) do
-      for turn <- turns,
-          get_in(turn, ["values", n["state"]]) == n["ended"],
-          {:ok, target} <- [target_from_turn(n, turn)] do
-        values = turn["values"] || %{}
-
-        %{
-          "execution" => %{
-            "worker" => Map.take(target, ~w(environment machine worker)),
-            "turn" => target["turn"],
-            "attempt" => target["attempt"]
-          },
-          "state" => values[n["state"]],
-          "status" => status(n, values),
-          "reason" => values[n["why"]],
-          "ended_at" => values[n["ended_at"]],
-          "model" => known(values[n["model"]]),
-          "item" =>
-            case get_in(turn, ["links", n["on"]]) do
-              [key] -> key
-              _ -> nil
-            end
-        }
-      end
-      |> Enum.sort_by(&{recency(&1["ended_at"]), &1["execution"]["turn"]}, :desc)
-      |> Enum.take(@finished)
-    else
-      []
     end
   end
 

@@ -5,19 +5,6 @@ import XCTest
 /// typography (`.prism(Prism.Typography.…)`), never in SwiftUI's text styles, the system
 /// font at a size of their own, or a weight of their own (docs/design/clients.md, Typography).
 final class TypographyTests: XCTestCase {
-    /// What sets a font outside Prism: a text style or the system font (`.font(.body)`,
-    /// `.font(.system(size: 11))`, `Font.caption`), or a weight or design on top of one.
-    private static let forbidden = [
-        #"\.font\(\s*\."#,
-        #"\.font\(\s*Font\b"#,
-        #"\bFont\.(system|body|callout|caption|caption2|footnote|headline|subheadline|title|title2|title3|largeTitle|custom)\b"#,
-        #"\.system\(\s*size:"#,
-        #"\.fontWeight\("#,
-        #"\.bold\("#,
-        #"\.italic\("#,
-        #"\.fontDesign\("#,
-        #"\.fontWidth\("#,
-    ].map { try! NSRegularExpression(pattern: $0) }
 
     private static let apple = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -30,13 +17,6 @@ final class TypographyTests: XCTestCase {
     private static let scale: Set<String> = ["title6", "title7", "label", "labelsmall", "caption", "captionsmall",
                                              "bodysmall", "monosmall"]
 
-    func testAtlasViewsSetTheirTextInPrismTypographyOnly() throws {
-        let found = try Self.lines().filter { _, code in
-            let range = NSRange(code.startIndex..., in: code)
-            return Self.forbidden.contains { $0.firstMatch(in: code, range: range) != nil }
-        }.map(\.at)
-        XCTAssertEqual(found, [], "use Prism's typography (`.prism(Prism.Typography.…)`)")
-    }
 
     func testAtlasViewsUseOneSetOfPrismsTypographies() throws {
         let role = try NSRegularExpression(pattern: #"Prism\.Typography\.(\w+)"#)

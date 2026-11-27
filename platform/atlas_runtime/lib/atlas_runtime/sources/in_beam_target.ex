@@ -50,7 +50,9 @@ defmodule AtlasRuntime.Sources.InBeamTarget do
            leases: outcome.leases,
            cancel: outcome.cancel,
            lease_lost: outcome.lease_lost,
-           timing: %{lease_ttl: outcome.timing.lease_ttl, poll_max: outcome.timing.poll_max}
+           timing: %{lease_ttl: outcome.timing.lease_ttl, poll_max: outcome.timing.poll_max},
+           configuration: outcome.configuration,
+           upgrade: outcome.upgrade
          }}
 
       "Rejected" ->

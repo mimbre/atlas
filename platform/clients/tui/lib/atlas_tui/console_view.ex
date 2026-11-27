@@ -10,9 +10,10 @@ defmodule AtlasTui.ConsoleView do
     # The environment segment keeps a cell either side, so it reads as a badge.
     suffix = " · #{model.env} "
     title = String.slice(title, 0, max(width - String.length(suffix) - 1, 0))
-    # The shell's greeting (the viewer's name) follows the environment, before the count:
-    # "Atlas Console · prod · <name> · 3 assigned to you". It is cut to the room the rest
-    # of the bar leaves, and left out when there is none.
+    # The shell's greeting (the viewer's name) follows the environment, before the count,
+    # with the assistant line after it, faint:
+    # "Atlas Console · prod · <name> · assistant: coordinator · 3 assigned to you". Both
+    # are cut to the room the rest of the bar leaves, and left out when there is none.
     room = width - String.length(" #{title}" <> suffix <> "· " <> count) - 1
 
     greeting =
@@ -20,17 +21,30 @@ defmodule AtlasTui.ConsoleView do
         do: String.slice(shell["greeting"], 0, max(room, 0)),
         else: ""
 
-    count = if greeting == "", do: String.trim_leading(count), else: "· " <> greeting <> count
+    room = room - String.length(greeting) - 3
+
+    assistant =
+      if greeting != "" && shell["assistant"] && room > 0,
+        do: " · " <> String.slice(shell["assistant"], 0, room),
+        else: ""
+
+    {greeting, count} =
+      if greeting == "",
+        do: {"", String.trim_leading(count)},
+        else: {"· " <> greeting, count}
+
     # Keep environment and stale state readable even in a narrow viewport.
     {title, stale} =
       if stale != "" && width < String.length(title <> suffix <> stale) + 1,
         do: {"stale shell", ""},
         else: {title, stale}
 
-    # The bar spans the row; only production marks its environment name, as a badge.
+    # The bar spans the row; only a non-production environment is marked, as a badge.
     bar = [
       {:header, " #{title} ·"},
-      {if(model.env == "prod", do: :prod, else: :header), " #{model.env} "},
+      {if(model.env == "prod", do: :header, else: :env_test), " #{model.env} "},
+      {:header, greeting},
+      {{:header, :muted}, assistant},
       {:header, count},
       {:pending, stale}
     ]
@@ -86,10 +100,23 @@ defmodule AtlasTui.ConsoleView do
       if length(labels) > 1 do
         text = "  " <> Enum.join(labels, " › ")
 
-        if String.length(text) <= width do
+        graphemes = String.graphemes(text)
+
+        if Enum.sum(Enum.map(graphemes, &cell_width/1)) <= width do
           [[{:dim, text}]]
         else
-          [[{:dim, "…" <> String.slice(text, -max(width - 1, 0), max(width - 1, 0))}]]
+          {suffix, _} =
+            graphemes
+            |> Enum.reverse()
+            |> Enum.reduce_while({[], max(width - 1, 0)}, fn grapheme, {acc, room} ->
+              cells = cell_width(grapheme)
+
+              if cells <= room,
+                do: {:cont, {[grapheme | acc], room - cells}},
+                else: {:halt, {acc, room}}
+            end)
+
+          [[{:dim, "…" <> Enum.join(suffix)}]]
         end
       else
         []
@@ -97,6 +124,15 @@ defmodule AtlasTui.ConsoleView do
     else
       []
     end
+  end
+
+  defp cell_width(grapheme) do
+    {width, emoji} =
+      for <<cp::utf8 <- grapheme>>, reduce: {0, false} do
+        {width, emoji} -> {width + :prim_tty.npwcwidth(cp), emoji or cp in [0xFE0F, 0x20E3]}
+      end
+
+    if emoji, do: max(width, 2), else: width
   end
 
   # No tabs before boot: the status line says what the TUI waits for.

@@ -96,7 +96,11 @@ defmodule AtlasBFFContract.Contract do
   # (`input`'s `shown_when`), and a required choice without a value has nothing chosen
   # until the user chooses: a decision's Delegate (the proposer or someone else) is such
   # a form. A decision's Decline sends no `detail` any more.
-  version "0.41.0"
+  # 0.43.0: one Machines tab in place of Agents and Workers: the machines pages
+  # (`/machines`, `/machines/:machine`, the Upgrade to the newest build confirm and its
+  # `upgrade_machine` submit); `/workers` shows the Machines page (deprecated). The shell
+  # says who assists its viewer (`assistant`), shown under their name.
+  version "0.43.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

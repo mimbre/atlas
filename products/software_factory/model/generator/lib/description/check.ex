@@ -42,7 +42,7 @@ defmodule RelaDSL.Description.Check do
       types(ctx) ++
       entities(ctx) ++
       relations(ctx) ++
-      progress(ctx) ++ read_first(ctx) ++ runtime(ctx)
+      progress(ctx) ++ read_first(ctx) ++ runtime(ctx) ++ machines(ctx)
   end
 
   @doc "Problems requiring the final assembled runtime and its installed write guards."
@@ -238,7 +238,8 @@ defmodule RelaDSL.Description.Check do
     path = ["shell"]
     tabs = is_map(shell) && shell["tabs"]
 
-    keys(shell, ~w(title tabs default), path) ++
+    keys(shell, ~w(title tabs default assistant), path) ++
+      assistant(shell, path) ++
       if(is_map(shell) and text?(shell["title"]) and byte_size(shell["title"]) <= 128,
         do: [],
         else: p(path, :shell_title, [], "shell.title: expected nonempty text")
@@ -250,6 +251,22 @@ defmodule RelaDSL.Description.Check do
   end
 
   defp shell(_ctx), do: []
+
+  # The agent whose line a client shows under the viewer's name (`assistant`, optional):
+  # the key of an agent fact.
+  defp assistant(%{"assistant" => a}, path) do
+    if text?(a) and byte_size(a) <= 64,
+      do: [],
+      else:
+        p(
+          path,
+          :shell_assistant,
+          [],
+          "shell.assistant: expected nonempty text of at most 64 bytes"
+        )
+  end
+
+  defp assistant(_shell, _path), do: []
 
   # The tab a client opens on without a target (`default`, optional): one of the tabs.
   defp default_tab(shell, tabs, path) do
@@ -305,6 +322,11 @@ defmodule RelaDSL.Description.Check do
                     [target, entry],
                     "shell.tabs: #{target} requires start.#{entry}"
                   )
+
+            target == "/machines" ->
+              if Map.has_key?(ctx.x, "machines"),
+                do: [],
+                else: p(at, :tab_machines, [], "shell.tabs: /machines requires machines")
 
             String.starts_with?(target, "/k/") and length(String.split(target, "/")) == 3 ->
               entity(ctx, String.slice(target, 3..-1//1), at)
@@ -560,10 +582,11 @@ defmodule RelaDSL.Description.Check do
     keys(
       rule,
       names ++
-        ~w(answered_at answered_by status adopt alternative delegated content content_links legacy_fingerprint errors),
+        ~w(answered_at answered_by status adopt alternative delegated content content_links legacy_fingerprint errors details),
       path
     ) ++
       Enum.flat_map(names, &field(ctx, kind, rule[&1], path)) ++
+      decision_details(ctx, kind, rule["details"], path ++ ["details"]) ++
       Enum.flat_map(names, fn key ->
         if get_in(ctx.entities, [kind, "properties", rule[key], "type"]) == "string",
           do: [],
@@ -637,6 +660,23 @@ defmodule RelaDSL.Description.Check do
         [kind],
         "decision_options requires its definition, selection, snapshot and revision fields"
       )
+
+  defp decision_details(_ctx, _kind, nil, _path), do: []
+
+  defp decision_details(ctx, kind, groups, path) when is_list(groups) do
+    Enum.flat_map(groups, fn group ->
+      if is_map(group) and text?(group["title"]) and is_list(group["fields"]) and
+           Enum.all?(group["fields"], &text?/1) do
+        keys(group, ~w(title fields), path) ++
+          Enum.flat_map(group["fields"], &field(ctx, kind, &1, path))
+      else
+        p(path, :decision_details, [kind], "detail groups need a title and a list of field names")
+      end
+    end)
+  end
+
+  defp decision_details(_ctx, kind, _groups, path),
+    do: p(path, :decision_details, [kind], "details must be a list of groups")
 
   defp navigation(nil, _path), do: []
 
@@ -1135,4 +1175,59 @@ defmodule RelaDSL.Description.Check do
   end
 
   defp turn(_ctx, _runtime, _path), do: []
+
+  # The machines a Runtime runs work on (`machines`): the machine's kind and its fields;
+  # its upgrades, each of one machine (`of`), with the step it is at, the steps it ends
+  # in, and the step and reason it failed at; the attempts at work, each on one machine
+  # (`on`) and of a piece of work (`of`, to a kind whose `work.of` names what it is
+  # part of, and whose `work.stage` field, when given, says the stage it is at), with the
+  # slot, machine, start, end and result fields.
+  defp machines(%{x: %{"machines" => m}} = ctx) do
+    path = ["machines"]
+    m = if is_map(m), do: m, else: %{}
+    kind = m["kind"]
+    part = fn key -> if is_map(m[key]), do: m[key], else: %{} end
+    {up, at, work} = {part.("upgrades"), part.("attempts"), part.("work")}
+    {up_path, at_path, work_path} = {path ++ ["upgrades"], path ++ ["attempts"], path ++ ["work"]}
+    work_kinds = (rel(ctx, work["of"]) || %{})["from"] || []
+
+    keys(ctx.x["machines"], ~w(kind configuration policy_version upgrades attempts work), path) ++
+      entity(ctx, kind, path) ++
+      Enum.flat_map(~w(configuration policy_version), &field(ctx, kind, m[&1], path)) ++
+      keys(m["upgrades"], ~w(kind of build step ended failed_step reason), up_path) ++
+      entity(ctx, up["kind"], up_path) ++
+      Enum.flat_map(~w(build failed_step reason), &field(ctx, up["kind"], up[&1], up_path)) ++
+      values(ctx, up["kind"], %{up["step"] => up["ended"]}, up_path) ++
+      relation(ctx, up["of"], up["kind"], up_path) ++
+      relation(ctx, up["of"], kind, "to", up_path) ++
+      keys(m["attempts"], ~w(kind on of slot machine started ended result), at_path) ++
+      entity(ctx, at["kind"], at_path) ++
+      Enum.flat_map(
+        ~w(slot machine started ended result),
+        &field(ctx, at["kind"], at[&1], at_path)
+      ) ++
+      relation(ctx, at["on"], at["kind"], at_path) ++
+      relation(ctx, at["on"], kind, "to", at_path) ++
+      relation(ctx, at["of"], at["kind"], at_path) ++
+      if(Enum.any?((rel(ctx, at["of"]) || %{})["to"] || [], &(&1 in work_kinds)),
+        do: [],
+        else:
+          p(
+            at_path,
+            :machines_work,
+            [at["of"], work["of"]],
+            "machines.attempts.of: #{inspect(at["of"])} must lead to a kind that has work.of #{inspect(work["of"])}"
+          )
+      ) ++
+      keys(m["work"], ~w(of stage), work_path) ++
+      relation(ctx, work["of"], work_path) ++
+      for(
+        target <- (rel(ctx, at["of"]) || %{})["to"] || [],
+        Map.has_key?(work, "stage"),
+        problem <- field(ctx, target, work["stage"], work_path),
+        do: problem
+      )
+  end
+
+  defp machines(_ctx), do: []
 end
