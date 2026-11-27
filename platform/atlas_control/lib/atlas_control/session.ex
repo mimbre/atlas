@@ -1221,7 +1221,8 @@ defmodule AtlasControl.Session do
   # the same key at once, Facts refuses the second ("exists"), and it tries the next number.
   # Who puts it in is linked in the same write when its kind says so (`create.producer`,
   # IS-Atlas-70): the client, or whom the agent assists, never what the form says; a form
-  # that names it is refused before anything is sent.
+  # that names it is refused before anything is sent. So is the person who proposes it
+  # (`create.proposer`, D-0106).
   defp create(route, kind, raw, links, state) do
     k = Pages.kind_view(state.model, kind)
 

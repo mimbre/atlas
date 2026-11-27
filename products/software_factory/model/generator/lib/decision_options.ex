@@ -8,23 +8,32 @@ defmodule RelaDSL.DecisionOptions do
   The kind's `decision_options` annotation names everything kind-specific (`rule` below):
   the fields holding the definition, selection, snapshot, revision and history; the
   answer time field and answering relation; the status field and its values (`open`,
-  `adopt`, `decline`, `superseded` and the statuses it supersedes, `replaceable`); the
-  fields an adopted option sets from its payload (`adopt`); the content and links that
-  make up an offer revision (`content`, `content_links`); the fingerprint of records
-  without options (`legacy_fingerprint`); and the wording of the refusals (`errors`).
+  `adopt`, `decline`, `superseded` and the statuses it supersedes, `replaceable`, and the
+  statuses an unanswered offer goes back to its proposer in, `returned`); the fields an
+  adopted option sets from its payload (`adopt`); the field whose text, written with the
+  status that sends the offer back to be revised, becomes a new adopt option
+  (`alternative`: `%{"field", "status"}`, D-0106); the relation to the person who left the
+  choice to its proposer (`delegated`); the content and links that make up an offer
+  revision (`content`, `content_links`); the fingerprint of records without options
+  (`legacy_fingerprint`); and the wording of the refusals (`errors`).
+
+  Declining is no option one selects (D-0106): whoever answers declines with an
+  alternative of their own, and the offer goes back to its proposer with it. A decline
+  option a definition still holds is offered no answer; its text explains what declining
+  keeps.
   """
 
   def decode(rule, text) when is_binary(text) do
     with {:ok, %{} = definition} <- JSON.decode(text),
          true <- Enum.sort(Map.keys(definition)) == ~w(options question rationale recommended),
          true <- text?(definition["question"]) and text?(definition["rationale"]),
-         options when is_list(options) and length(options) >= 2 <- definition["options"],
+         [_ | _] = options <- definition["options"],
          true <- Enum.all?(options, &option?/1),
          ids = Enum.map(options, & &1["id"]),
          true <- length(ids) == length(Enum.uniq(ids)),
          true <- definition["recommended"] == hd(ids),
-         # Something to adopt: two alternatives, or one beside a decline (D-0103: a decline
-         # is offered when there is one, never demanded).
+         # Something to adopt: one proposal, or alternatives (D-0106: declining is always
+         # possible, with an alternative, so a decline option is never demanded).
          true <- Enum.any?(options, &(&1["effect"] == "adopt")) do
       {:ok, definition}
     else
@@ -37,7 +46,7 @@ defmodule RelaDSL.DecisionOptions do
   # The annotation words its refusals; these neutral ones stand in for any it leaves out.
   @errors %{
     "invalid" =>
-      "a choice needs a question, rationale, distinct complete options (two to adopt, or one to adopt and a decline), and the recommended option first",
+      "a choice needs a question, rationale, distinct complete options (at least one to adopt), and the recommended option first",
     "not_json" => "the options must be a JSON definition",
     "removed" => "options cannot be removed or answered without their definition",
     "unselected" => "select an offered option to answer",
@@ -49,8 +58,11 @@ defmodule RelaDSL.DecisionOptions do
 
   defp text?(value), do: is_binary(value) and String.trim(value) != ""
 
+  # An option: its id, text, details, effect and payload; one added from whoever declined
+  # says whose it is (`by`).
   defp option?(%{} = option) do
-    Enum.sort(Map.keys(option)) == ~w(consequences details effect id rule text) and
+    Enum.sort(Map.keys(Map.delete(option, "by"))) == ~w(consequences details effect id rule text) and
+      (not Map.has_key?(option, "by") or text?(option["by"])) and
       is_binary(option["id"]) and Regex.match?(~r/^[a-z][a-z0-9_-]{0,63}$/, option["id"]) and
       Enum.all?(~w(text details), &text?(option[&1])) and
       case option["effect"] do
@@ -72,6 +84,9 @@ defmodule RelaDSL.DecisionOptions do
   @doc "Whether the record's offer is still open to an answer."
   def open?(rule, fact),
     do: get_in(fact, ["values", status_field(rule)]) == status(rule, "open")
+
+  # The statuses an unanswered offer may hold: open, or gone back to its proposer.
+  defp unanswered(rule), do: [status(rule, "open") | List.wrap(status(rule, "returned"))]
 
   def revision(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
 
@@ -100,6 +115,7 @@ defmodule RelaDSL.DecisionOptions do
   def with_change(rule, %{"op" => "change"} = change, lookup) do
     current = lookup["current"].() || %{}
     text = get_in(current, ["values", rule["definition"]])
+    change = with_alternative(rule, change, current)
 
     # A malformed stored history is left as it is; `check/5` refuses the write.
     with true <- records_offer?(rule, current, change["values"] || %{}, change["links"] || %{}),
@@ -115,6 +131,52 @@ defmodule RelaDSL.DecisionOptions do
   end
 
   def with_change(_rule, change, _lookup), do: change
+
+  # A decline sends the open offer back to its proposer with the alternative of whoever
+  # declined (D-0106): the change that sets the revise status with a text in the
+  # alternative field adds that text to the definition as a new adopt option, theirs
+  # (`by`), its rule and consequences the alternative until the proposer words them. The
+  # recommendation stays; the proposer sets it. A record without a definition keeps the
+  # alternative in its field only.
+  defp with_alternative(rule, change, current) do
+    values = change["values"] || %{}
+    field = get_in(rule, ["alternative", "field"])
+    alternative = String.trim(to_string(field && values[field]))
+    text = get_in(current, ["values", rule["definition"]])
+
+    with true <- alternative != "",
+         true <- values[status_field(rule)] == get_in(rule, ["alternative", "status"]),
+         true <- open?(rule, current),
+         false <- Map.has_key?(values, rule["definition"]),
+         {:ok, definition} <- decode(rule, text) do
+      by = change["by"]
+      by = if is_binary(by) and by != "", do: by, else: nil
+
+      option =
+        %{
+          "id" => alternative_id(definition["options"]),
+          "text" => alternative,
+          "details" => if(by, do: "#{by}'s alternative", else: "The decider's alternative"),
+          "effect" => "adopt",
+          "rule" => alternative,
+          "consequences" => alternative
+        }
+        |> then(&if(by, do: Map.put(&1, "by", by), else: &1))
+
+      definition = Map.update!(definition, "options", &(&1 ++ [option]))
+      put_in(change, ["values", rule["definition"]], JSON.encode!(definition))
+    else
+      _ -> change
+    end
+  end
+
+  defp alternative_id(options) do
+    ids = MapSet.new(options, & &1["id"])
+
+    Stream.iterate(1, &(&1 + 1))
+    |> Stream.map(&if(&1 == 1, do: "alternative", else: "alternative-#{&1}"))
+    |> Enum.find(&(not MapSet.member?(ids, &1)))
+  end
 
   # Whether this change answers or edits an unanswered offer, so the offer it replaces
   # is kept in the history.
@@ -168,20 +230,20 @@ defmodule RelaDSL.DecisionOptions do
     )
   end
 
-  # Return semantic answers only. Numbered keys are a separate presentation adapter.
+  # Return semantic answers only. Numbered keys are a separate presentation adapter. Only
+  # an option to adopt is answered by selecting it; declining is the state's own answer,
+  # with an alternative (D-0106).
   def answers(rule, fact) do
     text = get_in(fact, ["values", rule["definition"]])
 
     with true <- open?(rule, fact),
          {:ok, definition} <- decode(rule, text) do
-      for option <- ordered(definition) do
+      for option <- ordered(definition), option["effect"] == "adopt" do
         %{
           "key" => name(rule, text, option["id"], fact),
           "label" => option["text"],
           "details" => option["details"],
           "recommended" => option["id"] == definition["recommended"],
-          # As with the a/f Reject: declining is given with a note saying why.
-          "note" => option["effect"] == "decline",
           "change" => %{
             "self" => rule["answered_by"],
             "values" => values(rule, text, option, fact)
@@ -243,7 +305,7 @@ defmodule RelaDSL.DecisionOptions do
           cond do
             selected in [nil, ""] ->
               if snapshot not in [nil, ""] or after_values[rule["revision"]] not in [nil, ""] or
-                   after_values[field] != status(rule, "open"),
+                   after_values[field] not in unanswered(rule),
                  do: [error(rule, "unselected")],
                  else: []
 

@@ -540,7 +540,8 @@ defmodule RelaDSL.Control.Model do
       defaults: rule.defaults,
       made_from: rule.from,
       decides: nil,
-      producer: rule.producer
+      producer: rule.producer,
+      proposer: rule.proposer
     }
   end
 
@@ -575,7 +576,7 @@ defmodule RelaDSL.Control.Model do
           nil
       end
 
-    %{ask: ask, defaults: %{}, made_from: made_from, decides: decides, producer: nil}
+    %{ask: ask, defaults: %{}, made_from: made_from, decides: decides, producer: nil, proposer: nil}
   end
 
   defp ordered(spec, primary) do
@@ -609,7 +610,9 @@ defmodule RelaDSL.Control.Model do
       from: get_in(rule, ["id", "from"]),
       defaults: rule["defaults"] || %{},
       # The relation the create links to who puts the fact in (IS-Atlas-70), or nil.
-      producer: rule["producer"]
+      producer: rule["producer"],
+      # The relation the create links to the person who proposes it (D-0106), or nil.
+      proposer: rule["proposer"]
     }
   end
 

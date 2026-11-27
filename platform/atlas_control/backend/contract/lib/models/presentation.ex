@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.38.0"
+  version "0.39.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -75,7 +75,8 @@ defmodule AtlasBFFContract.Models.Presentation do
   # it, never by `note`. `button`: what a client that shows it as a button says on it,
   # when that is not its `label` (no `…`); a note it asks opens on the click, the button
   # does not say so. `detail`: a short explanation shown with it (Decline: what declining
-  # keeps).
+  # keeps). `icon` (since 0.39.0): what it does, by name (question, hand_over, delegate),
+  # which a client may show as an icon; one it does not know it shows without.
   defmodel :panel_answer do
     field :label, :string, required: true
     field :key, :string, required: true
@@ -85,6 +86,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :weight, :string
     field :button, :string
     field :detail, :string
+    field :icon, :string
   end
 
   # A web address the user can open outside the client, in a browser: `url`. `key` is

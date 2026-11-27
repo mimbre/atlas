@@ -162,11 +162,15 @@ defmodule RelaDSL.Control.Rules do
 
   @doc """
   The change the owner's answer `name` writes (`{:write, %{"values", "self", "label",
-  "note", "on_behalf"}}`: the values, `"$now"` for the moment it is given and `"$note"`
-  for the note it is given with (trimmed), the relation that links it to the one who
-  answers, whether a note is required, and whom an assisting agent answers for (nil when
-  the viewer answers for itself)), for an `item` (`%{"fact", "parts"}`) whose owner
-  `viewer` is, or assists, in a state that offers it. `{:refuse, why}` else.
+  "note", "prompt", "cause", "on_behalf", "delegated"}}`: the values, `"$now"` for the
+  moment it is given and `"$note"` for the note it is given with (trimmed), the relation
+  that links it to the one who answers, whether a note is required and the question its
+  form asks, how its cause is worded (`{note}`), whom an assisting agent answers for (nil
+  when the viewer answers for itself), and whether it is given under that one's
+  delegation (`delegated`: the fact links whom its kind's `decision_options.delegated`
+  relation names, the person who left it to its proposer, D-0106)), for an `item`
+  (`%{"fact", "parts"}`) whose owner `viewer` is, or assists, in a state that offers it.
+  `{:refuse, why}` else.
   """
   def answer(flow, name, item, viewer) do
     found =
@@ -179,7 +183,13 @@ defmodule RelaDSL.Control.Rules do
                answers(for_whom(decision_todo(flow, fact, todo), on_behalf)),
                &(&1["key"] == name and is_map(&1["change"]))
              ) do
-        Map.put(answer, "on_behalf", on_behalf)
+        case {on_behalf, delegator(flow, fact)} do
+          {nil, who} when is_binary(who) and who != viewer.key ->
+            answer |> Map.put("on_behalf", who) |> Map.put("delegated", true)
+
+          _ ->
+            Map.put(answer, "on_behalf", on_behalf)
+        end
       else
         _ -> nil
       end
@@ -192,11 +202,25 @@ defmodule RelaDSL.Control.Rules do
            "self" => change["self"],
            "label" => answer["label"],
            "note" => answer["note"] == true,
-           "on_behalf" => answer["on_behalf"]
+           "prompt" => answer["prompt"],
+           "cause" => answer["cause"],
+           "on_behalf" => answer["on_behalf"],
+           "delegated" => answer["delegated"] == true
          }}
 
       nil ->
         {:refuse, "This answer is only available to the current owner in this state."}
+    end
+  end
+
+  # The person who left the fact to its proposer (D-0106), when the kind's single choice
+  # names the relation (`decision_options.delegated`) and the fact links one; else nil.
+  defp delegator(flow, fact) do
+    with relation when is_binary(relation) <- get_in(flow, [:decision_options, "delegated"]),
+         [who | _] when is_binary(who) <- List.wrap(get_in(fact, ["links", relation])) do
+      who
+    else
+      _ -> nil
     end
   end
 
@@ -230,12 +254,19 @@ defmodule RelaDSL.Control.Rules do
 
   defp answers(todo), do: for(%{"key" => _, "label" => _} = a <- todo["answers"] || [], do: a)
 
+  # A record with a single choice open to an answer: its adopt options are the answers
+  # (`option`: one selects it), and after them the state's own answers but its main one
+  # (Accept, which the options stand for): Decline with an alternative, Ask a question,
+  # Hand over, Leave it to the proposer (D-0106).
   defp decision_todo(flow, fact, todo) do
     rule = flow[:decision_options]
     text = rule && get_in(fact, ["values", rule["definition"]])
 
     if text not in [nil, ""] and RelaDSL.DecisionOptions.open?(rule, fact) do
-      offered = RelaDSL.DecisionOptions.answers(rule, fact)
+      offered =
+        for a <- RelaDSL.DecisionOptions.answers(rule, fact), do: Map.put(a, "option", true)
+
+      own = for a <- answers(todo), a["weight"] != "main", do: a
 
       case RelaDSL.DecisionOptions.decode(rule, text) do
         {:ok, definition} ->
@@ -248,7 +279,7 @@ defmodule RelaDSL.Control.Rules do
               definition["rationale"]
 
           todo
-          |> Map.put("answers", offered)
+          |> Map.put("answers", offered ++ own)
           |> Map.put("instructions", instructions)
           |> Map.put("decision_options", true)
           |> Map.put(
@@ -257,23 +288,29 @@ defmodule RelaDSL.Control.Rules do
           )
 
         _ ->
-          Map.put(todo, "answers", [])
+          Map.put(todo, "answers", own)
       end
     else
       todo
     end
   end
 
+  # The options are numbered on their keys (1, 2, …), each keeping its semantic name; the
+  # state's own answers keep their keys.
   defp presented_answers(%{"decision_options" => true} = todo) do
     answers(todo)
     |> weighed()
-    |> Enum.with_index(1)
-    |> Enum.map(fn {a, index} ->
-      answer_view(a)
-      |> Map.put(:name, a["key"])
-      |> Map.put(:key, Integer.to_string(index))
-      |> Map.put(:details, a["details"])
+    |> Enum.map_reduce(1, fn
+      %{"option" => true} = a, index ->
+        {answer_view(a)
+         |> Map.put(:name, a["key"])
+         |> Map.put(:key, Integer.to_string(index))
+         |> Map.put(:details, a["details"]), index + 1}
+
+      a, index ->
+        {answer_view(a), index}
     end)
+    |> elem(0)
   end
 
   defp presented_answers(todo), do: todo |> answers() |> weighed() |> Enum.map(&answer_view/1)
@@ -304,15 +341,20 @@ defmodule RelaDSL.Control.Rules do
     end
   end
 
+  # `prompt`: the question a note it needs asks; `icon`: what it does, by name;
+  # `hand_over`: it is the page's own hand-over (to someone else, D-0106).
   defp answer_view(a),
     do: %{
       key: a["key"],
       label: a["label"],
       note: a["note"] == true,
+      prompt: if(is_binary(a["prompt"]), do: a["prompt"]),
+      icon: if(is_binary(a["icon"]), do: a["icon"]),
       weight: a["weight"],
       change: is_map(a["change"]),
       set: if(is_binary(a["set"]), do: a["set"]),
-      remove: if(is_binary(a["remove"]), do: a["remove"])
+      remove: if(is_binary(a["remove"]), do: a["remove"]),
+      hand_over: a["hand_over"] == true
     }
 
   # An agent answering on behalf of whom it assists gets no answer that links the one who

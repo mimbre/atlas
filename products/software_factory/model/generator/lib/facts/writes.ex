@@ -60,7 +60,10 @@ defmodule RelaDSL.Facts.Writes do
     the writer itself, when it is a fact of the kind the relation leads to. Any other
     keys on that create, and any change after, are refused as for any `set_by`. Nothing
     writes such a fact with that relation empty (UC-Atlas-23): a create that links nobody
-    through it is refused, whoever writes it (Flow too), and says so.
+    through it is refused, whoever writes it (Flow too), and says so. Likewise the relation
+    its `create.proposer` names, but only to the writer itself, when it is a fact of the
+    kind the relation leads to and assists nobody (a person who puts a decision in); a
+    create that links nobody through it is not refused (an agent's proposal names none).
   - `limit`: `%{"max", "field", "values", "error"}`: a new link to a parent through it is
     refused while `max` facts of the kind whose `field` is one of `values` point at that
     parent already ({parent}, {child}, {value}).
@@ -238,6 +241,7 @@ defmodule RelaDSL.Facts.Writes do
     end
 
     producer = if op == "create", do: get_in(d, ["entities", kind, "create", "producer"])
+    proposer = if op == "create", do: get_in(d, ["entities", kind, "create", "proposer"])
 
     set_by =
       for {relation, keys} <- Enum.sort(links),
@@ -246,7 +250,7 @@ defmodule RelaDSL.Facts.Writes do
           Enum.sort(List.wrap(keys)) !=
             Enum.sort(List.wrap(get_in(current.(), ["links", relation]))),
           not named?(by, names),
-          reason = set_by_reason(relation, names, producer, keys, rels, actor, lookup),
+          reason = set_by_reason(relation, names, {producer, proposer}, keys, rels, actor, lookup),
           reason != nil,
           do: reason
 
@@ -270,8 +274,9 @@ defmodule RelaDSL.Facts.Writes do
   defp relations(_d, _kind, _op, _key, _links, _actor, _lookup), do: :ok
 
   # Why a writer the relation does not name may not set it; nil on the create its kind's
-  # `create.producer` names, linking the one who puts the fact in.
-  defp set_by_reason(relation, names, relation, keys, rels, actor, lookup) do
+  # `create.producer` names, linking the one who puts the fact in, or its `create.proposer`
+  # names, linking the writer itself.
+  defp set_by_reason(relation, names, {relation, _proposer}, keys, rels, actor, lookup) do
     case put_in_by(rels[relation], actor, lookup) do
       nil ->
         "only a #{Enum.join(names, " or ")} sets #{relation}, and a create by a person, or by an agent for whom it assists"
@@ -284,8 +289,31 @@ defmodule RelaDSL.Facts.Writes do
     end
   end
 
-  defp set_by_reason(relation, names, _producer, _keys, _rels, _actor, _lookup),
+  defp set_by_reason(relation, names, {_producer, relation}, keys, rels, actor, lookup) do
+    case proposed_by(rels[relation], actor, lookup) do
+      nil ->
+        "only a #{Enum.join(names, " or ")} sets #{relation}, and a create by the person who proposes it"
+
+      who ->
+        if List.wrap(keys) == [who],
+          do: nil,
+          else:
+            "#{relation} is who proposes it (#{who}), never chosen: only a #{Enum.join(names, " or ")} sets it otherwise"
+    end
+  end
+
+  defp set_by_reason(relation, names, _creates, _keys, _rels, _actor, _lookup),
     do: "only a #{Enum.join(names, " or ")} sets #{relation}"
+
+  # Who proposes a fact, as the proposer relation `spec` names them: the writer itself,
+  # when it assists nobody and is a fact of the one kind the relation leads to.
+  defp proposed_by(spec, actor, lookup) do
+    by = actor["by"]
+
+    if actor["assists"] in [nil, ""] and is_binary(by) and by != "" and
+         match?([_], spec["to"] || []) and is_map(lookup["fact"].(hd(spec["to"]), by)),
+       do: by
+  end
 
   # Why a create of a kind whose `create.producer` names `relation` and that links nobody
   # through it is refused: every such fact records its producer (UC-Atlas-23).

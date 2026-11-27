@@ -2422,6 +2422,8 @@ defmodule AtlasControl.Pages do
       answer ->
         title = "#{answer.label} #{key}"
 
+        # A note it needs is asked with its own question when it has one ("What is your
+        # alternative?"); given without, the form asks it again.
         block =
           if answer.note do
             Blocks.form(
@@ -2429,7 +2431,7 @@ defmodule AtlasControl.Pages do
               inputs: [
                 Blocks.input(
                   name: "note",
-                  label: "Note",
+                  label: Map.get(answer, :prompt) || "Note",
                   kind: "multiline",
                   required: true,
                   value: (form[:values] || %{})["note"]
@@ -3056,14 +3058,6 @@ defmodule AtlasControl.Pages do
     {picks, supervising} =
       supervision_actions(m, kind, fact, work, candidates(m, kind, part_answers), form)
 
-    answers = answer_actions(kind, fact, todo)
-    answered = Enum.map(answers, & &1["label"])
-
-    next =
-      answers ++
-        restart_actions(m, kind, fact, parts, form) ++
-        Enum.reject(picks, &(&1["label"] in answered))
-
     span? = kind in span_kinds(m)
 
     handing =
@@ -3073,6 +3067,14 @@ defmodule AtlasControl.Pages do
           Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
             link_actions(m, part_kind, part, form)
           end)
+
+    answers = answer_actions(kind, fact, todo, handing)
+    answered = Enum.map(answers, & &1["label"])
+
+    next =
+      answers ++
+        restart_actions(m, kind, fact, parts, form) ++
+        Enum.reject(picks, &(&1["label"] in answered))
 
     more =
       supervising ++
@@ -3352,7 +3354,7 @@ defmodule AtlasControl.Pages do
   # answer of the same key gives it (`answers`): whether it asks a note, its weight. One
   # that is no answer of the to-do (Retry, Pick up) weighs other; the first is the main
   # one when no answer is. Under a decision's options (`main?` false), whose own answers
-  # carry the main and no, every one weighs other.
+  # carry the main and decline, every one weighs other. Each keeps its action's icon.
   defp answers_block(actions, answers, main? \\ true) do
     by_key = Map.new(answers, &{&1.key, &1})
 
@@ -3370,7 +3372,8 @@ defmodule AtlasControl.Pages do
             submit_to: a["submit_to"],
             note: if(by_key[a["key"]][:note], do: true),
             weight: weight,
-            button: button(a["label"])
+            button: button(a["label"]),
+            icon: a["icon"]
           )
         end
     )
@@ -3411,26 +3414,29 @@ defmodule AtlasControl.Pages do
       )
   end
 
-  # A decision's choice (`todo.choice`): the question, why, then each option with its rule
-  # and what follows from it (a decline: its details).
+  # A decision's choice (`todo.choice`): the question, why, then each option to adopt with
+  # its rule and what follows from it, one added from whoever declined marked as theirs
+  # (`by`, D-0106). Declining is the page's own Decline (with an alternative); a decline
+  # option the definition holds only explains what declining keeps.
   defp choice_blocks(todo, choice, key, others) do
-    options =
-      for {option, a} <- Enum.zip(choice["options"], todo.answers) do
-        fields =
-          if a.note,
-            do: [Blocks.pair(label: "Details", value: option["details"])],
-            else: [
-              Blocks.pair(label: "Rule", value: option["rule"]),
-              Blocks.pair(label: "Then", value: option["consequences"])
-            ]
+    adopts = Enum.filter(choice["options"], &(&1["effect"] == "adopt"))
+    chosen = Enum.filter(todo.answers, &Map.has_key?(&1, :name))
 
+    options =
+      for {option, a} <- Enum.zip(adopts, chosen) do
         %{
           text: option["text"],
           recommended: option["id"] == choice["recommended"],
+          by: option["by"],
           answer: a,
-          fields: fields
+          fields: [
+            Blocks.pair(label: "Rule", value: option["rule"]),
+            Blocks.pair(label: "Then", value: option["consequences"])
+          ]
         }
       end
+
+    keeps = Enum.find_value(choice["options"], &if(&1["effect"] == "decline", do: &1["text"]))
 
     decision_blocks(
       [
@@ -3439,7 +3445,8 @@ defmodule AtlasControl.Pages do
       ],
       options,
       others,
-      todo
+      todo,
+      keeps
     )
   end
 
@@ -3515,23 +3522,38 @@ defmodule AtlasControl.Pages do
   end
 
   # A decision as a stack of simple blocks (D-0104): `intro` (its header, why, what went
-  # wrong), then its adopt options as `option` blocks, the recommended one first, and below
-  # them the page's answers. A decline (the option given with a note) is no card: it is
-  # the answers' decline, its text the explanation beside it (`detail`). With one adopt
-  # option its card shows no answer (`alone`): the answers are Accept (main, its answer)
-  # and Decline (decline, the decline's). With more, each card has its own Choose (the
-  # recommended main, the rest other) and, when there is a decline, the answers Decline all. Each
-  # answer is the page's action of the same key (`others`), its call unchanged; the rest of
-  # `others` follow in the answers, each weighing other.
-  defp decision_blocks(intro, options, others, todo) do
+  # wrong), then its adopt options as `option` blocks, the recommended one first (one an
+  # earlier decider added, marked as theirs), and below them the page's answers. With one
+  # adopt option its card shows no answer (`alone`): the answers start with Accept (main,
+  # its answer). With more, each card has its own Choose (the recommended main, the rest
+  # other). Then the decline: a decision's own Decline (D-0106: always, with an
+  # alternative; `keeps`, what a decline option of its definition said, the explanation
+  # beside it), or stuck work's declining option (the one given with a note, its text the
+  # explanation); Decline all when several alternatives are offered. Each answer is the
+  # page's action of the same key (`others`), its call unchanged; the rest of `others`
+  # follow in the answers, each weighing other, with its icon (Ask a question, Hand over,
+  # Leave it to the proposer).
+  defp decision_blocks(intro, options, others, todo, keeps \\ nil) do
     by_key = Map.new(others, &{&1["key"], &1})
     options = Enum.filter(options, &Map.has_key?(by_key, &1.answer.key))
-    taken = Enum.map(options, & &1.answer.key)
 
     {declines, adopts} = Enum.split_with(options, & &1.answer.note)
     adopts = Enum.sort_by(adopts, &(!&1.recommended))
-    decline = List.first(declines)
     alone? = match?([_], adopts)
+
+    # The decline: stuck work's declining option, else the page's own answer weighing
+    # decline that is no option (a decision's Decline).
+    option_keys = Enum.map(options, & &1.answer.key)
+
+    decline =
+      List.first(declines) ||
+        Enum.find_value(todo.answers, fn a ->
+          if a.weight == "decline" and not Map.has_key?(a, :name) and
+               a.key not in option_keys and Map.has_key?(by_key, a.key),
+             do: %{text: keeps, answer: a}
+        end)
+
+    taken = option_keys ++ if(decline, do: [decline.answer.key], else: [])
 
     answer = fn o, label, weight ->
       action = by_key[o.answer.key]
@@ -3543,7 +3565,7 @@ defmodule AtlasControl.Pages do
         submit_to: action["submit_to"],
         note: if(o.answer.note, do: true),
         weight: weight,
-        detail: if(o.answer.note, do: o.text)
+        detail: if(weight == "decline", do: o.text)
       )
     end
 
@@ -3551,12 +3573,19 @@ defmodule AtlasControl.Pages do
       adopts
       |> Enum.with_index(1)
       |> Enum.map(fn {o, n} ->
+        {badge, tone} =
+          cond do
+            o.recommended -> {"★ Recommended", "success"}
+            is_binary(o[:by]) -> {"#{o.by}'s alternative", nil}
+            true -> {nil, nil}
+          end
+
         {"option-#{n}",
          Blocks.option(
            n: n,
            text: o.text,
-           badge: if(o.recommended, do: "★ Recommended"),
-           tone: if(o.recommended, do: "success"),
+           badge: badge,
+           tone: tone,
            fields: o.fields,
            answer: answer.(o, "Choose", if(n == 1, do: "main", else: "other")),
            alone: if(alone?, do: true)
@@ -3576,7 +3605,7 @@ defmodule AtlasControl.Pages do
           else: []
         )
 
-    # `0` answers the recommended option again (`answer_actions/3`); its option shows it.
+    # `0` answers the recommended option again (`answer_actions/4`); its option shows it.
     rest = Enum.reject(others, &(&1["key"] in ["0" | taken]))
 
     answers =
@@ -3994,23 +4023,18 @@ defmodule AtlasControl.Pages do
   def answer_item(_m, _kind, _answers), do: %{}
 
   # Each answer that writes a change, or sets or removes an association of the fact, as an
-  # action to its page.
-  defp answer_actions(_kind, _fact, nil), do: []
+  # action to its page, with what it does by name (`icon`). One that hands the work over
+  # (`hand_over`, D-0106) is the page's own hand-over of the same key (`handing`: Hand to…),
+  # under the answer's label; none when the page offers none.
+  defp answer_actions(_kind, _fact, nil, _handing), do: []
 
-  defp answer_actions(kind, fact, todo) do
+  defp answer_actions(kind, fact, todo, handing) do
     changes =
       for a <- todo.answers,
-          a.change,
-          do:
-            Blocks.action(
-              label: a.label,
-              key: a.key,
-              to: path({:answer, kind, fact["key"], Map.get(a, :name) || a.key}),
-              button: button(a.label),
-              # One that needs a note (a decline) opens its form to ask for it first.
-              submit_to:
-                if(a[:name] && !a.note, do: call_to({:answer, kind, fact["key"], a.name}))
-            )
+          a.change or Map.get(a, :hand_over) == true,
+          action = answer_action(kind, fact, a, handing),
+          action != nil,
+          do: action
 
     changes =
       case {todo.answers, changes} do
@@ -4039,6 +4063,33 @@ defmodule AtlasControl.Pages do
               to: path({op, kind, fact["key"], relation}),
               button: button(a.label)
             )
+  end
+
+  defp answer_action(kind, fact, %{change: true} = a, _handing),
+    do:
+      Blocks.action(
+        label: a.label,
+        key: a.key,
+        to: path({:answer, kind, fact["key"], Map.get(a, :name) || a.key}),
+        button: button(a.label),
+        icon: Map.get(a, :icon),
+        # One that needs a note (a decline) opens its form to ask for it first.
+        submit_to: if(a[:name] && !a.note, do: call_to({:answer, kind, fact["key"], a.name}))
+      )
+
+  defp answer_action(_kind, _fact, a, handing) do
+    case Enum.find(handing, &(&1["key"] == a.key)) do
+      nil ->
+        nil
+
+      action ->
+        Map.merge(action, %{
+          "label" => a.label,
+          "button" => button(a.label),
+          "icon" => Map.get(a, :icon) || action["icon"]
+        })
+        |> Map.reject(fn {_, v} -> v == nil end)
+    end
   end
 
   # The component answers of an item page's reads, after its lists and causes.
@@ -4331,36 +4382,42 @@ defmodule AtlasControl.Pages do
   is an agent. A client that is neither puts no such fact in (UC-Atlas-23: every one
   records its producer), and neither does a form that names an association nobody sets
   by hand (`set_by`), as the producer: both are refused, `{:refuse, reasons}`. A kind
-  whose create names no producer links nobody (`%{}`).
+  whose create names no producer links nobody (`%{}`). A kind whose create names a
+  proposer (`form.proposer`, D-0106) links the client itself through it, when it is a
+  fact of the kind that relation leads to and assists nobody (a person); an agent's
+  proposal links nobody there, and is not refused for it.
   """
   def put_in_by(m, kind, raw, viewer) do
     k = kind(m, kind)
-    producer = (m.module.form(kind, :create) || %{})[:producer]
+    form = m.module.form(kind, :create) || %{}
+    producer = form[:producer]
+    proposer = form[:proposer]
 
     named =
       for %{name: name, set_by: set_by} <- (k && k.relations) || [],
           set_by != nil,
           Map.has_key?(raw, name),
           do:
-            if(name == producer,
+            if(name in [producer, proposer],
               do: "#{name} is not set in a form: it is who puts it in, taken from who you are",
               else: "#{name} is set by a #{Enum.join(set_by, " or ")}, never in a form"
             )
 
     rel = producer && m.relations[producer]
+    proposed = proposed_links(proposer && m.relations[proposer], proposer, viewer)
 
     cond do
       named != [] ->
         {:refuse, named}
 
       rel == nil ->
-        {:ok, %{}, nil}
+        {:ok, proposed, nil}
 
       is_binary(viewer[:assists]) and viewer[:assists] != "" ->
-        {:ok, %{producer => [viewer.assists]}, {viewer.by, viewer.assists}}
+        {:ok, Map.put(proposed, producer, [viewer.assists]), {viewer.by, viewer.assists}}
 
       is_binary(viewer[:by_kind]) and viewer.by_kind in rel.to ->
-        {:ok, %{producer => [viewer.by]}, nil}
+        {:ok, Map.put(proposed, producer, [viewer.by]), nil}
 
       true ->
         to = Enum.join(rel.to, " or ")
@@ -4370,6 +4427,14 @@ defmodule AtlasControl.Pages do
            "#{viewer[:by] || "You"} is no #{to} and assists nobody, so a new #{String.downcase((k && k.label) || kind)} would record no producer (#{producer}): create it as a #{to}, or as an agent that assists one"
          ]}
     end
+  end
+
+  defp proposed_links(nil, _proposer, _viewer), do: %{}
+
+  defp proposed_links(rel, proposer, viewer) do
+    if viewer[:assists] in [nil, ""] and is_binary(viewer[:by_kind]) and viewer.by_kind in rel.to,
+      do: %{proposer => [viewer.by]},
+      else: %{}
   end
 
   @doc "The kind as pages show it (`AtlasControl.Model.kinds/0`), or nil."

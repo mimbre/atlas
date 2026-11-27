@@ -10,12 +10,12 @@ defmodule AtlasFlow.Runs.Presentation do
 
   @doc """
   What `run` of `subflow` presents on `fact` (its subject):
-
     * `%{"name", "done" => true}`: completed; nothing is expected and nobody owns it;
     * for an active run, `%{"name", "expected", "why", "todo", "owner", "preserve_kind",
       "deadline", …}`: what the state presents (`subflow.present/2`), its owner as
       `owner` resolves the state's default (`AtlasFlow.Model.owner/2`) and the due time
-      of the timer it presents;
+      of the timer it presents. An owner the subject's producer gives (the run's
+      `producer`) is the owner: no assignee of a preserved kind stays instead of it;
     * nil: nothing (blocked, or idle).
   """
   def of_run(run, subflow, fact, owner) do
@@ -28,6 +28,7 @@ defmodule AtlasFlow.Runs.Presentation do
       run["status"] == "active" ->
         present = subflow.present(run["state"], values) || %{}
         binding = subflow.owner(run["state"])
+        owner = owner.(binding["default"])
 
         deadline =
           Enum.find_value(run["deadlines"]["timers"] || [], fn timer ->
@@ -37,8 +38,12 @@ defmodule AtlasFlow.Runs.Presentation do
         Map.merge(present, %{
           "name" => run["state"],
           "expected" => present["expected"] || "",
-          "owner" => owner.(binding["default"]),
-          "preserve_kind" => binding["preserve_kind"],
+          "owner" => owner,
+          "preserve_kind" =>
+            if(is_map(run["producer"]) and owner == run["producer"],
+              do: nil,
+              else: binding["preserve_kind"]
+            ),
           "deadline" => deadline
         })
 

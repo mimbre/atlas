@@ -154,7 +154,9 @@ defmodule RelaDSL.Schema do
   `produced_by`, which Flow sets when a run makes it, or a create when who puts it in is
   its producer, `create(producer:)`), and the configured actor when it
   links to nobody (an item made by hand, or before it was recorded); never the run's
-  supervisor. Every subflow names an
+  supervisor. `default: {kind, key, producer: {kind, relation}}` asks whom the subject
+  links to through `relation`, a fact of that other kind (a decision's `proposed_by`
+  person), and the named owner when it links to nobody. Every subflow names an
   owner, and every state that is not final resolves to exactly one: its own (`owner`
   inside the state, with the same options) or the subflow's. Waiting is not a status:
   `wait_for` names the roles that decide, and the owner still answers for the item.
@@ -498,10 +500,13 @@ defmodule RelaDSL.Schema do
   came to them), `instructions:`, `section:` (`[field:, heading:]`, the part of a field
   under that heading; or `[field:, label:]`, the whole field under that label; either
   with `steps: true` when the field is shown as its numbered steps) and
-  `answers:` (each `[key:, label:, set: relation]` or `remove: relation`, or `change:`).
-  An answer may say its weight: `weight: :main` (the positive one) or `weight: :decline` (the
-  declining one); else the first answer is the main one and the first other that asks a
-  note the no.
+  `answers:` (each `[key:, label:, set: relation]` or `remove: relation`, or `change:`,
+  or `hand_over: true`: the page's own hand-over action of the same key, as an answer).
+  An answer may say its weight: `weight: :main` (the positive one), `weight: :decline` (the
+  declining one) or `weight: :other`; else the first answer is the main one and the first
+  other that asks a note the decline. `icon:` names what it does (a client's symbol). A
+  change may word its cause (`cause:`, `{note}` the note), and one that asks a note the
+  question its form asks (`prompt:`, "What is your alternative?").
   """
   defmacro present(opts), do: item(:present, [opts])
 
@@ -1043,6 +1048,12 @@ defmodule RelaDSL.Schema do
       %{default: {kind, [config: role, producer: relation]}} = o ->
         %{o | default: %{kind: kind, config: role, producer: relation}}
 
+      %{default: {kind, key, [producer: {producer_kind, relation}]}} = o ->
+        %{
+          o
+          | default: %{kind: kind, key: key, producer: relation, producer_kind: producer_kind}
+        }
+
       %{default: {kind, key}} = o ->
         %{o | default: %{kind: kind, key: key}}
 
@@ -1105,6 +1116,13 @@ defmodule RelaDSL.Schema do
           else: [pre <> "default's producer #{inspect(relation)} is not a valid name"]
         )
 
+  defp default_problems({kind, key, [producer: {producer_kind, relation}]}, pre) do
+    default_problems({kind, key}, pre) ++
+      for {what, v} <- [producer_kind: producer_kind, producer: relation],
+          not valid_name?(v),
+          do: pre <> "default's #{what} #{inspect(v)} is not a valid name"
+  end
+
   defp default_problems({kind, [config: role]}, pre) do
     for {what, v} <- [kind: kind, role: role],
         not valid_name?(v),
@@ -1120,7 +1138,7 @@ defmodule RelaDSL.Schema do
   defp default_problems(other, pre),
     do: [
       pre <>
-        "default must be {kind, key} or {kind, config: role} (and supervisor: false, or producer: relation), such as {:team, :desk}; " <>
+        "default must be {kind, key} or {kind, config: role} (and supervisor: false, or producer: relation), or {kind, key, producer: {kind, relation}}, such as {:team, :desk}; " <>
         "got #{inspect(other)}"
     ]
 
@@ -1504,15 +1522,23 @@ defmodule RelaDSL.Schema do
           do:
             "present's answer #{inspect(Map.to_list(a))} must be [key:, label:, " <>
               "and set: or remove: a relation, or change: %{values:, self:}], " <>
-              "with weight: :main or :decline or none"
+              "or [key:, label:, hand_over: true], with weight: :main, :decline or :other or " <>
+              "none, icon: a name, and for a change cause: a text, and note: true with prompt: a text"
   end
 
   defp answer?(%{change: change} = a, text?) do
     text?.(a[:key]) and text?.(a[:label]) and is_map(change) and
       is_map(change[:values]) and change[:values] != %{} and is_atom(change[:self]) and
       Map.keys(change) -- [:values, :self] == [] and
-      a[:note] in [nil, true] and a[:weight] in [nil, :main, :decline] and
-      Map.keys(a) -- [:key, :label, :change, :note, :weight] == []
+      a[:note] in [nil, true] and (a[:prompt] == nil or (a[:note] == true and text?.(a[:prompt]))) and
+      (a[:cause] == nil or text?.(a[:cause])) and look?(a) and
+      Map.keys(a) -- [:key, :label, :change, :note, :prompt, :cause, :weight, :icon] == []
+  end
+
+  # Hand over: the page's own hand-over of the work to someone else, as an answer.
+  defp answer?(%{hand_over: true} = a, text?) do
+    text?.(a[:key]) and text?.(a[:label]) and look?(a) and
+      Map.keys(a) -- [:key, :label, :hand_over, :weight, :icon] == []
   end
 
   defp answer?(a, text?) do
@@ -1522,6 +1548,12 @@ defmodule RelaDSL.Schema do
       Enum.all?(ops, fn {_, r} -> is_atom(r) and r != nil end) and
       a[:weight] in [nil, :main, :decline] and map_size(Map.delete(a, :weight)) == 3
   end
+
+  # How an answer looks: its weight, and what it does by name (`icon`, a client's symbol).
+  defp look?(a),
+    do:
+      a[:weight] in [nil, :main, :decline, :other] and
+        (a[:icon] == nil or (is_atom(a[:icon]) and valid_name?(a[:icon])))
 
   defp put_set(s, props) do
     twice = for {k, _} <- props, Keyword.has_key?(s.set, k), do: "sets #{k} twice"
