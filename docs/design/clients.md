@@ -79,6 +79,7 @@ What gives way as the room narrows, in this order:
 Below 80 columns a TUI row keeps its dot, key and title only. Chrome (title bar, toolbar,
 status and key lines) is not a column and takes the full width. Text wraps at its
 column's width.
+The focused TUI column has a primary-colour heading and a ▸ marker in both themes.
 
 Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 `AtlasTui.ConsoleView`); `WindowLayout` in BlockViews (applied by `PageView` and

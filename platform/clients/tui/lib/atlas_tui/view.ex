@@ -550,7 +550,7 @@ defmodule AtlasTui.View do
     edge = {:rest_frame, if(line?, do: "│", else: " ")}
     heading = {if(focused, do: :lit, else: :dim), cell_cut(title, inner)}
 
-    [[edge, {:plain, " "}, heading]] ++
+    [[edge, if(focused, do: {:header, "▸"}, else: {:plain, " "}), heading]] ++
       Enum.map(body, &([edge, {:plain, " "}] ++ pad_line(fit(&1, inner), inner)))
   end
 
