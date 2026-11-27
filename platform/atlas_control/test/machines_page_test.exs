@@ -310,7 +310,9 @@ defmodule AtlasControl.MachinesPageTest do
     test "is not offered when the machine runs the newest build" do
       page = tab(build: "develop-bbbbbbbbbbbb")
       refute offered?(page)
-      assert pairs(page, "health")["Core build"] == "develop-bbbbbbbbbbbb, which it runs; newer release unknown"
+
+      assert pairs(page, "health")["Core build"] ==
+               "develop-bbbbbbbbbbbb, which it runs; newer release unknown"
     end
 
     test "is not offered while an upgrade is under way" do
@@ -333,8 +335,16 @@ defmodule AtlasControl.MachinesPageTest do
       page = tab(verify: verify)
       refute offered?(page)
       assert pairs(page, "health")["Core build"] =~ "availability or ordering unknown"
+
       assert {:refuse, _} =
-               MachinesPage.upgrade(@m, "mini", reader([]), flow(), "develop-bbbbbbbbbbbb", verify)
+               MachinesPage.upgrade(
+                 @m,
+                 "mini",
+                 reader([]),
+                 flow(),
+                 "develop-bbbbbbbbbbbb",
+                 verify
+               )
     end
 
     test "its confirm names both builds; the upgrade it makes is the newest build under the machine" do
@@ -351,7 +361,10 @@ defmodule AtlasControl.MachinesPageTest do
 
       assert props(page, "confirm")["text"] =~ "runs develop-aaaaaaaaaaaa"
 
-      assert MachinesPage.upgrade(@m, "mini", reader([]), flow(), "develop-bbbbbbbbbbbb", fn _, _ -> true end) ==
+      assert MachinesPage.upgrade(@m, "mini", reader([]), flow(), "develop-bbbbbbbbbbbb", fn _,
+                                                                                             _ ->
+               true
+             end) ==
                {:ok, "refit", %{"build" => "develop-bbbbbbbbbbbb"}, %{"refit_of" => ["mini"]}}
 
       assert {:refuse, why} =

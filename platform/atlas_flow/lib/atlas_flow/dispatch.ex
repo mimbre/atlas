@@ -202,7 +202,7 @@ defmodule AtlasFlow.Dispatch do
 
   @impl true
   def handle_continue(:boot, state) do
-    state = state |> resync_ready() |> boot_leases() |> note_queue()
+    state = state |> note_queue() |> resync_ready() |> boot_leases() |> note_queue()
     every(state, :sweep_ms, :tick)
     every(state, :resync_ms, :resync_tick)
     {:noreply, state}
@@ -379,6 +379,11 @@ defmodule AtlasFlow.Dispatch do
 
   # The work waiting for a Runtime, for the health table: the ready set less what a lease
   # holds, oldest first.
+  defp note_queue(%{booted: false} = state) do
+    AtlasFlow.Health.queue(nil, state.health)
+    state
+  end
+
   defp note_queue(state) do
     held = MapSet.new(Map.values(state.leases), & &1.task_key)
 
@@ -396,6 +401,7 @@ defmodule AtlasFlow.Dispatch do
       }
     )
     |> AtlasFlow.Health.queue(state.health)
+
     state
   end
 

@@ -14,12 +14,12 @@ defmodule AtlasFlow.Health do
                          "incarnation_since" => its first poll in that incarnation,
                          "poll_max" => the longest Dispatch holds a poll, in seconds}],
         "queue" => [%{"task" => key, "title" => text, "profile" => profile,
-                      "subject_kind" => kind, "subject_key" => key, "since" => when}],
+                      "subject_kind" => kind, "subject_key" => key, "since" => when}] or nil,
         "at" => now}
 
   every moment ISO 8601 in UTC; what a poll did not say is left out. Whether that is late
   is Control's to say. The queue is Dispatch's ready set less what a lease holds, oldest
-  first: the tasks a Runtime may take next.
+  first: the tasks a Runtime may take next. It is nil until Dispatch has read the leases.
 
   The Engine and Dispatch write what they know into this process's table as it happens
   (`round/2`, `polled/4`, `queue/2`), and the answer is read from that table alone: it
@@ -74,15 +74,21 @@ defmodule AtlasFlow.Health do
 
   @doc """
   The work waiting for a Runtime, oldest first: `[%{task, title, profile, subject, since}]`,
-  `subject` `{kind, key}` or nil, `since` ISO 8601.
+  `subject` `{kind, key}` or nil, `since` ISO 8601. Nil means the queue is unknown.
   """
-  def queue(entries, table \\ __MODULE__) when is_list(entries), do: put(table, :queue, entries)
+  def queue(entries, table \\ __MODULE__) when is_list(entries) or is_nil(entries),
+    do: put(table, :queue, entries)
 
   @doc "What `_health` answers, read from `table` now."
   def report(table \\ __MODULE__, now \\ DateTime.utc_now()) do
     rows = if :ets.whereis(table) == :undefined, do: [], else: :ets.tab2list(table)
     flow = Enum.find_value(rows, %{}, fn {k, v} -> if k == :flow, do: v end)
-    queue = Enum.find_value(rows, [], fn {k, v} -> if k == :queue, do: v end)
+
+    queue =
+      case List.keyfind(rows, :queue, 0) do
+        {:queue, entries} -> entries
+        nil -> []
+      end
 
     %{
       "flow" =>
@@ -92,7 +98,7 @@ defmodule AtlasFlow.Health do
       "runtimes" =>
         for({{:runtime, id}, polled} <- rows, do: runtime(id, polled))
         |> Enum.sort_by(& &1["runtime"]),
-      "queue" => Enum.map(queue, &waiting/1),
+      "queue" => if(is_nil(queue), do: nil, else: Enum.map(queue, &waiting/1)),
       "at" => iso(now)
     }
   end

@@ -11,7 +11,7 @@ defmodule AtlasControl.MachinesPage do
   1. `header` (MACHINE, its key, its name, its kind's icon) and `text` `state`: open,
      draining or upgrading (an upgrade that has not ended), not seen; and its build;
   2. `item` `health`: when it last polled, how long a poll waits, since when it runs this
-     incarnation, and whether a newer Runtime release exists; a `text` `health-error`
+     incarnation, and whether the core's Runtime build is available and newer; a `text` `health-error`
      (role error) says what to do when it is not seen;
   3. `list` `slots`: desired slots with unknown status, and attempts known to be busy;
      the desired configuration is not proof of the Runtime's applied slots;
@@ -19,7 +19,7 @@ defmodule AtlasControl.MachinesPage do
   5. `list` `finished`: the last #{10} attempts that ended, each with its subject, outcome
      and duration; one whose subject cannot be found is left out (no hash-only row);
   6. `list` `upgrades`: its upgrades, newest first, each with its step;
-  7. `answers`: Upgrade to the newest build (`upgrade_offer/3`), when a newer one exists;
+  7. `answers`: Upgrade to the core's build (`upgrade_offer/3`), when it is verified newer;
   8. `actions`: Edit configuration;
   9. `item` `details` in a part of role details: its incarnation, machine name, installed
      version and policy version, each only when known.
@@ -47,8 +47,15 @@ defmodule AtlasControl.MachinesPage do
   The page of `route` (`{:machine_page, page, params}`): `read.(kind, query)` reads Facts,
   `flow` is Flow's `_health` answer (nil when Flow did not answer).
   """
-  def render(route, m, read, flow, now \\ DateTime.utc_now(), newest \\ newest_build(),
-        verify \\ &AtlasControl.RuntimeRelease.newer?/2) do
+  def render(
+        route,
+        m,
+        read,
+        flow,
+        now \\ DateTime.utc_now(),
+        newest \\ newest_build(),
+        verify \\ &AtlasControl.RuntimeRelease.newer?/2
+      ) do
     with {:ok, c} <- context(m, read, flow, now, newest, verify) do
       cleared(c, fn -> page(route, c) end)
     else
@@ -57,12 +64,17 @@ defmodule AtlasControl.MachinesPage do
   end
 
   @doc """
-  What the confirm of Upgrade to the newest build creates for machine `machine`:
-  `{:ok, kind, values, links}`, the upgrade as submitted under the machine
-  (its build the newest), or `{:refuse, why}` when none is offered now.
+  What the confirm of Upgrade to the core's build creates for machine `machine`:
+  `{:ok, kind, values, links}` for the verified candidate, or `{:refuse, why}`.
   """
-  def upgrade(m, machine, read, flow, newest \\ newest_build(),
-        verify \\ &AtlasControl.RuntimeRelease.newer?/2) do
+  def upgrade(
+        m,
+        machine,
+        read,
+        flow,
+        newest \\ newest_build(),
+        verify \\ &AtlasControl.RuntimeRelease.newer?/2
+      ) do
     with {:ok, c} <- context(m, read, flow, DateTime.utc_now(), newest, verify) do
       cleared(c, fn ->
         with {:ok, fact} <- machine(c, machine),
@@ -568,7 +580,17 @@ defmodule AtlasControl.MachinesPage do
   defp context(m, read, flow, now, newest, verify) do
     case Pages.machines(m) do
       %{} = n ->
-        {:ok, %{m: m, n: n, read: read, flow: flow, now: now, newest: newest, verify: verify, cache: make_ref()}}
+        {:ok,
+         %{
+           m: m,
+           n: n,
+           read: read,
+           flow: flow,
+           now: now,
+           newest: newest,
+           verify: verify,
+           cache: make_ref()
+         }}
 
       _ ->
         {:error, "This model has no machines."}
@@ -677,6 +699,7 @@ defmodule AtlasControl.MachinesPage do
   defp running?(att, c) do
     a = c.n["attempts"]
     v = att["values"] || %{}
+
     text(v[a["ended"]]) == nil and text(v[a["result"]]) == nil and
       text(v[a["started"]]) != nil
   end

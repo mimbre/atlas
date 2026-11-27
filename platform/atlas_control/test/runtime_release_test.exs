@@ -6,7 +6,8 @@ defmodule AtlasControl.RuntimeReleaseTest do
   @old "develop-aaaaaaaaaaaa"
   @new "develop-bbbbbbbbbbbb"
   @archive "atlas-runtime-#{@new}-darwin-arm64.tar.gz"
-  @assets for name <- [@archive, @archive <> ".sha256"], do: %{"name" => name, "state" => "uploaded", "size" => 12}
+  @assets for name <- [@archive, @archive <> ".sha256"],
+              do: %{"name" => name, "state" => "uploaded", "size" => 12}
 
   defp api(release, comparison) do
     fn url ->
@@ -23,15 +24,25 @@ defmodule AtlasControl.RuntimeReleaseTest do
     ahead = {:ok, %{"status" => "ahead", "ahead_by" => 1}}
     assert RuntimeRelease.newer?(@old, @new, api(release, ahead))
 
-    for comparison <- [:error, {:ok, %{"status" => "behind", "ahead_by" => 0}},
-                       {:ok, %{"status" => "diverged", "ahead_by" => 1}},
-                       {:ok, %{"status" => "ahead", "ahead_by" => "1"}}] do
+    for comparison <- [
+          :error,
+          {:ok, %{"status" => "behind", "ahead_by" => 0}},
+          {:ok, %{"status" => "diverged", "ahead_by" => 1}},
+          {:ok, %{"status" => "ahead", "ahead_by" => "1"}}
+        ] do
       refute RuntimeRelease.newer?(@old, @new, api(release, comparison))
     end
 
-    for unavailable <- [:error, {:ok, %{"draft" => true, "assets" => @assets}},
-                        {:ok, %{"draft" => false, "assets" => tl(@assets)}},
-                        {:ok, %{"draft" => false, "assets" => [%{"name" => @archive, "state" => "uploaded", "size" => 0}]}}] do
+    for unavailable <- [
+          :error,
+          {:ok, %{"draft" => true, "assets" => @assets}},
+          {:ok, %{"draft" => false, "assets" => tl(@assets)}},
+          {:ok,
+           %{
+             "draft" => false,
+             "assets" => [%{"name" => @archive, "state" => "uploaded", "size" => 0}]
+           }}
+        ] do
       refute RuntimeRelease.newer?(@old, @new, api(unavailable, ahead))
     end
 

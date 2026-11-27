@@ -213,11 +213,12 @@ defmodule AtlasFlow.HealthTest do
     assert [%{"task" => "TK-B-2-1"}] = Health.report(table)["queue"]
 
     :ok = AtlasFlow.Dispatch.sweep()
+
     assert [%{"task" => "TK-B-1-1"}, %{"task" => "TK-B-2-1"}] =
              Health.report(table)["queue"]
   end
 
-  test "lease recovery after a failed boot read removes running work from the queue" do
+  test "queue stays unknown until leases recover after a failed boot read" do
     dir = Path.join(System.tmp_dir!(), "health-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
     table = health!()
@@ -225,6 +226,7 @@ defmodule AtlasFlow.HealthTest do
 
     L.supervised_task("B-1", "ada")
     :ok = AtlasFlow.Dispatch.resync()
+
     assert {:polled, %{leases: [%{lease_id: lease}]}} =
              WorkSource.poll({"mini", "ada"}, L.poll_input("mini"))
 
@@ -247,7 +249,12 @@ defmodule AtlasFlow.HealthTest do
     :ok = GenServer.call(FakeFacts, read)
     L.start_dispatch(ctx.clock, health: table)
     :sys.get_state(AtlasFlow.Dispatch)
-    assert [%{"task" => "TK-B-1-1"}] = Health.report(table)["queue"]
+    assert Health.report(table)["queue"] == nil
+
+    :ok = AtlasFlow.Dispatch.resync()
+    assert Health.report(table)["queue"] == nil
+    assert {:polled, _} = WorkSource.poll({"mini", "ada"}, L.poll_input("mini", [lease], %{}))
+    assert Health.report(table)["queue"] == nil
 
     :ok = GenServer.call(FakeFacts, put_elem(read, 0, :allow_read))
     :ok = AtlasFlow.Dispatch.sweep()
