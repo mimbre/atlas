@@ -51,7 +51,11 @@ defmodule Model.Issue do
     """ do
     icon(:ticket)
     field(:title, :string, required: true, description: "Without the code (Flux: name)")
-    field(:description, :string, description: "The text (Flux: description)", multiline: true)
+    field(:description, :string,
+      description: "The text (Flux: description)",
+      multiline: true,
+      format: "markdown"
+    )
 
     field(:flux_id, :string,
       unique: true,

@@ -3754,7 +3754,13 @@ defmodule AtlasControl.Pages do
 
       # A field only a connector or the system fills shows only once it has a value.
       if f.name not in made and (f.settable or value not in [nil, ""]),
-        do: [Blocks.pair(label: f.label, value: show(f, value) <> late(k, fact, f.name))],
+        do: [
+          Blocks.pair(
+            label: f.label,
+            value: show(f, value) <> late(k, fact, f.name),
+            format: Map.get(f, :format)
+          )
+        ],
         else: []
     end)
   end
