@@ -86,6 +86,21 @@ defmodule RelaDSL.Flow.ConditionTest do
     assert Condition.fields(tree) == ["state", "read", "pushed"]
   end
 
+  test "comparison with nil tests absence or nil without changing other comparison semantics" do
+    for {values, expected} <- [
+          {%{}, true},
+          {%{"text" => nil}, true},
+          {%{"text" => ""}, false},
+          {%{"text" => "value"}, false}
+        ] do
+      assert holds?("entity.text == nil", values) == expected
+      assert holds?("not (entity.text == nil)", values) == (not expected)
+    end
+
+    {:ok, tree} = Condition.compile("entity.text == nil and entity.flag == true")
+    assert Condition.fields(tree) == ["text", "flag"]
+  end
+
   test "unknown syntax and executable text refuse compilation, including suffixes" do
     for text <- [
           "",
@@ -106,7 +121,6 @@ defmodule RelaDSL.Flow.ConditionTest do
           "!(entity.x == 3)",
           "entity.x == 3 && entity.flag == true",
           "(entity.x == 3",
-          "entity.x == nil",
           "System.cmd('anything')",
           "entity.x == 'unterminated",
           "entity.x == 'a\\b'",

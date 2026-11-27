@@ -2235,6 +2235,12 @@ defmodule AtlasControl.Pages do
     # flow's other next steps (Retry, the restart) go with the other actions.
     owners = for a <- (todo && todo.answers) || [], do: a.key
     offered = for a <- offers, do: a.key
+
+    next =
+      if items_problem(m, kind, [%{"fact" => fact} | rest]),
+        do: Enum.reject(next, &(&1["key"] in (owners ++ offered))),
+        else: next
+
     {own, others} = Enum.split_with(next, &(&1["key"] in owners))
     {suggested, steps} = Enum.split_with(others, &(&1["key"] in offered))
     {picks, rest_next} = Enum.split_with(steps, &String.contains?(&1["to"], "/pick_up/"))
@@ -3164,12 +3170,16 @@ defmodule AtlasControl.Pages do
         []
 
       i ->
-        {title, list} =
-          child_list(m, Enum.at(relations, i), Enum.at(answers, i), false, form[:by])
+        answer = Enum.at(answers, i)
+        {title, list} = child_list(m, Enum.at(relations, i), answer, false, form[:by])
 
         rows = list["props"]["rows"]
         done = Enum.count(rows, &(&1["tone"] == "done"))
-        empty = (items["empty"] || %{})[state] || list["props"]["empty"]
+
+        empty =
+          if match?(%{"facts" => facts} when is_list(facts), answer),
+            do: (items["empty"] || %{})[state] || list["props"]["empty"],
+            else: list["props"]["empty"]
 
         [
           {"items",
@@ -3184,6 +3194,21 @@ defmodule AtlasControl.Pages do
   end
 
   defp items_block(_m, _kind, _items, _answers, _state, _form), do: []
+
+  @doc "Why answers cannot be given when a page's configured items could not be read."
+  def items_problem(m, kind, [_fact | answers]) do
+    with %{page: %{"items" => %{"relation" => name}}} <- kind(m, kind),
+         i when is_integer(i) <-
+           Enum.find_index(child_relations(m, kind), &(elem(&1, 0) == name)),
+         answer <- Enum.at(answers, i),
+         false <- match?(%{"facts" => facts} when is_list(facts), answer) do
+      "The items could not be read. Try again before answering."
+    else
+      _ -> nil
+    end
+  end
+
+  def items_problem(_m, _kind, _answers), do: nil
 
   # The details its page names, those that hold something: a field with its label; a
   # relation of its own with each fact it points at by key and title; one of a component
@@ -4478,10 +4503,12 @@ defmodule AtlasControl.Pages do
         _ -> []
       end
 
-    Enum.find(
-      owners ++ m.module.offers(kind, fact, parts, viewer(form)),
-      &((Map.get(&1, :name) || &1.key) == name and &1.change)
-    )
+    if items_problem(m, kind, [%{"fact" => fact} | rest]) == nil do
+      Enum.find(
+        owners ++ m.module.offers(kind, fact, parts, viewer(form)),
+        &((Map.get(&1, :name) || &1.key) == name and &1.change)
+      )
+    end
   end
 
   def declared_answer(_, _, _, _, _), do: nil

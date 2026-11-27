@@ -147,6 +147,37 @@ defmodule Model.PipelineRunsTest do
     end
   end
 
+  test "late suggestions and unknown legacy snapshots start another Design round before scene acceptance" do
+    for env <- @envs do
+      accept = %{
+        "phase" => "accept",
+        "children" => 2,
+        "open_children" => 0,
+        "suggestions" => "Suggested use case: Export",
+        "design_snapshot_known" => true
+      }
+
+      building = new(env, "accept_scene", "SC-1", accept)
+      {:ok, again} = step(env, "accept_scene", sent(building), "SC-1", accept)
+      assert at(again) == {"breaking_down", "active"}
+      assert written(again) == [%{"phase" => "break_down"}]
+
+      # A count can advance the cursor before the suggestion is observed. The next
+      # reaction still sends the scene back instead of completing it.
+      before = %{accept | "suggestions" => nil}
+      ready = new(env, "accept_scene", "SC-2", before)
+      ready = sent(counted(env, "accept_scene", ready, "SC-2", before, 2, 0))
+      assert at(ready) == {"to_accept", "active"}
+      {:ok, again} = step(env, "accept_scene", ready, "SC-2", accept)
+      assert at(again) == {"breaking_down", "active"}
+
+      unknown = %{before | "design_snapshot_known" => false}
+      old = new(env, "accept_scene", "SC-3", unknown)
+      {:ok, again} = step(env, "accept_scene", sent(old), "SC-3", unknown)
+      assert at(again) == {"breaking_down", "active"}
+    end
+  end
+
   test "Design proposes designed use cases, with the decisions read first" do
     for env <- @envs do
       {:task, spec} = flow(env, "break_down_scene").mechanism("break_down")
@@ -156,7 +187,13 @@ defmodule Model.PipelineRunsTest do
                "kind" => "use_case",
                "file" => "use_cases.json",
                "fields" => ["design", "note"],
+               "identity" => "proposal_id",
                "discard" => true
+             }
+      assert spec["snapshot"] == %{
+               "field" => "suggestions",
+               "into" => "designed_suggestions",
+               "known" => "design_snapshot_known"
              }
 
       # Plan reads its Design part.
@@ -193,7 +230,8 @@ defmodule Model.PipelineRunsTest do
       assert todo["section"] == %{"field" => "questions", "label" => "Its agent's questions"}
 
       assert [%{"label" => "Answered", "note" => true, "change" => change}] = todo["answers"]
-      assert change["values"] == %{"verdict" => "answered", "answers" => "$note"}
+      assert change["values"] == %{"verdict" => "answered"}
+      assert change["append"] == %{"answers" => "{note}"}
 
       # Answered: back to its break-down, in the same run, which keeps its supervisor.
       answered = Map.merge(values, %{"verdict" => "answered", "answers" => "For newcomers."})

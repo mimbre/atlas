@@ -35,12 +35,16 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
       field(:task_result, :string)
       field(:note, :string)
       field(:questions, :string)
+      field(:suggestions, :string)
+      field(:designed_suggestions, :string)
+      field(:snapshot_known, :boolean)
     end
 
     entity :item, label: "Item", plural: "items", id_type: :manual, id_prefix: "IT-" do
       field(:title, :string)
       field(:description, :string)
       field(:size, :string)
+      field(:proposal_id, :string, unique: true, set_by: [:flow])
       field(:origin, :string)
       field(:phase, :string)
       field(:task_result, :string)
@@ -115,15 +119,18 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
           profile: :deep_coding,
           input: [repository: "example.org/acme/proposal", base: "develop"],
           instructions: "Sort the crate.",
-          fields: [:title],
-          creates: [kind: :item, file: "items.json", fields: [:size], values: [origin: "robot"]],
+          fields: [:title, :suggestions],
+          snapshot: [field: :suggestions, into: :designed_suggestions, known: :snapshot_known],
+          creates: [kind: :item, file: "items.json", fields: [:size], values: [origin: "robot"], identity: :proposal_id],
           records: [kind: "task", relation: "task_of"],
           machinery: "robot",
           on: [completed: :sorted, check_failed: :sorted, stuck: :stuck, abandoned: :stuck]
         )
       end
 
-      final(:sorted)
+      final :sorted do
+        set(phase: "sorted")
+      end
       final(:stuck)
     end
 
@@ -169,8 +176,9 @@ defmodule AtlasFlow.Activities.ProposalTest.Bench do
           profile: :deep_coding,
           input: [repository: "example.org/acme/proposal", base: "develop"],
           instructions: "Sort the crate, or ask.",
-          fields: [:title],
-          creates: [kind: :item, file: "items.json"],
+          fields: [:title, :suggestions],
+          snapshot: [field: :suggestions, into: :designed_suggestions, known: :snapshot_known],
+          creates: [kind: :item, file: "items.json", identity: :proposal_id],
           asks: [field: :questions, file: "questions.md"],
           records: [kind: "task", relation: "task_of"],
           machinery: "robot",
@@ -327,10 +335,10 @@ defmodule AtlasFlow.Activities.ProposalTest do
 
   # A crate on the mini, supervised by ada, whose run holds its task's intent: sorted in
   # its first phase, labelled in its second.
-  defp intended(c, key, phase \\ "first") do
+  defp intended(c, key, phase \\ "first", suggestions \\ nil) do
     FakeFacts.put("crate", %{
       "key" => key,
-      "values" => %{"phase" => phase, "title" => "Crate #{key}"},
+      "values" => %{"phase" => phase, "title" => "Crate #{key}", "suggestions" => suggestions},
       "links" => %{"owned_by" => ["mini"]},
       "origins" => %{"owned_by" => %{"by" => "someone", "position" => 1}}
     })
@@ -351,7 +359,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
 
   # The lease worked to its end, its result commit (the base plus `files`) pushed to Code;
   # the run reconciled once Bases resolved that commit.
-  defp finish(c, key, files, phase \\ "first") do
+  defp finish(c, key, files, phase \\ "first", lose_ack \\ nil) do
     {id, _} = @mini
 
     assert {:polled, %{leases: [%{lease_id: lease}]}} =
@@ -368,7 +376,82 @@ defmodule AtlasFlow.Activities.ProposalTest do
     # Its result is asked of Bases first; nothing moves until Bases has it.
     assert reconcile(c, key)["state"] == working(phase)
     assert_receive {:reconcile, "crate", ^key}, 2_000
-    reconcile(c, key)
+    if lose_ack do
+      FakeFacts.lose_ack(lose_ack)
+      {:ok, %{runs: known}} = Store.plan(c.runner.config, c.runner.flows)
+      Store.reconcile_subjects(c.runner.config, c.runner.flows, AtlasFlow.Runs.Clock.now(c.clock), known, [{"crate", key}])
+    else
+      reconcile(c, key)
+    end
+  end
+
+  test "the proposal records the exact frozen input, even after the subject changes", c do
+    run = intended(c, "C-20", "first", "  first\n")
+    assert run["pending"]["task"]["snapshot"] == %{"value" => "  first\n"}
+    crate = FakeFacts.get("crate", "C-20")
+    FakeFacts.put("crate", put_in(crate, ["values", "suggestions"], "later"))
+
+    finish(c, "C-20", [{"items.json", ~s([{"title":"One"}])}])
+    values = FakeFacts.get("crate", "C-20")["values"]
+    assert values["suggestions"] == "later"
+    assert values["designed_suggestions"] == "  first\n"
+    assert values["snapshot_known"] == true
+  end
+
+  test "nil is a known snapshot and an empty proposal can complete", c do
+    run = intended(c, "C-21")
+    assert run["pending"]["task"]["snapshot"] == %{"value" => nil}
+    sorted = finish(c, "C-21", [{"items.json", "[]"}])
+    assert sorted["state"] == "sorted"
+    values = FakeFacts.get("crate", "C-21")["values"]
+    assert Enum.any?(FakeFacts.sent(), fn w ->
+      w["key"] == "C-21" and w["values"] == %{"designed_suggestions" => nil, "snapshot_known" => true}
+    end)
+    assert values["designed_suggestions"] == nil
+    assert values["snapshot_known"] == true
+  end
+
+  test "a legacy intent marks the snapshot unknown", c do
+    run = intended(c, "C-22", "first", "old")
+    fact = FakeFacts.get(c.runner.config["kind"], run["key"])
+    pending = JSON.decode!(fact["values"]["pending"])
+    pending = update_in(pending, ["task"], &Map.delete(&1, "snapshot"))
+    FakeFacts.put(c.runner.config["kind"], put_in(fact, ["values", "pending"], JSON.encode!(pending)))
+
+    finish(c, "C-22", [{"items.json", "[]"}])
+    assert FakeFacts.get("crate", "C-22")["values"]["snapshot_known"] == false
+  end
+
+  test "a lost create acknowledgement replays the durable outbox before snapshot", c do
+    run = intended(c, "C-23", "first", "frozen")
+    assert {:error, _} = finish(c, "C-23", [{"items.json", ~s([{"title":"One"}])}], "first", "item")
+    fact = FakeFacts.get(c.runner.config["kind"], run["key"])
+    {:ok, stored} = Store.decode(c.runner.config, fact)
+    writes = stored["pending"]["writes"]
+    create = Enum.find_index(writes, &(&1["kind"] == "item"))
+    snapshot = Enum.find_index(writes, &(get_in(&1, ["content", "values", "snapshot_known"]) == true))
+    destination = Enum.find_index(writes, &(get_in(&1, ["content", "values", "phase"]) == "sorted"))
+    assert is_integer(destination) and snapshot < destination
+    assert is_integer(create) and is_integer(snapshot) and create < snapshot
+    assert Enum.at(writes, snapshot)["content"]["values"]["designed_suggestions"] == "frozen"
+
+    reconcile(c, "C-23")
+    assert FakeFacts.get("crate", "C-23")["values"]["snapshot_known"] == true
+    assert FakeFacts.get("item", "IT-01")["values"]["title"] == "One"
+    assert FakeFacts.get("item", "IT-02") == nil
+    assert Enum.count(FakeFacts.stored_from_flow(), &(&1["key"] == "IT-01")) == 1
+  end
+
+  test "an identical stranger at a newly allocated key is not adopted", c do
+    intended(c, "C-24", "first", "frozen")
+    FakeFacts.hook("item", "IT-01", "flow", :before, fn _ ->
+      %{"key" => "IT-01", "values" => %{"title" => "One", "origin" => "robot", "proposal_id" => "another"},
+        "links" => %{"in_crate" => ["C-24"], "made_by" => ["ada"]}, "origins" => %{}}
+    end)
+    sorted = finish(c, "C-24", [{"items.json", ~s([{"title":"One"}])}])
+    assert FakeFacts.get("item", "IT-01")["values"]["proposal_id"] == "another"
+    assert FakeFacts.get("item", "IT-02")["values"]["proposal_id"] != "another"
+    assert [%{"made" => [["item", "IT-02"]]}] = sorted["pending"]["tasks"]
   end
 
   test "Flow makes the proposed items under the crate, numbered after those there are", c do
@@ -387,7 +470,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
 
     one = FakeFacts.get("item", "IT-08")
 
-    assert one["values"] == %{
+    assert Map.delete(one["values"], "proposal_id") == %{
              "title" => "One",
              "description" => "The first.",
              "size" => "L",
@@ -396,7 +479,9 @@ defmodule AtlasFlow.Activities.ProposalTest do
 
     assert run["pending"]["task"]["work"]["instructions"] =~ "its `size`"
     assert one["links"]["in_crate"] == ["C-1"]
-    assert FakeFacts.get("item", "IT-09")["values"] == %{"title" => "Two", "origin" => "robot"}
+    assert Map.delete(FakeFacts.get("item", "IT-09")["values"], "proposal_id") == %{"title" => "Two", "origin" => "robot"}
+    assert is_binary(one["values"]["proposal_id"])
+    refute one["values"]["proposal_id"] == FakeFacts.get("item", "IT-09")["values"]["proposal_id"]
 
     # Each is produced by the run's supervisor, ada, in the same create, by Flow.
     for key <- ["IT-08", "IT-09"],
@@ -438,6 +523,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
     assert stuck["state"] == "stuck"
     assert [%{"outcome" => "completed", "reason" => "no proposal"}] = stuck["pending"]["tasks"]
     assert FakeFacts.get("item", "IT-01") == nil
+    refute Map.has_key?(FakeFacts.get("crate", "C-2")["values"], "snapshot_known")
   end
 
   test "Flow puts the written text in the crate's field (writes)", c do
@@ -468,6 +554,7 @@ defmodule AtlasFlow.Activities.ProposalTest do
 
     crate = FakeFacts.get("crate", "C-4")
     assert crate["values"]["questions"] == String.trim(questions)
+    refute Map.has_key?(crate["values"], "snapshot_known")
     assert FakeFacts.get("item", "IT-01") == nil
 
     # Flow wrote them, for the run's supervisor; the agent wrote nothing into Atlas.

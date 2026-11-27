@@ -265,7 +265,8 @@ defmodule Model.ScenePageTest do
              )
 
     assert values == %{
-             "answers" => "It is for newcomers.\nSuggested use case: Ada can ask who to ask"
+             "answers" => "It is for newcomers.\nSuggested use case: Ada can ask who to ask",
+             "suggestions" => "Suggested use case: Ada can ask who to ask"
            }
 
     assert links == %{}
@@ -276,8 +277,33 @@ defmodule Model.ScenePageTest do
              AtlasEyra.answer("scene", "s", item, %{key: "bo", kind: "person", assists: nil})
   end
 
-  test "once Design was accepted, the intent is the note of an extra Design round" do
-    fact = scene(%{"phase" => "accept", "children" => 1, "open_children" => 1})
+  test "answering Design's questions keeps suggestions made during its preceding task" do
+    fact = scene(%{"answers" => "Suggested use case: Ada can ask who to ask"})
+    shown = work("break_down_scene", "clarifying", fact["values"], %{"owner" => ["melle"]})
+    item = %{"fact" => fact, "parts" => %{"assignment" => assignment(shown, ["melle"])}}
+
+    assert {:write, answer} =
+             AtlasEyra.answer("scene", "a", item, %{key: "melle", kind: "person", assists: nil})
+
+    assert {:ok, %{"values" => values}, _} =
+             AtlasControl.Answers.change(
+               answer,
+               @key,
+               "melle",
+               "For newcomers",
+               DateTime.utc_now()
+             )
+
+    assert values == %{
+             "verdict" => "answered",
+             "answers" => "Suggested use case: Ada can ask who to ask\nFor newcomers"
+           }
+  end
+
+  test "once Design was accepted, the intent is preserved for an extra Design round" do
+    fact =
+      scene(%{"phase" => "accept", "children" => 1, "open_children" => 1, "answers" => "Earlier"})
+
     shown = work("accept_scene", "building", fact["values"], %{})
     item = %{"fact" => fact, "parts" => %{"assignment" => assignment(shown)}}
 
@@ -293,7 +319,11 @@ defmodule Model.ScenePageTest do
                DateTime.utc_now()
              )
 
-    assert values == %{"verdict" => "suggest", "note" => "Ada can ask who to ask"}
+    assert values == %{
+             "verdict" => "suggest",
+             "answers" => "Earlier\nSuggested use case: Ada can ask who to ask",
+             "suggestions" => "Suggested use case: Ada can ask who to ask"
+           }
   end
 
   describe "an extra Design round" do
@@ -356,13 +386,20 @@ defmodule Model.ScenePageTest do
       assert run(reconcile(c), "accept_scene")["state"] == "building"
 
       # Its producer's answer, as Control writes it.
-      put_scene(%{"verdict" => "suggest", "note" => "Ada can ask who to ask"})
+      put_scene(%{
+        "verdict" => "suggest",
+        "answers" => "Suggested use case: Ada can ask who to ask",
+        "suggestions" => "Suggested use case: Ada can ask who to ask"
+      })
 
       runs = Enum.reduce(1..3, nil, fn _, _ -> reconcile(c) end)
 
       assert run(runs, "accept_scene")["state"] == "breaking_down"
       assert FakeFacts.get("scene", @key)["values"]["phase"] == "break_down"
-      assert FakeFacts.get("scene", @key)["values"]["note"] == "Ada can ask who to ask"
+
+      assert FakeFacts.get("scene", @key)["values"]["answers"] ==
+               "Suggested use case: Ada can ask who to ask"
+
       assert run(runs, "break_down_scene")["state"] == "break_down"
     end
   end

@@ -11,11 +11,11 @@ defmodule RelaDSL.Description.Subflows do
   @writer "atlas-flow"
 
   @doc "Problems of `flows` (with the composition's `links` and `counts`) against `schema` and the `acl`."
-  def check(flows, composition, schema, acl) do
+  def check(flows, composition, schema, acl, extension \\ %{}) do
     # Without an acl, Rela knows no role: every role a subflow names is unknown.
     acl = acl || %{roles: %{}, assignments: %{}}
 
-    Enum.flat_map(flows, &flow(&1, schema, acl)) ++
+    Enum.flat_map(flows, &flow(&1, schema, acl, extension || %{})) ++
       Enum.flat_map(
         composition.links ++ composition.counts,
         &link(&1, flows, schema, composition.file)
@@ -23,7 +23,7 @@ defmodule RelaDSL.Description.Subflows do
       Enum.flat_map(composition.tallies, &tally(&1, schema, composition.file))
   end
 
-  defp flow(f, schema, acl) do
+  defp flow(f, schema, acl, extension) do
     kind = to_string(f.subject)
     at = fn line, problem -> {f.file, line, Problem.prefix(problem, "subflow #{f.name}: ")} end
 
@@ -46,7 +46,8 @@ defmodule RelaDSL.Description.Subflows do
 
           fields(s, kind, schema, here) ++
             roles(s, acl, here) ++
-            creates(s, kind, schema, here) ++
+            creates(s, kind, schema, here) ++ snapshot_types(s, kind, schema, here) ++
+            proposal_identity(s, schema, extension, here) ++
             owner(s.owner, kind, schema, here) ++ present(s.present, kind, schema, here)
         end)
     end
@@ -86,7 +87,8 @@ defmodule RelaDSL.Description.Subflows do
             name <- [spec[:findings], spec[:failure], asked_field(spec[:asks])],
             is_atom(name) and name != nil,
             do: to_string(name)
-          ) ++ if(is_list(spec[:input]), do: update_field(spec[:input]), else: [])
+          ) ++ if(is_list(spec[:input]), do: update_field(spec[:input]), else: []) ++
+            snapshot_fields(spec[:snapshot])
 
         _ ->
           []
@@ -108,6 +110,51 @@ defmodule RelaDSL.Description.Subflows do
   # The subject's field a task's questions go to (`asks:`).
   defp asked_field(asks) when is_list(asks), do: if(Keyword.keyword?(asks), do: asks[:field])
   defp asked_field(_asks), do: nil
+
+  defp snapshot_fields(snapshot) when is_list(snapshot) do
+    if Keyword.keyword?(snapshot),
+      do: for(name <- Keyword.values(snapshot), is_atom(name) and name != nil, do: to_string(name)),
+      else: []
+  end
+
+  defp snapshot_fields(_snapshot), do: []
+
+  defp snapshot_types(%{mechanism: {:task, %{snapshot: snapshot}}}, kind, schema, here)
+       when is_list(snapshot) do
+    if Keyword.keyword?(snapshot) do
+      for {key, type} <- [field: "string", into: "string", known: "boolean"],
+          name = snapshot[key],
+          is_atom(name) and name != nil,
+          property = get_in(schema, ["entities", kind, "properties", to_string(name)]),
+          is_map(property) and property["type"] != type do
+        here.(problem(:snapshot_type, [kind, name], "snapshot names #{kind}.#{name}, which must be #{type}"))
+      end
+    else
+      []
+    end
+  end
+
+  defp snapshot_types(_state, _kind, _schema, _here), do: []
+
+  defp proposal_identity(%{mechanism: {:task, %{creates: creates}}}, schema, extension, here)
+       when is_list(creates) do
+    if Keyword.keyword?(creates) and is_atom(creates[:kind]) and
+         creates[:kind] != nil and is_atom(creates[:identity]) and creates[:identity] != nil do
+      kind = to_string(creates[:kind])
+      name = to_string(creates[:identity])
+      property = get_in(schema, ["entities", kind, "properties", name])
+      writers = get_in(extension, ["entities", kind, "properties", name, "set_by"])
+
+      if is_map(property) and property["type"] == "string" and property["unique"] == true and
+           writers == ["flow"],
+        do: [],
+        else: [here.(problem(:proposal_identity, [kind, name], "proposal identity #{kind}.#{name} must be a unique string field set only by flow"))]
+    else
+      []
+    end
+  end
+
+  defp proposal_identity(_state, _schema, _extension, _here), do: []
 
   defp update_field(input) do
     case Keyword.keyword?(input) && input[:update] do

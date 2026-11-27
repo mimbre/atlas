@@ -35,6 +35,29 @@ defmodule AtlasControl.AnswersTest do
     assert cause == "Filed it"
   end
 
+  test "an append needs the read version and carries it to Facts" do
+    answer = %{
+      "label" => "Suggest",
+      "note" => true,
+      "append" => %{"answers" => "Suggested: {note}"},
+      "current" => %{"answers" => "Existing"}
+    }
+
+    assert {:error, reason} = Answers.change(answer, "B-1", "ada", "A", @now, nil)
+    assert reason =~ "no current version"
+
+    assert {:ok, content, "A"} = Answers.change(answer, "B-1", "ada", "A", @now, 17)
+    assert content["values"] == %{"answers" => "Existing\nSuggested: A"}
+    assert content["version"] == 17
+    assert content["strict_version"] == true
+
+    assert {:error, _} = Answers.change(answer, "B-1", "ada", "", @now, 17)
+
+    assert {:ok, %{"version" => nil} = content, _} =
+             Answers.change(%{"label" => "Close"}, "B-1", "ada", "", @now, nil)
+    refute Map.has_key?(content, "strict_version")
+  end
+
   test "an answer an agent gives on behalf of whom it assists is the agent's; its cause says so" do
     answer = %{"label" => "Accept", "values" => %{"verdict" => "accept"}, "on_behalf" => "ada"}
 

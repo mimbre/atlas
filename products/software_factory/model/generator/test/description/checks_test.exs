@@ -91,6 +91,23 @@ defmodule RelaDSL.Description.ChecksTest do
     assert selects(c) == []
   end
 
+  test "relation guards are scoped to a source kind and reference valid fields" do
+    valid = concept(
+      entity: "field :known, :boolean",
+      relation: ", guard: [kind: :thing, equal: [:title, :expected], not_false: :known, error: \"stale\"]"
+    )
+    assert shape(valid) == []
+    assert checked(valid) == []
+
+    invalid = concept(
+      relation: ", guard: [kind: :keeper, equal: [:name], not_false: :name, error: \"stale\"]"
+    )
+    tags = Enum.map(checked(invalid), &elem(&1, 0))
+    assert :guard_kind in tags
+    assert :guard_equal in tags
+    assert :guard_boolean in tags
+  end
+
   # IS-Atlas-70: a create links who puts the fact in through a relation from its kind, to
   # one fact at most, that nobody sets by hand; anything else is refused where it is said.
   test "a create's producer is a relation from the kind, to one, that nobody sets by hand" do
@@ -108,6 +125,15 @@ defmodule RelaDSL.Description.ChecksTest do
       assert checked(concept(entity: entity, relation: relation)) ==
                [{:create_producer, ["thing", String.trim_leading(entity, "create producer: :")]}]
     end
+  end
+
+  test "a create's replay identity names an existing field" do
+    valid = concept(entity: "create replay_identity: :title")
+    assert valid.extension["entities"]["thing"]["create"]["replay_identity"] == "title"
+    assert checked(valid) == []
+
+    assert checked(concept(entity: "create replay_identity: :missing")) ==
+             [{:unknown_field, ["thing", "missing"]}]
   end
 
   test "a name a rule gives must resolve to a field, relation or value" do

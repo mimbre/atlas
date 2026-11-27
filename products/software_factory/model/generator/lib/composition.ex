@@ -258,7 +258,8 @@ defmodule RelaDSL.Composition do
           tallies: (raw && raw.tallies) || []
         },
         schema,
-        acl
+        acl,
+        extension
       )
 
     selects = for %{kind: :select} = i <- all, do: i

@@ -25,6 +25,7 @@ defmodule RelaDSL.Description.Build do
     :only_target,
     :requires_completed_children,
     :closes_parent,
+    :guard,
     :review
   ]
   @entity_notes ~w(top primary plural_label icon start create properties completion progress connector agent order

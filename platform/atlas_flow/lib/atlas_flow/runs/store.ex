@@ -1117,24 +1117,22 @@ defmodule AtlasFlow.Runs.Store do
   defp refusal_code({:refused, _reasons, code}), do: code
   defp refusal_code(_error), do: nil
 
-  # Whether a refused write is a hand-over's To-Do whose key is taken, with the next free
-  # number when it is. A key Facts holds back (`"reserved"`: its fact was deleted) is
-  # taken and never this create's; otherwise by what Facts holds at the key
-  # (`AtlasFlow.Runs.HandOver.met/2`). Facts answers a resend of the refused id from its
-  # ledger, so a taken key is only ever left for the next number's ids.
-  defp taken(_config, %{"numbered" => %{} = mark} = write, code) do
-    with :taken <- held(write, code) do
-      after_ = mark["number"] + 1
+  # Numbered creates renumber only after an explicit refusal. A lost answer replays the
+  # same id; matching contents cannot prove that the existing fact is ours.
+  defp taken(_config, %{"numbered" => %{} = mark} = write, code)
+       when code in ["exists", "reserved"] do
+    after_ = mark["number"] + 1
 
-      case Talk.read(write["kind"], %{"plain" => true}) do
-        %{"facts" => facts} ->
-          {:numbered, max(after_, HandOver.next_number(mark, Enum.map(facts, & &1["key"])))}
+    case Talk.read(write["kind"], %{"plain" => true}) do
+      %{"facts" => facts} ->
+        {:numbered, max(after_, HandOver.next_number(mark, Enum.map(facts, & &1["key"])))}
 
-        _ ->
-          {:numbered, after_}
-      end
+      _ ->
+        {:numbered, after_}
     end
   end
+
+  defp taken(_config, %{"numbered" => %{}}, _code), do: :unknown
 
   defp taken(config, write, code) do
     with true <- config["hand_over"] != nil and HandOver.create?(write),

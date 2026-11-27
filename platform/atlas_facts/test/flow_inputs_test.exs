@@ -566,6 +566,111 @@ defmodule AtlasFacts.FlowInputsTest do
     assert stale["values"]["source_version"] == c.v["source_version"]
   end
 
+  test "captured strict append with verdict replays its request but rejects an identical new one", c do
+    d =
+      c.d
+      |> put_in(["flow_runtime", "selection"], %{
+        "sort" => %{"subject" => "box", "choices" => ["verdict"]}
+      })
+      |> put_in(["entities", "box", "properties", "verdict"], %{"type" => "string"})
+      |> put_in(["entities", "box", "properties", "answers"], %{"type" => "string"})
+
+    {:ok, []} =
+      Rela.change(
+        c.rela,
+        "boxes",
+        "B-1",
+        %{"verdict" => "open", "answers" => "Existing"},
+        c.v["source_version"],
+        %{}
+      )
+
+    {:ok, snapshot} = Rela.get(c.rela, "boxes", "B-1")
+    first = %{Envelope.new("fact", "box") | sender: "control/session-test"}
+    second = %{Envelope.new("fact", "box") | sender: "control/session-test"}
+    content = %{
+      "op" => "change",
+      "key" => "B-1",
+      "by" => "ada",
+      "version" => snapshot.version,
+      "strict_version" => true,
+      "values" => %{"verdict" => "answered", "answers" => "Existing\nSame note"}
+    }
+
+    assert {:error, :subject_changed} =
+             FlowInputs.capture(c.rela, d, first, Map.delete(content, "version"))
+    assert {:capture, request} = FlowInputs.capture(c.rela, d, first, content)
+    assert {:ok, input} = submit(%{c | d: d}, request["values"])
+    assert {:capture, ^request} = FlowInputs.capture(c.rela, d, first, content)
+    assert {:ok, ^input} = submit(%{c | d: d}, request["values"])
+
+    assert {:error, :subject_changed} = FlowInputs.capture(c.rela, d, second, content)
+    identical = Map.put(content, "was", content["values"])
+    assert {:error, :subject_changed} = FlowInputs.capture(c.rela, d, second, identical)
+    assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    assert subject.properties["answers"] == "Existing\nSame note"
+    assert subject.properties["verdict"] == "answered"
+  end
+
+  test "captured strict append refuses an unrelated write even when changed fields are untouched", c do
+    d =
+      put_in(c.d, ["flow_runtime", "selection"], %{
+        "sort" => %{"subject" => "box", "choices" => ["choice"]}
+      })
+
+    {:ok, []} =
+      Rela.change(c.rela, "boxes", "B-1", %{"phase" => "later"}, c.v["source_version"], %{})
+
+    envelope = %{Envelope.new("fact", "box") | sender: "control/session-test"}
+    content = %{
+      "op" => "change",
+      "key" => "B-1",
+      "by" => "ada",
+      "version" => c.v["source_version"],
+      "strict_version" => true,
+      "values" => %{"choice" => "none\nSame note"},
+      "was" => %{"choice" => "none"}
+    }
+
+    assert {:error, :subject_changed} = FlowInputs.capture(c.rela, d, envelope, content)
+    assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    assert subject.properties["choice"] == "none"
+    assert subject.properties["phase"] == "later"
+  end
+
+  test "capturing a stale answer keeps its version and refuses it before overwriting", c do
+    d =
+      put_in(c.d, ["flow_runtime", "selection"], %{
+        "sort" => %{"subject" => "box", "choices" => ["choice"]}
+      })
+
+    {:ok, []} =
+      Rela.change(
+        c.rela,
+        "boxes",
+        "B-1",
+        %{"choice" => "producer suggestion"},
+        c.v["source_version"],
+        %{}
+      )
+
+    envelope = %{Envelope.new("fact", "box") | sender: "control/session-test"}
+
+    content = %{
+      "op" => "change",
+      "key" => "B-1",
+      "by" => "ada",
+      "version" => c.v["source_version"],
+      "values" => %{"choice" => "none\nanswer"}
+    }
+
+    assert {:capture, request} = FlowInputs.capture(c.rela, d, envelope, content)
+    assert request["values"]["source_version"] == c.v["source_version"]
+    assert {:error, :subject_changed} = submit(%{c | d: d}, request["values"])
+    assert {:ok, subject} = Rela.get(c.rela, "boxes", "B-1")
+    assert subject.properties["choice"] == "producer suggestion"
+  end
+
   test "restart recovers a persisted prepare and refuses ambiguous recovery", c do
     assert {:error, :interrupted} =
              submit(c, nil, "ada", "control/session-test", fn _, _, _ ->

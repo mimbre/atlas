@@ -96,7 +96,9 @@ defmodule RelaDSL.Schema do
   only writer, makes one fact of `kind` for each under the subject (through the kind's
   parent relation to it) once the task completed; with `discard: true`, entering its state
   again (its supervisor did not accept the proposal) deletes what its last proposal made,
-  and nothing added by hand. `note: [field: field, heading: text]` adds the subject's field,
+  and nothing added by hand. With `identity: field` in `creates:`, each created fact carries
+  a stable task-and-index identity in that unique string field, set only by Flow, including
+  after renumbering. `note: [field: field, heading: text]` adds the subject's field,
   when it has text, under that heading (what its supervisor said when it sent the proposal
   back). One that writes a field of the subject
   names it, `writes: [field: field, file: name]`: its agent writes the field's text to the
@@ -105,7 +107,13 @@ defmodule RelaDSL.Schema do
   `creates:` or `writes:`: when its agent finds the subject too vague to propose from, it
   writes its questions to that file and nothing else; Flow, the only writer, puts their
   text in that field of the subject, makes nothing, and the task ends `asked`, a result of
-  its own to map in `on:`. A review whose findings outside the
+  its own to map in `on:`. A proposal may declare
+  `snapshot: [field: source, into: target, known: flag]`. Flow freezes the source (which
+  must be included in `fields:`) when making the task; on a completed proposal it writes
+  that exact value to target and true to flag. A snapshot-enabled `creates:` requires
+  `identity:` and treats a valid empty list as a successful proposal. A legacy intent
+  without a snapshot writes false to flag; questions and failures do not update either field.
+  A review whose findings outside the
   subject's scope become new facts names their kind, `follow_ups: kind`: Flow makes one for
   each follow-up its answer gives, under the subject's nearest parent. A fix of something
   else than the latest review's findings names the subject's field that says what to fix,
@@ -298,6 +306,7 @@ defmodule RelaDSL.Schema do
     :creates,
     :writes,
     :asks,
+    :snapshot,
     :follow_ups,
     :findings,
     :failure,
@@ -472,7 +481,7 @@ defmodule RelaDSL.Schema do
   @doc """
   Mechanism: a task of `kind` for the machinery the subject is assigned to, with its spec
   (`role:`, `profile:`, `cost_class:`, `input:`, `check:`, `instructions:`, `fields:`,
-  `parents:`, `children:`, `note:`, `creates:`, `writes:`, `asks:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
+  `parents:`, `children:`, `note:`, `creates:`, `writes:`, `asks:`, `snapshot:`, `follow_ups:`, `findings:`, `failure:`, `records:`, `machinery:`, `field:`) and `on: [completed:, check_failed:, stuck:,
   abandoned:]`.
   """
   defmacro task(kind, opts), do: item(:task, [kind, opts])
@@ -1391,12 +1400,14 @@ defmodule RelaDSL.Schema do
         pre <> "records: must be [kind: text, relation: text]",
       not (spec[:creates] == nil or
              (Keyword.keyword?(spec[:creates]) and
-                Keyword.keys(spec[:creates]) -- [:kind, :file, :fields, :values, :order, :discard] ==
+                Keyword.keys(spec[:creates]) -- [:kind, :file, :fields, :values, :order, :discard, :identity] ==
                   [] and
                 is_atom(spec[:creates][:kind]) and text?.(spec[:creates][:file]) and
                 Enum.all?(spec[:creates][:fields] || [], &is_atom/1) and
                 Keyword.keyword?(spec[:creates][:values] || []) and
-                is_atom(spec[:creates][:order]) and spec[:creates][:discard] in [nil, true])) &&
+                is_atom(spec[:creates][:order]) and
+                (spec[:creates][:identity] == nil or (is_atom(spec[:creates][:identity]) and spec[:creates][:identity] not in [true, false])) and
+                spec[:creates][:discard] in [nil, true])) &&
         pre <>
           "creates: must be [kind: kind, file: text], with fields: [field], values: [field: value], order: field and discard: true",
       not (spec[:note] == nil or
@@ -1422,6 +1433,19 @@ defmodule RelaDSL.Schema do
       (file_of(spec[:asks]) != nil and
          file_of(spec[:asks]) in [file_of(spec[:creates]), file_of(spec[:writes])]) &&
         pre <> "asks: names a file of its own, not its proposal's",
+      not (spec[:snapshot] == nil or
+             (Keyword.keyword?(spec[:snapshot]) and
+                Enum.sort(Keyword.keys(spec[:snapshot])) == [:field, :into, :known] and
+                Enum.all?(Keyword.values(spec[:snapshot]), &(is_atom(&1) and &1 not in [nil, false, true])))) &&
+        pre <> "snapshot: must be [field: field, into: field, known: field]",
+      (spec[:snapshot] != nil and spec[:creates] == nil and spec[:writes] == nil) &&
+        pre <> "snapshot: goes beside creates: or writes:",
+      (spec[:snapshot] != nil and Keyword.keyword?(spec[:creates] || :none) and
+         spec[:creates][:identity] == nil) &&
+        pre <> "snapshot: creates: requires identity:",
+      (Keyword.keyword?(spec[:snapshot] || :none) and is_list(spec[:fields]) and
+         spec[:snapshot][:field] not in spec[:fields]) &&
+        pre <> "snapshot: field must be included in fields:",
       not (spec[:follow_ups] == nil or is_atom(spec[:follow_ups])) &&
         pre <> "follow_ups: must be a kind",
       not (spec[:findings] == nil or (kind == :fix and is_atom(spec[:findings]))) &&

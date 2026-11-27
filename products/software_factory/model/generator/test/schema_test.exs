@@ -694,6 +694,20 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
+    test "a proposal snapshot is compiled and requires three subject fields" do
+      creates = ~s(creates: [kind: :page, file: "pages.json", identity: :proposal_id],)
+      snapshot = "fields: [:suggestions], snapshot: [field: :suggestions, into: :designed, known: :known],"
+      [%{states: [a | _]}] = compile!(task_source(creates <> snapshot)).__flows__()
+      assert {:task, %{snapshot: [field: :suggestions, into: :designed, known: :known]}} = a.mechanism
+
+      refused(task_source(creates <> "snapshot: [field: :suggestions],"), 6,
+        "state a: task author: snapshot: must be [field: field, into: field, known: field]")
+      refused(task_source(creates <> "fields: [:title], snapshot: [field: :suggestions, into: :designed, known: :known],"), 6,
+        "state a: task author: snapshot: field must be included in fields:")
+      refused(task_source(~s(creates: [kind: :page, file: "pages.json"],) <> snapshot), 6,
+        "state a: task author: snapshot: creates: requires identity:")
+    end
+
     # A proposing task may ask instead (`asks:`): a result of its own, `asked`, to map.
     test "a task that may ask its questions ends asked, a result it maps" do
       creates = ~s(creates: [kind: :page, file: "pages.json"],)

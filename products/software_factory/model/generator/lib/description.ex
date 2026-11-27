@@ -14,7 +14,7 @@ defmodule RelaDSL.Description do
   | `type name, values:, labels:, descriptions:, description:, validations:, format:` | a type | schema; `format` to `atlas.json` `types` |
   | `entity name, label:, plural:, aliases:, id_type:, id_prefix:, description: do … end` | a kind | schema `entities` |
   | `field name, type, required:, unique:, default:, description:, label:, multiline:, set_by:, cause:` | a property, in form order | schema; the last four to `atlas.json` `properties` |
-  | `relation name, label:, description:, from:, to:, max_outgoing:, inverse: {id, label}` and `parent:, add:, component:, set_by:, limit:, actions:, only_target:, requires_completed_children:, closes_parent:, review:` | a relation | schema; the rest to `atlas.json` `relations` |
+  | `relation name, label:, description:, from:, to:, max_outgoing:, inverse: {id, label}` and `parent:, add:, component:, set_by:, limit:, actions:, only_target:, requires_completed_children:, closes_parent:, review:, guard:` | a relation | schema; the rest to `atlas.json` `relations` |
   | inside `entity`: `top`, `primary`, `plural_label`, `icon` (the kind's one icon, a semantic name of what it shows, `:scales`, never the kind's: on its rows, its page's header and its tab), `start`, `create`, `completion`, `progress`, `connector`, `agent`, `order`, `by_hand`, `late`, `action`, `counts`, `requires`, `authority`, `frozen`, `replaces`, `layering`, `sealed`, `delete_error`, `panel`, `page` | one rule of the kind each (`panel`: per state of its work, the panel its owner decides in, as Control fills it; `page`: its page as a stack of simple blocks, as Control fills it: `state` (fields of its state line), `intro` (`field`, and `context`: the heading of the part shown apart), `items` (`relation`, and `empty`: what comes next per state of its work, `pick_up` while nobody picked it up), `details` (fields and relations, those that are filled)) | `atlas.json` `entities` |
   | inside `entity`: `flag field, value:, label:` | the kind's flag | `flow-runtime.json` `flags` |
   | `select subflow, choices:, roles:, projection:, admission:, imports:, verification:, reopen:, completed:` | how a subflow's runs are selected (`roles:` each role and the relation whose target makes it, from the subject or its component; `nil` among allowed values: no value; an import row may also say `completed:`; `reopen: :new_generation` restarts reopened work, else only an explicit restart does; `completed: state` ends a run whose subject is completed, by its kind's `completion`, in that final state from any open state) | `flow-runtime.json` `selection` |
@@ -186,7 +186,13 @@ defmodule RelaDSL.Description do
     end
   end
 
-  @doc "A relation: Rela's `label:`, `description:`, `from:`, `to:`, `max_outgoing:`, `inverse:` and Atlas's rules."
+  @doc """
+  A relation: Rela's `label:`, `description:`, `from:`, `to:`, `max_outgoing:`, `inverse:`
+  and Atlas's rules. `guard: [kind: :kind, equal: [:field, :snapshot], not_false: :known,
+  error: "reason"]` requires matching proposed fields and a value other than false for
+  `known` when setting a nonempty link from that kind. Changes fence the checked version;
+  a concurrent subject change is refused and must be reconsidered.
+  """
   defmacro relation(name, opts), do: item(:relation, name, opts)
 
   @doc """

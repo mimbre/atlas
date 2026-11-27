@@ -75,6 +75,9 @@ defmodule RelaDSL.Facts.Writes do
     {kind}, {child}).
   - `requires_completed_children` (text): a new link through it is refused while a fact
     under the linking fact is not completed ({key}, {children}).
+  - `guard`: `%{"kind", "equal" => [left, right], "not_false", "error"}`: setting a
+    nonempty link from that kind requires the two proposed values to be equal and the
+    boolean value not false. The current fact is read and its version fences the write.
   - `component`: `%{"key", "values"}` with `{key}`: the one fact of the kind it points at
     that is made with a fact of a kind it starts at, before it, and deleted with it; it
     is never deleted alone while that fact exists.
@@ -89,7 +92,7 @@ defmodule RelaDSL.Facts.Writes do
     links = change["links"] || %{}
 
     result =
-      with :ok <- relations(d, kind, op, key, links, actor, lookup),
+      with :ok <- relations(d, kind, op, key, change["guard_values"] || change["values"] || %{}, links, actor, lookup),
            :ok <- not_a_part(d, kind, op, key, lookup) do
         guarded(d, kind, op, key, change["values"] || %{}, links, actor, lookup)
       end
@@ -231,7 +234,7 @@ defmodule RelaDSL.Facts.Writes do
 
   # -- The rules of the relations a write links through ------------------------------------
 
-  defp relations(d, kind, op, key, links, actor, lookup) when op in ["create", "change"] do
+  defp relations(d, kind, op, key, values, links, actor, lookup) when op in ["create", "change"] do
     rels = d["relations"] || %{}
     by = actor["by"]
 
@@ -269,13 +272,31 @@ defmodule RelaDSL.Facts.Writes do
         true ->
           closed(d, kind, links, new, lookup) ++
             limits(d, kind, key, links, new, lookup) ++
-            completed_children(d, kind, key, links, new, lookup)
+            completed_children(d, kind, key, links, new, lookup) ++
+            relation_guards(rels, kind, op, values, links, lookup)
       end
 
     if reasons == [], do: :ok, else: {:refused, reasons}
   end
 
-  defp relations(_d, _kind, _op, _key, _links, _actor, _lookup), do: :ok
+  defp relations(_d, _kind, _op, _key, _values, _links, _actor, _lookup), do: :ok
+
+  defp relation_guards(rels, kind, op, values, links, lookup) do
+    for {relation, keys} <- Enum.sort(links),
+        keys != [],
+        %{"guard" => %{"kind" => ^kind, "equal" => [left, right], "not_false" => flag} = guard} <-
+          [rels[relation]],
+        current = guard_current(op, lookup),
+        proposed = Map.merge((current || %{})["values"] || %{}, normalized(values)),
+        op != "create" and not is_map(current) or
+          proposed[left] != proposed[right] or proposed[flag] == false,
+        do: guard["error"]
+  end
+
+  defp guard_current("create", _lookup), do: %{}
+  defp guard_current(_op, %{"guard_current" => current}) when is_function(current, 0),
+    do: current.()
+  defp guard_current(_op, _lookup), do: nil
 
   # Why a writer the relation does not name may not set it; nil on the create its kind's
   # `create.producer` names, linking the one who puts the fact in, or its `create.proposer`

@@ -22,6 +22,8 @@ defmodule AtlasFacts.Model do
 
     * `"current"`: `fn -> nil | %{"values", "links"} end`, the fact as stored before the
       write;
+    * `"guard_current"`: reads the current fact and requires its version on the atomic
+      subject change; absence, an unavailable read or a missing version fails closed;
     * `"fact"`: `fn kind, key -> nil | fact end`;
     * `"list"`: `fn kind -> {:ok, [fact]} | {:error, reason} end`;
     * `"incoming"`: `fn kind, key, relation -> [key] end`, the facts that point at one;

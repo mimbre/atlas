@@ -32,6 +32,9 @@ defmodule Model.Scene do
       Its supervisor's "Decline", with a note (the scene's `note`), throws the proposal
       away: Flow deletes the use cases it made (those added by hand stay; `creates:
       [discard: true]`) and the run goes back to its break-down, whose agent reads the note.
+      A suggestion received after a task froze its input starts another Design round
+      after the supervisor accepts that proposal; the accepted use cases stay. The scene
+      cannot be accepted until a completed Design task has considered the suggestion.
     * `accept_scene` **Accept** (Accept the scene): waits until every use case under it is accepted
       (`children`, `open_children`: the composition's count of the use cases in the scene,
       and of those without an accepted `accept_use_case` run), then asks its producer
@@ -115,6 +118,22 @@ defmodule Model.Scene do
       label: "Its producer's answers"
     )
 
+    field(:suggestions, :string,
+      description: "The producer's suggested use cases, in the order they were received",
+      multiline: true
+    )
+
+    field(:designed_suggestions, :string,
+      description: "Flow: the suggestions frozen into the last completed Design proposal",
+      multiline: true,
+      set_by: [:flow]
+    )
+
+    field(:design_snapshot_known, :boolean,
+      description: "Flow: whether the completed Design task recorded its suggestion input",
+      set_by: [:flow]
+    )
+
     field(:children, :integer, description: "Flow: how many use cases are in it")
     field(:open_children, :integer, description: "Flow: how many of them are not finished")
 
@@ -177,15 +196,18 @@ defmodule Model.Scene do
     max_outgoing: 1,
     inverse: {:accepted, "accepted"},
     only_target: [error: "only a person accepts", also: [:migration]],
+    guard: [
+      kind: :scene,
+      equal: [:suggestions, :designed_suggestions],
+      not_false: :design_snapshot_known,
+      error: "Design has not yet considered the latest suggested use cases."
+    ],
     requires_completed_children: "{key} has {children} open",
     closes_parent: "{parent} is accepted; put this under another {kind}"
   )
 
-  # Its producer suggests a use case (`by: :produced_by`: theirs, whoever has the work),
-  # with a short intent; no use case is made of it, Design proposes one. While Design is
-  # under way, the intent is a line added to its producer's answers, which its agent reads;
-  # once Design was accepted, it is the producer's note of an extra Design round (as a
-  # Decline is), which proposes what is missing for it and comes back to accept.
+  # Suggestions stay with the producer's answers across clarification and Design rounds.
+  # They are not use cases: Design proposes those.
   @suggest [
     key: "s",
     label: "Suggest a use case",
@@ -196,8 +218,24 @@ defmodule Model.Scene do
     cause: "Suggested a use case: {note}"
   ]
   @suggest_during_design @suggest ++
-                           [change: %{append: %{answers: "Suggested use case: {note}"}}]
-  @suggest_after_design @suggest ++ [change: %{values: %{verdict: :suggest, note: "$note"}}]
+                           [
+                             change: %{
+                               append: %{
+                                 answers: "Suggested use case: {note}",
+                                 suggestions: "Suggested use case: {note}"
+                               }
+                             }
+                           ]
+  @suggest_after_design @suggest ++
+                          [
+                            change: %{
+                              values: %{verdict: :suggest},
+                              append: %{
+                                answers: "Suggested use case: {note}",
+                                suggestions: "Suggested use case: {note}"
+                              }
+                            }
+                          ]
 
   # Design: Scene → Use cases.
   subflow :break_down_scene, label: "Design", subject: :scene do
@@ -207,8 +245,8 @@ defmodule Model.Scene do
     initial(:break_down)
     supervise(:break_down, label: "Design", states: [:break_down, :accepting, :clarifying])
 
-    # While it is broken down, its producer may suggest a use case: the intent is added to
-    # its producer's answers, which its agent reads (`fields:`), as a line of its own.
+    # Suggestions are appended to the producer's answers and to their own input watermark.
+    # A later round covers any that arrive after the task freezes that input.
     state :break_down, label: "Break it down" do
       present(
         expected: "Break it down into use cases",
@@ -226,7 +264,8 @@ defmodule Model.Scene do
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
           "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. The use cases already under the scene, if any, are listed after it under \"Already under it\": they stay, so propose only the use cases that are missing, never one of those again. When the scene has a note, it was sent back: by its producer, once built and not accepted, or by its supervisor, who did not accept your earlier proposal, which is gone. Propose only the use cases still missing for what the note asks. When the scene is too vague to design use cases from, do not guess: write your questions to questions.md and nothing else; its producer answers them, or rewrites the scene, and you get it again. When the scene has questions and answers, they are what you asked before and what its producer answered; its description is as its producer left it. Its producer's answers may also hold use cases they suggested, each on a line of its own (\"Suggested use case: …\", what a person should be able to do): propose one for each that no use case under it already covers.",
-        fields: [:title, :description, :questions, :answers],
+        fields: [:title, :description, :questions, :answers, :suggestions],
+        snapshot: [field: :suggestions, into: :designed_suggestions, known: :design_snapshot_known],
         children: [:title, :description],
         read_first: true,
         note: [field: :note, heading: "Its producer's or supervisor's note"],
@@ -234,6 +273,7 @@ defmodule Model.Scene do
           kind: :use_case,
           file: "use_cases.json",
           fields: [:design, :note],
+          identity: :proposal_id,
           discard: true
         ],
         asks: [field: :questions, file: "questions.md"],
@@ -276,7 +316,7 @@ defmodule Model.Scene do
             help:
               "Say you answered its questions, with a note of your answers: its agent tries again",
             note: true,
-            change: %{values: %{verdict: :answered, answers: "$note"}}
+            change: %{values: %{verdict: :answered}, append: %{answers: "{note}"}}
           ]
         ]
       )
@@ -346,6 +386,14 @@ defmodule Model.Scene do
       )
 
       branch(to: :breaking_down, by: :atlas, when: "entity.children == 0")
+      branch(to: :breaking_down, when: "not (entity.suggestions == entity.designed_suggestions)")
+      branch(to: :breaking_down,
+        when: "entity.designed_suggestions == nil and not (entity.suggestions == nil)"
+      )
+      branch(to: :breaking_down,
+        when: "entity.suggestions == nil and not (entity.designed_suggestions == nil)"
+      )
+      branch(to: :breaking_down, when: "entity.design_snapshot_known == false")
       branch(to: :breaking_down, when: "entity.verdict == 'suggest'")
       branch(to: :to_accept, by: :atlas, when: "entity.open_children == 0")
     end
@@ -398,6 +446,14 @@ defmodule Model.Scene do
           ]
         ]
       )
+      branch(to: :breaking_down, when: "not (entity.suggestions == entity.designed_suggestions)")
+      branch(to: :breaking_down,
+        when: "entity.designed_suggestions == nil and not (entity.suggestions == nil)"
+      )
+      branch(to: :breaking_down,
+        when: "entity.suggestions == nil and not (entity.designed_suggestions == nil)"
+      )
+      branch(to: :breaking_down, when: "entity.design_snapshot_known == false")
 
       branch(to: :accepted, when: "entity.verdict == 'accept'")
       branch(to: :breaking_down, when: "entity.verdict == 'reject'")

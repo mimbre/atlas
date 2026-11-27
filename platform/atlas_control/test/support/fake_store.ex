@@ -58,6 +58,9 @@ defmodule AtlasControl.FakeStore do
   """
   def silent_reads(kinds), do: GenServer.call(__MODULE__, {:silent_reads, kinds})
 
+  @doc "Fail list reads of a kind within a page, without failing its other reads."
+  def fail_list_reads(kind), do: GenServer.call(__MODULE__, {:fail_list_reads, kind})
+
   @doc "Tell `pid` `{:unanswered, id}` of each read it leaves unanswered, as it leaves it."
   def tell_unanswered(pid), do: GenServer.call(__MODULE__, {:tell_unanswered, pid})
 
@@ -88,6 +91,7 @@ defmodule AtlasControl.FakeStore do
        silent: false,
        loading: false,
        silent_reads: %{},
+       failed_list_reads: nil,
        tell_unanswered: nil,
        reserved: MapSet.new(),
        last: nil,
@@ -108,6 +112,9 @@ defmodule AtlasControl.FakeStore do
     do: {:reply, :ok, put_in(s.presentations[{kind, key}], {presentation, runs})}
 
   def handle_call({:silent, on?}, _from, s), do: {:reply, :ok, %{s | silent: on?}}
+  def handle_call({:fail_list_reads, kind}, _from, s),
+    do: {:reply, :ok, %{s | failed_list_reads: kind}}
+
 
   def handle_call({:loading, on?, pid}, _from, s),
     do: {:reply, :ok, %{s | loading: on? && (pid || true)}}
@@ -166,10 +173,14 @@ defmodule AtlasControl.FakeStore do
           {"_page", %{"reads" => reads}} ->
             %{
               "answers" =>
-                for(
-                  [kind, read] <- reads,
-                  do: Map.put(timed(s, answer(s, kind, read)), "position", s.position)
-                )
+                for [kind, read] <- reads do
+                  result =
+                    if kind == s.failed_list_reads and !Map.has_key?(read, "key"),
+                      do: %{"error" => "List unavailable"},
+                      else: timed(s, answer(s, kind, read))
+
+                  Map.put(result, "position", s.position)
+                end
             }
 
           {kind, content} ->

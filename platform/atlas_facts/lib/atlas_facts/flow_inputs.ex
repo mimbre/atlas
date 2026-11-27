@@ -82,7 +82,13 @@ defmodule AtlasFacts.FlowInputs do
                f.properties[c["fields"]["flow"]] == elem(selection, 0) and
                f.properties[c["fields"]["status"]] == "active"
            end),
-         {:ok, subject} <- Rela.get(rela, Description.kind(d, e.kind)["plural"], key) do
+         {:ok, subject} <- Rela.get(rela, Description.kind(d, e.kind)["plural"], key),
+         :ok <-
+           need(
+             content["strict_version"] != true or
+               (not is_nil(content["version"]) and content["version"] == subject.version),
+             :subject_changed
+           ) do
       seen = content["was"] || %{}
 
       unchanged =

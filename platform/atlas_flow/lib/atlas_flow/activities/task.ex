@@ -121,6 +121,10 @@ defmodule AtlasFlow.Activities.Task do
   task ends `asked`, which its state maps like any result. With no such file, or an empty
   one, the task ends as it would without `asks`.
 
+
+  A proposal may freeze a subject field with `snapshot` (`field`, `into`, `known`).
+  Its intent holds even a nil value; only a completed proposal writes that frozen value
+  and marks it known. An older intent without the snapshot marks it unknown instead.
   **Read first.** A spec with `read_first: true` adds, after the subject's fields, what the
   model says is to be read first about the subject (its standing decisions and those the
   subject is based on), as the model's `read_first/2` gives it.
@@ -181,7 +185,7 @@ defmodule AtlasFlow.Activities.Task do
       spec["read_first"] in [nil, true] and note?(spec["note"]) and
       creates?(spec["creates"]) and writes?(spec["writes"]) and
       not (spec["creates"] != nil and spec["writes"] != nil) and
-      asks?(spec) and
+      asks?(spec) and snapshot?(spec) and
       (spec["follow_ups"] == nil or text?(spec["follow_ups"])) and
       (spec["findings"] == nil or (spec["kind"] == "fix" and text?(spec["findings"]))) and
       (spec["failure"] == nil or text?(spec["failure"])) and
@@ -192,10 +196,10 @@ defmodule AtlasFlow.Activities.Task do
 
   defp creates?(%{"kind" => kind, "file" => file} = creates),
     do:
-      Enum.all?(Map.keys(creates), &(&1 in ~w(kind file fields values order discard))) and
+      Enum.all?(Map.keys(creates), &(&1 in ~w(kind file fields values order discard identity))) and
         text?(kind) and text?(file) and texts?(creates["fields"] || []) and
         is_map(creates["values"] || %{}) and (creates["order"] == nil or text?(creates["order"])) and
-        creates["discard"] in [nil, true]
+        (creates["identity"] == nil or text?(creates["identity"])) and creates["discard"] in [nil, true]
 
   defp creates?(_creates), do: false
 
@@ -224,6 +228,14 @@ defmodule AtlasFlow.Activities.Task do
 
   defp asks?(%{"asks" => _}), do: false
   defp asks?(_spec), do: true
+
+  defp snapshot?(%{"snapshot" => nil}), do: true
+  defp snapshot?(%{"snapshot" => %{"field" => field, "into" => into, "known" => known} = s} = spec),
+    do: map_size(s) == 3 and Enum.all?([field, into, known], &text?/1) and
+      (spec["writes"] != nil or (spec["creates"] != nil and text?(spec["creates"]["identity"]))) and
+      field in (spec["fields"] || [])
+  defp snapshot?(%{"snapshot" => _}), do: false
+  defp snapshot?(_), do: true
 
   # A Code repository and the reference its base is resolved from, nothing else: never a
   # path (D44), never a URL (a scheme, or `user@host:path`). Or, for a subject's review or
@@ -453,6 +465,7 @@ defmodule AtlasFlow.Activities.Task do
               proposal_format(spec) <> asks_format(spec) <> follow_ups_format(spec))
         )
         |> Translate.root_check(repository(spec))
+        |> freeze_snapshot(spec, subject)
         |> Translate.result_ref(key)
 
       record =
@@ -480,6 +493,11 @@ defmodule AtlasFlow.Activities.Task do
 
   # Not with a machinery: no task.
   defp intend(_run, _spec, _subject, _ctx), do: :none
+
+  defp freeze_snapshot(intent, %{"snapshot" => %{"field" => field}}, subject),
+    do: Map.put(intent, "snapshot", %{"value" => (subject["values"] || %{})[field]})
+
+  defp freeze_snapshot(intent, _spec, _subject), do: intent
 
   # The spec's `parents` fields of each parent, walked up from the subject through the
   # parent relations (`%{kind => [[relation, parent kind]]}`), nearest first: the first
@@ -817,11 +835,28 @@ defmodule AtlasFlow.Activities.Task do
 
       {:result, next, result,
        [change(run, intent, spec, ["result"], values) | made ++ follow_ups] ++
-         failure(spec, next, result, run), nil}
+         snapshot_write(spec, next, run, intent) ++ failure(spec, next, result, run), nil}
     else
       :unavailable -> :none
     end
   end
+
+  defp snapshot_write(%{"snapshot" => %{"into" => into, "known" => known}}, "completed", run, intent) do
+    values =
+      case intent["snapshot"] do
+        %{"value" => value} -> %{into => value, known => true}
+        _ -> %{known => false}
+      end
+
+    [write(run, intent["key"], ["snapshot"], run["subject_kind"], %{
+      "op" => "change",
+      "key" => run["subject_key"],
+      "values" => values,
+      "by" => "flow"
+    })]
+  end
+
+  defp snapshot_write(_spec, _outcome, _run, _intent), do: []
 
   # A task that ended without a result (`stuck` or `abandoned`) whose spec names a field
   # of its subject, `failure`: Flow writes there which task it was, in which state of the
@@ -849,11 +884,12 @@ defmodule AtlasFlow.Activities.Task do
 
   # What a task that proposes facts (`creates`) or writes a field of its subject
   # (`writes`) asks its agent: the file, at the top of the repository, and its form.
-  defp proposal_format(%{"creates" => %{"kind" => kind, "file" => file} = creates}) do
+  defp proposal_format(%{"creates" => %{"kind" => kind, "file" => file} = creates} = spec) do
     kind = String.replace(kind, "_", " ")
     more = Enum.map_join(creates["fields"] || [], "", &", its `#{&1}` (as the instructions say)")
+    empty = if spec["snapshot"], do: " If nothing new is needed, write an empty list `[]`.", else: ""
 
-    "\n\n## Your proposal\n\nWrite the #{kind}s you propose to the file `#{file}` at the top of the repository: a JSON list with one object per #{kind}, in order, each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done)#{more}. Atlas makes them from that file; write nothing into Atlas yourself."
+    "\n\n## Your proposal\n\nWrite the #{kind}s you propose to the file `#{file}` at the top of the repository: a JSON list with one object per #{kind}, in order, each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done)#{more}. Atlas makes them from that file; write nothing into Atlas yourself.#{empty}"
   end
 
   defp proposal_format(%{"writes" => %{"field" => field, "file" => file}}) do
@@ -930,7 +966,8 @@ defmodule AtlasFlow.Activities.Task do
          intent,
          ctx
        ) do
-    with {:ok, entries} <- proposal(run, repository(spec), intent["key"], spec["creates"]),
+    with {:ok, entries} <-
+           proposal(run, repository(spec), intent["key"], spec["creates"], spec["snapshot"] != nil),
          [relation] <-
            for([r, to] <- (ctx[:parents] || %{})[kind] || [], to == run["subject_kind"], do: r),
          {:ok, made} <-
@@ -945,11 +982,19 @@ defmodule AtlasFlow.Activities.Task do
              run,
              ctx
            ) do
-      {"completed", made}
+      {"completed", proposal_identity(made, spec["creates"]["identity"], run, intent)}
     else
       :no_proposal -> {"stuck", []}
       _ -> :unavailable
     end
+  end
+
+  defp proposal_identity(made, nil, _run, _intent), do: made
+
+  defp proposal_identity(made, field, run, intent) do
+    Enum.with_index(made, fn write, index ->
+      put_in(write, ["content", "values", field], id(run, intent["key"], ["proposal", Integer.to_string(index)]))
+    end)
   end
 
   # A completed task that writes a field of its subject (`writes`): the text of its file,
@@ -1150,7 +1195,7 @@ defmodule AtlasFlow.Activities.Task do
   # small read, once per break-down.
   # Each entry: its title and description, the texts of the creates' `fields` it has, the
   # creates' `values`, and its place in the list in the creates' `order` field.
-  defp proposal(run, repository, task_key, %{"file" => file} = creates) do
+  defp proposal(run, repository, task_key, %{"file" => file} = creates, allow_empty) do
     with {:ok, content} <- result_file(run, repository, task_key, file),
          {:ok, list} <- JSON.decode(content) do
       more = fn e ->
@@ -1161,6 +1206,7 @@ defmodule AtlasFlow.Activities.Task do
       case for %{"title" => t} = e <- List.wrap(list),
                text?(t),
                do: Map.merge(entry(t, e["description"]), more.(e)) do
+        [] when list == [] and allow_empty -> {:ok, []}
         [] -> :no_proposal
         entries -> {:ok, numbered(entries, creates["order"])}
       end

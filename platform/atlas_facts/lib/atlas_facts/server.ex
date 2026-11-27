@@ -50,6 +50,13 @@ defmodule AtlasFacts.Server do
   when what it sets changed meanwhile: with `was` (the values and links the sender read)
   and every field and relation it sets still as it was, it is applied on the current
   version, so a write to other fields (Flow's, a connector's) never fails a user's save.
+  A change may opt into `strict_version: true`: it requires a version and refuses any
+  mismatch, even when the requested values are already present or only other fields
+  changed. Replaying the same request id still returns its recorded ledger answer.
+  A kind may declare `create(replay_identity: :field)`. Fresh creates need not have the
+  field, but an equal existing fact is not proof of a retry without it: that collision
+  refuses with `identity_unproven`. A different fact still refuses with `exists`, and a
+  recorded request id still replays its original answer.
   """
   use GenServer
 
@@ -1502,7 +1509,8 @@ defmodule AtlasFacts.Server do
   defp store(state, kind, spec, op, key, content) do
     values = content["values"] || %{}
 
-    with {:ok, _} <- Description.targets(state.description, kind, content["links"] || %{}) do
+    with :ok <- strict_version(content, op),
+         {:ok, _} <- Description.targets(state.description, kind, content["links"] || %{}) do
       lookup = lookup(state, kind, spec, op, key)
 
       change = %{
@@ -1540,7 +1548,9 @@ defmodule AtlasFacts.Server do
              checked(
                state.model.check(
                  kind,
-                 Map.put(change, "links", own["links"] || %{}),
+                 change
+                 |> Map.put("links", own["links"] || %{})
+                 |> Map.put("guard_values", values),
                  actor,
                  lookup
                )
@@ -1552,8 +1562,13 @@ defmodule AtlasFacts.Server do
             {:error, problems} -> {:refused, problems}
           end
         else
+          guard_version = lookup["guard_version"].()
+          version = content["version"] || guard_version
+
           state
-          |> write(spec, op, key, values, content["version"], targets, content["was"], parts)
+          |> Map.put(:strict_version, content["strict_version"] == true or guard_version != nil)
+          |> Map.put(:replay_identity_missing, replay_identity_missing?(spec, content["values"] || %{}))
+          |> write(spec, op, key, values, version, targets, content["was"], parts)
           |> replace(state, spec, replaced, op, key)
         end
       end
@@ -1561,6 +1576,14 @@ defmodule AtlasFacts.Server do
       {:error, problems} -> {:refused, problems}
     end
   end
+
+  defp strict_version(%{"strict_version" => true} = content, op) do
+    if op == "change" and not is_nil(content["version"]),
+      do: :ok,
+      else: {:error, ["strict version requires a change and a version"]}
+  end
+
+  defp strict_version(_content, _op), do: :ok
 
   defp checked(:ok), do: :ok
   defp checked({:refuse, reasons}), do: {:refused, reasons}
@@ -1573,6 +1596,9 @@ defmodule AtlasFacts.Server do
     current = fn ->
       case Process.get(memo) do
         {:read, fact} ->
+          fact
+
+        {:guarded, fact} ->
           fact
 
         nil ->
@@ -1589,6 +1615,24 @@ defmodule AtlasFacts.Server do
 
     %{
       "current" => current,
+      "guard_current" => fn ->
+        fact = current.()
+
+        case fact do
+          %{"version" => version} when is_binary(version) and version != "" ->
+            Process.put(memo, {:guarded, fact})
+            fact
+
+          _ ->
+            throw({@lookup_failed, {:error, :unavailable}})
+        end
+      end,
+      "guard_version" => fn ->
+        case Process.get(memo) do
+          {:guarded, fact} -> fact["version"]
+          _ -> nil
+        end
+      end,
       "fact" => fn of, at ->
         case Rela.get(state.rela, plural(state, of), at) do
           {:ok, fact} -> fact
@@ -1611,7 +1655,8 @@ defmodule AtlasFacts.Server do
 
   defp current(state, spec, _op, key) do
     case Rela.get(state.rela, spec["plural"], key) do
-      {:ok, fact} -> {:ok, %{"values" => fact.properties, "links" => fact[:links] || %{}}}
+      {:ok, fact} ->
+        {:ok, %{"values" => fact.properties, "links" => fact[:links] || %{}, "version" => fact.version}}
       {:error, :not_found} -> {:ok, nil}
       error -> error
     end
@@ -1638,7 +1683,11 @@ defmodule AtlasFacts.Server do
   defp write(state, spec, op, key, values, version, targets, was, []) do
     if op == "delete",
       do: delete(state, spec, key, version),
-      else: store(state.rela, spec, op, key, values, version, targets, was)
+      else:
+        store(
+          state.rela, spec, op, key, values, version, targets, was,
+          state[:strict_version], state[:replay_identity_missing]
+        )
   end
 
   # A fact with components: they are made first (the fact links to them), and when the fact
@@ -1661,13 +1710,15 @@ defmodule AtlasFacts.Server do
           unmake_parts(state, made)
 
           case error do
-            {:error, :exists} -> resent_create(state.rela, plural, key, values, targets)
+            {:error, :exists} ->
+              resent_create(state.rela, plural, key, values, targets, state[:replay_identity_missing])
             error -> failure(error)
           end
       end
     else
       {:ok, warnings} -> {:refused, warnings}
-      {:error, :exists} -> resent_create(state.rela, plural, key, values, targets)
+      {:error, :exists} ->
+        resent_create(state.rela, plural, key, values, targets, state[:replay_identity_missing])
       {:refused, _} = refused -> refused
       {:refused, _, _} = refused -> refused
       error -> failure(error)
@@ -1692,7 +1743,11 @@ defmodule AtlasFacts.Server do
   end
 
   defp write(state, spec, op, key, values, version, targets, was, _parts),
-    do: store(state.rela, spec, op, key, values, version, targets, was)
+    do:
+      store(
+        state.rela, spec, op, key, values, version, targets, was,
+        state[:strict_version], state[:replay_identity_missing]
+      )
 
   # Made here: `{:ok, [{kind, key}]}`; one there already with the same values is kept and
   # not made again (a resent create).
@@ -1705,7 +1760,10 @@ defmodule AtlasFacts.Server do
           case Rela.create(state.rela, spec["plural"], part, values, %{}) do
             {:ok, []} -> :made
             {:ok, warnings} -> {:refused, warnings}
-            {:error, :exists} -> resent_create(state.rela, spec["plural"], part, values, %{})
+            {:error, :exists} ->
+              resent_create(
+                state.rela, spec["plural"], part, values, %{}, replay_identity_missing?(spec, values)
+              )
             error -> failure(error)
           end
         else
@@ -1727,7 +1785,7 @@ defmodule AtlasFacts.Server do
 
   defp plural(state, kind), do: get_in(state.description, ["entities", kind, "plural"])
 
-  defp store(rela, spec, "create", key, values, _version, targets, _was) do
+  defp store(rela, spec, "create", key, values, _version, targets, _was, _strict, missing_identity) do
     values = Map.reject(values, fn {_, v} -> v in [nil, ""] end)
     plural = spec["plural"]
 
@@ -1737,13 +1795,13 @@ defmodule AtlasFacts.Server do
       :stored
     else
       {:ok, warnings} -> {:refused, warnings}
-      {:error, :exists} -> resent_create(rela, plural, key, values, targets)
+      {:error, :exists} -> resent_create(rela, plural, key, values, targets, missing_identity)
       error -> failure(error)
     end
   end
 
   # The links of a change replace the relation's keys: a move to another parent.
-  defp store(rela, spec, "change", key, values, version, targets, was) do
+  defp store(rela, spec, "change", key, values, version, targets, was, strict, _missing_identity) do
     values = Map.new(values, fn {k, v} -> {k, if(v == "", do: nil, else: v)} end)
     plural = spec["plural"]
 
@@ -1753,13 +1811,17 @@ defmodule AtlasFacts.Server do
     else
       # The current rela has already stored the change; say so instead of hiding it.
       {:ok, warnings} -> {:refused, ["rela stored it with warnings: " | warnings]}
-      {:error, :version_mismatch} -> changed_meanwhile(rela, plural, key, values, targets, was)
+      {:error, :version_mismatch} when strict ->
+        {:refused, ["#{key} changed meanwhile; open it again"]}
+
+      {:error, :version_mismatch} ->
+        changed_meanwhile(rela, plural, key, values, targets, was)
       {:error, :not_found} -> {:refused, ["#{key} does not exist (any more)"]}
       error -> failure(error)
     end
   end
 
-  defp store(_rela, _spec, op, _key, _values, _version, _targets, _was),
+  defp store(_rela, _spec, op, _key, _values, _version, _targets, _was, _strict, _missing_identity),
     do: {:refused, ["unknown op #{inspect(op)}"]}
 
   defp delete(state, spec, key, version) do
@@ -1798,12 +1860,19 @@ defmodule AtlasFacts.Server do
   defp problems({:error, problems}), do: problems
 
   # A create of an existing id: the same fact sent again (stored), or a clash (refused).
-  defp resent_create(rela, plural, key, values, targets) do
+  defp resent_create(rela, plural, key, values, targets, missing_identity) do
     case Rela.get(rela, plural, key) do
       {:ok, fact} ->
-        if same?(fact, values) and same_links?(fact, targets),
-          do: :stored,
-          else: {:refused, ["#{key} already exists"], "exists"}
+        cond do
+          not (same?(fact, values) and same_links?(fact, targets)) ->
+            {:refused, ["#{key} already exists"], "exists"}
+
+          missing_identity ->
+            {:refused, ["#{key} already exists; its create identity cannot be proven"], "identity_unproven"}
+
+          true ->
+            :stored
+        end
 
       {:error, :not_found} ->
         {:refused,
@@ -1814,6 +1883,13 @@ defmodule AtlasFacts.Server do
 
       error ->
         failure(error)
+    end
+  end
+
+  defp replay_identity_missing?(spec, values) do
+    case get_in(spec, ["create", "replay_identity"]) do
+      nil -> false
+      field -> Map.get(values, field) in [nil, ""]
     end
   end
 

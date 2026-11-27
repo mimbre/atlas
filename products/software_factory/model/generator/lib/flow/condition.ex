@@ -4,9 +4,9 @@ defmodule RelaDSL.Flow.Condition do
   compiled when the model compiles: comparisons of `entity.<field>` with a literal, an
   equality of two fields (`entity.<field> == entity.<other>`, or `!=`: two values that
   must agree, such as the head a status was read for and the head pushed), a
-  parenthesised condition negated (`not (…)`, the negation the pinned rela parses: it has
-  no `!`), then `and`, then `or`, and parentheses. A text outside the grammar does not
-  compile.
+  `entity.<field> == nil` (true for an absent or nil field), a parenthesised condition
+  negated (`not (…)`, the negation the pinned rela parses: it has no `!`), then `and`,
+  then `or`, and parentheses. A text outside the grammar does not compile.
 
   `quoted/2` gives the Elixir code that evaluates a condition on a map of values, so a
   running subflow never parses a condition. A field that is missing makes a comparison
@@ -28,6 +28,7 @@ defmodule RelaDSL.Flow.Condition do
 
   @doc "The fields a condition reads."
   def fields({:field, field}), do: [field]
+  def fields({"missing", inner}), do: fields(inner)
   def fields({"not", inner}), do: fields(inner)
   def fields({_, left, right}), do: Enum.uniq(fields(left) ++ fields(right))
   def fields(_), do: []
@@ -40,6 +41,9 @@ defmodule RelaDSL.Flow.Condition do
     do: quote(do: Map.get(unquote(values), unquote(field), :missing))
 
   defp value({:literal, literal}, _values), do: Macro.escape(literal)
+
+  defp value({"missing", inner}, values),
+    do: quote(do: unquote(value(inner, values)) in [nil, :missing])
 
   defp value({"not", inner}, values),
     do: quote(do: RelaDSL.Flow.Code.negate(unquote(value(inner, values))))
@@ -58,7 +62,7 @@ defmodule RelaDSL.Flow.Condition do
 
   defp tokens(text, acc) do
     case Regex.run(
-           ~r/\A\s*(entity\.[a-zA-Z_][a-zA-Z0-9_]*|'[^'\\]*'|-?\d+(?:\.\d+)?|true\b|false\b|and\b|or\b|not\b|==|!=|>=|<=|>|<|\(|\))/,
+           ~r/\A\s*(entity\.[a-zA-Z_][a-zA-Z0-9_]*|'[^'\\]*'|-?\d+(?:\.\d+)?|true\b|false\b|nil\b|and\b|or\b|not\b|==|!=|>=|<=|>|<|\(|\))/,
            text
          ) do
       [all, token] ->
@@ -104,6 +108,9 @@ defmodule RelaDSL.Flow.Condition do
       _ -> {:error, :unsupported_condition}
     end
   end
+
+  defp comparison(["entity." <> field, "==", "nil" | rest], _),
+    do: {:ok, {"missing", {:field, field}}, rest}
 
   # Two fields agree, or differ: only `==` and `!=`, which hold on any two values.
   defp comparison(["entity." <> field, op, "entity." <> other | rest], _) when op in ~w(== !=),

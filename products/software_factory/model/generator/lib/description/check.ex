@@ -699,10 +699,14 @@ defmodule RelaDSL.Description.Check do
   defp create(ctx, kind, create, path) do
     id = (is_map(create) && create["id"]) || %{}
 
-    keys(create, ~w(ask id defaults producer proposer), path) ++
+    keys(create, ~w(ask id defaults producer proposer replay_identity), path) ++
       Enum.flat_map(List.wrap(is_map(create) && create["ask"]), &field(ctx, kind, &1, path)) ++
       create_producer(ctx, kind, is_map(create) && create["producer"], path ++ ["producer"]) ++
       create_producer(ctx, kind, is_map(create) && create["proposer"], path ++ ["proposer"]) ++
+      if(is_map(create) and Map.has_key?(create, "replay_identity"),
+        do: field(ctx, kind, create["replay_identity"], path ++ ["replay_identity"]),
+        else: []
+      ) ++
       Enum.flat_map((is_map(create) && create["defaults"]) || %{}, fn {name, value} ->
         values(ctx, kind, %{name => [value]}, path ++ ["defaults"])
       end) ++
@@ -978,7 +982,7 @@ defmodule RelaDSL.Description.Check do
 
     keys(
       note,
-      ~w(parent add component set_by limit actions only_target requires_completed_children closes_parent review),
+      ~w(parent add component set_by limit actions only_target requires_completed_children closes_parent review guard),
       path
     ) ++
       if is_map(component) do
@@ -1033,8 +1037,40 @@ defmodule RelaDSL.Description.Check do
         []
       end ++
       only_target(ctx, spec, note["only_target"], path ++ ["only_target"]) ++
+      if(Map.has_key?(note, "guard"),
+        do: relation_guard(ctx, spec, note["guard"], path ++ ["guard"]),
+        else: []
+      ) ++
       actions(ctx, spec, note["actions"] || %{}, path ++ ["actions"])
   end
+
+  defp relation_guard(ctx, spec, guard, path) when is_map(guard) do
+    kind = guard["kind"]
+    equal = guard["equal"]
+
+    keys(guard, ~w(kind equal not_false error), path) ++
+      entity(ctx, kind, path) ++
+      if(kind in (spec["from"] || []),
+        do: [],
+        else: p(path, :guard_kind, [kind], "guard kind must be a source of the relation")
+      ) ++
+      case equal do
+        [left, right] ->
+          field(ctx, kind, left, path) ++ field(ctx, kind, right, path)
+
+        _ ->
+          p(path, :guard_equal, [], "guard equal needs exactly two fields")
+      end ++
+      field(ctx, kind, guard["not_false"], path) ++
+      if((prop(ctx, kind, guard["not_false"]) || %{})["type"] == "boolean",
+        do: [],
+        else: p(path, :guard_boolean, [], "guard not_false needs a boolean field")
+      ) ++
+      if(text?(guard["error"]), do: [], else: p(path, :guard_error, [], "guard needs an error"))
+  end
+
+  defp relation_guard(_ctx, _spec, _guard, path),
+    do: p(path, :guard_shape, [], "guard needs kind, equal, not_false and error")
 
   defp only_target(_ctx, _spec, nil, _path), do: []
 

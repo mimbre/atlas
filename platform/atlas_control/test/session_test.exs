@@ -130,6 +130,74 @@ defmodule AtlasControl.SessionTest do
     use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Contract, channel: :control
   end
 
+  defmodule ReviewedItems do
+    use Shop.Composition,
+      name: "shop-reviewed-items",
+      concepts: [
+        Shop.DecidedWidget,
+        Shop.Part,
+        Shop.Tag,
+        Shop.Member,
+        Shop.Links,
+        Shop.Card,
+        Shop.Runs
+      ],
+      subflows: [Shop.DecidedWidget]
+
+    extend_entity(:widget, page: [items: [relation: :of_widget, empty: [check: "No parts."]]])
+
+    acl(comment: "The shop's flow.")
+    role("shop-flow", read: ["*"], update: [:widget, :run])
+    role("checker", read: ["*"], update: [:widget])
+    assign("system:shop", "shop-flow")
+  end
+
+  test "an answer is refused when its page's items read fails" do
+    port = gateway(ReviewedItems)
+    FakeStore.put("W-1", %{"title" => "One"}, "widget", %{"card" => ["C-W-1"]})
+    FakeStore.put("C-W-1", %{"of" => "W-1", "step" => "check"}, "card", %{"held_by" => ["ada"]})
+    reviewing("C-W-1", ["ada"])
+    FakeStore.put("ada", %{"name" => "Ada"}, "member")
+    Application.put_env(:atlas_control, :tui_user, "ada")
+    on_exit(fn -> Application.delete_env(:atlas_control, :tui_user) end)
+
+    {:ok, tui} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+    on_exit(fn -> :gen_tcp.close(tui) end)
+
+    put(tui, %{
+      "op" => "hello",
+      "env" => "test",
+      "client" => "tui",
+      "spec" => AtlasControl.Blocks.version()
+    })
+
+    next(tui, "page")
+
+    FakeStore.fail_list_reads("part")
+    put(tui, %{"op" => "open", "to" => "/k/widget/W-1"})
+    page = next(tui, "page")
+
+    assert %{"props" => %{"empty" => "List unavailable."}} =
+             Enum.find(page["blocks"], &(&1["id"] == "items"))
+
+    refute Enum.any?(page["blocks"], &(&1["id"] == "answers"))
+
+    put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/answer/a", "values" => %{}})
+
+    assert %{
+             "reason" => "refused",
+             "refused" => ["The items could not be read. Try again before answering."]
+           } =
+             next(tui, "page")
+
+    assert FakeStore.sent() == []
+
+    FakeStore.fail_list_reads(nil)
+    put(tui, %{"op" => "submit", "to" => "/k/widget/W-1/answer/a", "values" => %{}})
+    assert %{"reason" => "stored"} = next(tui, "page")
+    assert List.last(FakeStore.sent())["values"] == %{"state" => "final"}
+  end
+
   test "exact fact reads preserve named values and links for evidence", %{port: port} do
     FakeStore.put("W-01", %{"title" => "A", "done" => false}, "widget", %{"made_by" => ["M-1"]})
     socket = client(port)

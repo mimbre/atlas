@@ -62,6 +62,12 @@ defmodule Model.UseCase do
       set_by: :connector
     )
 
+    field(:proposal_id, :string,
+      unique: true,
+      set_by: [:flow],
+      description: "Flow: the task and proposal entry that created this use case"
+    )
+
     field(:status, :plan_status, description: "Flux group; empty = no group", label: "Flux group")
 
     field(:design, :string,
@@ -134,7 +140,8 @@ defmodule Model.UseCase do
     create(
       ask: [:title, :description],
       defaults: [status: :refine, phase: :break_down],
-      producer: :produced_by
+      producer: :produced_by,
+      replay_identity: :proposal_id
     )
 
     progress(over: :in_use_case, field: :stage, own: :status)

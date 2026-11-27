@@ -979,13 +979,19 @@ defmodule AtlasControl.Session do
     viewer = %{key: state.by, kind: state.by_kind, assists: viewer(state).assists}
     state = %{state | route: route, form: Map.put(state.form, :values, raw)}
 
-    case Pages.declared_answer(state.model, kind, name, answers, viewer(state)) do
-      %{hand_over: true, choices: %{}} = answer ->
-        delegation = Pages.delegation(state.model, kind, answer, answers, viewer(state))
-        delegate(delegation, route, kind, key, item, viewer, raw, state)
+    case Pages.items_problem(state.model, kind, answers) do
+      nil ->
+        case Pages.declared_answer(state.model, kind, name, answers, viewer(state)) do
+          %{hand_over: true, choices: %{}} = answer ->
+            delegation = Pages.delegation(state.model, kind, answer, answers, viewer(state))
+            delegate(delegation, route, kind, key, item, viewer, raw, state)
 
-      _ ->
-        answer(route, kind, key, name, item, viewer, raw, state)
+          _ ->
+            answer(route, kind, key, name, item, viewer, raw, state)
+        end
+
+      problem ->
+        not_sent(state, route, [problem])
     end
   end
 
@@ -1131,7 +1137,14 @@ defmodule AtlasControl.Session do
   defp answer(route, kind, key, name, item, viewer, raw, state) do
     with {:write, answer} <- state.model.module.answer(kind, name, item, viewer),
          {:ok, content, cause} <-
-           AtlasControl.Answers.change(answer, key, state.by, raw["note"], DateTime.utc_now()) do
+           AtlasControl.Answers.change(
+             answer,
+             key,
+             state.by,
+             raw["note"],
+             DateTime.utc_now(),
+             get_in(item, ["fact", "version"])
+           ) do
       put_fact(%{state | cause: cause}, kind, content, {:item, kind, key})
     else
       {:refuse, why} -> not_sent(state, route, [why])

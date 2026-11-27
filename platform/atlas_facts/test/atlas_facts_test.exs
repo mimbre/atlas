@@ -4,6 +4,19 @@ defmodule AtlasFactsTest do
   alias AtlasBus.Envelope
   alias AtlasFacts.FakeRela
 
+  defmodule ReplayIdentity do
+    use AtlasFacts.TestModel,
+      description:
+        AtlasFacts.Workshop.Description.with(%{
+          "entities" => %{
+            "widget" => %{
+              "create" => %{"replay_identity" => "proposal_id"},
+              "properties" => %{"proposal_id" => %{"type" => "string"}}
+            }
+          }
+        })
+  end
+
   @moduletag :tmp_dir
 
   setup %{tmp_dir: dir} do
@@ -55,6 +68,42 @@ defmodule AtlasFactsTest do
 
     assert {"stored", _, 2} = fact("create", "W-2", %{"title" => "Two"})
     assert %{"W-1" => {%{"title" => "One", "shade" => "dark"}, _}} = FakeRela.facts(rela)
+  end
+
+  test "identity-protected creates distinguish recorded replay, ambiguous equality and collision", %{
+    rela: rela,
+    dir: dir
+  } do
+    restart(rela, dir, ReplayIdentity)
+    request = Envelope.new("fact", "widget")
+    content = %{"op" => "create", "key" => "W-1", "values" => %{"title" => "Legacy"}}
+
+    assert {"stored", _, _} = stored = send_and_wait(request, content)
+    assert send_and_wait(request, content) == stored
+    restart(rela, dir, ReplayIdentity)
+    assert send_and_wait(request, content) == stored
+    assert {"refused", %{"code" => "identity_unproven"}, nil} =
+             send_and_wait(Envelope.new("fact", "widget"), content)
+    assert {"refused", %{"code" => "exists"}, nil} =
+             send_and_wait(Envelope.new("fact", "widget"), put_in(content, ["values", "title"], "Other"))
+    assert {%{"title" => "Legacy"}, _} = FakeRela.facts(rela)["W-1"]
+  end
+
+  test "a create committed before its ledger answer needs a matching identity to replay", %{
+    rela: rela,
+    dir: dir
+  } do
+    FakeRela.serve(rela, ReplayIdentity)
+    assert {:ok, []} = FakeRela.create(rela, "widgets", "W-1", %{"title" => "Legacy"}, %{})
+    assert {:ok, []} =
+             FakeRela.create(rela, "widgets", "W-2", %{"title" => "New", "proposal_id" => "P-1"}, %{})
+    restart(rela, dir, ReplayIdentity)
+
+    assert {"refused", %{"code" => "identity_unproven"}, nil} =
+             fact("create", "W-1", %{"title" => "Legacy"})
+    assert {"stored", _, _} = fact("create", "W-2", %{"title" => "New", "proposal_id" => "P-1"})
+    assert {"refused", %{"code" => "exists"}, nil} =
+             fact("create", "W-2", %{"title" => "New", "proposal_id" => "P-2"})
   end
 
   test "model-derived complete offer history is stored with the edit and refuses rewriting", %{
@@ -199,6 +248,54 @@ defmodule AtlasFactsTest do
              fact("change", "W-1", %{"title" => "Three"}, version: version)
 
     assert {%{"title" => "Two"}, _} = FakeRela.facts(rela)["W-1"]
+  end
+
+  test "strict changes replay only the same request and refuse an identical independent write", %{
+    rela: rela
+  } do
+    assert {"stored", _, _} = fact("create", "W-1", %{"title" => "One"})
+    %{"fact" => %{"version" => version}} = read("widget", %{"key" => "W-1"})
+    request = Envelope.new("fact", "widget")
+    content = %{
+      "op" => "change",
+      "key" => "W-1",
+      "values" => %{"title" => "One\nSuggested: A"},
+      "version" => version,
+      "strict_version" => true
+    }
+
+    assert {"stored", _, _} = first = send_and_wait(request, content)
+    after_first = FakeRela.facts(rela)["W-1"]
+    assert send_and_wait(request, content) == first
+    assert FakeRela.facts(rela)["W-1"] == after_first
+
+    assert {"refused", %{"reasons" => ["W-1 changed meanwhile; open it again"]}, nil} =
+             send_and_wait(Envelope.new("fact", "widget"), content)
+    assert FakeRela.facts(rela)["W-1"] == after_first
+  end
+
+  test "a strict change requires a version and refuses even an unrelated intervening write", %{
+    rela: rela
+  } do
+    assert {"stored", _, _} =
+             fact("create", "W-1", %{"title" => "One", "shade" => "light"})
+    %{"fact" => %{"version" => version}} = read("widget", %{"key" => "W-1"})
+    content = %{
+      "op" => "change",
+      "key" => "W-1",
+      "values" => %{"title" => "One\nSuggested: A"},
+      "was" => %{"title" => "One"},
+      "version" => version,
+      "strict_version" => true
+    }
+
+    assert {"refused", %{"reasons" => [_ | _]}, nil} =
+             send_and_wait(Envelope.new("fact", "widget"), Map.delete(content, "version"))
+    assert {"stored", _, _} = fact("change", "W-1", %{"shade" => "dark"})
+    before = FakeRela.facts(rela)["W-1"]
+    assert {"refused", %{"reasons" => ["W-1 changed meanwhile; open it again"]}, nil} =
+             send_and_wait(Envelope.new("fact", "widget"), content)
+    assert FakeRela.facts(rela)["W-1"] == before
   end
 
   # IS-Atlas-84: rela lists no versions, so a fact Facts loaded at start had none, and an
