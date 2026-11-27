@@ -282,6 +282,7 @@ struct PrismActionButton: View {
 struct AnswersView: View {
     let block: AnswersBlock
     var toolbar = false
+    var followsCardsBeforeDetails = false
     let act: (ActionModel) -> Void
     @Environment(\.pendingAction) private var pending
     @Environment(\.colorScheme) private var scheme
@@ -304,7 +305,7 @@ struct AnswersView: View {
         .textSelection(.disabled)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Prism.Spacing.px15)
-        .padding(.bottom, Prism.Spacing.px10)
+        .padding(.bottom, followsCardsBeforeDetails ? Prism.Spacing.px22 : Prism.Spacing.px10)
     }
 
     /// The answers the page shows: all of them, or on the opened item (`toolbar`) those

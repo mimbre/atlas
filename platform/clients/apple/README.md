@@ -22,7 +22,8 @@ the small local development bundle helper below provides Finder/Dock launch befo
 
 Toolbar actions are icon-only with descriptive tooltips and accessibility labels. On the
 page, explicitly main answers precede secondary answers and have no icon; unweighted
-actions are not promoted merely because they are first.
+actions are not promoted merely because they are first. When a row of answers sits between
+a stack of cards and details below, its lower spacing matches the cards' shadow room above.
 
 ## Build, test, run
 
