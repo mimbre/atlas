@@ -269,7 +269,7 @@ struct PageHeader: View {
     }
 
     private var heading: some View {
-        Text(title).prism(Prism.Typography.title6).accessibilityAddTraits(.isHeader)
+        Text(title).prism(Prism.Typography.title5).accessibilityAddTraits(.isHeader)
     }
 }
 

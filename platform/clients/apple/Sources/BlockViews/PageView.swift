@@ -60,7 +60,9 @@ public struct PageView: View {
             HStack(alignment: .top, spacing: 0) {
                 list(main).frame(width: columns.page)
                 ScrollView {
-                    detailsView(details).padding(.vertical, Prism.Spacing.px10)
+                    detailsView(details)
+                        .padding(.top, Prism.Spacing.px22)
+                        .padding(.bottom, Prism.Spacing.px10)
                 }
                 .contentMargins(.bottom, Prism.Spacing.px30, for: .scrollContent)
                 .frame(width: width)
@@ -169,8 +171,9 @@ public struct PageView: View {
 
     private func detailsContent(_ details: PagePresentation.Details, inCard: Bool) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-            Text(details.title).prism(Prism.Typography.label)
+            Text(details.title).prism(Prism.Typography.title6)
                 .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, inCard ? 0 : Prism.Spacing.px15)
             ForEach(details.groups) { group in
                 switch group {
                 case .entry(let entry): entryView(entry, inDetails: inCard)
@@ -285,12 +288,14 @@ public struct PageView: View {
             DisclosureGroup(isExpanded: expansion(section)) {
                 blocks(section, inDetails: inDetails).padding(.top, Prism.Spacing.px10)
             } label: {
-                Text(section.title).prism(Prism.Typography.label)
+                Text(section.title).prism(Prism.Typography.title6)
+                    .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
             }
         } else {
             VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-                Text(section.title).prism(Prism.Typography.label)
+                Text(section.title).prism(Prism.Typography.title6)
                     .accessibilityAddTraits(.isHeader)
+                    .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
                 Divider()
                 blocks(section, inDetails: inDetails)
             }

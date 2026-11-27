@@ -1,7 +1,6 @@
 defmodule AtlasTui.ColumnsSidebarTest do
   @moduledoc """
-  From 290 cells the tabs leave the bar for a sidebar column left of the list; from 210 the
-  tab bar has a row of the active tab's groups (docs/design/clients.md, Layout A).
+  From 290 cells the top-level tabs stand in a sidebar; filters stay on the list.
   """
   use ExUnit.Case, async: true
 
@@ -97,11 +96,11 @@ defmodule AtlasTui.ColumnsSidebarTest do
     refute text =~ "▸ Assigned to you"
     refute text =~ "┌"
 
-    # Per section its tabs, each with its count, its groups indented under it.
+    # Only top-level destinations appear in the sidebar.
     assert text =~ ~r/^  Work +│/mu
     assert text =~ ~r/^  › Assigned to you +3 ?│/mu
     assert text =~ ~r/^    Supervised by you +5 ?│/mu
-    assert text =~ ~r/^      Decisions +2 ?│/mu
+    refute text =~ "Decisions"
     assert text =~ ~r/^  Browse +│/mu
     assert text =~ ~r/^    Widgets +│/mu
 
@@ -124,26 +123,8 @@ defmodule AtlasTui.ColumnsSidebarTest do
     assert Columns.focus(model) == :sidebar
     assert screen(model, 300) =~ ~r/^  › Supervised by you +5 ?│/mu
 
-    # A group opens as its tab does, and becomes the list.
-    {model, [{:send, %{"op" => "open", "to" => "/_supervised/decide/open"}}]} =
-      Model.key(model, :down)
-
-    model = open_list(model, "/_supervised/decide/open", "Decisions", ["W-3"])
-    assert model.columns.list == "/_supervised/decide/open"
-    assert screen(model, 300) =~ ~r/^  ›   Decisions +2 ?│/mu
-
     {model, []} = Model.key(model, :right)
     assert Columns.focus(model) == :list
-  end
-
-  test "from 210 to 289 the tab bar has a row of the active tab's groups, with their counts" do
-    model = wide(220)
-    {model, [{:send, %{"op" => "open", "to" => "/_supervised"}}]} = Model.key(model, :tab)
-    model = open_list(model, "/_supervised", "Supervised by you", ["W-3"])
-
-    assert screen(model, 220) =~ ~r/│   Decisions 2 · To-Dos 3 +│\n└/u
-    model = put_in(model.console.viewport, {209, 40})
-    refute screen(model, 209) =~ "Decisions 2"
   end
 
   # The supervised list as Control sends it: its groups line, then a titled list.
@@ -158,7 +139,17 @@ defmodule AtlasTui.ColumnsSidebarTest do
     page = %{
       list("/_supervised", "Supervised by you", ["W-3"])
       | "blocks" => [
-          %{"id" => "groups", "type" => "groups", "props" => %{"groups" => groups}},
+          %{
+            "id" => "groups",
+            "type" => "groups",
+            "props" => %{
+              "groups" => groups,
+              "actions" => [
+                %{"key" => "]", "label" => "Next group", "to" => "/_supervised/decide/open"},
+                %{"key" => "[", "label" => "Previous group", "to" => "/_supervised/todo/open"}
+              ]
+            }
+          },
           %{"id" => "list", "type" => "list", "props" => %{"title" => "Design", "rows" => rows}}
         ]
     }
@@ -168,18 +159,54 @@ defmodule AtlasTui.ColumnsSidebarTest do
     model
   end
 
-  test "with the group row under the tab bar, the list column leaves out its own groups" do
-    model = wide(250)
-    {model, [{:send, %{"op" => "open", "to" => "/_supervised"}}]} = Model.key(model, :tab)
-    model = grouped(model)
+  test "filters appear once in the list at every column width" do
+    for width <- [160, 220, 250, 300] do
+      model = wide(width)
+      {model, [{:send, %{"op" => "open", "to" => "/_supervised"}}]} = Model.key(model, :tab)
+      text = screen(grouped(model), width)
+      assert length(Regex.scan(~r/\[Decisions 2\]/u, text)) == 1
+      assert text =~ "[To-Dos 3]"
+    end
+  end
 
-    text = screen(model, 250)
-    assert length(Regex.scan(~r/Decisions 2/u, text)) == 1
-    assert text =~ ~r/│   Decisions 2 · To-Dos 3 +│\n└/u
+  test "group bindings work from the list beside an open page at each column width" do
+    for width <- [160, 220, 300],
+        {key, to} <- [
+          {"]", "/_supervised/decide/open"},
+          {"[", "/_supervised/todo/open"}
+        ] do
+      model = wide(width)
+      {model, [{:send, %{"op" => "open", "to" => "/_supervised"}}]} = Model.key(model, :tab)
+      model = grouped(model)
+      assert Columns.focus(model) == :list
+      assert {_, [{:send, %{"op" => "open", "to" => ^to}}]} = Model.key(model, {:char, key})
+    end
+  end
 
-    # Narrower, no group row: the list column keeps its line.
-    model = put_in(model.console.viewport, {160, 40})
-    assert length(Regex.scan(~r/Decisions 2/u, screen(model, 160))) == 1
+  test "group bindings remain available in a narrow single column" do
+    page = list("/_supervised", "Supervised by you", ["W-3"])
+
+    groups = %{
+      "id" => "groups",
+      "type" => "groups",
+      "props" => %{
+        "groups" => [
+          %{"label" => "Decisions", "count" => 2, "to" => "/_supervised/decide/open"},
+          %{"label" => "To-Dos", "count" => 3, "to" => "/_supervised/todo/open"}
+        ],
+        "actions" => [
+          %{"key" => "]", "label" => "Next group", "to" => "/_supervised/decide/open"},
+          %{"key" => "[", "label" => "Previous group", "to" => "/_supervised/todo/open"}
+        ]
+      }
+    }
+
+    model = ConsoleProjectionFixture.model(%{page | "blocks" => [groups | page["blocks"]]})
+    model = put_in(model.console.viewport, {48, 24})
+
+    for {key, to} <- [{"]", "/_supervised/decide/open"}, {"[", "/_supervised/todo/open"}] do
+      assert {_, [{:send, %{"op" => "open", "to" => ^to}}]} = Model.key(model, {:char, key})
+    end
   end
 
   test "a list's group heading is plain: bold title, dim count, no box lines" do
