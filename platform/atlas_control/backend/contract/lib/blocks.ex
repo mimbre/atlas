@@ -46,8 +46,10 @@ defmodule AtlasBFFContract.Blocks do
       # UTC) how long ago that was, which a client shows after the text ("· 3h ago") and
       # keeps current. `role` error: something went wrong (what a client shows in Prism's
       # error, a tinted card or a red frame).
+      # `format` markdown opts into Markdown; absent or unknown formats are plain text.
       defblock :text do
         field :text, :string, required: true
+        field :format, :string
         field :label, :string
         field :since, :string
         field :role, :string

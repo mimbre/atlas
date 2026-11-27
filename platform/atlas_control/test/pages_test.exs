@@ -788,6 +788,28 @@ defmodule AtlasControl.PagesTest do
            }
   end
 
+  test "formatted fields remain in the item for older clients" do
+    notes = "# Heading\n\n- one\n- two"
+    answer = %{"fact" => fact("W-01", %{"title" => "One", "notes" => notes})}
+
+    catalog = fn format ->
+      update_in(@d, [:kinds, "widget", :fields], fn fields ->
+        Enum.map(fields, fn field ->
+          if field.name == "notes", do: Map.put(field, :format, format), else: field
+        end)
+      end)
+    end
+
+    for format <- ["markdown", nil, "future-format"] do
+      %{blocks: blocks} = render({:item, "widget", "W-01"}, catalog.(format), [answer])
+      item = Enum.find(blocks, &(&1["id"] == "item"))
+      pair = Enum.find(item["props"]["fields"], &(&1["label"] == "Notes"))
+      assert pair["value"] == notes
+      assert pair["format"] == format
+      if is_nil(format), do: refute(Map.has_key?(pair, "format"))
+    end
+  end
+
   test "a field only a connector fills shows on the page only when it has a value" do
     labels = fn values ->
       %{blocks: [%{"props" => item} | _]} =

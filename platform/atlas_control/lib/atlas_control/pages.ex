@@ -2443,14 +2443,26 @@ defmodule AtlasControl.Pages do
 
             content =
               [{"header", header}] ++
-                if(text == "", do: [], else: [{"intro", Blocks.text(text: text)}]) ++
+                if(text == "",
+                  do: [],
+                  else: [
+                    {"intro",
+                     Blocks.text(text: text, format: Map.get(field(k, intro) || %{}, :format))}
+                  ]
+                ) ++
                 for(
                   name <- List.wrap(spec["sections"]),
                   f = field(k, name),
                   f != nil,
                   value = fact["values"][name],
                   value not in [nil, ""],
-                  do: {"section-" <> name, Blocks.text(label: f.label, text: to_text(value))}
+                  do:
+                    {"section-" <> name,
+                     Blocks.text(
+                       label: f.label,
+                       text: to_text(value),
+                       format: Map.get(f, :format)
+                     )}
                 ) ++
                 todo_blocks ++
                 for({id, {_title, list}} <- primary, do: {id, list}) ++
@@ -3945,7 +3957,13 @@ defmodule AtlasControl.Pages do
 
       # A field only a connector or the system fills shows only once it has a value.
       if f.name not in made and (f.settable or value not in [nil, ""]),
-        do: [Blocks.pair(label: f.label, value: show(f, value) <> late(k, fact, f.name))],
+        do: [
+          Blocks.pair(
+            label: f.label,
+            value: show(f, value) <> late(k, fact, f.name),
+            format: Map.get(f, :format)
+          )
+        ],
         else: []
     end)
   end
