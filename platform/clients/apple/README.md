@@ -20,6 +20,10 @@ forms (S4), `ConsoleKit` (S5), `WorkerViews` (S6), the agent (S7), and the launc
 Xcode app target and signing (S8). The macOS app is built as a SwiftPM executable;
 the small local development bundle helper below provides Finder/Dock launch before S8.
 
+The Mac sidebar contains only top-level destinations. The current index page's Control
+`groups` are selectable Prism-styled pills above its list, with their counts and a
+horizontally scrollable layout when they do not fit.
+
 Toolbar actions are icon-only with descriptive tooltips and accessibility labels. On the
 page, explicitly main answers precede secondary answers and have no icon; unweighted
 actions are not promoted merely because they are first. When a row of answers sits between

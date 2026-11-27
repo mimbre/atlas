@@ -2,49 +2,30 @@ import ControlSession
 import Prism
 import SwiftUI
 
-/// One row of the sidebar: a tab (with its icon, and its fold when it has groups) or a
-/// group under it, in the order boot sent them.
+/// One top-level tab of the sidebar, in the order boot sent it.
 public struct SidebarItem: Identifiable, Equatable, Sendable {
-    /// A tab, by its id, or a group of a tab's page, by its `to`.
     public enum ID: Hashable, Sendable {
         case tab(String)
-        case group(String)
     }
 
     public let id: ID
     public let label: String
-    /// The semantic icon name Control sent: a tab's, or a group's of one kind.
+    /// The semantic icon name Control sent.
     public let icon: String?
     public let count: Int?
     /// Whether the count is what waits for the user.
     public let forYou: Bool
-    /// Whether its groups are shown (a tab with groups); nil for any other row.
-    public let open: Bool?
 
-    public var isGroup: Bool {
-        if case .group = id { true } else { false }
-    }
-
-    /// The rows of one section ("work" or "browse"): each tab, and under a tab that is not
-    /// folded (by id in `folded`) its groups.
-    public static func rows(_ shell: ShellViewModel, section: String, folded: Set<String>) -> [SidebarItem] {
-        shell.tabs.filter { $0.section == section }.flatMap { tab -> [SidebarItem] in
-            let open = !folded.contains(tab.id)
-            let row = SidebarItem(id: .tab(tab.id), label: tab.label, icon: tab.icon, count: tab.count,
-                                  forYou: tab.forYou, open: tab.groups.isEmpty ? nil : open)
-            guard open else { return [row] }
-            return [row] + tab.groups.map {
-                SidebarItem(id: .group($0.to), label: $0.label, icon: $0.icon, count: $0.count, forYou: $0.forYou,
-                            open: nil)
-            }
+    /// The tabs of one section ("work" or "browse").
+    public static func rows(_ shell: ShellViewModel, section: String) -> [SidebarItem] {
+        shell.tabs.filter { $0.section == section }.map { tab in
+            SidebarItem(id: .tab(tab.id), label: tab.label, icon: tab.icon, count: tab.count,
+                        forYou: tab.forYou)
         }
     }
 }
 
-/// The sidebar's look, after Eyra's Next side panel: bold labels, a grey icon per tab (the
-/// selected tab's in primary), a soft grey pill for the selection, counts as round badges
-/// (primary when the count waits for the user, grey for a plain count, none at 0), groups
-/// indented under their tab, one size smaller.
+/// The sidebar's look: bold labels, an icon per tab, a soft selection and count badges.
 public enum SidebarLook {
     public enum Badge: Equatable, Sendable {
         /// What waits for the user: primary.
@@ -86,21 +67,9 @@ public enum SidebarLook {
         }
     }
 
-    /// The fold's chevron column, the icon's, and the space after the icon.
-    static let chevron: CGFloat = 12
     static let icon: CGFloat = 22
     static let iconSpace: CGFloat = 8
 
-    /// How far a row's label starts in from the fold's chevron: past the icon for a tab, by
-    /// as much again for a group, so it sits under its tab's label.
-    public static func indent(group: Bool) -> CGFloat {
-        group ? icon + iconSpace : 0
-    }
-
-    /// A tab's label in Prism's `label` (strong); a group's one size smaller, `labelsmall`.
-    public static func typography(group: Bool) -> PrismTypography {
-        group ? Prism.Typography.labelsmall : Prism.Typography.label
-    }
 
     /// The connection in one word or two, for the sidebar's foot.
     public static func connection(_ mark: StatusViewModel.Mark) -> String {
@@ -142,10 +111,8 @@ public struct SidebarConnection: Equatable {
     }
 }
 
-/// The sidebar: the "Work" and "Browse" sections under eyebrow headings (WORK, BROWSE, as
-/// a card's top line: uppercase, spaced, `labelsmall`, muted), and,
-/// separated at the bottom, the person's name, the environment and the connection. Up and
-/// down move the selection through the rows; a tab's chevron folds its groups.
+/// The top-level tabs in Work and Browse, with the connection in the foot.
+/// Up and down move the selection through the tabs.
 public struct SidebarView: View {
     let work: [SidebarItem]
     let browse: [SidebarItem]
@@ -156,14 +123,13 @@ public struct SidebarView: View {
     let production: Bool
     let connection: SidebarConnection
     let select: (SidebarItem.ID) -> Void
-    let fold: (String, Bool) -> Void
 
     @Environment(\.colorScheme) private var scheme
     @FocusState private var focused: Bool
 
     public init(work: [SidebarItem], browse: [SidebarItem], selection: SidebarItem.ID?, stale: Bool, name: String?,
                 env: String, production: Bool, connection: SidebarConnection,
-                select: @escaping (SidebarItem.ID) -> Void, fold: @escaping (String, Bool) -> Void) {
+                select: @escaping (SidebarItem.ID) -> Void) {
         self.work = work
         self.browse = browse
         self.selection = selection
@@ -173,7 +139,6 @@ public struct SidebarView: View {
         self.production = production
         self.connection = connection
         self.select = select
-        self.fold = fold
     }
 
     public var body: some View {
@@ -211,12 +176,10 @@ public struct SidebarView: View {
                 .padding(.top, 18)
                 .padding(.bottom, 4)
             ForEach(items) { item in
-                SidebarRow(item: item, selected: item.id == selection, stale: stale,
-                           select: {
-                               focused = true
-                               select(item.id)
-                           },
-                           fold: { if case .tab(let id) = item.id { fold(id, item.open == false) } })
+                SidebarRow(item: item, selected: item.id == selection, stale: stale, select: {
+                    focused = true
+                    select(item.id)
+                })
                     .id(item.id)
             }
         }
@@ -232,61 +195,30 @@ public struct SidebarView: View {
     }
 }
 
-/// One row: a tab's fold chevron (a blank of the same width without groups), its icon and
-/// bold label; a group's smaller label, under its tab's. Its badge on the right; the
-/// selection is a soft grey pill.
+/// One tab with its icon, label and count.
 struct SidebarRow: View {
     let item: SidebarItem
     let selected: Bool
     let stale: Bool
     let select: () -> Void
-    let fold: () -> Void
 
     @Environment(\.colorScheme) private var scheme
     @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 0) {
-            Button(action: fold) {
-                Image(systemName: "chevron.right")
-                    .prism(Prism.Typography.caption.emphasis(.strong))
-                    .foregroundStyle(PrismDarkGap.sidebarIcon(scheme, selected: false))
-                    .rotationEffect(.degrees(item.open == true ? 90 : 0))
-                    .frame(width: SidebarLook.chevron)
-            }
-            .buttonStyle(.plain)
-            .opacity(item.open == nil ? 0 : 1)
-            .disabled(item.open == nil)
-            .padding(.trailing, 4)
-            if item.isGroup {
-                // A group of one kind has its kind's icon in its tab's icon column, smaller;
-                // its label stays under its tab's.
-                ZStack {
-                    if let symbol = SidebarLook.symbol(item.icon) {
-                        Image(systemName: symbol)
-                            .prism(Prism.Typography.labelsmall)
-                            .foregroundStyle(PrismDarkGap.sidebarIcon(scheme, selected: selected))
-                    }
-                    Color.clear.frame(width: SidebarLook.icon, height: 1)
+            ZStack {
+                if let symbol = SidebarLook.symbol(item.icon) {
+                    Image(systemName: symbol)
+                        .prism(Prism.Typography.label)
+                        .foregroundStyle(PrismDarkGap.sidebarIcon(scheme, selected: selected))
                 }
-                .frame(width: SidebarLook.icon)
-                .padding(.trailing, SidebarLook.iconSpace)
-            } else {
-                // Without a known icon the column stays (a blank), so the labels line up:
-                // an empty Group takes no room at all, its frame with it.
-                ZStack {
-                    if let symbol = SidebarLook.symbol(item.icon) {
-                        Image(systemName: symbol)
-                            .prism(Prism.Typography.label)
-                            .foregroundStyle(PrismDarkGap.sidebarIcon(scheme, selected: selected))
-                    }
-                    Color.clear.frame(width: SidebarLook.icon, height: 1)
-                }
-                .frame(width: SidebarLook.icon)
-                .padding(.trailing, SidebarLook.iconSpace)
+                Color.clear.frame(width: SidebarLook.icon, height: 1)
             }
+            .frame(width: SidebarLook.icon)
+            .padding(.trailing, SidebarLook.iconSpace)
             Text(item.label)
-                .prism(SidebarLook.typography(group: item.isGroup))
+                .prism(Prism.Typography.label)
                 .foregroundStyle(PrismDarkGap.text(scheme))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -296,12 +228,16 @@ struct SidebarRow: View {
             }
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, item.isGroup ? 6 : 9)
+        .padding(.vertical, 9)
         .background(PrismDarkGap.sidebarPill(scheme, selected: selected, hovering: hovering),
                     in: RoundedRectangle(cornerRadius: 10))
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onTapGesture(perform: select)
         .onHover { hovering = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAction { select() }
         .opacity(stale ? 0.6 : 1)
     }
 }

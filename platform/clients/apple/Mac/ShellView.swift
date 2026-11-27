@@ -58,10 +58,11 @@ struct ShellView: View {
     var body: some View {
         let shell = ShellViewModel(session.state)
         NavigationSplitView(columnVisibility: $visibility) {
-            Sidebar(shell: shell, connection: connection(shell), select: session.selectTab, filter: session.filter)
+            Sidebar(shell: shell, connection: connection(shell), select: session.selectTab)
         } content: {
             Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
-                   act: session.act)
+                   act: session.act, filter: session.filter,
+                   selectedGroup: shell.activeGroup ?? shell.tabs.first(where: { $0.id == shell.activeTab })?.to)
                 .navigationSplitViewColumnWidth(WindowLayout.list)
                 // The list's own actions (Create to-do) above it, quiet icons.
                 .toolbar {
@@ -113,44 +114,24 @@ struct ShellView: View {
     }
 }
 
-/// The tabs, in boot's order, each with its icon and count, under its section's heading;
-/// under every tab with groups, its groups with their counts, folded by the tab's chevron
-/// (the fold is kept per tab), so any group can be chosen from anywhere; at the bottom,
-/// the person, the environment and the connection (`SidebarView`). It scrolls, so it
-/// holds boot's limit of 64.
+/// The top-level tabs, in boot's order, with the person's connection in the foot.
 struct Sidebar: View {
     let shell: ShellViewModel
     let connection: SidebarConnection
     let select: (String) -> Void
-    let filter: (String) -> Void
-
-    /// The tabs whose groups are folded, by id, one per line; kept across launches.
-    @AppStorage("sidebar.foldedTabs") private var folded = ""
 
     var body: some View {
-        let foldedIds = Set(folded.split(separator: "\n").map(String.init))
         SidebarView(
-            work: SidebarItem.rows(shell, section: "work", folded: foldedIds),
-            browse: SidebarItem.rows(shell, section: "browse", folded: foldedIds),
-            selection: shell.activeGroup.map(SidebarItem.ID.group) ?? shell.activeTab.map(SidebarItem.ID.tab),
+            work: SidebarItem.rows(shell, section: "work"),
+            browse: SidebarItem.rows(shell, section: "browse"),
+            selection: shell.activeTab.map(SidebarItem.ID.tab),
             stale: shell.stale, name: shell.name, env: shell.env, production: shell.isProduction,
             connection: connection,
             select: { choice in
-                switch choice {
-                case .tab(let id): select(id)
-                case .group(let to): filter(to)
-                }
-            },
-            fold: fold)
-        // The sidebar's fixed width (`WindowLayout.sidebar`): room for the longest work tab's
-        // label beside its icon, chevron and count without cutting it.
+                if case .tab(let id) = choice { select(id) }
+            })
+        // The sidebar's fixed width leaves room for labels and counts.
         .navigationSplitViewColumnWidth(WindowLayout.sidebar)
-    }
-
-    private func fold(_ id: String, open: Bool) {
-        var ids = folded.split(separator: "\n").map(String.init).filter { $0 != id }
-        if !open { ids.append(id) }
-        folded = ids.joined(separator: "\n")
     }
 }
 
@@ -161,10 +142,17 @@ struct Column: View {
     let selectedPath: String?
     let open: (String) -> Void
     let act: (ActionModel) -> Void
+    var filter: ((String) -> Void)? = nil
+    var selectedGroup: String? = nil
 
     var body: some View {
         if let page {
-            PageView(page: page, header: header, selectedPath: selectedPath, open: open, act: act)
+            VStack(spacing: 0) {
+                if let filter {
+                    GroupFilters(page: page, selected: selectedGroup, filter: filter)
+                }
+                PageView(page: page, header: header, selectedPath: selectedPath, open: open, act: act)
+            }
         } else {
             Color.clear
         }

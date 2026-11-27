@@ -115,7 +115,7 @@ public struct PagePresentation: Sendable, Equatable {
             case .confirm(let confirm): item = .confirm(confirm)
             case .fallback(let fallback): item = .fallback(fallback)
             case .consoleAction: return nil  // the Console's actions: ConsoleKit, S5
-            case .groups: return nil  // the page's groups: the shell's sidebar (ShellViewModel)
+            case .groups: return nil  // The shell renders the index page's filters.
             default: item = .notShown(type: block.type ?? "")
             }
             return (offset, Entry(id: block.id ?? "#\(offset)", item: item))
