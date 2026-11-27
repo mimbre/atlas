@@ -2418,7 +2418,7 @@ defmodule AtlasControl.Pages do
                 do: [],
                 else: [{"answers", answers_block(remaining_next, (todo && todo.answers) || [])}]
 
-            detail_blocks = page_detail_blocks(m, k, spec, item)
+            detail_blocks = page_detail_blocks(m, k, spec, without_page_content(item, k, spec, fact))
 
             content =
               [{"header", header}] ++
@@ -3672,6 +3672,31 @@ defmodule AtlasControl.Pages do
       end)
 
     parent || {:list, kind}
+  end
+
+  defp without_page_content(item, k, spec, fact) do
+    names = [k.primary, get_in(spec, ["intro", "field"]) | List.wrap(spec["sections"])]
+
+    shown =
+      for name <- names,
+          f = field(k, name),
+          f != nil,
+          fact["values"][name] not in [nil, ""],
+          do: f.label
+
+    absent =
+      for group <- List.wrap(spec["details"]),
+          name <- List.wrap(group["fields"]),
+          f = field(k, name),
+          f != nil,
+          fact["values"][name] in [nil, ""],
+          do: f.label
+
+    update_in(item, ["props", "fields"], fn fields ->
+      Enum.reject(fields, fn pair ->
+        pair["label"] in shown or (pair["label"] in absent and is_nil(pair["origin"]))
+      end)
+    end)
   end
 
   # A declared page may group its existing pairs; anything not named stays in the item.
