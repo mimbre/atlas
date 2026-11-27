@@ -250,7 +250,8 @@ defmodule RelaDSL.Facts.Writes do
           Enum.sort(List.wrap(keys)) !=
             Enum.sort(List.wrap(get_in(current.(), ["links", relation]))),
           not named?(by, names),
-          reason = set_by_reason(relation, names, {producer, proposer}, keys, rels, actor, lookup),
+          reason =
+            set_by_reason(relation, names, {producer, proposer}, keys, rels, actor, lookup),
           reason != nil,
           do: reason
 

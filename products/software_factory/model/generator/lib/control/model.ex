@@ -576,7 +576,14 @@ defmodule RelaDSL.Control.Model do
           nil
       end
 
-    %{ask: ask, defaults: %{}, made_from: made_from, decides: decides, producer: nil, proposer: nil}
+    %{
+      ask: ask,
+      defaults: %{},
+      made_from: made_from,
+      decides: decides,
+      producer: nil,
+      proposer: nil
+    }
   end
 
   defp ordered(spec, primary) do
