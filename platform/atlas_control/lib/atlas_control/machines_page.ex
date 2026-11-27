@@ -16,8 +16,8 @@ defmodule AtlasControl.MachinesPage do
   3. `list` `slots`: desired slots with unknown status, and attempts known to be busy;
      the desired configuration is not proof of the Runtime's applied slots;
   4. `list` `queue`: the work waiting for a Runtime, oldest first;
-  5. `list` `finished`: the last #{10} attempts that ended, each with its subject, outcome
-     and duration; one whose subject cannot be found is left out (no hash-only row);
+  5. `list` `finished`: the last #{10} ended or lost attempts with their subject and outcome;
+     duration is shown only when an end time is known, and unknown end times sort last;
   6. `list` `upgrades`: its upgrades, newest first, each with its step;
   7. `answers`: upgrade to the core's build when publication and ancestry are proven;
   8. `actions`: Edit configuration;
@@ -109,9 +109,9 @@ defmodule AtlasControl.MachinesPage do
     end
   end
 
-  defp offer(c, key, runtime) do
-    case upgrades_checked(c, key) do
-      {:ok, upgrades} -> upgrade_offer(runtime, upgrades, c)
+  defp offer(upgrades, runtime, c) do
+    case upgrades do
+      {:ok, facts} -> upgrade_offer(runtime, facts, c)
       {:error, why} -> {:none, why}
     end
   end
@@ -172,10 +172,10 @@ defmodule AtlasControl.MachinesPage do
   defp machine_page(fact, back, c) do
     key = fact["key"]
     runtime = runtime(c, key)
-    upgrades = upgrades(c, key)
+    upgrades = upgrades_checked(c, key)
     attempts = attempts(c, key)
     late = late(runtime, c)
-    offer = offer(c, key, runtime)
+    offer = offer(upgrades, runtime, c)
 
     head = [
       {"header",
@@ -231,7 +231,15 @@ defmodule AtlasControl.MachinesPage do
          empty: "Nothing has finished here yet."
        )},
       {"upgrades",
-       Blocks.list(title: "Upgrades", rows: upgrade_rows(upgrades, c), empty: "No upgrade yet.")}
+       Blocks.list(
+         title: "Upgrades",
+         rows: upgrade_rows(upgrades, c),
+         empty:
+           if(match?({:ok, _}, upgrades),
+             do: "No upgrade yet.",
+             else: "Upgrade status is unknown."
+           )
+       )}
     ]
 
     answers =
@@ -304,7 +312,7 @@ defmodule AtlasControl.MachinesPage do
     name = name(fact, c)
 
     confirm =
-      case offer(c, key, runtime(c, key)) do
+      case offer(upgrades_checked(c, key), runtime(c, key), c) do
         {:ok, from, to} ->
           Blocks.confirm(
             title: "Upgrade #{name} to the core's build?",
@@ -326,7 +334,13 @@ defmodule AtlasControl.MachinesPage do
 
   # A recent poll proves presence, not whether the Runtime accepts work.
   defp state(fact, runtime, c, upgrades \\ nil) do
-    upgrades = upgrades || upgrades(c, fact["key"])
+    case upgrades || upgrades_checked(c, fact["key"]) do
+      {:error, _} -> "Unknown"
+      {:ok, upgrades} -> known_state(runtime, c, upgrades)
+    end
+  end
+
+  defp known_state(runtime, c, upgrades) do
     u = c.n["upgrades"]
 
     case Enum.find(upgrades, &open?(&1, c.n)) do
@@ -504,8 +518,11 @@ defmodule AtlasControl.MachinesPage do
     a = c.n["attempts"]
 
     attempts
-    |> Enum.filter(&text(&1["values"][a["ended"]]))
-    |> Enum.sort_by(&recency(&1["values"][a["ended"]]), :desc)
+    |> Enum.filter(&(text(&1["values"][a["ended"]]) || &1["values"]["state"] == "lost"))
+    |> Enum.sort_by(
+      &{at(&1["values"][a["ended"]]) != nil, recency(&1["values"][a["ended"]]), &1["key"]},
+      :desc
+    )
     |> Enum.flat_map(fn att ->
       case subject(att, c) do
         {:ok, s} -> [{att, s}]
@@ -517,20 +534,31 @@ defmodule AtlasControl.MachinesPage do
       v = att["values"]
       ended = v[a["ended"]]
 
+      outcome =
+        if v["state"] == "lost",
+          do: join(["lost", text(v[a["result"]])]),
+          else: text(v[a["result"]])
+
       Blocks.row(
         id: s.key,
         label: "#{s.key} · #{s.title}",
-        detail: join([text(v[a["result"]]), duration(v[a["started"]], ended)]),
+        detail: join([outcome, duration(v[a["started"]], ended)]),
         to: s.to,
         kind: s.kind_label,
         icon: s.icon,
         since: ended,
-        tone: if(v[a["result"]] in ["completed"], do: "done", else: "attention")
+        tone:
+          if(v["state"] != "lost" and v[a["result"]] == "completed",
+            do: "done",
+            else: "attention"
+          )
       )
     end)
   end
 
-  defp upgrade_rows(upgrades, c) do
+  defp upgrade_rows({:error, _}, _c), do: []
+
+  defp upgrade_rows({:ok, upgrades}, c) do
     u = c.n["upgrades"]
 
     upgrades
@@ -613,13 +641,6 @@ defmodule AtlasControl.MachinesPage do
     case cached(c, {c.n["kind"], key}) do
       %{} = fact -> {:ok, fact}
       nil -> {:error, "No machine #{key}."}
-    end
-  end
-
-  defp upgrades(c, key) do
-    case upgrades_checked(c, key) do
-      {:ok, facts} -> facts
-      {:error, _} -> []
     end
   end
 

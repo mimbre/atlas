@@ -261,6 +261,67 @@ defmodule AtlasFlow.HealthTest do
     assert Health.report(table)["queue"] == []
   end
 
+  test "queue stays unknown until the ready set loads, including after lease recovery" do
+    dir = Path.join(System.tmp_dir!(), "health-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    table = health!()
+    ctx = L.start(dir, health: table)
+
+    L.supervised_task("B-1", "ada")
+    L.supervised_task("B-2", "ada", at: DateTime.add(L.epoch(), 60))
+    :ok = AtlasFlow.Dispatch.resync()
+    assert {:polled, %{leases: [_]}} = WorkSource.poll({"mini", "ada"}, L.poll_input("mini"))
+
+    :ok = stop_supervised(AtlasFlow.Dispatch)
+    runs_read = {:block_read, L.config()["kind"], %{"plain" => true}}
+    leases_read = {:block_read, "task", %{"plain" => true}}
+    :ok = GenServer.call(FakeFacts, runs_read)
+    :ok = GenServer.call(FakeFacts, leases_read)
+    L.start_dispatch(ctx.clock, health: table)
+    :sys.get_state(AtlasFlow.Dispatch)
+    assert Health.report(table)["queue"] == nil
+
+    :ok = GenServer.call(FakeFacts, put_elem(leases_read, 0, :allow_read))
+    :ok = AtlasFlow.Dispatch.sweep()
+    assert Health.report(table)["queue"] == nil
+    :ok = AtlasFlow.Dispatch.resync()
+    assert Health.report(table)["queue"] == nil
+
+    :ok = GenServer.call(FakeFacts, put_elem(runs_read, 0, :allow_read))
+    :ok = AtlasFlow.Dispatch.resync()
+
+    assert [%{"task" => "TK-B-1-1"}, %{"task" => "TK-B-2-1"}] =
+             Health.report(table)["queue"]
+
+    :ok = GenServer.call(FakeFacts, runs_read)
+    :ok = AtlasFlow.Dispatch.resync()
+    assert Health.report(table)["queue"] == nil
+    :ok = GenServer.call(FakeFacts, put_elem(runs_read, 0, :allow_read))
+    :ok = AtlasFlow.Dispatch.resync()
+
+    assert [%{"task" => "TK-B-1-1"}, %{"task" => "TK-B-2-1"}] =
+             Health.report(table)["queue"]
+  end
+
+  test "a failed boot ready read stays unknown when leases loaded at boot" do
+    dir = Path.join(System.tmp_dir!(), "health-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    table = health!()
+    ctx = L.start(dir, health: table)
+    L.supervised_task("B-1", "ada")
+
+    :ok = stop_supervised(AtlasFlow.Dispatch)
+    runs_read = {:block_read, L.config()["kind"], %{"plain" => true}}
+    :ok = GenServer.call(FakeFacts, runs_read)
+    L.start_dispatch(ctx.clock, health: table)
+    :sys.get_state(AtlasFlow.Dispatch)
+    assert Health.report(table)["queue"] == nil
+
+    :ok = GenServer.call(FakeFacts, put_elem(runs_read, 0, :allow_read))
+    :ok = AtlasFlow.Dispatch.resync()
+    assert [%{"task" => "TK-B-1-1"}] = Health.report(table)["queue"]
+  end
+
   test "`_health` is answered over the Bus" do
     endpoint = "flow/health-#{System.unique_integer([:positive])}"
     table = health!(endpoint)

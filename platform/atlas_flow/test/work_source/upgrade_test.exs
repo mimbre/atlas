@@ -86,6 +86,70 @@ defmodule AtlasFlow.WorkSource.UpgradeTest do
     assert nil == poll(build: "b2", incarnation: "inc-2")
   end
 
+  test "an in-progress waiting upgrade follows a restarted old build" do
+    upgrade("RU-01", %{
+      "step" => "waiting",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1",
+      "busy" => "dev1"
+    })
+
+    assert %{action: :drain} =
+             poll(incarnation: "inc-2", report: %{mode: :draining, busy: ["dev1"]})
+
+    assert %{"step" => "waiting", "from_incarnation" => "inc-2"} = values()
+    assert %{action: :update} = poll(incarnation: "inc-2", report: %{mode: :draining})
+
+    assert %{action: :resume} =
+             poll(build: "b2", incarnation: "inc-3", report: %{mode: :draining})
+
+    assert %{"step" => "verifying", "incarnation" => "inc-3"} = values()
+  end
+
+  test "an in-progress draining upgrade reestablishes its report after restart" do
+    upgrade("RU-01", %{
+      "step" => "draining",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1"
+    })
+
+    assert nil == poll(build: "b3", incarnation: "inc-2", report: %{mode: :draining})
+    assert nil == poll(incarnation: "", report: %{mode: :draining})
+    assert values()["from_incarnation"] == "inc-1"
+
+    assert %{action: :drain} = poll(incarnation: "inc-2")
+    assert values()["from_incarnation"] == "inc-2"
+    assert %{action: :update} = poll(incarnation: "inc-2", report: %{mode: :draining})
+  end
+
+  test "a new old-build incarnation is persisted before an update is ordered" do
+    upgrade("RU-01", %{
+      "step" => "draining",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1"
+    })
+
+    :ok = GenServer.call(FakeFacts, {:refuse_write, Upgrade.kind(), "RU-01"})
+    assert nil == poll(incarnation: "inc-2", report: %{mode: :draining})
+    assert %{"step" => "draining", "from_incarnation" => "inc-1"} = values()
+    :ok = GenServer.call(FakeFacts, {:allow_write, Upgrade.kind(), "RU-01"})
+    assert %{action: :update} = poll(incarnation: "inc-2", report: %{mode: :draining})
+    assert %{"step" => "updating", "from_incarnation" => "inc-2"} = values()
+  end
+
+  test "a legacy in-progress drain never starts an already-running update again" do
+    upgrade("RU-01", %{
+      "step" => "draining",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1"
+    })
+
+    assert %{action: :drain} =
+             poll(incarnation: "inc-2", report: %{mode: :draining, update: :running})
+
+    assert %{"step" => "updating", "from_incarnation" => "inc-1"} = values()
+  end
+
   # The Engine passes over the hints of Flow's own writes: Delivery (whose Engine here is
   # the test process) has the upgrade's run reconciled on each step it records, and only then.
   test "each recorded step has the upgrade's run reconciled" do
@@ -183,7 +247,7 @@ defmodule AtlasFlow.WorkSource.UpgradeTest do
     assert %{action: :resume} = poll(report: report)
   end
 
-  test "unreadable Facts keeps an old draining Runtime's failure report alive" do
+  test "unreadable Facts keeps an old draining Runtime's update report alive" do
     upgrade("RU-01", %{
       "step" => "updating",
       "from_build" => "b1",
@@ -196,7 +260,8 @@ defmodule AtlasFlow.WorkSource.UpgradeTest do
     assert %{id: "RU-01", build: "b1", action: :drain} = poll(report: report)
     refute values()["failed_step"]
     assert nil == poll(report: %{mode: :open, update: :failed})
-    assert nil == poll(report: %{mode: :draining, update: :running})
+    assert %{action: :drain} = poll(report: %{mode: :draining, update: :running})
+    assert nil == poll(report: %{mode: :open, update: :running})
     assert nil == poll(build: "", report: report)
     :ok = GenServer.call(FakeFacts, {:allow_read, Upgrade.kind(), query})
     assert %{action: :resume} = poll(report: report)

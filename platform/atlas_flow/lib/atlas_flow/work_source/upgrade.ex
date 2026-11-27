@@ -34,8 +34,8 @@ defmodule AtlasFlow.WorkSource.Upgrade do
   in `updating` or `verifying` with `failed_step` and `reason` until the old build is confirmed open;
   an unsafe or missing Runtime remains pending for its supervisor. A stored write calls
   `stored` with the upgrade's key so Delivery reconciles its run. If Facts is unreadable,
-  an already-draining Runtime reporting a failed update is told to keep draining so even
-  an older Runtime retains the report; other unknown cases receive no order.
+  an already-draining Runtime reporting a running or failed update is told to keep
+  draining so even an older Runtime retains the report; other unknown cases receive no order.
   """
 
   require Logger
@@ -79,14 +79,14 @@ defmodule AtlasFlow.WorkSource.Upgrade do
     end
   end
 
-  # An older Runtime forgets a failed update after a no-order answer. Keep its
-  # already-draining mode and report intact until Facts can record the failure.
+  # An older Runtime forgets its report after a no-order answer. Keep its
+  # already-draining mode and report intact until Facts can read the upgrade.
   defp unavailable(%{
          "build" => build,
          "upgrade" => %{"id" => id, "mode" => "draining", "update" => update}
        })
        when is_binary(build) and build != "" and is_binary(id) and id != "" and
-              update in ["refused", "failed"],
+              update in ["running", "refused", "failed"],
        do: {:serve, %{id: id, build: build, action: :drain}}
 
   defp unavailable(_input), do: :none
@@ -107,9 +107,17 @@ defmodule AtlasFlow.WorkSource.Upgrade do
           changes["step"] == "failed" and present?(values["failed_step"]) ->
             :resume
 
-          values["step"] in ["updating", "verifying"] and failure?(report) and
-            old_runtime?(values, input) and
+          values["step"] in ["draining", "waiting", "updating", "verifying"] and
+            failure?(report) and old_runtime?(values, input) and
               match?(%{"mode" => mode} when mode in ["open", "paused", "draining"], report) ->
+            :drain
+
+          values["step"] in ["draining", "waiting"] and old_runtime?(values, input) and
+              match?(
+                %{"mode" => "draining", "update" => update}
+                when update in ["running", "installed"],
+                report
+              ) ->
             :drain
 
           true ->
@@ -138,19 +146,40 @@ defmodule AtlasFlow.WorkSource.Upgrade do
   end
 
   defp next(step, values, input, report) when step in ["draining", "waiting"] do
-    if old_runtime?(values, input) and input["incarnation"] == values["from_incarnation"] do
-      case report do
-        %{"mode" => "draining", "busy" => [_ | _] = busy} ->
-          {%{"step" => "waiting", "busy" => Enum.join(busy, ", ")}, :drain}
+    cond do
+      not old_runtime?(values, input) ->
+        {%{}, nil}
 
-        %{"mode" => "draining", "busy" => []} ->
-          {%{"step" => "updating", "busy" => ""}, :update}
+      failure?(report) ->
+        {changes, action} = begin_recovery(values, input, report)
+        {Map.put(changes, "step", "updating"), action}
 
-        _ ->
-          {%{}, :drain}
-      end
-    else
-      {%{}, nil}
+      match?(%{"update" => update} when update in ["running", "installed"], report) ->
+        action = if report["mode"] == "draining", do: :drain, else: nil
+        {%{"step" => "updating"}, action}
+
+      is_nil(report) and not is_nil(input["upgrade"]) ->
+        {%{}, nil}
+
+      true ->
+        baseline =
+          if input["incarnation"] == values["from_incarnation"],
+            do: %{},
+            else: %{"from_incarnation" => input["incarnation"]}
+
+        {changes, action} =
+          case report do
+            %{"mode" => "draining", "busy" => [_ | _] = busy} ->
+              {%{"step" => "waiting", "busy" => Enum.join(busy, ", ")}, :drain}
+
+            %{"mode" => "draining", "busy" => []} ->
+              {%{"step" => "updating", "busy" => ""}, :update}
+
+            _ ->
+              {%{}, :drain}
+          end
+
+        {Map.merge(baseline, changes), action}
     end
   end
 

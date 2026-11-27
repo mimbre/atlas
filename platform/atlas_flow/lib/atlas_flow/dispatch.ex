@@ -77,7 +77,8 @@ defmodule AtlasFlow.Dispatch do
   facts stayed live and were never swept: their tasks leased forever.
 
   The health queue is the ready work not held by a known lease; it is updated when the
-  ready set or held leases change, including after parked polls and lease recovery.
+  ready set or held leases change, including after parked polls and lease recovery. It is
+  unknown until leases are recovered and the latest ready-set read succeeds.
 
   Options of `start_link/1`: `name` (default `AtlasFlow.Dispatch`), `model` (default the
   configured one), `clock`, `delivery` (the server fences are cast to, default
@@ -187,6 +188,7 @@ defmodule AtlasFlow.Dispatch do
       sweep_ms: conf[:sweep_ms],
       resync_ms: conf[:resync_ms],
       ready: %{},
+      ready_loaded: false,
       leases: %{},
       parked: %{},
       polls: %{},
@@ -379,7 +381,8 @@ defmodule AtlasFlow.Dispatch do
 
   # The work waiting for a Runtime, for the health table: the ready set less what a lease
   # holds, oldest first.
-  defp note_queue(%{booted: false} = state) do
+  defp note_queue(%{booted: booted, ready_loaded: ready_loaded} = state)
+       when not booted or not ready_loaded do
     AtlasFlow.Health.queue(nil, state.health)
     state
   end
@@ -801,11 +804,11 @@ defmodule AtlasFlow.Dispatch do
             {id, %{l | subject: l.subject || (ready[l.task_key] && ready[l.task_key].subject)}}
           end)
 
-        %{state | ready: ready, leases: leases}
+        %{state | ready: ready, leases: leases, ready_loaded: true}
 
       other ->
         Logger.warning("flow dispatch could not read the runs: #{inspect(other)}")
-        state
+        %{state | ready_loaded: false}
     end
   end
 

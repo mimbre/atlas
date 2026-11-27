@@ -42,7 +42,7 @@ defmodule AtlasControl.MachinesPageTest do
         %{"fact" => Enum.find(benches, &(&1["key"] == key))}
 
       "refit", %{"linked" => %{"refit_of" => _}} ->
-        %{"facts" => refits}
+        if refits == :unavailable, do: %{"error" => "unavailable"}, else: %{"facts" => refits}
 
       "shift", %{"linked" => %{"shift_on" => _}} ->
         %{"facts" => shifts}
@@ -243,6 +243,57 @@ defmodule AtlasControl.MachinesPageTest do
     assert hd(rows)["to"] == "/k/widget/W-12"
   end
 
+  test "lost attempts without an end time follow dated results deterministically and have no duration" do
+    dated =
+      for n <- 1..9 do
+        shift("SH-#{n}", "O-#{n}", %{
+          "began" => "2026-11-27T09:00:00Z",
+          "finished" => "2026-11-27T10:00:00Z",
+          "result" => "completed"
+        })
+      end
+
+    lost =
+      for n <- 10..12 do
+        shift("SH-#{n}", "O-#{n}", %{
+          "began" => "2026-11-27T11:00:00Z",
+          "state" => "lost",
+          "result" => "restart"
+        })
+      end
+
+    rows = props(tab(shifts: lost ++ dated), "finished")["rows"]
+    reversed = props(tab(shifts: Enum.reverse(lost ++ dated)), "finished")["rows"]
+
+    assert Enum.map(rows, & &1["id"]) ==
+             Enum.map(reversed, & &1["id"])
+
+    assert Enum.map(rows, & &1["id"]) ==
+             for(n <- 9..1//-1, do: "W-#{n}") ++ ["W-12"]
+
+    assert List.last(rows)["detail"] == "lost · restart"
+    assert List.last(rows)["tone"] == "attention"
+    assert List.last(rows)["since"] == nil
+
+    assert [row] = props(tab(shifts: [hd(lost)]), "finished")["rows"]
+    assert row["detail"] == "lost · restart"
+    assert row["since"] == nil
+  end
+
+  test "a lost attempt with an end time shows its cause and real duration" do
+    lost =
+      shift("SH-1", "O-1", %{
+        "began" => "2026-11-27T11:00:00Z",
+        "finished" => "2026-11-27T11:04:10Z",
+        "state" => "lost",
+        "result" => "expired"
+      })
+
+    assert [row] = props(tab(shifts: [lost]), "finished")["rows"]
+    assert row["detail"] == "lost · expired · 4 min 10 s"
+    assert row["since"] == "2026-11-27T11:04:10Z"
+  end
+
   test "the queue lists what waits for a Runtime, oldest first, with what it is about" do
     queue = [
       %{
@@ -290,6 +341,29 @@ defmodule AtlasControl.MachinesPageTest do
 
     updating = [refit("RF-02", "develop-bbbbbbbbbbbb", "updating", "2026-11-27T11:00:00Z")]
     assert props(tab(refits: updating), "state")["text"] =~ "Upgrading (RF-02)"
+  end
+
+  test "unavailable upgrades are unknown and cannot be offered or confirmed" do
+    opts = [
+      refits: :unavailable,
+      newest: "develop-bbbbbbbbbbbb",
+      verify: fn _, _ -> true end
+    ]
+
+    page = tab(opts)
+    assert props(page, "state")["text"] == "Unknown · build develop-aaaaaaaaaaaa"
+    assert props(page, "upgrades")["rows"] == []
+    assert props(page, "upgrades")["empty"] == "Upgrade status is unknown."
+    refute block(page, "answers")
+
+    confirm =
+      props(render({:machine_page, :machine_upgrade, %{machine: "mini"}}, opts), "confirm")
+
+    refute Map.has_key?(confirm, "confirm_to")
+    assert confirm["text"] == "Upgrade status is unknown: Facts did not answer."
+
+    list = tab(opts ++ [benches: [bench("mini", "Mac mini"), bench("studio", "Mac Studio")]])
+    assert hd(props(list, "machines")["rows"])["detail"] == "Unknown · build develop-aaaaaaaaaaaa"
   end
 
   test "upgrade is offered only with published newer proof and no upgrade underway" do
