@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run Credo on tracked Elixir snapshots, or compare the index with HEAD."""
 import collections
+import difflib
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import tempfile
 
 TOOL_DIR = Path(__file__).resolve().parent
 EXCLUDED = {"tmp", "deps", "_build", "generated"}
+NO_BASELINE = object()
 
 
 def git(*args, input=None):
@@ -100,6 +102,28 @@ def key(issue):
     return json.dumps(issue, sort_keys=True, ensure_ascii=True)
 
 
+def baseline_line(issue, previous, current, root, mappings):
+    path = os.fsencode(issue["filename"])
+    if path not in previous or path not in current:
+        return NO_BASELINE
+    line = issue["line_no"]
+    if previous[path] == current[path]:
+        return line
+    if not isinstance(line, int) or line < 1:
+        return NO_BASELINE
+    if path not in mappings:
+        old_lines = (root / "head" / os.fsdecode(path)).read_bytes().splitlines(keepends=True)
+        new_lines = (root / "index" / os.fsdecode(path)).read_bytes().splitlines(keepends=True)
+        # shortcut: repeated identical lines can map ambiguously; use syntax-aware matching if needed.
+        blocks = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False).get_matching_blocks()
+        mappings[path] = {
+            new_start + offset + 1: old_start + offset + 1
+            for old_start, new_start, length in blocks
+            for offset in range(length)
+        }
+    return mappings[path].get(line, NO_BASELINE)
+
+
 def main():
     if sys.argv[1:] not in (["all"], ["staged"]):
         raise ValueError("usage: python3 tools/credo/check.py {all|staged}")
@@ -116,10 +140,12 @@ def main():
         new = analyze(current, root / "index")
         if previous is not None:
             old = collections.Counter(key(issue) for issue in analyze(previous, root / "head"))
+            mappings = {}
             introduced = []
             for issue in new:
-                fingerprint = key(issue)
-                if old[fingerprint]:
+                old_line = baseline_line(issue, previous, current, root, mappings)
+                fingerprint = key({**issue, "line_no": old_line}) if old_line is not NO_BASELINE else None
+                if fingerprint is not None and old[fingerprint]:
                     old[fingerprint] -= 1
                 else:
                     introduced.append(issue)

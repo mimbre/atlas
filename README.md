@@ -69,12 +69,12 @@ checks at all priorities, on tracked `.ex` and `.exs` files under `platform/` an
 Untracked files and generated/dependency output are not analyzed. No hook is installed
 by this tooling; Git-agent hook setup must invoke the `staged` command separately.
 
-The baseline is HEAD, not a list of suppressed rules. Findings match only when every
-reported field, including file and line, is identical, with duplicate counts preserved.
-Moving an existing finding or inserting lines above it can therefore block a commit;
-fix it or review the resulting finding rather than treating the gate as a clean baseline.
-Conversely, a new finding indistinguishable from an old one at the same location cannot
-be distinguished. Both snapshots are analyzed in full so cross-file checks have context;
+The baseline is HEAD, not a list of suppressed rules. For unchanged source lines the
+gate maps staged line numbers back to HEAD before comparing all reported fields and
+preserving duplicate counts. A changed line, or a finding without a line in a changed
+file, is treated as new. Repeated identical lines can map ambiguously, and a genuinely
+new finding indistinguishable from a baseline finding at the mapped location cannot be
+distinguished. Both snapshots are analyzed in full so cross-file checks have context;
 this costs more than checking changed files alone. Test the integration with
 `python3 -m unittest tools/credo/test_check.py` after fetching dependencies.
 
