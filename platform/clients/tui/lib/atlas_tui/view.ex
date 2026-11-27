@@ -986,6 +986,30 @@ defmodule AtlasTui.View do
     ) ++ state_line(header, model, width)
   end
 
+  defp block(%TextBlock{} = text, _at, model, width, _room)
+       when is_map_key(text, :format) and :erlang.map_get(:format, text) == "markdown" do
+    label = single_line(text.label)
+
+    label_lines =
+      if label == "", do: [], else: [[{if(text.role == "error", do: :error, else: :dim), label}]]
+
+    inner = if text.role == "error", do: card_width(width), else: max(width - 4, 1)
+    lines = AtlasTui.Markdown.render(text.text || "", inner, &display_width/1)
+
+    since =
+      case age(text.since, model.now || DateTime.utc_now()) do
+        "" -> []
+        "today" -> [[{:dim, "just now"}]]
+        value -> [[{:dim, value <> " ago"}]]
+      end
+
+    if text.role == "error" do
+      card(label_lines ++ lines ++ since, width, :card_error, model)
+    else
+      for line <- label_lines ++ lines ++ since, do: [{:plain, "   "} | line]
+    end
+  end
+
   # What went wrong (`role` error): a card, its label as a heading in the error colour over
   # its text (the label says what it is, not the colour alone).
   defp block(%TextBlock{role: "error"} = text, _at, model, width, _room) do
@@ -1119,22 +1143,30 @@ defmodule AtlasTui.View do
 
         indent = String.duplicate(" ", padding)
         value_width = max(width - padding, 1)
-        [first | rest] = detail_wrap(pair.value || "—", value_width)
+
+        rows =
+          if Map.get(pair, :format) == "markdown" do
+            AtlasTui.Markdown.render(pair.value || "—", value_width, &display_width/1)
+          else
+            Enum.map(detail_wrap(pair.value || "—", value_width), &[text_row(&1)])
+          end
+
+        [first | rest] = if rows == [], do: [[]], else: rows
 
         heading =
           cond do
             bare ->
-              [[{:plain, indent}, text_row(first)]]
+              [[{:plain, indent} | first]]
 
             stacked ->
               prefix = String.duplicate(" ", min(3, max(width - 2, 0)))
 
               Enum.map(detail_wrap(label <> ":", max(width - byte_size(prefix), 1)), fn line ->
                 [{:dim, prefix <> line}]
-              end) ++ [[{:plain, indent}, text_row(first)]]
+              end) ++ [[{:plain, indent} | first]]
 
             true ->
-              [[{:dim, "   " <> cell_pad(label, @label_width)}, text_row(first)]]
+              [[{:dim, "   " <> cell_pad(label, @label_width)} | first]]
           end
 
         origin =
@@ -1142,7 +1174,7 @@ defmodule AtlasTui.View do
               line != "",
               do: [{:plain, indent}, {:dim, line}]
 
-        heading ++ Enum.map(rest, &[{:plain, indent}, text_row(&1)]) ++ origin
+        heading ++ Enum.map(rest, &[{:plain, indent} | &1]) ++ origin
       end)
 
     # An item without a title (the details of a page whose header has it): its fields only.
