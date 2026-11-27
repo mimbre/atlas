@@ -29,6 +29,8 @@ You need a Runtime of yours connected to test, as for any pickup (`docs/guides/a
 
 You need two people of test, A and B, each at their own Console (each the `tui_user` of their own machine; `docs/guides/agent-cli.md`) and each with a Runtime of their own connected to test. Neither needs to be the configured decider, and the case shows most when neither is.
 
+The use case's page shows its description and any Design, notes, questions and answers, followed by its issues and controls. People, progress and other details are grouped separately; a viewer who is not assigned sees the same content but not another person's answers. When Plan has a proposal for its owner to accept, the proposal and its actions remain on the page.
+
 | Step | Who, where | What you should see |
 |---|---|---|
 | Design, by A | A: a scene with a clear description, `atlas do SC-Atlas-NN "Pick up" --env test`, then wait for its task to end | Use cases under the scene. Each one's page shows **Produced by  A**, set by `flow` in the same write that made the use case (its cause: `For A: proposed by TK-SC-Atlas-NN-1 in the break-down of SC-Atlas-NN`). No form offers to set or change it. Each use case is in **Break it down**, open for anyone to pick up. |
