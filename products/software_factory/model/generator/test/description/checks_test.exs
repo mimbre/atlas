@@ -156,20 +156,25 @@ defmodule RelaDSL.Description.ChecksTest do
     assert shape(c) == []
     assert checked(c) == []
     kinds = RelaDSL.Control.Model.kinds(RelaDSL.Control.Model.merge(c.schema, c.extension))
+
     assert Enum.find(kinds, &(&1.name == "thing")).page == %{
              "state" => ["state"],
              "intro" => %{"field" => "title"},
              "sections" => ["title"],
              "items" => %{"relation" => "contains", "empty" => %{"open" => "Nothing yet"}}
            }
+
     assert Enum.find(kinds, &(&1.name == "keeper")).page == nil
 
     assert checked(concept(entity: "page state: [:colour]")) ==
              [{:unknown_field, ["thing", "colour"]}]
+
     assert checked(concept(entity: "page sections: [:colour]")) ==
              [{:unknown_field, ["thing", "colour"]}]
+
     assert checked(concept(entity: "page items: [relation: :kept_by]")) ==
              [{:relation_end, ["kept_by", "to", "thing"]}]
+
     assert checked(concept(entity: "page shape: 3")) == [{:unknown_keys, ["shape"]}]
 
     for declaration <- [

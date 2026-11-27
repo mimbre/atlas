@@ -748,8 +748,9 @@ defmodule AtlasTui.View do
 
         [[] | lines]
       else
-        for line <- list_wrap(single_line(list.aside), width), list.aside not in [nil, ""],
-          do: [{:dim, line}]
+        for line <- list_wrap(single_line(list.aside), width),
+            list.aside not in [nil, ""],
+            do: [{:dim, line}]
       end
 
     now = model.now || DateTime.utc_now()
