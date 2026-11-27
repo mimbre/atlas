@@ -33,6 +33,8 @@ When a details part contains a collapsible section, its disclosure sits outside 
 details card and its revealed blocks keep their own presentation.
 Item pages show a header's optional state and current age beneath its title and a list's
 optional progress aside alongside its heading.
+Overview lists keep their own ground; list rows on opened pages sit on the page background
+as individually shadowed cards, with room for their shadows.
 
 ## Build, test, run
 
