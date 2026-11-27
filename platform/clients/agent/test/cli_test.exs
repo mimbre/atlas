@@ -202,6 +202,46 @@ defmodule AtlasAgent.CLITest do
     refute out =~ "/k/plan/1"
   end
 
+  test "get retains fields and origins from grouped detail blocks", %{control: c} do
+    widget = FakeControl.put(c, "widget", %{"title" => "Grouped"})
+
+    FakeControl.lead(c, widget, [
+      %{
+        "id" => "page-detail-0",
+        "type" => "item",
+        "props" => %{
+          "title" => "Ownership",
+          "fields" => [
+            %{"label" => "Produced by", "value" => "ada", "origin" => %{"cause" => "Created"}}
+          ]
+        }
+      }
+    ])
+
+    {0, out, ""} = atlas(["get", widget, "--json"])
+    item = JSON.decode!(out)
+    assert ["Produced by", "ada"] in item["fields"]
+    assert item["origins"]["Produced by"]["cause"] == "Created"
+    assert item["title"] == "Widget WI-01: Grouped"
+
+    FakeControl.lead(c, widget, [
+      %{"id" => "panel", "type" => "panel", "props" => %{"title" => "Review"}},
+      %{
+        "id" => "panel-detail-0",
+        "type" => "item",
+        "props" => %{
+          "title" => "Review details",
+          "fields" => [%{"label" => "Result", "value" => "ready"}]
+        }
+      }
+    ])
+
+    {0, out, ""} = atlas(["get", widget, "--json"])
+    item = JSON.decode!(out)
+    assert item["title"] == "Widget WI-01"
+    assert ["Result", "ready"] in item["fields"]
+  end
+
   test "get: a to-do's steps first, every step in full, then its answers; unknown lines left out",
        %{control: c} do
     widget = FakeControl.put(c, "widget", %{"title" => "Rotate the key"})
