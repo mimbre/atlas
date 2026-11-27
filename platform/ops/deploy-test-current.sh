@@ -38,8 +38,12 @@ rela_tag="$(jq -er 'if (.Machines | type) == "array" then [.Machines[].image_ref
   fail 'invalid test rela status'
 if [ "$core_tag" = "$rela_tag" ] && [[ "$core_tag" =~ ^develop-([0-9a-f]{40})$ ]]; then
   deployed="${BASH_REMATCH[1]}"
-  if git -C "$root" cat-file -e "$deployed^{commit}" 2>/dev/null; then
-    changed="$(git -C "$root" diff --name-only "$deployed" "$checkout")" ||
+  verified="$(FLY_API_TOKEN="${ATLAS_FLY_TOKEN_RELA:?}" "$fly_bin" ssh console -q -a "$rela_app" \
+    -C "sh -c 'if [ -f /data/test-deploy-verified ]; then cat /data/test-deploy-verified; fi'")" ||
+    fail 'cannot read verified test deployment evidence'
+  verified="${verified//$'\r'/}"
+  if [ "$verified" = "$core_tag" ] && git -C "$root" cat-file -e "$deployed^{commit}" 2>/dev/null; then
+    changed="$(git -C "$root" diff --no-renames --name-only "$deployed" "$checkout")" ||
       fail 'cannot compare deployed and tested trees'
     if ! printf '%s\n' "$changed" | grep -qvE '^($|docs/|skills/|platform/clients/apple/|\.github/)|\.md$'; then
       echo "deploy: test already has the Fly-relevant tree of $checkout ($deployed)"

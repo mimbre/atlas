@@ -62,8 +62,11 @@ with the current authenticated `origin/develop` head. A stale job exits successf
 without any Fly operations; unresolved or inconsistent identities fail closed.
 The current tested head reads both apps' image labels and compares their deployed
 commit's tree with its own, excluding docs, skills, Apple client, CI and Markdown.
-An equivalent paired tree needs no redeploy; unknown or mismatched labels require
-a full paired deploy, and unreadable Fly status fails closed. This comparison is
+An equivalent paired tree is skipped only when `/data/test-deploy-verified` on
+rela records that exact label after manifest checks, cleanup and smoke succeeded.
+Each test deployment invalidates that marker before preflight; held deployments
+cannot recreate it. Unknown or mismatched labels or missing evidence require a
+full paired deploy; unreadable Fly status or evidence fails closed. This comparison is
 inside the slot, so a client-only head also delivers a Fly change whose earlier
 job was skipped as stale. If develop advances after admission, the admitted pair
 finishes normally and the newer head reconciles afterward. Production is unchanged.
