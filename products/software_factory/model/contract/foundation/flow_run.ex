@@ -110,8 +110,10 @@ defmodule Model.FlowRun do
   # Flow's work source leaser and its report receiver (decision 2026-11-17 §6.4, Flow plan
   # decision 11) are the same writer from their own endpoints: they may write Flow's own
   # task fields (the leaser and the receiver) and task_attempt fields (the receiver),
-  # nothing else, and never a run. (Flow's Landing, which published results to Code, was
-  # retired with the package kind: IS-Atlas-100.)
+  # nothing else, and never a run. The receiver (Delivery) also runs the poll's
+  # configuration and upgrade steps, so it writes Flow's machinery fields (IS-Atlas-27) and
+  # runtime_upgrade fields (IS-Atlas-26). (Flow's Landing, which published results to Code,
+  # was retired with the package kind: IS-Atlas-100.)
   flow_runtime(
     runs: :flow_run,
     writer: [sender: :flow, by: :flow],
@@ -119,7 +121,9 @@ defmodule Model.FlowRun do
     supervision: [relation: :supervised_by, operation: :operation, hand_to: :hand_to],
     senders: [
       task: [:"flow/dispatch", :"flow/delivery"],
-      task_attempt: [:"flow/delivery"]
+      task_attempt: [:"flow/delivery"],
+      machinery: [:"flow/delivery"],
+      runtime_upgrade: [:"flow/delivery"]
     ]
   )
 end
