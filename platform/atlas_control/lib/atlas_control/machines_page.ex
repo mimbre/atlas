@@ -58,7 +58,7 @@ defmodule AtlasControl.MachinesPage do
 
   @doc """
   What the confirm of Upgrade to the newest build creates for machine `machine`:
-  `{:ok, kind, values, links}`, the upgrade as a person would put it in under the machine
+  `{:ok, kind, values, links}`, the upgrade as submitted under the machine
   (its build the newest), or `{:refuse, why}` when none is offered now.
   """
   def upgrade(m, machine, read, flow, newest \\ newest_build()) do
