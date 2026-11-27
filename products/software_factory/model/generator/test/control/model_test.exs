@@ -34,6 +34,11 @@ defmodule RelaDSL.Control.ModelTest do
       refute Enum.find(kind("letter").fields, &(&1.name == "gate_result")).settable
     end
 
+    test "field formats pass through from the declaration" do
+      assert Enum.find(kind("letter").fields, &(&1.name == "body")).format == "markdown"
+      assert Enum.find(kind("letter").fields, &(&1.name == "title")).format == nil
+    end
+
     test "the relations that start at a kind, and the fields a flow keeps to itself" do
       assert Enum.map(kind("letter").relations, & &1.name) == ["desk", "replies_to", "written_by"]
       desk = Enum.find(kind("letter").relations, &(&1.name == "desk"))

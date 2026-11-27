@@ -788,6 +788,33 @@ defmodule AtlasControl.PagesTest do
            }
   end
 
+  test "only explicitly Markdown fields become formatted text blocks" do
+    notes = "# Heading\n\n- one\n- two"
+    answer = %{"fact" => fact("W-01", %{"title" => "One", "notes" => notes})}
+
+    catalog = fn format ->
+      update_in(@d, [:kinds, "widget", :fields], fn fields ->
+        Enum.map(fields, fn field ->
+          if field.name == "notes", do: Map.put(field, :format, format), else: field
+        end)
+      end)
+    end
+
+    %{blocks: blocks} = render({:item, "widget", "W-01"}, catalog.("markdown"), [answer])
+    assert %{"type" => "text", "props" => %{"label" => "Notes", "text" => ^notes, "format" => "markdown"}} =
+             Enum.find(blocks, &(&1["id"] == "field:notes"))
+
+    item = Enum.find(blocks, &(&1["id"] == "item"))
+    refute Enum.any?(item["props"]["fields"], &(&1["label"] == "Notes"))
+
+    for format <- [nil, "future-format"] do
+      %{blocks: blocks} = render({:item, "widget", "W-01"}, catalog.(format), [answer])
+      item = Enum.find(blocks, &(&1["id"] == "item"))
+      assert Enum.find(item["props"]["fields"], &(&1["label"] == "Notes"))["value"] == notes
+      refute Enum.any?(blocks, &(&1["id"] == "field:notes"))
+    end
+  end
+
   test "a field only a connector fills shows on the page only when it has a value" do
     labels = fn values ->
       %{blocks: [%{"props" => item} | _]} =

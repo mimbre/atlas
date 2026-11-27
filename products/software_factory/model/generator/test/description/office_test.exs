@@ -42,7 +42,7 @@ defmodule RelaDSL.Description.OfficeTest do
     letter = Office.__rela__({:entity, :letter})
     assert letter.extension["primary"] == "title"
     assert letter.extension["start"] == %{"key" => "l", "label" => "Letters"}
-    assert letter.extension["properties"]["body"] == %{"multiline" => true}
+    assert letter.extension["properties"]["body"] == %{"multiline" => true, "format" => "markdown"}
     assert letter.schema["properties"]["title"]["required"] == true
     assert Office.__rela__({:entity, :nothing}) == nil
     assert Office.__rela__({:relation, :desk}).extension["component"]["key"] == "DK-{key}"

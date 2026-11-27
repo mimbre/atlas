@@ -190,7 +190,13 @@ defmodule AtlasAgent do
              "key" => key,
              "path" => page["path"],
              "title" => item["title"],
-             "fields" => pairs(item["fields"]),
+             "fields" =>
+               pairs(item["fields"]) ++
+                 for(
+                   %{"id" => "field:" <> _, "type" => "text",
+                     "props" => %{"label" => label, "text" => text}} <- page["blocks"] || [],
+                   do: [label, text]
+                 ),
              "origins" => origins,
              "lists" => lists(page),
              "values" => values,
