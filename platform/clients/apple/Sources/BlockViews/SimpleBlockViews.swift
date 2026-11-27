@@ -455,7 +455,7 @@ struct RouteLine: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        FlowLayout(spacing: Prism.Spacing.px6) {
+        FlowLayout(spacing: Prism.Spacing.px6, wrapOversized: true) {
             Text("⌘").foregroundStyle(PrismDarkGap.muted(scheme))
             ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                 HStack(spacing: Prism.Spacing.px6) {
@@ -471,6 +471,7 @@ struct RouteLine: View {
 
     private func label(_ part: String) -> some View {
         Text(part).textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
             .foregroundStyle(PrismDarkGap.routeText(scheme))
             .padding(.horizontal, Prism.Spacing.px6)
             .padding(.vertical, 3)
