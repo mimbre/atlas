@@ -181,9 +181,13 @@ defmodule AtlasAgent do
           _ -> nil
         end)
 
+      heading =
+        header ||
+          if(Enum.any?(page["blocks"] || [], &(&1["type"] == "panel")), do: page["title"])
+
       anchor =
         Enum.find(details, fn {id, _props} -> id == "item" end) ||
-          if(length(details) == 1, do: hd(details), else: if(header, do: {nil, %{}}))
+          if(length(details) == 1, do: hd(details), else: if(heading, do: {nil, %{}}))
 
       case anchor do
         {_, item} ->
@@ -191,8 +195,8 @@ defmodule AtlasAgent do
             for {_id, props} <- details, field <- List.wrap(props["fields"]), do: field
 
           title =
-            if header && (length(details) != 1 or item["title"] in [nil, ""]),
-              do: header || page["title"],
+            if heading && (length(details) != 1 or item["title"] in [nil, "", "Other details"]),
+              do: heading,
               else: item["title"]
 
           # The change form holds the exact values; it answers at its path also for a kind
