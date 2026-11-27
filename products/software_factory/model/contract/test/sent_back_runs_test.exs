@@ -1,7 +1,7 @@
 defmodule Model.SentBackRunsTest do
   @moduledoc """
   Plan's and Design's proposals can be sent back with a note (IS-Atlas-94). In "Accept it"
-  its supervisor answers Not accepted, with a note (a use case's `supervisor_note`, a
+  its supervisor answers Decline, with a note (a use case's `supervisor_note`, a
   scene's `note`): Flow deletes what its agent's proposal made, leaves what was added by
   hand, and takes the run back to its break-down, whose new task reads the note under its
   own heading. A scene too vague to design use cases from goes back the other way first
@@ -97,12 +97,12 @@ defmodule Model.SentBackRunsTest do
     heading: "Its producer's or supervisor's note"
   }
 
-  test "Plan: Not accepted, with a note, discards its issues and Plan runs again with the note",
+  test "Plan: Decline, with a note, discards its issues and Plan runs again with the note",
        c do
     sent_back(c, @plan)
   end
 
-  test "Design: Not accepted, with a note, discards its use cases and Design runs again with the note",
+  test "Design: Decline, with a note, discards its use cases and Design runs again with the note",
        c do
     sent_back(c, @design)
   end
@@ -162,9 +162,9 @@ defmodule Model.SentBackRunsTest do
     end
   end
 
-  # Control's to-do, as the owner of "Accept it" sees it: both answers, and Not accepted
-  # asks for a note, which it writes with the verdict the run goes back on.
-  test "both to-dos offer Accept and Not accepted, which asks for a note" do
+  # Control's to-do, as the owner of "Accept it" sees it: Accept and Decline, which asks
+  # for a note (D-0106: the alternative), written with the verdict the run goes back on.
+  test "both to-dos offer Accept and a decline, which asks for a note" do
     for p <- [@plan, @design] do
       fact = %{
         "key" => p.key,
@@ -194,7 +194,7 @@ defmodule Model.SentBackRunsTest do
                Model.AtlasEyra.todo(p.kind, fact, parts, %{key: "ada", kind: "person"})
 
       assert %{label: "Accept", note: false, change: true} = accept
-      assert %{label: "Not accepted", note: true, change: true} = not_accepted
+      assert %{label: "Decline", note: true, change: true, weight: "decline"} = not_accepted
 
       # What it writes: the verdict the run goes back on, and the note.
       gates = Model.AtlasEyra.__rela__(:gates)

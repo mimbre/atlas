@@ -56,9 +56,10 @@ defmodule AtlasControl.Model do
   @doc """
   Every kind, sorted by name: `%{name, label, plural, icon, about, top, newest_first, primary,
   id, fields, relations, counts, progress, shows_progress, done_label,
-  late, start, agent, delete_error, hidden, presented}` (`presented`: work on its facts is
+  late, start, agent, delete_error, page, hidden, presented}` (`presented`: work on its facts is
   presented, so a read of them asks Facts for their `"presentation"`; `icon`: the kind's
-  semantic icon name, or nil). `id` is `%{prefix,
+  semantic icon name, or nil; `page`: nil, or its page as a stack of simple blocks, as the
+  model writes it: `%{"state", "intro", "items", "details"}`). `id` is `%{prefix,
   digits, first, from, template, prefixes}`; `fields` are in the order pages show them, each
   `%{name, label, type, values, labels, required, hint, settable, set_by, multiline,
   url, cause}`; `relations` are those that start at the kind, sorted by name, each
@@ -97,11 +98,19 @@ defmodule AtlasControl.Model do
   @callback todo(kind :: String.t(), fact :: map, parts :: map, viewer) :: nil | map
 
   @doc """
-  The change the owner's answer `name` writes on `item` (`%{"fact", "parts"}`):
-  `{:write, %{"values", "self", "label", "note"}}`, or `{:refuse, why}`.
+  The change the owner's answer `name` writes on `item` (`%{"fact", "parts"}`), or an
+  answer `offers/4` gives the viewer: `{:write, %{"values", "self", "label", "note",
+  "append", "current"}}` (`append`: lines to add to fields, `{note}` the note; `current`
+  those fields as they are), or `{:refuse, why}`.
   """
   @callback answer(kind :: String.t(), name :: String.t(), item :: map, viewer) ::
               {:write, map} | {:refuse, String.t()}
+
+  @doc """
+  The answers the state of the work on `fact` offers `viewer` whoever owns it: those it
+  gives to whom the fact links (`by:`, its producer), each as `todo/4` gives an answer.
+  """
+  @callback offers(kind :: String.t(), fact :: map, parts :: map, viewer) :: [map]
 
   @doc "The restart a completed run offers to this viewer, or nil."
   @callback restart(kind :: String.t(), fact :: map, parts :: map, viewer, actors :: map) ::

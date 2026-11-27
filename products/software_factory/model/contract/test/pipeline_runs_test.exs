@@ -124,7 +124,7 @@ defmodule Model.PipelineRunsTest do
       to_accept = sent(counted(env, "accept_scene", sent(building), "SC-1", accept, 2, 0))
       assert at(to_accept) == {"to_accept", "active"}
 
-      # Not accepted: the producer's note stays on the scene, and a new round of its
+      # Decline: the producer's note stays on the scene, and a new round of its
       # break-down starts, which this run waits for.
       rejected = Map.merge(accept, %{"verdict" => "reject", "note" => "Add an export"})
       {:ok, rejected_run} = step(env, "accept_scene", to_accept, "SC-1", rejected)

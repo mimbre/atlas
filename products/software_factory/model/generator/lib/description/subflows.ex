@@ -279,20 +279,22 @@ defmodule RelaDSL.Description.Subflows do
       Enum.flat_map(p.answers, fn a ->
         rel = a[:set] || a[:remove] || (a[:change] && a.change[:self])
         values = (a[:change] && a.change[:values]) || %{}
+        appended = (a[:change] && a.change[:append]) || %{}
 
-        if(rel && not from?(schema, rel, kind),
-          do: [
-            here.(
-              problem(
-                :answer_relation,
-                [a[:key], rel],
-                "answer #{a[:key]} names #{rel}, which does not lead from #{kind}"
+        Enum.flat_map(Enum.reject([rel, a[:by]], &is_nil/1), fn rel ->
+          if from?(schema, rel, kind),
+            do: [],
+            else: [
+              here.(
+                problem(
+                  :answer_relation,
+                  [a[:key], rel],
+                  "answer #{a[:key]} names #{rel}, which does not lead from #{kind}"
+                )
               )
-            )
-          ],
-          else: []
-        ) ++
-          for {name, _} <- values,
+            ]
+        end) ++
+          for {name, _} <- Map.to_list(values) ++ Map.to_list(appended),
               not field?(schema, kind, name),
               do:
                 here.(

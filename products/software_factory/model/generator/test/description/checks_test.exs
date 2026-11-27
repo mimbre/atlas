@@ -145,6 +145,34 @@ defmodule RelaDSL.Description.ChecksTest do
     assert checked(concept(entity: "icon 3")) == [{:icon, ["thing"]}]
   end
 
+  test "a kind's page names its fields, the relation whose items it lists and its details" do
+    c =
+      concept(
+        entity:
+          ~s(page state: [:state], intro: [field: :title, context: "Built"], details: [:state, :kept_by])
+      )
+
+    assert checked(c) == []
+    kinds = RelaDSL.Control.Model.kinds(RelaDSL.Control.Model.merge(c.schema, c.extension))
+
+    assert %{"state" => ["state"], "details" => ["state", "kept_by"]} =
+             Enum.find(kinds, &(&1.name == "thing")).page
+
+    assert Enum.find(kinds, &(&1.name == "keeper")).page == nil
+
+    assert checked(concept(entity: "page details: [:colour]")) == [{:page, ["thing", "colour"]}]
+
+    assert checked(concept(entity: "page state: [:colour]")) == [
+             {:unknown_field, ["thing", "colour"]}
+           ]
+
+    # What it lists points at it.
+    assert checked(concept(entity: "page items: [relation: :kept_by]")) ==
+             [{:relation_end, ["kept_by", "to", "thing"]}]
+
+    assert checked(concept(entity: "page shape: 3")) == [{:unknown_keys, ["shape"]}]
+  end
+
   test "each leaf has one author, and each rule is given once" do
     c = concept(entity: "primary :title")
     again = %{kind: :extend_entity, value: {:thing, [primary: :title]}, file: "c.exs", line: 9}

@@ -96,7 +96,10 @@ defmodule AtlasBFFContract.Contract do
   # (`input`'s `shown_when`), and a required choice without a value has nothing chosen
   # until the user chooses: a decision's Delegate (the proposer or someone else) is such
   # a form. A decision's Decline sends no `detail` any more.
-  version "0.41.0"
+  # 0.42.0: a fact's page as a stack of simple blocks, as its kind's `page` declares:
+  # a `header`'s state line (`detail`, `since`), a titled `list` with how far
+  # its items are (`aside`), and a `text` of `role` context (what is already there).
+  version "0.42.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

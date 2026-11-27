@@ -26,6 +26,34 @@ public enum TextLine {
     }
 }
 
+/// How a `text` block shows, by its role: a muted line (none, or a role this app does not
+/// know: shown plainly, D-0105); what went wrong (`error`); or what is already there for
+/// the reader to build on (`context`), a calm card with its label as an eyebrow, not an error.
+public enum TextLook: Sendable, Equatable {
+    case line
+    case error
+    case context
+
+    public static func of(_ block: TextBlock) -> TextLook {
+        switch block.role {
+        case "error": .error
+        case "context": .context
+        default: .line
+        }
+    }
+}
+
+/// A `header` block's state line under its title: its `detail` and how long it has stood
+/// there (`since`, in a row card's compact age: `Break down · Refine · 3d`); nil without a
+/// detail.
+public enum HeaderState {
+    public static func line(_ block: HeaderBlock, now: Date) -> String? {
+        guard let detail = block.detail, !detail.isEmpty else { return nil }
+        guard let age = RowAge.text(since: block.since, now: now) else { return detail }
+        return "\(detail) · \(age)"
+    }
+}
+
 /// An `instruction` block's lines as they are shown: a route as its parts with › between
 /// them, any other line as its text.
 public enum Instruction {
