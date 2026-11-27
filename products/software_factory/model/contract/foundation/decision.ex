@@ -167,7 +167,9 @@ defmodule Model.Decision do
         removed: "decision options cannot be removed or answered without their definition",
         unselected: "select an offered option to decide this decision",
         changed: "the offered decision options changed; open the decision again",
-        selection: "selection must apply exactly one offered option with its decision time"
+        selection: "selection must apply exactly one offered option with its decision time",
+        unworded:
+          "work out each alternative's rule and consequences before proposing the decision again"
       ]
     )
 
@@ -622,8 +624,8 @@ defmodule Model.Decision do
       )
     end
 
-    # Declined with an alternative: its proposer words it among the options and proposes
-    # it again; it returns to its decider.
+    # Declined with an alternative: its proposer works it out among the options (its rule
+    # and consequences) and proposes it again; it returns to its decider.
     state :revising, label: "Revise it" do
       owner via: :assignment, relation: :assigned_to, default: @proposer
 
@@ -631,7 +633,7 @@ defmodule Model.Decision do
         expected: "Revise it with its decider's alternative",
         why: "its decider declined it, with an alternative",
         instructions:
-          "Its decider declined it and gave the alternative below; it is among its options now, as theirs. Word it as you like and set the recommendation (the recommended option first) with Update, then propose it again: it returns to its decider.",
+          "Its decider declined it and gave the alternative below; it is among its options now, as theirs, with its title only. Work it out: give it its rule and consequences (Facts refuses proposing it again before), word it as you like, and set the recommendation (the recommended option first) with Update, then propose it again: it returns to its decider.",
         section: [field: :alternative, label: "Their alternative"],
         answers: [
           [

@@ -307,13 +307,15 @@ struct AnswerButton: View {
 
 /// How an answer looks, by its weight: the main one Prism's `primary`, the decline (`no`
 /// before contract 0.38.0, deprecated) `secondary`, any other `plain`, all in the primary
-/// colour (Prism's default tone). Its label is what Control says a button shows (`button`,
+/// colour (Prism's default tone). A decline with an icon (Decline all under several
+/// alternatives, icon `decline`) is a quiet `plain` button with it; one proposal's Decline
+/// stays `secondary` next to Accept. Its label is what Control says a button shows (`button`,
 /// else `label`): nothing of what follows its click; one asking a note opens the note form.
 public enum AnswerLook {
     public static func of(_ answer: PanelAnswerModel) -> (variant: PrismButtonVariant, tone: PrismButtonTone) {
         switch answer.weight {
         case "main": (.primary, .accent)
-        case "decline", "no": (.secondary, .accent)
+        case "decline", "no": (answer.icon == nil ? .secondary : .plain, .accent)
         default: (.plain, .accent)
         }
     }
@@ -339,8 +341,10 @@ public enum ActionIcon {
         case "hand_over": "person.and.arrow.left.and.arrow.right"
         case "question": "questionmark.bubble"
         case "delegate": "arrow.uturn.backward"
+        case "decline": "xmark.circle"
         case "create": "plus"
         case "open": "arrow.up.right.square"
+        case "faults": "exclamationmark.triangle"
         default: nil
         }
     }

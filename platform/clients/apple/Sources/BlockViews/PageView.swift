@@ -9,15 +9,17 @@ import SwiftUI
 /// in the header, the page's title with them, when `header` is set, else where the page's
 /// container puts them (the window's toolbar). A page with a panel (`hasPanel`) has no
 /// header: the panel names what it is about, and its buttons are the page's actions. A page
-/// with a `header` block (`hasHeader`) has that in place of its own: the page's actions
-/// beside its title. Its `text` and `answers` blocks are on the page too, each `instruction`
-/// and each `option` in a card of its own.
+/// with a `header` block (`hasHeader`) has that in place of its own. Its `text` and
+/// `answers` blocks are on the page too, each `instruction` and each `option` in a card of
+/// its own. The opened item's (`header`) other actions, its `actions` blocks, are not on
+/// the page but in the window's toolbar (`ItemToolbar`, put there by its container) and in
+/// its context menu (`ItemActionsMenu`); another page shows them where Control put them.
 public struct PageView: View {
     let presentation: PagePresentation
     let pageActions: [ActionModel]
-    /// What else can be done with the page's subject (its `actions` blocks): beside its
-    /// title when the page has one on screen (`othersOnTop`), else where Control put them.
-    let otherActions: [ActionModel]
+    /// What else can be done with the opened item (its `actions` blocks): in its context
+    /// menu; none on a page that is no opened item (`header` not set).
+    let itemActions: [ActionModel]
     let header: Bool
     let selectedPath: String?
     let open: (String) -> Void
@@ -31,10 +33,7 @@ public struct PageView: View {
                 act: @escaping (ActionModel) -> Void = { _ in }) {
         presentation = PagePresentation(page)
         pageActions = PageActions.ofPage(page)
-        otherActions = (page.blocks ?? []).flatMap { block -> [ActionModel] in
-            if case .actions(let actions) = block.content { return actions.actions ?? [] }
-            return []
-        }
+        itemActions = header ? PageActions.others(page) : []
         self.header = header
         self.selectedPath = selectedPath
         self.open = open
@@ -61,6 +60,7 @@ public struct PageView: View {
                 ScrollView {
                     detailsView(details).padding(.vertical, Prism.Spacing.px10)
                 }
+                .contentMargins(.bottom, Prism.Spacing.px30, for: .scrollContent)
                 .frame(width: width)
                 Spacer(minLength: 0)
             }
@@ -85,8 +85,7 @@ public struct PageView: View {
             ForEach(lines) { line in
                 switch line.content {
                 case .header:
-                    still(PageHeader(title: presentation.title, actions: pageActions,
-                                     others: othersOnTop ? otherActions : [], act: act))
+                    still(PageHeader(title: presentation.title, actions: pageActions, act: act))
                 case .title(let title):
                     still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.px10))
                 case .empty(let empty):
@@ -110,6 +109,10 @@ public struct PageView: View {
             }
         }
         .listStyle(.inset)
+        .contextMenu { ItemActionsMenu(actions: itemActions, act: act) }
+        // Room after the last block, so its answers and its card's shadow scroll fully into
+        // view at any window height.
+        .contentMargins(.bottom, Prism.Spacing.px30, for: .scrollContent)
         .focused($listFocused)
         // A page of lists (no panel, no details) lies on the list's ground, so its row
         // cards stand out from it; another keeps the system's.
@@ -191,7 +194,7 @@ public struct PageView: View {
                     if !actions.isEmpty {
                         blocks.append(Line(id: group.id + "/actions", content: .actions(actions)))
                     }
-                case .actions where othersOnTop:
+                case .actions where header:
                     break
                 default:
                     blocks.append(Line(id: group.id, content: .entry(entry)))
@@ -200,12 +203,6 @@ public struct PageView: View {
         }
         let own = header && !presentation.hasPanel && !presentation.hasHeader
         return own ? [Line(id: "\u{0}header", content: .header)] + blocks : blocks
-    }
-
-    /// Whether the page's title is on screen (its own header, or a `header` block), so the
-    /// other actions go beside it rather than where their block is.
-    private var othersOnTop: Bool {
-        header && (presentation.hasHeader || !presentation.hasPanel)
     }
 
     /// The page's actions a panel shows at its bottom: on a page with a header, which a
@@ -237,10 +234,13 @@ public struct PageView: View {
             // A view of its own per page: a selection never stays for another page.
             PanelView(block: panel, others: panelActions, open: open, act: act).id(presentation.path)
         case .header(let block):
-            HeaderBlockView(block: block, actions: headerActions, others: othersOnTop ? otherActions : [], act: act)
+            HeaderBlockView(block: block, actions: headerActions, act: act)
         case .text(let text): TextBlockView(block: text)
         case .instruction(let instruction): InstructionView(block: instruction)
         case .answers(let answers): AnswersView(block: answers, act: act)
+        // The opened item's are in the window's toolbar.
+        case .actions where header:
+            EmptyView()
         case .actions(let actions):
             OtherActionsView(actions: actions.actions ?? [], act: act)
                 .frame(maxWidth: .infinity, alignment: .leading)

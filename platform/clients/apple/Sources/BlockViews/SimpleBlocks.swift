@@ -50,6 +50,12 @@ public enum Option {
         block.alone == true ? nil : block.n
     }
 
+    /// What it means, as its card shows it: each field with a value (Rule, Consequences);
+    /// one without (an alternative its proposer has not worked out yet) shows no section.
+    public static func fields(_ block: OptionBlock) -> [PairModel] {
+        (block.fields ?? []).filter { !($0.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
     /// Its answer as the page's actions: on its key, and on `0` for the recommended one.
     /// The only proposal's (`alone`) only on `0`: its key is the page's Accept.
     public static func actions(_ block: OptionBlock) -> [ActionModel] {

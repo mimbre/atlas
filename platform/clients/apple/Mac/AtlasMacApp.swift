@@ -5,7 +5,7 @@ import ControlSession
 import SwiftUI
 
 /// The macOS app (docs/design/apple-clients.md §2, "The shell"): one window with three
-/// columns, the title bar and the status bar. It connects only where its launch arguments
+/// columns and the title bar; the shell's state is in the sidebar's foot. It connects only where its launch arguments
 /// say (`--env`, `--host`, `--port`, from the launcher, §5) or, a release opened from the
 /// Finder, where its bundle says (`AtlasControl`); without either it says how to start it
 /// and asks for nothing. A release updates itself from the feed its bundle names.

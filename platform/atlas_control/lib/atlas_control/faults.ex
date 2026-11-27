@@ -205,8 +205,11 @@ defmodule AtlasControl.Faults do
   def after_run(nil), do: :home
 
   @doc """
-  A browsing page with `! Failures…` added (test only): on its last list or item block, so
-  it comes after all of the page's own actions.
+  A browsing page with `! Failures…` added (test only): last in its `actions` block, what
+  else can be done with the page's subject (icon `faults`), or in one of its own at the
+  page's end when it has none. Never one of the page's own actions: those stand out, and
+  a failure to cause is no next step. A page that shows no list or item (Facts did not
+  answer) gets none.
   """
   def with_action(page, route) do
     to =
@@ -221,23 +224,25 @@ defmodule AtlasControl.Faults do
           nil
       end
 
-    if offered?() and to do
-      [action] =
-        AtlasControl.Pages.page_actions([Blocks.action(label: "Failures…", key: "!", to: to)])
+    if offered?() and to != nil and Enum.any?(page.blocks, &(&1["type"] in ["list", "item"])) do
+      action =
+        Blocks.action(label: "Failures…", key: "!", to: to, icon: "faults", button: "Failures")
 
-      {blocks, _} =
-        page.blocks
-        |> Enum.reverse()
-        |> Enum.map_reduce(false, fn
-          %{"type" => type, "props" => props} = block, false when type in ["list", "item"] ->
-            actions = (props["actions"] || []) ++ [action]
-            {%{block | "props" => Map.put(props, "actions", actions)}, true}
+      if Enum.any?(page.blocks, &(&1["type"] == "actions")) do
+        blocks =
+          Enum.map(page.blocks, fn
+            %{"type" => "actions", "props" => props} = block ->
+              %{block | "props" => Map.update!(props, "actions", &(&1 ++ [action]))}
 
-          block, done ->
-            {block, done}
-        end)
+            block ->
+              block
+          end)
 
-      %{page | blocks: Enum.reverse(blocks)}
+        %{page | blocks: blocks}
+      else
+        block = Map.put(Blocks.actions(actions: [action]), "id", "actions:faults")
+        %{page | blocks: page.blocks ++ [block]}
+      end
     else
       page
     end
