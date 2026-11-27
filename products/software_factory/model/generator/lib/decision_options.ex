@@ -17,23 +17,26 @@ defmodule RelaDSL.DecisionOptions do
   revision (`content`, `content_links`); the fingerprint of records without options
   (`legacy_fingerprint`); and the wording of the refusals (`errors`).
 
-  A definition holds alternatives to adopt only, at least one. Declining is no option
-  one selects (D-0106): whoever answers declines with an alternative of their own, and
-  the offer goes back to its proposer with it; a definition with a decline option is
-  refused (`no_option`). The offers a record's history keeps are past data, read as
-  they are.
+  New definitions hold alternatives to adopt only. Stored definitions may also contain
+  legacy decline options, which remain in snapshots and history but are never offered.
+  Declining sends an alternative back to the proposer (D-0106).
   """
 
-  def decode(rule, text) when is_binary(text) do
+  def decode(rule, text), do: decode(rule, text, false)
+
+  def decode_stored(rule, text), do: decode(rule, text, true)
+
+  defp decode(rule, text, legacy?) when is_binary(text) do
     with {:ok, %{} = definition} <- JSON.decode(text),
          true <- Enum.sort(Map.keys(definition)) == ~w(options question rationale recommended),
          true <- text?(definition["question"]) and text?(definition["rationale"]),
          [_ | _] = options <- definition["options"],
-         :ok <- no_decline(rule, options),
-         true <- Enum.all?(options, &option?/1),
+         :ok <- if(legacy?, do: :ok, else: no_decline(rule, options)),
+         true <- Enum.all?(options, &option?(&1, legacy?)),
          ids = Enum.map(options, & &1["id"]),
          true <- length(ids) == length(Enum.uniq(ids)),
-         true <- definition["recommended"] == hd(ids) do
+         true <- definition["recommended"] == hd(ids),
+         true <- hd(options)["effect"] == "adopt" do
       {:ok, definition}
     else
       {:error, _} = refused -> refused
@@ -41,7 +44,7 @@ defmodule RelaDSL.DecisionOptions do
     end
   end
 
-  def decode(rule, _), do: {:error, error(rule, "not_json")}
+  defp decode(rule, _, _legacy?), do: {:error, error(rule, "not_json")}
 
   defp no_decline(rule, options) do
     if Enum.any?(options, &match?(%{"effect" => "decline"}, &1)),
@@ -69,16 +72,19 @@ defmodule RelaDSL.DecisionOptions do
   # An option: its id, text, details, effect (adopt) and payload; one added from whoever
   # declined says whose it is (`by`), and has no rule or consequences until its proposer
   # works it out (`unworded?/1`).
-  defp option?(%{} = option) do
+  defp option?(%{} = option, legacy?) do
     Enum.sort(Map.keys(Map.delete(option, "by"))) == ~w(consequences details effect id rule text) and
       (not Map.has_key?(option, "by") or text?(option["by"])) and
       is_binary(option["id"]) and Regex.match?(~r/^[a-z][a-z0-9_-]{0,63}$/, option["id"]) and
-      Enum.all?(~w(text details), &text?(option[&1])) and option["effect"] == "adopt" and
-      ((text?(option["rule"]) and text?(option["consequences"])) or
-         (Map.has_key?(option, "by") and unworded?(option)))
+      Enum.all?(~w(text details), &text?(option[&1])) and
+      ((option["effect"] == "adopt" and
+          ((text?(option["rule"]) and text?(option["consequences"])) or
+             (Map.has_key?(option, "by") and unworded?(option)))) or
+         (legacy? and option["effect"] == "decline" and option["rule"] == "" and
+            option["consequences"] == ""))
   end
 
-  defp option?(_), do: false
+  defp option?(_, _), do: false
 
   # An alternative to adopt that its proposer has not worked out yet: no rule, no
   # consequences. It is never offered so.
@@ -160,7 +166,7 @@ defmodule RelaDSL.DecisionOptions do
          true <- values[status_field(rule)] == get_in(rule, ["alternative", "status"]),
          true <- open?(rule, current),
          false <- Map.has_key?(values, rule["definition"]),
-         {:ok, definition} <- decode(rule, text) do
+         {:ok, definition} <- decode_stored(rule, text) do
       by = change["by"]
       by = if is_binary(by) and by != "", do: by, else: nil
 
@@ -220,7 +226,7 @@ defmodule RelaDSL.DecisionOptions do
 
   defp history(_value), do: :error
 
-  def ordered(definition), do: definition["options"]
+  def ordered(definition), do: Enum.filter(definition["options"], &(&1["effect"] == "adopt"))
 
   def name(rule, text, id, fact), do: "option-" <> revision(rule, text, fact) <> "-" <> id
 
@@ -244,7 +250,7 @@ defmodule RelaDSL.DecisionOptions do
     text = get_in(fact, ["values", rule["definition"]])
 
     with true <- open?(rule, fact),
-         {:ok, definition} <- decode(rule, text) do
+         {:ok, definition} <- decode_stored(rule, text) do
       for option <- ordered(definition) do
         %{
           "key" => name(rule, text, option["id"], fact),
@@ -281,8 +287,13 @@ defmodule RelaDSL.DecisionOptions do
       Map.has_key?(values, rule["history"]) and values[rule["history"]] != old[rule["history"]] ->
         ["offered option history is maintained by Facts and never rewritten"]
 
-      current != nil and records_offer?(rule, current, values, links) and
-          history(old[rule["history"]]) == :error ->
+      current != nil and history(old[rule["history"]]) == :error and
+          records_offer?(
+            rule,
+            current,
+            with_alternative(rule, %{"values" => values}, current)["values"],
+            links
+          ) ->
         [
           "the stored offered option history is malformed; it must be repaired before this offer is changed or answered"
         ]
@@ -308,7 +319,10 @@ defmodule RelaDSL.DecisionOptions do
            else: []
 
       true ->
-        with {:ok, definition} <- decode(rule, text) do
+        decoder =
+          if Map.has_key?(values, rule["definition"]), do: &decode/2, else: &decode_stored/2
+
+        with {:ok, definition} <- decoder.(rule, text) do
           cond do
             after_values[field] == status(rule, "open") and
                 Enum.any?(definition["options"], &unworded?/1) ->
@@ -324,7 +338,7 @@ defmodule RelaDSL.DecisionOptions do
               [error(rule, "changed")]
 
             true ->
-              option = Enum.find(definition["options"], &(&1["id"] == selected))
+              option = Enum.find(ordered(definition), &(&1["id"] == selected))
               expected = if option, do: values(rule, text, option, current)
 
               valid =

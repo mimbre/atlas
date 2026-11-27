@@ -107,7 +107,7 @@ defmodule RelaDSL.DecisionOptionsTest do
     # An open record whose stored definition still has one takes a definition without it.
     old = fact(%{"menu" => menu([@soup, @none])})
     assert [] == Options.check(@rule, "change", old, %{"menu" => menu([@soup])}, %{})
-    assert Options.answers(@rule, old) == []
+    assert [%{"label" => "Soup"}] = Options.answers(@rule, old)
   end
 
   test "refusals are the annotation's" do
