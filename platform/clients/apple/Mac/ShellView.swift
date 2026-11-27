@@ -10,7 +10,10 @@ import SwiftUI
 /// and the page opened from a row (right); the title bar with the page's title only (the
 /// viewer's name and the environment are in the sidebar's foot) and the index page's own
 /// actions (`PageActions.ofPage`); no status bar: the shell's state is in the sidebar's foot. The opened page shows its own
-/// actions next to its title, at its top. An action's page (its confirm, form or more
+/// actions next to its title, at its top; what else can be done with the opened item (its
+/// `actions` blocks: Update, Hand to, Failures…, Delete) is in the toolbar at the right
+/// (`ItemToolbar`), in its context menu and in the Actions menu, and follows the item open;
+/// none when nothing is. An action's page (its confirm, form or more
 /// actions) is a sheet over them; the keys of the shown page's actions take them. What is
 /// done and not answered yet shows at once: on its button, on the sheet and in the status
 /// bar. The agent's plan, from an `agent:<intent>` action, is a sheet over all of it.
@@ -60,6 +63,9 @@ struct ShellView: View {
         } detail: {
             Column(page: shell.opened, header: true, selectedPath: shell.selectedPath, open: session.open,
                    act: session.act)
+                .toolbar {
+                    ItemToolbar(actions: PageActions.others(shell.opened), pending: shell.pending, act: session.act)
+                }
         }
         .onGeometryChange(for: Bool.self) { WindowLayout.showsSidebar(window: $0.size.width) } action: { shows in
             guard shows != sidebarShown else { return }

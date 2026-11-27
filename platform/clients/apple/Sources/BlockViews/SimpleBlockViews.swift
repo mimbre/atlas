@@ -5,12 +5,11 @@ import SwiftUI
 
 /// A `header` block, on the page itself (no card): the eyebrow and the key in small caps in
 /// the accent's text colour ("TO DO FOR YOU · TD-12"), then the title as the page's title;
-/// `actions`, the page's own (`PageActions.ofPage`), beside it as `PageHeader` has them,
-/// and `others` (what else can be done with its subject) at the far right.
+/// `actions`, the page's own (`PageActions.ofPage`), beside it as `PageHeader` has them.
+/// What else can be done with its subject is in the window's toolbar (`ItemToolbar`).
 struct HeaderBlockView: View {
     let block: HeaderBlock
     var actions: [ActionModel] = []
-    var others: [ActionModel] = []
     let act: (ActionModel) -> Void
     @Environment(\.colorScheme) private var scheme
 
@@ -21,7 +20,7 @@ struct HeaderBlockView: View {
                     .foregroundStyle(PrismDarkGap.accentText(scheme))
                     .textSelection(.enabled)
             }
-            PageHeader(title: block.title ?? "", actions: actions, others: others, act: act)
+            PageHeader(title: block.title ?? "", actions: actions, act: act)
         }
         .accessibilityElement(children: .contain)
         .padding(.horizontal, Prism.Spacing.px15)
@@ -189,7 +188,7 @@ struct OptionView: View {
                     PrismTag(tone: Self.tone(block.tone)) { Text(badge) }.fixedSize()
                 }
             }
-            ForEach(Array((block.fields ?? []).enumerated()), id: \.offset) { _, field in
+            ForEach(Array(Option.fields(block).enumerated()), id: \.offset) { _, field in
                 VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
                     Text(field.label ?? "").prism(Prism.Typography.label).foregroundStyle(PrismDarkGap.muted(scheme))
                     Text(field.value ?? "—").prism(Prism.Typography.bodysmall)
@@ -311,11 +310,13 @@ struct AnswersView: View {
     }
 }
 
-/// An `actions` block: what else can be done with the page's subject (Update, Hand to,
-/// Delete), as quiet icon-only buttons beside the page's title (`PageHeader`), in
-/// Control's order: each the icon Control names (`ActionIcon`) in the primary colour, one
-/// size for all; its short label (`button`) as its tooltip and accessibility label. Delete
-/// comes last, a little apart, in the danger colour; it opens Control's confirm first.
+/// An `actions` block where a page shows it (an action's page over the window, a page that
+/// is no opened item): what else can be done with the page's subject (Update, Hand to,
+/// Delete), as quiet icon-only buttons, in Control's order: each the icon Control names
+/// (`ActionIcon`) in the primary colour, one size for all; its short label (`button`) as
+/// its tooltip and accessibility label. Delete comes last, a little apart, in the danger
+/// colour; it opens Control's confirm first. The opened item's are in the window's toolbar
+/// (`ItemToolbar`) instead.
 struct OtherActionsView: View {
     let actions: [ActionModel]
     let act: (ActionModel) -> Void
@@ -323,26 +324,17 @@ struct OtherActionsView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let (rest, dangerous) = Self.split(actions)
+        let (rest, delete) = PageActions.split(actions)
         HStack(spacing: Prism.Spacing.px15) {
             ForEach(Array(rest.enumerated()), id: \.offset) { _, action in button(action) }
-            if let dangerous {
-                button(dangerous).padding(.leading, Prism.Spacing.px10)
+            if let delete {
+                button(delete).padding(.leading, Prism.Spacing.px10)
             }
         }
         .textSelection(.disabled)
     }
 
-    /// The buttons (`PageActions.buttons`) in Control's order, but a Delete, which goes
-    /// last, apart.
-    static func split(_ actions: [ActionModel]) -> ([ActionModel], ActionModel?) {
-        let buttons = PageActions.buttons(actions)
-        let dangerous = buttons.last { $0.icon == "delete" }
-        return (buttons.filter { $0.icon != "delete" }, dangerous)
-    }
-
     private func button(_ action: ActionModel) -> some View {
-        let label = AnswerLook.label(action)
         let busy = PageActions.isPending(action, pending)
         return Button { act(action) } label: {
             Group {
@@ -359,8 +351,84 @@ struct OtherActionsView: View {
         }
         .buttonStyle(.plain)
         .disabled(busy)
-        .help([label, KeyGlyph.glyph(action.key).map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
-        .accessibilityLabel(label)
+        .help(PageActions.tooltip(action))
+        .accessibilityLabel(AnswerLook.label(action))
+    }
+}
+
+/// The opened item's actions (`PageActions.others`) in the window's toolbar, at its right,
+/// in Control's order (Update, Hand to, Failures…): each its icon (`ActionIcon`) in the
+/// primary colour with its short label (`button`), so the toolbar's Icon and Text shows
+/// both, and its label and key as its tooltip; Delete last, at the same spacing, in the
+/// danger colour (it opens Control's confirm first). None when no item is open.
+public struct ItemToolbar: ToolbarContent {
+    let actions: [ActionModel]
+    let pending: SessionState.Pending?
+    let act: (ActionModel) -> Void
+
+    public init(actions: [ActionModel], pending: SessionState.Pending?, act: @escaping (ActionModel) -> Void) {
+        self.actions = actions
+        self.pending = pending
+        self.act = act
+    }
+
+    public var body: some ToolbarContent {
+        let (rest, delete) = PageActions.split(actions)
+        ToolbarItemGroup(placement: .primaryAction) {
+            ForEach(Array((rest + [delete].compactMap { $0 }).enumerated()), id: \.offset) { _, action in
+                button(action)
+            }
+        }
+    }
+
+    private func button(_ action: ActionModel) -> some View {
+        let busy = PageActions.isPending(action, pending)
+        return Button { act(action) } label: {
+            Label {
+                Text(AnswerLook.label(action))
+            } icon: {
+                if busy {
+                    ProgressView().progressViewStyle(.prism(.accent, size: .size16))
+                } else {
+                    ToolbarIcon(icon: action.icon)
+                }
+            }
+        }
+        .disabled(busy)
+        .help(PageActions.tooltip(action))
+    }
+}
+
+/// A toolbar action's icon: in the primary colour (its dark-appearance text colour in
+/// dark), Delete's in the danger colour.
+private struct ToolbarIcon: View {
+    let icon: String?
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Image(systemName: ActionIcon.symbol(icon) ?? "ellipsis.circle")
+            .foregroundStyle(icon == "delete" ? Prism.Colors.error : PrismDarkGap.icon(scheme))
+    }
+}
+
+/// The opened item's actions (`PageActions.others`) as a context menu's items, in the
+/// toolbar's order: each its label and icon, Delete last after a divider, destructive.
+struct ItemActionsMenu: View {
+    let actions: [ActionModel]
+    let act: (ActionModel) -> Void
+
+    var body: some View {
+        let (rest, delete) = PageActions.split(actions)
+        ForEach(Array(rest.enumerated()), id: \.offset) { _, action in
+            Button(AnswerLook.label(action), systemImage: ActionIcon.symbol(action.icon) ?? "ellipsis.circle") {
+                act(action)
+            }
+        }
+        if let delete {
+            Divider()
+            Button(AnswerLook.label(delete), systemImage: ActionIcon.symbol(delete.icon) ?? "trash",
+                   role: .destructive) { act(delete) }
+        }
     }
 }
 
@@ -400,7 +468,8 @@ struct RouteLine: View {
 /// One command in a light inset that hugs it (grey5 with a thin grey4 edge in light, a
 /// step below the card in dark; no shadow), in Prism's `monosmall` (16/24, as the step's
 /// `bodysmall`), so no larger than the step's text; selectable, wrapping at the card's width, with a copy icon
-/// right after it; for a moment after a copy the icon is a checkmark.
+/// right after it, in primary blue (clickable) at the action icons' 16pt; for a moment after a copy the icon is
+/// a checkmark, blue too.
 struct CommandBlock: View {
     let command: String
     let copied: Bool
@@ -414,9 +483,13 @@ struct CommandBlock: View {
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: copy) {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .resizable().scaledToFit()
+                    .foregroundStyle(PrismDarkGap.icon(scheme))
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(PrismDarkGap.muted(scheme))
+            .buttonStyle(.plain)
+            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
             .help(copied ? "Copied" : "Copy")
             .accessibilityLabel(copied ? "Copied" : "Copy")
         }

@@ -69,6 +69,29 @@ public enum PageActions {
         (actions ?? []).filter { $0.page != true }
     }
 
+    /// What else can be done with the page's subject: the actions of its `actions` blocks,
+    /// in Control's order (Update, Hand to, Failures…, Delete). The opened item's go in the
+    /// window's toolbar, its context menu and the Actions menu, not on the page.
+    public static func others(_ page: PageMessage?) -> [ActionModel] {
+        (page?.blocks ?? []).flatMap { block -> [ActionModel] in
+            if case .actions(let actions) = block.content { return actions.actions ?? [] }
+            return []
+        }
+    }
+
+    /// The buttons of `actions` (`buttons`) in Control's order, but a Delete (icon
+    /// `delete`), which goes last, apart, in the danger colour.
+    public static func split(_ actions: [ActionModel]) -> (rest: [ActionModel], delete: ActionModel?) {
+        let buttons = buttons(actions)
+        let delete = buttons.last { $0.icon == "delete" }
+        return (buttons.filter { $0.icon != "delete" }, delete)
+    }
+
+    /// An action's tooltip: its button label, and its key when it has one ("Update (u)").
+    public static func tooltip(_ action: ActionModel) -> String {
+        [AnswerLook.label(action), KeyGlyph.glyph(action.key).map { "(\($0))" }].compactMap { $0 }.joined(separator: " ")
+    }
+
     /// The page's first action with this key.
     public static func action(key: String, on page: PageMessage?) -> ActionModel? {
         guard let page else { return nil }
@@ -182,45 +205,41 @@ public struct ActionButtons: View {
     }
 }
 
-/// A page's title with the page's actions (`PageActions.ofPage`) beside it, and at the far
-/// right what else can be done with its subject (`others`, `OtherActionsView`), at the top
-/// of the page, above its blocks; in a column too narrow for all on one line, the page's
-/// actions go under the title, wrapping as they need, the others staying at the right.
+/// A page's title with the page's actions (`PageActions.ofPage`) beside it, at the top of
+/// the page, above its blocks; in a column too narrow for both on one line, the page's
+/// actions go under the title, wrapping as they need. Without actions the title has the
+/// full width. What else can be done with its subject is in the window's toolbar
+/// (`ItemToolbar`), not here.
 struct PageHeader: View {
     let title: String
     let actions: [ActionModel]
-    var others: [ActionModel] = []
     let act: (ActionModel) -> Void
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: Prism.Spacing.px13) {
-                heading.fixedSize()
-                Spacer(minLength: 0)
-                HStack(spacing: Prism.Spacing.px10) {
-                    ActionButtons(actions: actions, act: act)
+        Group {
+            if PageActions.buttons(actions).isEmpty {
+                heading.frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: Prism.Spacing.px13) {
+                        heading.fixedSize()
+                        Spacer(minLength: 0)
+                        HStack(spacing: Prism.Spacing.px10) {
+                            ActionButtons(actions: actions, act: act)
+                        }
+                        .fixedSize()
+                    }
+                    VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
+                        heading.frame(maxWidth: .infinity, alignment: .leading)
+                        FlowLayout(spacing: Prism.Spacing.px10) {
+                            ActionButtons(actions: actions, act: act)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .fixedSize()
-                otherActions
             }
-            VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-                HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
-                    heading.lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    otherActions
-                }
-                FlowLayout(spacing: Prism.Spacing.px10) {
-                    ActionButtons(actions: actions, act: act)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .textSelection(.disabled)
-    }
-
-    @ViewBuilder private var otherActions: some View {
-        if !PageActions.buttons(others).isEmpty {
-            OtherActionsView(actions: others, act: act).fixedSize()
-        }
     }
 
     private var heading: some View {

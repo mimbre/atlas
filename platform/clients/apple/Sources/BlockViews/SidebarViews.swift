@@ -132,7 +132,8 @@ public struct SidebarConnection: Equatable {
     }
 }
 
-/// The sidebar: the "Work" and "Browse" sections with their small, muted headings, and,
+/// The sidebar: the "Work" and "Browse" sections under eyebrow headings (WORK, BROWSE, as
+/// a card's top line: uppercase, spaced, `labelsmall`, muted), and,
 /// separated at the bottom, the person's name, the environment and the connection. Up and
 /// down move the selection through the rows; a tab's chevron folds its groups.
 public struct SidebarView: View {
@@ -193,11 +194,11 @@ public struct SidebarView: View {
     @ViewBuilder
     private func section(_ title: String, _ items: [SidebarItem]) -> some View {
         if !items.isEmpty {
-            Text(title)
-                .prism(Prism.Typography.caption)
+            Text(title.uppercased()).tracking(0.6)
+                .prism(Prism.Typography.labelsmall)
                 .foregroundStyle(PrismDarkGap.muted(scheme))
                 .padding(.horizontal, 10)
-                .padding(.top, 12)
+                .padding(.top, 18)
                 .padding(.bottom, 4)
             ForEach(items) { item in
                 SidebarRow(item: item, selected: item.id == selection, stale: stale,

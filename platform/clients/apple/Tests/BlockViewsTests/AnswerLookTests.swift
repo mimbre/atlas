@@ -29,6 +29,18 @@ final class AnswerLookTests: XCTestCase {
         XCTAssertEqual(AnswerLook.of(answer("Retry", weight: nil)).variant, .plain, "no weight: other")
     }
 
+    /// Melle: one proposal's Decline is `secondary` next to Accept; Decline all under several
+    /// alternatives (icon `decline`) a quiet `plain` button with a blue xmark.circle.
+    func testDeclineAllIsAQuietPlainButtonWithItsIconAndOneProposalsDeclineStaysSecondary() {
+        let decline = AnswerLook.of(answer("Decline", weight: "decline", note: true))
+        XCTAssertEqual(decline.variant, .secondary)
+        let all = PanelAnswerModel(label: "Decline all", key: "3", to: "/k/decision/D-7/answer/3", note: true,
+                                   weight: "decline", icon: "decline")
+        XCTAssertEqual(AnswerLook.of(all).variant, .plain)
+        XCTAssertEqual(AnswerLook.of(all).tone, .accent)
+        XCTAssertEqual(ActionIcon.symbol(all.icon), "xmark.circle")
+    }
+
     func testAButtonSaysNothingOfWhatFollowsItsClick() {
         XCTAssertEqual(AnswerLook.label(answer("Done", weight: "main", note: true)), "Done")
         XCTAssertEqual(AnswerLook.label(answer("Won't do", weight: "decline", note: true)), "Won't do")
@@ -46,13 +58,15 @@ final class AnswerLookTests: XCTestCase {
         XCTAssertEqual(ActionIcon.symbol("hand_over"), "person.and.arrow.left.and.arrow.right")
         XCTAssertEqual(ActionIcon.symbol("question"), "questionmark.bubble")
         XCTAssertEqual(ActionIcon.symbol("delegate"), "arrow.uturn.backward")
+        XCTAssertEqual(ActionIcon.symbol("decline"), "xmark.circle")
         XCTAssertEqual(ActionIcon.symbol("create"), "plus")
         XCTAssertEqual(ActionIcon.symbol("open"), "arrow.up.right.square")
+        XCTAssertEqual(ActionIcon.symbol("faults"), "exclamationmark.triangle")
         XCTAssertNil(ActionIcon.symbol("launch_rockets"))
         XCTAssertNil(ActionIcon.symbol(nil))
 
         // Every symbol is one the system has: one it lacks would show no icon at all.
-        for name in ["edit", "delete", "hand_over", "question", "delegate", "create", "open"] {
+        for name in ["edit", "delete", "hand_over", "question", "delegate", "decline", "create", "open", "faults"] {
             let symbol = try XCTUnwrap(ActionIcon.symbol(name))
             XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), symbol)
         }
