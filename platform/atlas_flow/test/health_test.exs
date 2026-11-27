@@ -171,6 +171,89 @@ defmodule AtlasFlow.HealthTest do
     assert [%{"task" => "TK-B-2-1"}] = Health.report(table)["queue"]
   end
 
+  test "a parked poll removes its grant from the queue before it is answered" do
+    dir = Path.join(System.tmp_dir!(), "health-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    table = health!()
+    L.start(dir, health: table, poll_wait: 25_000)
+
+    held = Task.async(fn -> WorkSource.poll({"mini", "ada"}, L.poll_input("mini")) end)
+
+    AtlasTestAwait.until(
+      fn ->
+        {:current_stacktrace, stack} = Process.info(held.pid, :current_stacktrace)
+        Enum.any?(stack, &match?({:gen, :do_call, _, _}, &1))
+      end,
+      wake: {:trace, AtlasFlow.Dispatch}
+    )
+
+    :sys.get_state(AtlasFlow.Dispatch)
+    L.supervised_task("B-1", "ada")
+    L.supervised_task("B-2", "ada", at: DateTime.add(L.epoch(), 60))
+    :ok = AtlasFlow.Dispatch.resync()
+
+    assert {:polled, %{leases: [%{work: %{work_key: "TK-B-1-1"}}]}} = Task.await(held)
+    assert [%{"task" => "TK-B-2-1"}] = Health.report(table)["queue"]
+  end
+
+  test "boot restores held leases before publishing the queue, and a lost lease waits again" do
+    dir = Path.join(System.tmp_dir!(), "health-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    table = health!()
+    ctx = L.start(dir, health: table)
+
+    L.supervised_task("B-1", "ada")
+    L.supervised_task("B-2", "ada", at: DateTime.add(L.epoch(), 60))
+    :ok = AtlasFlow.Dispatch.resync()
+    assert {:polled, %{leases: [_]}} = WorkSource.poll({"mini", "ada"}, L.poll_input("mini"))
+
+    :ok = stop_supervised(AtlasFlow.Dispatch)
+    L.start_dispatch(ctx.clock, health: table)
+    :sys.get_state(AtlasFlow.Dispatch)
+    assert [%{"task" => "TK-B-2-1"}] = Health.report(table)["queue"]
+
+    :ok = AtlasFlow.Dispatch.sweep()
+    assert [%{"task" => "TK-B-1-1"}, %{"task" => "TK-B-2-1"}] =
+             Health.report(table)["queue"]
+  end
+
+  test "lease recovery after a failed boot read removes running work from the queue" do
+    dir = Path.join(System.tmp_dir!(), "health-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    table = health!()
+    ctx = L.start(dir, health: table)
+
+    L.supervised_task("B-1", "ada")
+    :ok = AtlasFlow.Dispatch.resync()
+    assert {:polled, %{leases: [%{lease_id: lease}]}} =
+             WorkSource.poll({"mini", "ada"}, L.poll_input("mini"))
+
+    assert {:recorded, _} =
+             WorkSource.report({"mini", "ada"}, %{
+               lease_id: lease,
+               revision: 1,
+               report: %{state: :accepted}
+             })
+
+    assert {:recorded, _} =
+             WorkSource.report({"mini", "ada"}, %{
+               lease_id: lease,
+               revision: 2,
+               report: %{state: :started}
+             })
+
+    :ok = stop_supervised(AtlasFlow.Dispatch)
+    read = {:block_read, "task", %{"plain" => true}}
+    :ok = GenServer.call(FakeFacts, read)
+    L.start_dispatch(ctx.clock, health: table)
+    :sys.get_state(AtlasFlow.Dispatch)
+    assert [%{"task" => "TK-B-1-1"}] = Health.report(table)["queue"]
+
+    :ok = GenServer.call(FakeFacts, put_elem(read, 0, :allow_read))
+    :ok = AtlasFlow.Dispatch.sweep()
+    assert Health.report(table)["queue"] == []
+  end
+
   test "`_health` is answered over the Bus" do
     endpoint = "flow/health-#{System.unique_integer([:positive])}"
     table = health!(endpoint)

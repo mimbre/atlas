@@ -13,8 +13,8 @@ defmodule AtlasControl.MachinesPage do
   2. `item` `health`: when it last polled, how long a poll waits, since when it runs this
      incarnation, and whether a newer Runtime release exists; a `text` `health-error`
      (role error) says what to do when it is not seen;
-  3. `list` `slots`: one row per configured slot (and any busy one the configuration no
-     longer names): what it works on, its stage and since when, or Free;
+  3. `list` `slots`: desired slots with unknown status, and attempts known to be busy;
+     the desired configuration is not proof of the Runtime's applied slots;
   4. `list` `queue`: the work waiting for a Runtime, oldest first;
   5. `list` `finished`: the last #{10} attempts that ended, each with its subject, outcome
      and duration; one whose subject cannot be found is left out (no hash-only row);
@@ -27,8 +27,8 @@ defmodule AtlasControl.MachinesPage do
   Where a value comes from: the facts (the machine, its upgrades and the attempts that ran
   on it, read through `read`), Flow's health answer (`flow`: each Runtime's last poll with
   its build and incarnation, and the queue; memory only, so a restarted core knows a
-  Runtime again from its first poll) and the newest Runtime release, the build the core
-  itself was released with (`newest_build/0`): CI publishes the Runtime of the same push.
+  Runtime again from its first poll). A candidate release is checked before offering an
+  upgrade, and its commit must descend from the machine's reported build.
   """
 
   alias AtlasControl.{HealthPage, Pages}
@@ -38,9 +38,8 @@ defmodule AtlasControl.MachinesPage do
   @upgrades 5
 
   @doc """
-  The newest Runtime release, as its build is named (`develop-0123456789ab`): the one CI
-  published with the core's own build (`config :atlas_control, :runtime_release`); nil when
-  the core does not know its build (off Fly).
+  The Runtime build corresponding to the core image, or nil when the image is unknown.
+  This is only a candidate: publication and ancestry are checked before an offer.
   """
   def newest_build, do: Application.get_env(:atlas_control, :runtime_release)
 
@@ -48,8 +47,9 @@ defmodule AtlasControl.MachinesPage do
   The page of `route` (`{:machine_page, page, params}`): `read.(kind, query)` reads Facts,
   `flow` is Flow's `_health` answer (nil when Flow did not answer).
   """
-  def render(route, m, read, flow, now \\ DateTime.utc_now(), newest \\ newest_build()) do
-    with {:ok, c} <- context(m, read, flow, now, newest) do
+  def render(route, m, read, flow, now \\ DateTime.utc_now(), newest \\ newest_build(),
+        verify \\ &AtlasControl.RuntimeRelease.newer?/2) do
+    with {:ok, c} <- context(m, read, flow, now, newest, verify) do
       cleared(c, fn -> page(route, c) end)
     else
       {:error, why} -> unavailable(why, "/")
@@ -61,8 +61,9 @@ defmodule AtlasControl.MachinesPage do
   `{:ok, kind, values, links}`, the upgrade as submitted under the machine
   (its build the newest), or `{:refuse, why}` when none is offered now.
   """
-  def upgrade(m, machine, read, flow, newest \\ newest_build()) do
-    with {:ok, c} <- context(m, read, flow, DateTime.utc_now(), newest) do
+  def upgrade(m, machine, read, flow, newest \\ newest_build(),
+        verify \\ &AtlasControl.RuntimeRelease.newer?/2) do
+    with {:ok, c} <- context(m, read, flow, DateTime.utc_now(), newest, verify) do
       cleared(c, fn ->
         with {:ok, fact} <- machine(c, machine),
              upgrades = upgrades(c, fact["key"]),
@@ -87,28 +88,29 @@ defmodule AtlasControl.MachinesPage do
   end
 
   @doc """
-  Whether Upgrade to the newest build is offered: `{:ok, from, to}` when the Runtime's
-  last poll named a build, a newest one is known and differs, and no upgrade of the
-  machine is under way; else `{:none, why}`.
+  Whether the candidate release is published and proven newer, with no upgrade underway.
   """
-  def upgrade_offer(runtime, upgrades, %{newest: newest, n: n}) do
+  def upgrade_offer(runtime, upgrades, %{newest: newest, n: n, verify: verify}) do
     build = runtime && runtime["build"]
 
     cond do
       not is_binary(newest) ->
-        {:none, "The core does not know the newest Runtime release."}
+        {:none, "The core's Runtime build candidate is unknown."}
 
       not is_binary(build) ->
         {:none, "Its build is not known: it has not polled since the core started."}
 
       build == newest ->
-        {:none, "It runs the newest build, #{newest}."}
+        {:none, "It runs the core's build, #{newest}; whether a newer release exists is unknown."}
 
       upgrade = Enum.find(upgrades, &open?(&1, n)) ->
         {:none, "Upgrade #{upgrade["key"]} is under way."}
 
-      true ->
+      verify.(build, newest) ->
         {:ok, build, newest}
+
+      true ->
+        {:none, "The core's build is not confirmed available and newer than #{build}."}
     end
   end
 
@@ -164,6 +166,7 @@ defmodule AtlasControl.MachinesPage do
     upgrades = upgrades(c, key)
     attempts = attempts(c, key)
     late = late(runtime, c)
+    offer = upgrade_offer(runtime, upgrades, c)
 
     head = [
       {"header",
@@ -187,7 +190,7 @@ defmodule AtlasControl.MachinesPage do
       {"health",
        Blocks.item(
          title: "Health",
-         fields: fields(health_fields(runtime, c)),
+         fields: fields(health_fields(runtime, c, offer)),
          actions: [
            Blocks.action(label: "Health", key: "h", to: Pages.path({:worker_page, :health, %{}}))
          ]
@@ -200,9 +203,18 @@ defmodule AtlasControl.MachinesPage do
        Blocks.list(
          title: "Slots",
          rows: slot_rows(fact, attempts, c),
-         empty: "No slot is configured."
+         empty: "Slot configuration and availability are unknown."
        )},
-      {"queue", Blocks.list(title: "Queue", rows: queue_rows(c), empty: "No work is waiting.")},
+      {"queue",
+       Blocks.list(
+         title: "Queue",
+         rows: queue_rows(c),
+         empty:
+           if(is_map(c.flow) and is_list(c.flow["queue"]),
+             do: "No work is waiting.",
+             else: "Queue status is unknown."
+           )
+       )},
       {"finished",
        Blocks.list(
          title: "Recently finished",
@@ -214,14 +226,14 @@ defmodule AtlasControl.MachinesPage do
     ]
 
     answers =
-      case upgrade_offer(runtime, upgrades, c) do
+      case offer do
         {:ok, from, to} ->
           [
             {"answers",
              Blocks.answers(
                answers: [
                  Blocks.panel_answer(
-                   label: "Upgrade to the newest build",
+                   label: "Upgrade to the core's build",
                    key: "u",
                    to: Pages.path({:machine_page, :machine_upgrade, %{machine: key}}),
                    weight: "main",
@@ -286,9 +298,9 @@ defmodule AtlasControl.MachinesPage do
       case upgrade_offer(runtime(c, key), upgrades(c, key), c) do
         {:ok, from, to} ->
           Blocks.confirm(
-            title: "Upgrade #{name} to the newest build?",
+            title: "Upgrade #{name} to the core's build?",
             text:
-              "#{name} runs #{from}; the newest build is #{to}. It stops taking new work, " <>
+              "#{name} runs #{from}; the core's newer published build is #{to}. It stops taking new work, " <>
                 "lets what runs finish, installs the build, restarts and checks that it " <>
                 "runs it, then takes work again.",
             confirm_label: "Upgrade",
@@ -328,7 +340,7 @@ defmodule AtlasControl.MachinesPage do
   defp build(%{"build" => build}) when is_binary(build), do: "build " <> build
   defp build(_), do: nil
 
-  defp health_fields(runtime, c) do
+  defp health_fields(runtime, c, offer) do
     polled = at(runtime && runtime["polled_at"])
     since = at(runtime && runtime["incarnation_since"])
 
@@ -345,18 +357,18 @@ defmodule AtlasControl.MachinesPage do
          _ -> nil
        end},
       {"Running since", since && HealthPage.moment(since)},
-      {"Newest build", newest_text(runtime, c)}
+      {"Core build", newest_text(runtime, c, offer)}
     ]
   end
 
-  defp newest_text(runtime, %{newest: newest}) do
+  defp newest_text(runtime, %{newest: newest}, offer) do
     build = runtime && runtime["build"]
 
     cond do
       not is_binary(newest) -> "unknown: the core does not know its own build"
-      build == newest -> "#{newest}, which it runs"
-      is_binary(build) -> "#{newest}, newer than its #{build}"
-      true -> newest
+      build == newest -> "#{newest}, which it runs; newer release unknown"
+      match?({:ok, _, _}, offer) -> "#{newest}, published and newer than #{build}"
+      true -> "#{newest}; availability or ordering unknown"
     end
   end
 
@@ -394,7 +406,7 @@ defmodule AtlasControl.MachinesPage do
     ]
   end
 
-  # One row per configured slot, and any busy one the configuration no longer names.
+  # Desired slots may not be applied; only running attempts establish a busy slot.
   defp slot_rows(fact, attempts, c) do
     a = c.n["attempts"]
 
@@ -411,7 +423,12 @@ defmodule AtlasControl.MachinesPage do
     for slot <- names do
       case busy[slot] do
         nil ->
-          Blocks.row(id: slot, label: "Free", to: machine_path(fact["key"]))
+          Blocks.row(
+            id: slot,
+            label: "Status unknown",
+            detail: "Desired configuration",
+            to: machine_path(fact["key"])
+          )
 
         att ->
           started = text(att["values"][a["started"]])
@@ -448,7 +465,9 @@ defmodule AtlasControl.MachinesPage do
   end
 
   defp queue_rows(c) do
-    for entry <- (c.flow && c.flow["queue"]) || [] do
+    queue = if is_map(c.flow) and is_list(c.flow["queue"]), do: c.flow["queue"], else: []
+
+    for entry <- queue do
       subject = entry["subject_key"]
 
       Blocks.row(
@@ -546,10 +565,10 @@ defmodule AtlasControl.MachinesPage do
 
   # -- Reads -------------------------------------------------------------------------
 
-  defp context(m, read, flow, now, newest) do
+  defp context(m, read, flow, now, newest, verify) do
     case Pages.machines(m) do
       %{} = n ->
-        {:ok, %{m: m, n: n, read: read, flow: flow, now: now, newest: newest, cache: make_ref()}}
+        {:ok, %{m: m, n: n, read: read, flow: flow, now: now, newest: newest, verify: verify, cache: make_ref()}}
 
       _ ->
         {:error, "This model has no machines."}
@@ -658,10 +677,11 @@ defmodule AtlasControl.MachinesPage do
   defp running?(att, c) do
     a = c.n["attempts"]
     v = att["values"] || %{}
-    text(v[a["ended"]]) == nil and text(v[a["started"]]) != nil
+    text(v[a["ended"]]) == nil and text(v[a["result"]]) == nil and
+      text(v[a["started"]]) != nil
   end
 
-  # The slots the configuration (the Runtime's policy.json) names.
+  # The slots named by the desired configuration, not necessarily the applied policy.
   defp configured_slots(configuration) when is_binary(configuration) do
     case JSON.decode(configuration) do
       {:ok, %{"slots" => slots}} when is_list(slots) -> Enum.filter(slots, &is_binary/1)

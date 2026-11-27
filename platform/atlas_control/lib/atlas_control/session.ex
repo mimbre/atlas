@@ -862,9 +862,13 @@ defmodule AtlasControl.Session do
   # page is shown once it is stored. Flow's work source then drains, updates, restarts and
   # verifies the Runtime.
   defp submit({:machine_page, :machine_upgrade, %{machine: machine}} = route, _raw, state) do
-    case AtlasControl.MachinesPage.upgrade(state.model, machine, &ask/2, ask_health()) do
-      {:ok, kind, values, links} -> create(route, kind, values, links, state)
-      {:refuse, why} -> not_sent(%{state | route: route}, route, [why])
+    if workers_reader?(state) do
+      case AtlasControl.MachinesPage.upgrade(state.model, machine, &ask/2, ask_health()) do
+        {:ok, kind, values, links} -> create(route, kind, values, links, state)
+        {:refuse, why} -> not_sent(%{state | route: route}, route, [why])
+      end
+    else
+      not_sent(%{state | route: route}, route, ["forbidden"])
     end
   end
 
@@ -1758,15 +1762,19 @@ defmodule AtlasControl.Session do
       # The machines: read from Facts as the page is made, with Flow's health answer (each
       # Runtime's last poll and the queue); read again at every reconcile, as it ages.
       {:machine_page, _, _} = machine_route ->
-        flow = ask_health()
+        if workers_reader?(state) do
+          flow = ask_health()
 
-        {page, read} =
-          recording(fn ask ->
-            AtlasControl.MachinesPage.render(machine_route, state.model, ask, flow)
-          end)
+          {page, read} =
+            recording(fn ask ->
+              AtlasControl.MachinesPage.render(machine_route, state.model, ask, flow)
+            end)
 
-        reads = for {kind, _} <- read, do: {kind, :rows}
-        {page, answers, ReadSet.of(reads, Enum.map(read, &elem(&1, 1)), page.blocks)}
+          reads = for {kind, _} <- read, do: {kind, :rows}
+          {page, answers, ReadSet.of(reads, Enum.map(read, &elem(&1, 1)), page.blocks)}
+        else
+          {AtlasControl.WorkerPages.error("forbidden", "/machines"), answers, ReadSet.none()}
+        end
 
       {:worker_page, _, _} = worker_route ->
         {page, read} =
@@ -1833,13 +1841,16 @@ defmodule AtlasControl.Session do
   # when Facts or Flow is stuck. Flow is asked once (`health_timeout_ms`, 1 s); Facts'
   # queue is counted on the Bus, without asking Facts.
   defp health_page(state) do
-    readers = get_in(state.model.settings || %{}, ["workers", "read", "actors"])
-
-    if is_list(readers) and state.by in readers do
+    if workers_reader?(state) do
       AtlasControl.HealthPage.render(health_report())
     else
       AtlasControl.WorkerPages.error("forbidden", "/machines")
     end
+  end
+
+  defp workers_reader?(state) do
+    readers = get_in(state.model.settings || %{}, ["workers", "read", "actors"])
+    is_list(readers) and state.by in readers
   end
 
   # What the health page and the decider's alerts are made from.

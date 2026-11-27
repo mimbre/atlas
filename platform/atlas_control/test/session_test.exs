@@ -130,6 +130,89 @@ defmodule AtlasControl.SessionTest do
     use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Contract, channel: :control
   end
 
+  test "Machines and upgrade reads require the Workers reader permission" do
+    stop_supervised!(FakeStore)
+    start_supervised!({FakeStore, model: Shop.Benched})
+    FakeStore.put("mini", %{"name" => "Mac mini"}, "bench")
+
+    name = :"machines_gateway_#{System.unique_integer([:positive])}"
+    settings = %{"workers" => %{"read" => %{"actors" => ["ada"]}}}
+    start_supervised!(
+      {AtlasControl.Gateway, port: 0, name: name, model: Shop.Benched, settings: settings},
+      id: name
+    )
+    port = AtlasControl.Gateway.port(name)
+
+    endpoint = "flow/health-#{System.unique_integer([:positive])}"
+    Application.put_env(:atlas_control, :health_endpoint, endpoint)
+    on_exit(fn -> Application.delete_env(:atlas_control, :health_endpoint) end)
+    parent = self()
+
+    server =
+      spawn_link(fn ->
+        :ok = AtlasBus.attach(endpoint)
+        send(parent, :health_attached)
+
+        serve = fn serve ->
+          receive do
+            {:atlas_bus, request, _} ->
+              send(parent, :health_asked)
+              AtlasBus.send(
+                AtlasBus.Envelope.reply(request, "answer"),
+                %{"runtimes" => [], "queue" => []}
+              )
+              serve.(serve)
+          end
+        end
+
+        serve.(serve)
+      end)
+
+    on_exit(fn -> Process.exit(server, :kill) end)
+    assert_receive :health_attached
+
+    connect = fn actor ->
+      {:ok, socket} =
+        :gen_tcp.connect(~c"127.0.0.1", port, [:binary, packet: :line, active: false])
+
+      put(socket, %{
+        "op" => "hello",
+        "env" => "test",
+        "client" => "agent",
+        "as" => actor,
+        "spec" => AtlasControl.Blocks.version()
+      })
+      next(socket, "page")
+      socket
+    end
+
+    denied = connect.("bea")
+    on_exit(fn -> :gen_tcp.close(denied) end)
+    before = FakeStore.reads()
+
+    for path <- ["/machines", "/machines/mini", "/machines/mini/upgrade"] do
+      put(denied, %{"op" => "open", "to" => path})
+      assert %{"title" => "Worker unavailable"} = next(denied, "page")
+    end
+
+    put(denied, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+    assert %{"reason" => "refused", "title" => "Worker unavailable"} = next(denied, "page")
+    refute Enum.any?(
+             Enum.drop(FakeStore.reads(), length(before)),
+             &(&1 in ["bench", "refit", "shift"])
+           )
+    refute_received :health_asked
+    assert FakeStore.sent() == []
+
+    allowed = connect.("ada")
+    on_exit(fn -> :gen_tcp.close(allowed) end)
+    put(allowed, %{"op" => "open", "to" => "/machines"})
+    assert page = next(allowed, "page")
+    assert inspect(page["blocks"]) =~ "Mac mini"
+    assert_receive :health_asked
+    assert "bench" in FakeStore.reads()
+  end
+
   test "exact fact reads preserve named values and links for evidence", %{port: port} do
     FakeStore.put("W-01", %{"title" => "A", "done" => false}, "widget", %{"made_by" => ["M-1"]})
     socket = client(port)

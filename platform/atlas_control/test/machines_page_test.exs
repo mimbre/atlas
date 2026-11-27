@@ -90,7 +90,8 @@ defmodule AtlasControl.MachinesPageTest do
       reader(opts),
       Keyword.get_lazy(opts, :flow, fn -> flow(opts) end),
       @now,
-      Keyword.get(opts, :newest, "develop-bbbbbbbbbbbb")
+      Keyword.get(opts, :newest, "develop-bbbbbbbbbbbb"),
+      Keyword.get(opts, :verify, fn _, _ -> true end)
     )
   end
 
@@ -141,11 +142,11 @@ defmodule AtlasControl.MachinesPageTest do
              "Last seen" => "12 s ago, 27 Nov 11:59:48 UTC",
              "Polls" => "each poll waits up to 25 s for work",
              "Running since" => "27 Nov 09:00:00 UTC",
-             "Newest build" => "develop-bbbbbbbbbbbb, newer than its develop-aaaaaaaaaaaa"
+             "Core build" => "develop-bbbbbbbbbbbb, published and newer than develop-aaaaaaaaaaaa"
            }
 
-    # One card per slot: what it works on, its stage and how long; or free.
-    assert [busy, free] = props(page, "slots")["rows"]
+    # Desired slots are not evidence of free capacity.
+    assert [busy, unknown] = props(page, "slots")["rows"]
 
     assert %{
              "id" => "dev1",
@@ -155,7 +156,8 @@ defmodule AtlasControl.MachinesPageTest do
              "since" => "2026-11-27T11:48:00Z"
            } = busy
 
-    assert %{"id" => "dev2", "label" => "Free"} = free
+    assert %{"id" => "dev2", "label" => "Status unknown", "detail" => "Desired configuration"} =
+             unknown
 
     assert [%{"label" => "Edit configuration", "to" => "/k/bench/mini/edit"}] =
              props(page, "actions")["actions"]
@@ -168,6 +170,51 @@ defmodule AtlasControl.MachinesPageTest do
            }
 
     assert [%{"kind" => "part", "props" => %{"role" => "details"}}] = page.markup
+  end
+
+  test "refused or pending configuration never makes desired slots free" do
+    for applied <- [2, nil, 3] do
+      page =
+        tab(
+          benches: [
+            bench("mini", "Mac mini", %{
+              "setup" => ~s({"version": 3, "slots": ["new"]}),
+              "setup_version" => applied,
+              "refused_version" => 3
+            })
+          ],
+          shifts: [
+            shift("SH-1", "O-1", %{
+              "slot" => "old",
+              "began" => "2026-11-27T11:48:00Z"
+            })
+          ]
+        )
+
+      assert [
+               %{"id" => "new", "label" => "Status unknown", "detail" => "Desired configuration"},
+               %{"id" => "old", "label" => "W-1 · Widget 1"}
+             ] = props(page, "slots")["rows"]
+    end
+
+    assert props(tab(), "slots")["empty"] == "Slot configuration and availability are unknown."
+  end
+
+  test "an attempt marked lost by boot repair is not shown as busy without an end time" do
+    page =
+      tab(
+        benches: [bench("mini", "Mac mini", %{"setup" => ~s({"slots": ["dev1"]})})],
+        shifts: [
+          shift("SH-1", "O-1", %{
+            "slot" => "dev1",
+            "began" => "2026-11-27T11:48:00Z",
+            "state" => "lost",
+            "result" => "restart"
+          })
+        ]
+      )
+
+    assert [%{"id" => "dev1", "label" => "Status unknown"}] = props(page, "slots")["rows"]
   end
 
   test "recently finished: the last ten with their subject, outcome and duration; none without a subject" do
@@ -219,6 +266,13 @@ defmodule AtlasControl.MachinesPageTest do
            } = row
 
     assert props(tab(), "queue")["rows"] == []
+    assert props(tab(), "queue")["empty"] == "No work is waiting."
+
+    for unavailable <- [nil, %{}, %{"queue" => nil}] do
+      queue = props(tab(flow: unavailable), "queue")
+      assert queue["rows"] == []
+      assert queue["empty"] == "Queue status is unknown."
+    end
   end
 
   test "upgrades show newest first with their step; one under way makes the machine draining or upgrading" do
@@ -246,7 +300,7 @@ defmodule AtlasControl.MachinesPageTest do
       assert [answer] = props(tab(), "answers")["answers"]
 
       assert %{
-               "label" => "Upgrade to the newest build",
+               "label" => "Upgrade to the core's build",
                "weight" => "main",
                "to" => "/machines/mini/upgrade",
                "detail" => "develop-aaaaaaaaaaaa → develop-bbbbbbbbbbbb"
@@ -256,7 +310,7 @@ defmodule AtlasControl.MachinesPageTest do
     test "is not offered when the machine runs the newest build" do
       page = tab(build: "develop-bbbbbbbbbbbb")
       refute offered?(page)
-      assert pairs(page, "health")["Newest build"] == "develop-bbbbbbbbbbbb, which it runs"
+      assert pairs(page, "health")["Core build"] == "develop-bbbbbbbbbbbb, which it runs; newer release unknown"
     end
 
     test "is not offered while an upgrade is under way" do
@@ -274,11 +328,20 @@ defmodule AtlasControl.MachinesPageTest do
       refute offered?(tab(flow: nil))
     end
 
+    test "an unavailable or unproven candidate is neither offered nor submitted" do
+      verify = fn _, _ -> false end
+      page = tab(verify: verify)
+      refute offered?(page)
+      assert pairs(page, "health")["Core build"] =~ "availability or ordering unknown"
+      assert {:refuse, _} =
+               MachinesPage.upgrade(@m, "mini", reader([]), flow(), "develop-bbbbbbbbbbbb", verify)
+    end
+
     test "its confirm names both builds; the upgrade it makes is the newest build under the machine" do
       page = render({:machine_page, :machine_upgrade, %{machine: "mini"}})
 
       assert %{
-               "title" => "Upgrade Mac mini to the newest build?",
+               "title" => "Upgrade Mac mini to the core's build?",
                "confirm_to" => %{
                  "endpoint" => "upgrade_machine",
                  "params" => %{"machine" => "mini"}
@@ -288,13 +351,13 @@ defmodule AtlasControl.MachinesPageTest do
 
       assert props(page, "confirm")["text"] =~ "runs develop-aaaaaaaaaaaa"
 
-      assert MachinesPage.upgrade(@m, "mini", reader([]), flow(), "develop-bbbbbbbbbbbb") ==
+      assert MachinesPage.upgrade(@m, "mini", reader([]), flow(), "develop-bbbbbbbbbbbb", fn _, _ -> true end) ==
                {:ok, "refit", %{"build" => "develop-bbbbbbbbbbbb"}, %{"refit_of" => ["mini"]}}
 
       assert {:refuse, why} =
                MachinesPage.upgrade(@m, "mini", reader([]), flow(), "develop-aaaaaaaaaaaa")
 
-      assert why =~ "runs the newest build"
+      assert why =~ "runs the core's build"
 
       # Without an offer the confirm only says why.
       page = render({:machine_page, :machine_upgrade, %{machine: "mini"}}, newest: nil)
