@@ -27,18 +27,29 @@ Dir.chdir(root) do
   paths = Dir.glob(File.join(tool, '_build', 'dev', 'lib', '*', 'ebin'))
   abort 'dialyzer: tool build has no BEAM paths' if paths.empty?
 
-  # Mix prunes paths during compilation, so load the tool after the project compiles.
+  # Compile without loading runtime.exs, then restore the paths Mix prunes.
   # Shared lockfiles do not make these independent projects umbrella children.
   invoke = <<~ELIXIR
+    Mix.start()
+    paths = :code.get_path()
+    Code.compile_file("mix.exs")
+    Mix.Task.run("loadconfig")
+    Mix.Task.run("compile")
+    :code.add_paths(paths)
     Code.prepend_paths(System.argv())
     config = Keyword.put(Mix.Project.config()[:dialyzer] || [], :no_umbrella, true)
     Mix.ProjectStack.merge_config(dialyzer: config)
     Mix.Task.run("dialyzer", ["--force-check"])
   ELIXIR
 
-  failed = projects.reject do |project|
-    run('mix', 'deps.get', '--check-locked', dir: project) &&
-      run('mix', 'run', '--no-start', '-e', invoke, '--', *paths, dir: project)
+  failed = []
+  projects.each do |project|
+    abort "dialyzer: dependency setup failed for #{project}" unless run('mix', 'deps.get', '--check-locked', dir: project)
+    next if run('elixir', '-e', invoke, '--', *paths, dir: project)
+
+    # Dialyxir uses status 2 for findings and 1 for errors.
+    abort "dialyzer: could not analyze #{project}" unless $?&.exitstatus == 2
+    failed << project
   end
   abort "dialyzer: failed projects: #{failed.join(', ')}" unless failed.empty?
 end
