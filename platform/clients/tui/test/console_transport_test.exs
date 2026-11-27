@@ -254,7 +254,7 @@ defmodule AtlasTui.ConsoleTransportTest do
     :gen_tcp.close(socket)
   end
 
-  test "native details disclosure opens and closes multiple blocks" do
+  test "legacy details sections stay visible without a disclosure shortcut" do
     {:ok, listener} =
       :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
 
@@ -292,16 +292,11 @@ defmodule AtlasTui.ConsoleTransportTest do
       }
     end
 
-    toggle = action("toggle", "d", "sections_toggle")
-
-    toggle =
-      put_in(toggle, ["props", "scope"], %{
-        "page" => "/k/widget",
-        "revision" => "fixture",
-        "context" => "browse"
-      })
-
     page = content("/k/widget")
+    scope = %{"page" => "/k/widget", "revision" => "fixture", "context" => "browse"}
+    legacy = put_in(action("legacy-toggle", "d", "sections_toggle"), ["props", "scope"], scope)
+    future = put_in(action("future", "z", "future_operation"), ["props", "scope"], scope)
+    refresh = put_in(action("refresh", "r", "refresh"), ["props", "scope"], scope)
 
     page = %{
       page
@@ -309,7 +304,9 @@ defmodule AtlasTui.ConsoleTransportTest do
           item.("main", "Summary"),
           item.("first", "First technical"),
           item.("second", "Second technical"),
-          toggle
+          legacy,
+          future,
+          refresh
         ],
         "markup" => [
           %{
@@ -332,23 +329,22 @@ defmodule AtlasTui.ConsoleTransportTest do
           },
           %{
             "kind" => "legend",
-            "start" => "toggle",
-            "end" => "toggle",
+            "start" => "legacy-toggle",
+            "end" => "refresh",
             "props" => %{"title" => "Navigation", "context" => "browse"}
           }
         ]
     }
 
     send_message(socket, page)
-    folded = see(server, "▸ Technical details")
-    refute folded =~ "First technical"
+    shown = see(server, "Second technical")
+    assert shown =~ "First technical"
+    assert shown =~ "Technical details"
+    refute shown =~ "▸ Technical details"
+    refute shown =~ "▾ Technical details"
     tmux(server, ["send-keys", "-t", "console", "d"])
-    open = see(server, "Second technical")
-    assert open =~ "First technical"
-    assert open =~ "▾ Technical details"
-    tmux(server, ["send-keys", "-t", "console", "d"])
-    folded = see(server, "▸ Technical details")
-    refute folded =~ "Second technical"
+    shown = see(server, "Second technical")
+    assert shown =~ "First technical"
     tmux(server, ["send-keys", "-t", "console", "C-c"])
     :gen_tcp.close(socket)
   end

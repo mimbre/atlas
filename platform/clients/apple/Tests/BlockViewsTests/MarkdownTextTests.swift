@@ -1,0 +1,58 @@
+import AtlasControlKit
+@testable import BlockViews
+import Foundation
+import XCTest
+
+final class MarkdownTextTests: XCTestCase {
+    func testOnlyExplicitMarkdownChangesPlainText() throws {
+        for (format, expected) in [(nil, false), ("future", false), ("markdown", true)] as [(String?, Bool)] {
+            var fields = ["text": "# Literal"]
+            fields["format"] = format
+            let data = try JSONSerialization.data(withJSONObject: fields)
+            let block = try JSONDecoder().decode(TextBlock.self, from: data)
+            XCTAssertEqual(TextLine.isMarkdown(block), expected)
+            XCTAssertEqual(TextLine.line(block, now: Date()), "# Literal")
+            var pairFields = ["value": "# Literal"]
+            pairFields["format"] = format
+            let pairData = try JSONSerialization.data(withJSONObject: pairFields)
+            let pair = try JSONDecoder().decode(PairModel.self, from: pairData)
+            XCTAssertEqual(MarkdownDocument.isMarkdown(pair.format), expected)
+            XCTAssertEqual(pair.value, "# Literal")
+        }
+    }
+
+    func testHTMLIsShownAsLiteralSource() {
+        let source = "Before <script>alert(1)</script> after"
+        let document = MarkdownDocument(source)
+        XCTAssertEqual(document.parts.map { String($0.text.characters) }.joined(), source)
+    }
+
+    func testAllHeadingLevelsKeepTheirHierarchy() {
+        let source = (1...6).map { String(repeating: "#", count: $0) + " Heading \($0)" }.joined(separator: "\n\n")
+        let document = MarkdownDocument(source)
+        XCTAssertEqual(document.parts.compactMap(\.headingLevel), [1, 2, 3, 4, 5, 6])
+    }
+
+    func testFencedCodeIsLiteralAndNotALink() {
+        let document = MarkdownDocument("```sh\n[run](https://example.com)\n```")
+        let code = document.parts.filter(\.isCode)
+        XCTAssertFalse(code.isEmpty)
+        XCTAssertEqual(code.map { String($0.text.characters) }.joined().trimmingCharacters(in: .whitespacesAndNewlines), "[run](https://example.com)")
+        XCTAssertTrue(code.allSatisfy { $0.text.runs.allSatisfy { $0.link == nil } })
+    }
+
+    func testOnlyWebLinksCanBeOpened() throws {
+        for value in ["https://example.com/path", "http://example.com"] {
+            XCTAssertTrue(MarkdownDocument.allows(try XCTUnwrap(URL(string: value))))
+        }
+        for value in ["file:///tmp/file", "javascript:alert(1)", "atlas://action"] {
+            XCTAssertFalse(MarkdownDocument.allows(try XCTUnwrap(URL(string: value))))
+        }
+    }
+
+    func testFormattingAndListsArePreserved() {
+        let document = MarkdownDocument("A **bold** [link](https://example.com).\n\n- First\n- Second")
+        XCTAssertTrue(document.parts.contains { $0.text.runs.contains { $0.link != nil } })
+        XCTAssertEqual(document.parts.filter { $0.prefix.contains("•") }.count, 2)
+    }
+}

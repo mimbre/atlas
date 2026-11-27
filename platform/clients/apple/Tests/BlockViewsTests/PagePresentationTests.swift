@@ -19,13 +19,13 @@ final class PagePresentationTests: XCTestCase {
         ids.map { block("list", ["rows": .array([])], id: $0) }
     }
 
-    /// Groups as ids: a block's id, or "title[ids]" (with "▸" when it folds) for a section.
+    /// Groups as ids: a block's id, or "title[ids]" for a section.
     private func shape(_ presentation: PagePresentation) -> [String] {
         presentation.groups.map { group in
             switch group {
             case .entry(let entry): entry.id
             case .section(let section):
-                (section.collapsible ? "▸" : "") + section.title + "[" + section.entries.map(\.id).joined(separator: ",") + "]"
+                section.title + "[" + section.entries.map(\.id).joined(separator: ",") + "]"
             }
         }
     }
@@ -144,21 +144,21 @@ final class PagePresentationTests: XCTestCase {
         }
         XCTAssertEqual(guidance.empty, "No durable guidance is recorded.")
         XCTAssertEqual(guidance.rows?.isEmpty, true)
-        // Details nests in the Conversation part and folds output details through the record.
+        // Details nests in the Conversation part and includes output details through the record.
         XCTAssertEqual(shape(presentation),
-                       ["worker", "worker-output", "▸Details[worker-output-details,guidance-history,worker-record]"])
+                       ["worker", "worker-output", "Details[worker-output-details,guidance-history,worker-record]"])
     }
 
-    func testSectionsGroupTheirBlocksAndOnlyCollapsibleOnesFold() throws {
+    func testSectionsGroupTheirBlocksIncludingLegacyCollapsibleSections() throws {
         let presentation = PagePresentation(try page(lists(["a", "b", "c", "d", "e"]), markup: [
             section("b", "c", "Related"),
             section("e", "e", "Details", collapsible: true),
         ]))
-        XCTAssertEqual(shape(presentation), ["a", "Related[b,c]", "d", "▸Details[e]"])
+        XCTAssertEqual(shape(presentation), ["a", "Related[b,c]", "d", "Details[e]"])
         XCTAssertEqual(presentation.entries.map(\.id), ["a", "b", "c", "d", "e"])
     }
 
-    func testDetailsPartKeepsMultipleDisclosureBlocksTogether() throws {
+    func testDetailsPartKeepsMultipleSectionBlocksTogether() throws {
         let part: JSONValue = .object([
             "kind": .string("part"), "start": .string("b"), "end": .string("d"),
             "props": .object(["title": .string("Details"), "role": .string("details")]),
@@ -168,8 +168,8 @@ final class PagePresentationTests: XCTestCase {
         ]))
         guard let details = presentation.details else { return XCTFail("no details") }
         XCTAssertEqual(details.groups.count, 2)
-        guard case .section(let technical) = details.groups[1] else { return XCTFail("no disclosure") }
-        XCTAssertTrue(technical.collapsible)
+        guard case .section(let technical) = details.groups[1] else { return XCTFail("no section") }
+        XCTAssertEqual(technical.title, "Technical details")
         XCTAssertEqual(technical.entries.map(\.id), ["c", "d"])
         XCTAssertEqual(presentation.groups.count, 1)
     }
@@ -187,7 +187,7 @@ final class PagePresentationTests: XCTestCase {
             section("c", "c", "Inner", collapsible: true),
             section("b", "d", "Outer", collapsible: true),
         ]))
-        XCTAssertEqual(shape(presentation), ["a", "▸Outer[b,c,d]"])
+        XCTAssertEqual(shape(presentation), ["a", "Outer[b,c,d]"])
     }
 
     func testOtherKindsOfMarkupLeaveTheBlocksFlat() throws {
@@ -229,26 +229,18 @@ final class PagePresentationTests: XCTestCase {
 
     func testABlockLeftOutOfTheViewDoesNotShiftASection() throws {
         let action = ConsoleActionBlock(
-            label: "Show or hide details", keys: ["d"], operation: ConsoleOperationModel(name: "sections_toggle"),
+            label: "Refresh", keys: ["r"], operation: ConsoleOperationModel(name: "refresh"),
             scope: ConsoleScopeModel(page: "/k/widget", revision: "r", context: "page"), available: true)
         var page = try self.page(lists(["a", "b", "c"]), markup: [section("b", "c", "Details", collapsible: true)])
         page.blocks?.insert(Block(id: "action", content: .consoleAction(action)), at: 1)
-        XCTAssertEqual(shape(PagePresentation(page)), ["a", "▸Details[b,c]"])
+        XCTAssertEqual(shape(PagePresentation(page)), ["a", "Details[b,c]"])
     }
 
-    func testTheSectionKeyIsThePagePathAndItsStartBlock() throws {
-        let markup = [section("details", "details", "Details", collapsible: true)]
-        let one = PagePresentation(try page(lists(["details"]), markup: markup, path: "/"))
-        let other = PagePresentation(try page(lists(["details"]), markup: markup, path: "/workers"))
-        guard case .section(let section) = one.groups[0] else { return XCTFail("no section") }
-        XCTAssertEqual(section.id, "details")
-        XCTAssertNotEqual(one.path, other.path)
-    }
 
-    func testTheCalmStartPageIsASummaryACalmListAndFoldedDetails() throws {
+    func testTheCalmStartPageIsASummaryACalmListAndVisibleDetails() throws {
         let page = try JSONDecoder().decode(PageMessage.self, from: Data(calmStartPage.utf8))
         let presentation = PagePresentation(page)
-        XCTAssertEqual(shape(presentation), ["summary", "list", "▸Details[details]"])
+        XCTAssertEqual(shape(presentation), ["summary", "list", "Details[details]"])
         guard case .entry(let first) = presentation.groups[0], case .item(let summary) = first.item,
               case .entry(let second) = presentation.groups[1], case .list(let list) = second.item,
               case .section(let details) = presentation.groups[2], case .item(let technical) = details.entries[0].item

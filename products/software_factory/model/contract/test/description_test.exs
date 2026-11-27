@@ -74,6 +74,23 @@ defmodule Model.DescriptionTest do
     assert Map.keys(extension["entities"]) -- Map.keys(description().schema["entities"]) == []
   end
 
+  test "only scene, use case and issue descriptions declare markdown" do
+    kinds = AtlasEyra.kinds()
+
+    marked =
+      for kind <- kinds,
+          field <- kind.fields,
+          field.format == "markdown",
+          do: {kind.name, field.name}
+
+    assert Enum.sort(marked) ==
+             [{"issue", "description"}, {"scene", "description"}, {"use_case", "description"}]
+
+    for kind <- kinds, field <- kind.fields, field.format != "markdown" do
+      assert field.format == nil
+    end
+  end
+
   describe "the profiles (private dependency proofs)" do
     test "foundation alone has no software or product plan, and binds verdicts to decisions only" do
       d = Model.Profiles.Foundation.__rela__(:description)

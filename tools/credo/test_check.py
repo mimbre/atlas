@@ -46,6 +46,64 @@ class CredoGateTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("Credo.Check.Warning.Dbg", result.stdout)
 
+    def test_moved_finding_is_baselined_but_new_finding_is_reported(self):
+        self.source.write_text(BAD)
+        self.git("add", ".")
+        self.git("commit", "-qm", "existing finding")
+        moved = BAD.replace("  def value", "  # Context.\n  def value")
+        self.source.write_text(moved)
+        self.git("add", ".")
+        result = self.gate("staged")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with_new = moved.replace("end\n", "\n  def other, do: dbg(:new)\nend\n")
+        self.source.write_text(with_new)
+        self.git("add", ".")
+        result = self.gate("staged")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.count("Credo.Check.Warning.Dbg"), 1, result.stdout)
+        self.source.write_text(moved.replace("dbg(:ok)", "dbg(:changed)"))
+        self.git("add", ".")
+        result = self.gate("staged")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Credo.Check.Warning.Dbg", result.stdout)
+
+    def assert_metric_change(self, source, check):
+        baseline = source(13)
+        self.source.write_text(baseline)
+        self.git("add", ".")
+        self.git("commit", "-qm", "existing metric finding")
+        self.source.write_text(source(12).replace("  def", "  # Context.\n  def", 1))
+        self.git("add", ".")
+        result = self.gate("staged")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.source.write_text(source(14))
+        self.git("add", ".")
+        result = self.gate("staged")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(check, result.stdout)
+        self.source.write_text(baseline)
+        self.source.with_name("other.ex").write_text(source(13).replace("Example", "Other"))
+        self.git("add", ".")
+        result = self.gate("staged")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(check, result.stdout)
+
+    def test_cyclomatic_complexity_improvement_and_regression(self):
+        def source(amount):
+            expression = " and\n      ".join(["value"] * (amount + 1))
+            return ('defmodule Example do\n  @moduledoc "Example."\n\n'
+                    f'  def value(value) do\n    {expression}\n  end\nend\n')
+
+        self.assert_metric_change(source, "Credo.Check.Refactor.CyclomaticComplexity")
+
+    def test_struct_field_amount_improvement_and_regression(self):
+        def source(amount):
+            fields = "".join(f"    field_{i}: nil,\n" for i in range(amount + 22))
+            return ('defmodule Example do\n  @moduledoc "Example."\n\n'
+                    f'  defstruct [\n{fields}  ]\nend\n')
+
+        self.assert_metric_change(source, "Credo.Check.Warning.StructFieldAmount")
+
     def test_invalid_source_is_an_error(self):
         self.source.write_text("defmodule Broken do\n")
         self.git("add", ".")

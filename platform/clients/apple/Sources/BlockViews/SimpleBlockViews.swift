@@ -62,15 +62,34 @@ struct TextBlockView: View {
                             Text(label).prism(Prism.Typography.label)
                                 .accessibilityAddTraits(.isHeader)
                         }
-                        Text(TextLine.text(block, now: context.date))
-                            .fixedSize(horizontal: false, vertical: true)
+                        if TextLine.isMarkdown(block) {
+                            MarkdownText(source: block.text ?? "")
+                            if let age = block.since.flatMap({ TextLine.age(since: $0, now: context.date) }) {
+                                Text(age)
+                            }
+                        } else {
+                            Text(TextLine.text(block, now: context.date))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
                 .textSelection(.enabled)
                 .padding(.horizontal, Prism.Spacing.px15)
                 .accessibilityElement(children: .contain)
             } else {
-                Text(TextLine.line(block, now: context.date))
+                Group {
+                    if TextLine.isMarkdown(block) {
+                        VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
+                            if let label = block.label { Text(label) }
+                            MarkdownText(source: block.text ?? "")
+                            if let age = block.since.flatMap({ TextLine.age(since: $0, now: context.date) }) {
+                                Text(age)
+                            }
+                        }
+                    } else {
+                        Text(TextLine.line(block, now: context.date))
+                    }
+                }
                     .prism(Prism.Typography.bodysmall)
                     .foregroundStyle(PrismDarkGap.muted(scheme))
                     .textSelection(.enabled)
@@ -204,7 +223,7 @@ struct OptionView: View {
             ForEach(Array(Option.fields(block).enumerated()), id: \.offset) { _, field in
                 VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
                     Text(field.label ?? "").prism(Prism.Typography.label).foregroundStyle(PrismDarkGap.muted(scheme))
-                    Text(field.value ?? "—").prism(Prism.Typography.bodysmall)
+                    FormattedText(text: field.value ?? "—", format: field.format).prism(Prism.Typography.bodysmall)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

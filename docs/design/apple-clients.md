@@ -192,7 +192,7 @@ set of operations and when each is available is the same.
 
 **BlockViews** (shared SwiftUI): a view per block (`list`, `item`, `form`, `confirm`,
 `plan`) and the fallback (its type and reason, the rest of the page still shown); markup
-as layout (`part` boxes, `section` headings, folded collapsible sections, `highlight`
+as layout (`part` boxes, `section` headings with always-visible blocks, `highlight`
 tones later); forms with every input kind (text that wraps, multiline, choice, boolean,
 readonly), errors, submit and cancel; links opened with `openURL` (http and https only).
 Layout adapts by size, not by platform: two or more parts side by side when wide, stacked
@@ -235,7 +235,7 @@ Above the columns is the title bar; there is no status bar: the shell's state is
 | Actions and forms | `action`/`form` blocks, `submit` | Buttons under the page. A form opens as a sheet over the right column; a confirm opens as a dialog. |
 | Agent behind `:` | the steer agent | A toolbar button, and `:` or `⌘K`. Its plan shows in a panel. |
 | Notices and connection | `notice`, page `position`, reconcile | Sidebar foot, one line: "● Connected", or a red warning and "Not connected"; the plain words, last notice, position, last hint and reconcile interval in the state's popover. |
-| Worker page | worker blocks | Right column. The conversation scrolls; Details is a disclosure group. |
+| Worker page | worker blocks | Right column. State and identity are separate blocks; conversation and execution details stay visible. |
 
 Rules:
 
@@ -245,6 +245,10 @@ Rules:
   it shows, and list → page becomes a navigation stack. iPad keeps the three columns.
 - **Rejected alternative:** tabs as a segmented control in the toolbar. It breaks down once
   a description has more than about 5 tabs.
+- Text blocks and item or option fields render Markdown only when `format` is `markdown`;
+  missing or unknown formats stay plain text. Markdown headings remain below the page
+  title, code is displayed as text, and only clicked HTTP(S) links can open. Content with
+  raw HTML is shown as literal source, not rendered or silently discarded.
 
 What differs by platform beyond the layout stays in the platform targets:
 
@@ -279,7 +283,7 @@ What differs by platform beyond the layout stays in the platform targets:
 | Hints for recent paths, refresh every `reconcile_seconds` | `AtlasTui.App`, `AtlasTui.Console` | `Session` with an injected clock |
 | Page cache: newest per path, shown at once on Back and tab switch | `AtlasTui.PageCache` | `Session.cache` |
 | Parts: side by side or stacked; own scroll each; tab moves focus | `AtlasTui.View`, `AtlasTui.Model` | `BlockViews.PartsLayout` |
-| Sections; collapsible folded until `sections_toggle` (worker Details, `d`) | `AtlasTui.View`, `AtlasTui.Model` | `DisclosureGroup`, toggled by the operation |
+| Sections with always-visible contents | `AtlasTui.View`, `AtlasTui.Model` | `BlockViews.PageView` |
 | Links: http/https in the browser; a stand-in browser for tests | `AtlasTui.Browser` | `openURL`; an injected opener in tests |
 | Worker page: output stream on its own connection, demand-driven, backoff 2–16 s | `AtlasTui.WorkerOutput`, `AtlasTui.WorkerOutputConnection`, `AtlasTui.WorkerConversation` | `WorkerViews` in the right column; a second `LineConnection` |
 | Worker conversation and guidance: drafts, exact retry, durable acceptance | `AtlasTui.WorkerConversation`, `AtlasTui.WorkerGuidance` | `WorkerViews` |
@@ -357,7 +361,7 @@ drawn; Back shows the cached page at once and re-opens it; Forward returns to th
 Back left.
 
 **S3 Markup and layout.** Markup check and tree (emitted by the generator), parts side by
-side or stacked by width, sections, collapsible sections and `sections_toggle`.
+side or stacked by width, and sections with always-visible contents.
 *Accepted when* markup that crosses is dropped and blocks still render (unit test on
 fixtures); a narrow and a wide right column give the TUI's two layouts (view tests on
 the layout model, not screenshots).

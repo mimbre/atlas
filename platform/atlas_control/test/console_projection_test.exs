@@ -201,12 +201,21 @@ defmodule AtlasControl.ConsoleProjectionTest do
     assert {:error, :unavailable_binding} = Console.capture(p, "F999", current())
   end
 
-  test "unknown operations tokens scopes duplicate bindings and malformed legends fail closed" do
+  test "unknown operations are unavailable while invalid tokens scopes bindings and legends fail closed" do
     {:ok, page} = AtlasControl.Console.project(native(), tabs(2))
     first = Enum.find_index(page["blocks"], &(&1["type"] == "console_action"))
 
+    unknown =
+      put_in(page, ["blocks", Access.at(first), "props", "operation"], %{"name" => "system"})
+
+    assert {:ok, projection} = Console.compile(unknown)
+
+    assert %{"props" => %{"available" => false, "reason" => "Unsupported action"}} =
+             Enum.find(projection.actions, &(&1["props"]["operation"]["name"] == "system"))
+
+    assert {:error, :unavailable_binding} = Console.capture(projection, "Tab", current())
+
     for {field, value} <- [
-          {"operation", %{"name" => "system"}},
           {"keys", ["Ctrl+Nonsense"]},
           {"scope", %{}},
           {"available", "yes"}

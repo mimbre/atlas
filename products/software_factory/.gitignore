@@ -1,4 +1,6 @@
 /_build/
 /deps/
+# ExUnit creates and removes per-test directories here.
+/tmp/
 erl_crash.dump
 *.ez

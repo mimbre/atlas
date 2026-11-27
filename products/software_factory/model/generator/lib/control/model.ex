@@ -331,6 +331,7 @@ defmodule RelaDSL.Control.Model do
         settable: not Map.has_key?(prop, "set_by"),
         set_by: prop["set_by"],
         multiline: prop["multiline"] == true,
+        format: prop["format"],
         url: prop["format"] == "url" or get_in(types, [prop["type"], "format"]) == "url",
         cause:
           case prop["cause"] do

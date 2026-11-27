@@ -39,11 +39,12 @@ Contexts are browse, form, confirm, ask, plan_planning, plan_proposed, plan_runn
 plan_done, step_form and legend. Named key tokens come from named_keys/0; a single
 printable grapheme is also valid. Text entry retains literal question marks.
 Clients render disabled commands with their optional reason; only available
-commands become bindings. Unknown operations/tokens/scopes fail closed.
+commands become bindings. Unknown operations remain visible as unavailable and never
+execute; unknown tokens and scopes fail closed. Malformed known operations remain invalid.
 
 `Console.compile(page)` validates the whole projection and returns an index over
-the original blocks/legend markup. `active(index, current)` and `bindings` share
-these objects. Current is a local atom-key map containing path, context, generation
+the original legend markup and actions, with unknown operations marked unavailable.
+`active(index, current)` and `bindings` share these actions. Current is a local atom-key map containing path, context, generation
 and optionally on/row. `capture(index, token, current)` records action identity,
 projection revision, mode generation and selected row; `resolve(index,event,current)`
 re-resolves it immediately before execution and denies any stale page, revision,

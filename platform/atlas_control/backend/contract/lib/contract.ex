@@ -102,7 +102,8 @@ defmodule AtlasBFFContract.Contract do
   # says who assists its viewer (`assistant`), shown under their name.
   # 0.44.0: headers may show state and age, and lists may show an aside.
   # 0.45.0: shell tabs no longer carry groups; group navigation remains in list pages.
-  version "0.45.0"
+  # 0.46.0: text blocks and labelled values may explicitly declare Markdown.
+  version "0.46.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

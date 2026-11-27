@@ -439,7 +439,7 @@ defmodule Model.DecisionOptionsTest do
     end
   end
 
-  test "decision details group important fields and retain exact records in one collapsed section" do
+  test "decision details are standalone groups and retain exact records without collapses" do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     route = {:item, "decision", "D-private"}
 
@@ -478,9 +478,16 @@ defmodule Model.DecisionOptionsTest do
       answers = [%{"fact" => fact} | for(_ <- tl(reads), do: %{"facts" => []})]
       page = AtlasControl.Pages.render(route, m, answers, %{by: "ada", by_kind: "person"})
       blocks = Map.new(page.blocks, &{&1["id"], &1})
-      assert blocks["decision-detail-0"]["props"]["title"] == "Authority and status"
-      assert blocks["decision-detail-1"]["props"]["title"] == "Scope and reversibility"
-      assert blocks["decision-detail-2"]["props"]["title"] == "Usage and enforcement"
+      ids = Enum.map(page.blocks, & &1["id"])
+
+      ordered =
+        ~w(page-detail-0 page-detail-1 page-detail-2 decision-history-1 decision-raw-options)
+
+      assert Enum.filter(ids, &(&1 in ordered)) == ordered
+      assert Enum.any?(blocks["actions"]["props"]["actions"], &(&1["key"] == "u"))
+      assert blocks["page-detail-0"]["props"]["title"] == "Authority and status"
+      assert blocks["page-detail-1"]["props"]["title"] == "Scope and reversibility"
+      assert blocks["page-detail-2"]["props"]["title"] == "Usage and enforcement"
       fields = blocks["decision-history-1"]["props"]["fields"]
 
       assert Enum.any?(
@@ -518,14 +525,15 @@ defmodule Model.DecisionOptionsTest do
              |> hd()
              |> Map.fetch!("value") == history
 
-      assert Enum.any?(page.markup, fn mark ->
-               mark["kind"] == "section" and
-                 mark["props"] == %{"title" => "Technical details", "collapsible" => true} and
-                 mark["start"] == "decision-raw-options" and
-                 mark["end"] == "decision-raw-option_history"
+      refute Enum.any?(page.markup, fn mark ->
+               get_in(mark, ["props", "collapsible"]) == true or
+                 get_in(mark, ["props", "role"]) == "details"
              end)
 
-      assert Enum.any?(page.console_actions, &(&1.operation["name"] == "sections_toggle"))
+      refute Enum.any?(
+               Map.get(page, :console_actions, []),
+               &(&1.operation["name"] == "sections_toggle")
+             )
     end
 
     legacy =
@@ -541,7 +549,7 @@ defmodule Model.DecisionOptionsTest do
     page = AtlasControl.Pages.render(route, m, answers)
     blocks = Map.new(page.blocks, &{&1["id"], &1})
     refute blocks["decision-history-1"]
-    refute blocks["decision-detail-1"]
+    refute blocks["page-detail-1"]
     refute blocks["decision-raw-options"]
     assert hd(blocks["decision-raw-option_history"]["props"]["fields"])["value"] == "not JSON"
   end
@@ -633,6 +641,11 @@ defmodule Model.DecisionOptionsTest do
 
     form = %{by: "ada", by_kind: "person"}
     page = AtlasControl.Pages.render(route, m, answers, form)
+
+    refute Enum.any?(page.markup, fn mark ->
+             get_in(mark, ["props", "collapsible"]) == true or
+               get_in(mark, ["props", "role"]) == "details"
+           end)
 
     message = %{
       "path" => "/k/decision/D-private",
@@ -727,7 +740,7 @@ defmodule Model.DecisionOptionsTest do
     end
 
     # What only the details show stays there.
-    usage = Enum.find(blocks, &(&1["id"] == "decision-detail-2"))
+    usage = Enum.find(blocks, &(&1["id"] == "page-detail-2"))
     assert Enum.any?(usage["props"]["fields"], &(&1["value"] in ["interface", "Interface"]))
     assert item["props"]["title"] == ""
   end

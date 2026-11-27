@@ -173,27 +173,15 @@ public struct PageView: View {
         }
     }
 
-    /// A disclosure is a sibling of its blocks, not a control inside the details card.
-    @ViewBuilder private func detailsView(_ details: PagePresentation.Details) -> some View {
-        if details.groups.contains(where: {
-            if case .section(let section) = $0 { return section.collapsible }
-            return false
-        }) {
-            detailsContent(details, inCard: false)
-        } else {
-            detailsContent(details, inCard: true).modifier(RecessedCard())
-        }
-    }
-
-    private func detailsContent(_ details: PagePresentation.Details, inCard: Bool) -> some View {
+    private func detailsView(_ details: PagePresentation.Details) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             Text(details.title).prism(Prism.Typography.title6)
                 .accessibilityAddTraits(.isHeader)
-                .padding(.horizontal, inCard ? 0 : Prism.Spacing.px15)
+                .padding(.horizontal, Prism.Spacing.px15)
             ForEach(details.groups) { group in
                 switch group {
-                case .entry(let entry): entryView(entry, inDetails: inCard, detailHeading: true)
-                case .section(let section): sectionView(section, inDetails: inCard, detailHeading: true)
+                case .entry(let entry): entryView(entry, detailHeading: true)
+                case .section(let section): sectionView(section, detailHeading: true)
                 }
             }
         }
@@ -307,34 +295,15 @@ public struct PageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false,
-                                          detailHeading: Bool = false) -> some View {
-        if section.collapsible {
-            DisclosureGroup(isExpanded: expansion(section)) {
-                blocks(section, inDetails: inDetails, detailHeading: detailHeading).padding(.top, Prism.Spacing.px10)
-            } label: {
-                Text(section.title).prism(Prism.Typography.title6)
-                    .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-                Text(section.title).prism(Prism.Typography.title6)
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
-                Divider()
-                blocks(section, inDetails: inDetails, detailHeading: detailHeading)
-            }
+    private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false,
+                             detailHeading: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
+            Text(section.title).prism(Prism.Typography.title6)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
+            Divider()
+            blocks(section, inDetails: inDetails, detailHeading: detailHeading)
         }
-    }
-
-    /// Unfolded sections, keyed by page path and start block: another page's section,
-    /// or this one after the app restarts, starts folded.
-    @State private var expanded: Set<String> = []
-
-    private func expansion(_ section: PagePresentation.Section) -> Binding<Bool> {
-        let key = presentation.path + "\u{0}" + section.id
-        return Binding(get: { expanded.contains(key) },
-                       set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } })
     }
 }
 
@@ -524,7 +493,7 @@ struct ItemBlockView: View {
                         Text(label).prism(Prism.Typography.label)
                             .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
-                    Text(field.value ?? "—").prism(Prism.Typography.bodysmall)
+                    FormattedText(text: field.value ?? "—", format: field.format).prism(Prism.Typography.bodysmall)
                         .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.primary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -4,9 +4,9 @@ import AtlasControlKit
 /// this slice does not show yet, or one the package could not decode, is a fallback with
 /// its type (and its reason, when it has one); the rest of the page still shows.
 ///
-/// The page's top-level `section` markup groups its blocks (`groups`): a collapsible
-/// section is folded until its reader unfolds it, any other section is a heading over its
-/// blocks. Other kinds of markup do not change the layout. Markup that is not one
+/// The page's top-level `section` markup groups its blocks (`groups`) under a heading.
+/// Legacy collapsible sections are shown the same way. Other kinds of markup do not change
+/// the layout. Markup that is not one
 /// well-formed tree (an unknown id, an end before its start, crossing entries, a block id
 /// used twice) is left out, as the contract asks of a client, and the blocks show flat.
 public struct PagePresentation: Sendable, Equatable {
@@ -49,11 +49,9 @@ public struct PagePresentation: Sendable, Equatable {
 
     /// A titled stretch of blocks, from the section's start block to its end block.
     public struct Section: Sendable, Equatable, Identifiable {
-        /// The id of its start block: with the page's path, what its fold state is kept by.
+        /// The id of its start block.
         public var id: String
         public var title: String
-        /// Folded by default; the reader can unfold it.
-        public var collapsible: Bool
         public var entries: [Entry]
     }
 
@@ -138,8 +136,7 @@ public struct PagePresentation: Sendable, Equatable {
                 index += 1
             }
             let start = blocks[range.lowerBound].id ?? "#\(range.lowerBound)"
-            groups.append(.section(Section(id: start, title: props.title ?? "",
-                                           collapsible: props.collapsible == true, entries: inside)))
+            groups.append(.section(Section(id: start, title: props.title ?? "", entries: inside)))
         }
         groups.append(contentsOf: shown[index...].map { .entry($0.entry) })
 

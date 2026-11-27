@@ -570,7 +570,7 @@ defmodule RelaDSL.Description.Check do
       create(ctx, kind, spec["create"], at.("create")) ++
       Enum.flat_map(spec["properties"] || %{}, fn {name, note} ->
         field(ctx, kind, name, at.("properties")) ++
-          keys(note, ~w(set_by multiline label cause), at.("properties") ++ [name])
+          keys(note, ~w(set_by multiline label cause format), at.("properties") ++ [name])
       end) ++
       late(ctx, kind, spec["late"], at.("late")) ++
       Enum.flat_map(List.wrap(spec["counts"]), fn c ->
@@ -615,13 +615,14 @@ defmodule RelaDSL.Description.Check do
 
       keys(
         panel,
-        ~w(heading title records byline items checks box choose details actions links),
+        ~w(heading title records byline items checks box choose details detail_groups actions links),
         at
       ) ++
         if(text?(panel["heading"]) and text?(panel["title"]),
           do: [],
           else: p(at, :panel, [kind], "#{kind}.panel.#{state}: expected its heading and title")
         ) ++
+        page_detail_groups(ctx, kind, panel["detail_groups"], at ++ ["detail_groups"]) ++
         Enum.flat_map(
           panel["records"] || %{},
           &keys(elem(&1, 1), ~w(relation where), at ++ ["records"])

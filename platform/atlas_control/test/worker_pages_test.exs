@@ -98,21 +98,20 @@ defmodule AtlasControl.WorkerPagesTest do
     assert Enum.map(page.blocks, & &1["id"]) ==
              [
                "worker",
+               "worker-identity",
                "worker-output",
                "worker-output-details",
                "guidance-history",
                "worker-record"
              ]
 
-    # The conversation leads with what the worker said; the rest is one folded section.
+    # Conversation details remain visible without a folding control.
     assert Enum.map(page.markup, &{&1["kind"], &1["start"], &1["end"]}) == [
-             {"part", "worker", "worker"},
-             {"part", "worker-output", "worker-record"},
-             {"section", "worker-output-details", "worker-record"}
+             {"part", "worker", "worker-identity"},
+             {"part", "worker-output", "worker-record"}
            ]
 
-    assert Enum.map(page.markup, & &1["props"]["role"]) == ["main", "related", nil]
-    assert List.last(page.markup)["props"]["collapsible"] == true
+    assert Enum.map(page.markup, & &1["props"]["role"]) == ["main", "related"]
     refute Enum.any?(page.console_actions, &(&1.operation["name"] == "worker_output_subscribe"))
     refute Enum.any?(page.console_actions, &(&1.operation["name"] == "worker_history"))
     assert {:ok, projected} = project(page, target)
@@ -298,7 +297,7 @@ defmodule AtlasControl.WorkerPagesTest do
   test "a finished standalone turn leads with what it was and says nothing it does not know" do
     {page, _target} = fixture(@none, %{}, @finished)
     worker = block(page, "worker")
-    shown = values(worker)
+    shown = values(worker) ++ values(block(page, "worker-identity"))
 
     assert worker["props"]["title"] == "fixture title"
 
@@ -323,7 +322,11 @@ defmodule AtlasControl.WorkerPagesTest do
         execution: Map.drop(@finished[:execution], ["recorded_at"])
       )
 
-    assert length(shown) == length(values(block(unknown_times, "worker"))) + 3
+    assert length(shown) ==
+             length(
+               values(block(unknown_times, "worker")) ++
+                 values(block(unknown_times, "worker-identity"))
+             ) + 3
 
     # Without a reported title or model, the worker names the page and the model is left out.
     {plain, _} =
@@ -333,7 +336,9 @@ defmodule AtlasControl.WorkerPagesTest do
       )
 
     refute block(plain, "worker")["props"]["title"] == "fixture title"
-    assert length(values(block(plain, "worker"))) == length(shown) - 1
+
+    assert length(values(block(plain, "worker")) ++ values(block(plain, "worker-identity"))) ==
+             length(shown) - 1
   end
 
   test "the state is in plain words, and the model is the turn's before the execution's" do
@@ -481,37 +486,21 @@ defmodule AtlasControl.WorkerPagesTest do
     assert hd(page.markup)["end"] == "worker-newer"
   end
 
-  test "the details fold behind one key that projects with the page's actions" do
+  test "conversation details stay visible without a toggle" do
     {page, target} = fixture(@none, %{}, @finished)
-    section = Enum.find(page.markup, &(&1["kind"] == "section"))
-    ids = Enum.map(page.blocks, & &1["id"])
 
-    inside =
-      Enum.slice(
-        ids,
-        Enum.find_index(ids, &(&1 == section["start"]))..Enum.find_index(
-          ids,
-          &(&1 == section["end"])
-        )
-      )
-
-    # Guidance, the execution record and the output's own state are details.
     assert Enum.all?(
              ["worker-output-details", "guidance-history", "worker-record"],
-             &(&1 in inside)
+             &(block(page, &1) != nil)
            )
 
-    refute "worker-output" in inside
-    refute "worker" in inside
-
-    toggle = Enum.find(page.console_actions, &(&1.operation["name"] == "sections_toggle"))
-    assert [_key] = toggle.keys
+    refute Enum.any?(page.markup, &(get_in(&1, ["props", "collapsible"]) == true))
+    refute Enum.any?(page.console_actions, &(&1.operation["name"] == "sections_toggle"))
     assert {:ok, projected} = project(page, target)
-    assert {:ok, projection} = AtlasBFFContract.Console.compile(projected)
-    assert Enum.any?(projection.actions, &(&1["props"]["operation"] == toggle.operation))
+    assert {:ok, _projection} = AtlasBFFContract.Console.compile(projected)
 
-    # What the worker part says is not said again in the conversation or the details.
-    worker_values = MapSet.new(values(block(page, "worker")))
+    worker_values =
+      MapSet.new(values(block(page, "worker")) ++ values(block(page, "worker-identity")))
 
     for id <- ["worker-output", "worker-output-details"],
         value <- values(block(page, id)),

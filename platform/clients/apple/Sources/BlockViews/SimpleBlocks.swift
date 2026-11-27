@@ -7,6 +7,10 @@ import AppKit
 /// A `text` block in one line: its label before it, when it has one, and how long ago `since` was
 /// after it ("· 3h ago"), when Control sends them.
 public enum TextLine {
+    public static func isMarkdown(_ block: TextBlock) -> Bool {
+        MarkdownDocument.isMarkdown(block.format)
+    }
+
     public static func line(_ block: TextBlock, now: Date) -> String {
         let shown = text(block, now: now)
         guard let label = block.label else { return shown }

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Run Credo on tracked Elixir snapshots, or compare the index with HEAD."""
 import collections
+import difflib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -10,6 +12,7 @@ import tempfile
 
 TOOL_DIR = Path(__file__).resolve().parent
 EXCLUDED = {"tmp", "deps", "_build", "generated"}
+NO_BASELINE = object()
 
 
 def git(*args, input=None):
@@ -100,6 +103,43 @@ def key(issue):
     return json.dumps(issue, sort_keys=True, ensure_ascii=True)
 
 
+def baseline_line(issue, previous, current, root, mappings):
+    path = os.fsencode(issue["filename"])
+    if path not in previous or path not in current:
+        return NO_BASELINE
+    line = issue["line_no"]
+    if previous[path] == current[path]:
+        return line
+    if not isinstance(line, int) or line < 1:
+        return NO_BASELINE
+    if path not in mappings:
+        old_lines = (root / "head" / os.fsdecode(path)).read_bytes().splitlines(keepends=True)
+        new_lines = (root / "index" / os.fsdecode(path)).read_bytes().splitlines(keepends=True)
+        # shortcut: repeated identical lines can map ambiguously; use syntax-aware matching if needed.
+        blocks = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False).get_matching_blocks()
+        mappings[path] = {
+            new_start + offset + 1: old_start + offset + 1
+            for old_start, new_start, length in blocks
+            for offset in range(length)
+        }
+    return mappings[path].get(line, NO_BASELINE)
+
+
+def metric_key(issue):
+    patterns = {
+        "Credo.Check.Refactor.CyclomaticComplexity":
+            r"(Function is too complex \(cyclomatic complexity is )([0-9]+)(, max is [0-9]+\)\.)",
+        "Credo.Check.Warning.StructFieldAmount":
+            r"(Struct has more than [0-9]+ fields \()([0-9]+)( found\)\.)",
+    }
+    pattern = patterns.get(issue["check"])
+    match = re.fullmatch(pattern, issue["message"]) if pattern else None
+    if not match:
+        return None
+    normalized = {**issue, "message": match.group(1) + "{}" + match.group(3)}
+    return key(normalized), int(match.group(2))
+
+
 def main():
     if sys.argv[1:] not in (["all"], ["staged"]):
         raise ValueError("usage: python3 tools/credo/check.py {all|staged}")
@@ -116,13 +156,31 @@ def main():
         new = analyze(current, root / "index")
         if previous is not None:
             old = collections.Counter(key(issue) for issue in analyze(previous, root / "head"))
-            introduced = []
+            mappings = {}
+            pending = []
             for issue in new:
-                fingerprint = key(issue)
-                if old[fingerprint]:
+                old_line = baseline_line(issue, previous, current, root, mappings)
+                mapped = {**issue, "line_no": old_line} if old_line is not NO_BASELINE else None
+                fingerprint = key(mapped) if mapped is not None else None
+                if fingerprint is not None and old[fingerprint]:
                     old[fingerprint] -= 1
                 else:
+                    pending.append((issue, mapped))
+            metrics = collections.defaultdict(list)
+            for fingerprint, count in old.items():
+                if count and (metric := metric_key(json.loads(fingerprint))):
+                    metrics[metric[0]].extend([metric[1]] * count)
+            for values in metrics.values():
+                values.sort()
+            introduced = []
+            for issue, mapped in pending:
+                metric = metric_key(mapped) if mapped is not None else None
+                values = metrics[metric[0]] if metric else []
+                match = next((i for i, value in enumerate(values) if value >= metric[1]), None)
+                if match is None:
                     introduced.append(issue)
+                else:
+                    values.pop(match)
             new = introduced
     for issue in new:
         print(f"{issue['filename']}:{issue['line_no']}:{issue['column']}: "
