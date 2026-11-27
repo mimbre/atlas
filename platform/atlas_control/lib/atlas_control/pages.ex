@@ -2353,9 +2353,7 @@ defmodule AtlasControl.Pages do
             related = Enum.zip(relations, child_answers)
             item_relation = get_in(spec, ["items", "relation"])
             item_state =
-              if Enum.any?(next, fn action ->
-                   is_binary(action["to"]) and String.contains?(action["to"], "/pick_up/")
-                 end),
+              if in_span?(m, kind, work) and supervisor(work) == [] and work["waiting_for"] == nil,
                 do: "pick_up",
                 else: work["state"]
 
@@ -2424,6 +2422,12 @@ defmodule AtlasControl.Pages do
             content =
               [{"header", header}] ++
                 if(text == "", do: [], else: [{"intro", Blocks.text(text: text)}]) ++
+                for(name <- List.wrap(spec["sections"]),
+                    f = field(k, name),
+                    f != nil,
+                    value = fact["values"][name],
+                    value not in [nil, ""],
+                    do: {"section-" <> name, Blocks.text(label: f.label, text: to_text(value))}) ++
                 todo_blocks ++
                 for({id, {_title, list}} <- primary, do: {id, list}) ++
                 panel_blocks ++ answer_blocks ++ others_block(more) ++

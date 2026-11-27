@@ -155,6 +155,8 @@ defmodule Model.ControlViewsTest do
     answers = [%{"fact" => scene} | for(_ <- tl(AtlasControl.Pages.reads(route, m)), do: %{"facts" => []})]
     page = AtlasControl.Pages.render(route, m, answers)
     assert Enum.find(page.blocks, &(&1["id"] == "intro"))["props"]["text"] == scene["values"]["description"]
+    assert Enum.find(page.blocks, &(&1["id"] == "section-questions"))["props"]["text"] == "What happens next?"
+    assert Enum.find(page.blocks, &(&1["id"] == "section-answers"))["props"]["text"] == "The producer answered."
     fields = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]["fields"]
     assert Enum.any?(fields, &(&1["value"] == "What happens next?"))
     assert Enum.any?(fields, &(&1["value"] == "The producer answered."))

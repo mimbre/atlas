@@ -175,6 +175,7 @@ defmodule Model.Scene do
     page(
       state: [:phase, :status],
       intro: [field: :description],
+      sections: [:questions, :answers, :note],
       items: [
         relation: :in_scene,
         empty: [

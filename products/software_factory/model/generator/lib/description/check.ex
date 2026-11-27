@@ -165,9 +165,10 @@ defmodule RelaDSL.Description.Check do
   defp page_rule(_ctx, _kind, nil, _path), do: []
 
   defp page_rule(ctx, kind, page, path) when is_map(page) do
-    keys(page, ~w(state intro items), path) ++
+    keys(page, ~w(state intro sections items), path) ++
       page_names(ctx, kind, page["state"], path ++ ["state"]) ++
       page_intro(ctx, kind, page["intro"], path ++ ["intro"]) ++
+      page_names(ctx, kind, page["sections"], path ++ ["sections"]) ++
       page_items(ctx, kind, page["items"], path ++ ["items"])
   end
 

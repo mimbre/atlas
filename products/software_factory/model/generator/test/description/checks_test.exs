@@ -149,7 +149,7 @@ defmodule RelaDSL.Description.ChecksTest do
     c =
       concept(
         entity:
-          ~s(page state: [:state], intro: [field: :title], items: [relation: :contains, empty: [open: "Nothing yet"]]),
+          ~s(page state: [:state], intro: [field: :title], sections: [:title], items: [relation: :contains, empty: [open: "Nothing yet"]]),
         concept: ~s(relation :contains, label: "contains", from: [:keeper], to: [:thing])
       )
 
@@ -159,11 +159,14 @@ defmodule RelaDSL.Description.ChecksTest do
     assert Enum.find(kinds, &(&1.name == "thing")).page == %{
              "state" => ["state"],
              "intro" => %{"field" => "title"},
+             "sections" => ["title"],
              "items" => %{"relation" => "contains", "empty" => %{"open" => "Nothing yet"}}
            }
     assert Enum.find(kinds, &(&1.name == "keeper")).page == nil
 
     assert checked(concept(entity: "page state: [:colour]")) ==
+             [{:unknown_field, ["thing", "colour"]}]
+    assert checked(concept(entity: "page sections: [:colour]")) ==
              [{:unknown_field, ["thing", "colour"]}]
     assert checked(concept(entity: "page items: [relation: :kept_by]")) ==
              [{:relation_end, ["kept_by", "to", "thing"]}]
@@ -171,6 +174,7 @@ defmodule RelaDSL.Description.ChecksTest do
 
     for declaration <- [
           "page state: :state",
+          "page sections: :title",
           "page intro: 3",
           "page items: 3",
           "page items: [relation: :kept_by, empty: 3]"

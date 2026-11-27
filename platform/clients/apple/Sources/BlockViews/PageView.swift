@@ -208,7 +208,7 @@ public struct PageView: View {
             case .entry(let entry):
                 switch entry.item {
                 case .list(let list):
-                    if header, list.title != nil || list.aside != nil {
+                    if (header && list.title != nil) || list.aside != nil {
                         blocks.append(Line(id: group.id + "/title",
                                            content: .heading(list.title ?? "", aside: list.aside)))
                     } else if let title = list.title {
@@ -333,9 +333,16 @@ struct ListBlockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
-            if let title = list.title {
-                Text(title).prism(Prism.Typography.title7)
-                    .padding(.bottom, Prism.Spacing.px5)
+            if list.title != nil || list.aside != nil {
+                HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
+                    if let title = list.title {
+                        Text(title).prism(Prism.Typography.title7)
+                    }
+                    if let aside = list.aside {
+                        Text(aside).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.bottom, Prism.Spacing.px5)
             }
             if (list.rows ?? []).isEmpty, let empty = list.empty {
                 Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
