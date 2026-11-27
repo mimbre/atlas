@@ -165,11 +165,12 @@ defmodule RelaDSL.Description.Check do
   defp page_rule(_ctx, _kind, nil, _path), do: []
 
   defp page_rule(ctx, kind, page, path) when is_map(page) do
-    keys(page, ~w(state intro sections items), path) ++
+    keys(page, ~w(state intro sections items details), path) ++
       page_names(ctx, kind, page["state"], path ++ ["state"]) ++
       page_intro(ctx, kind, page["intro"], path ++ ["intro"]) ++
       page_names(ctx, kind, page["sections"], path ++ ["sections"]) ++
-      page_items(ctx, kind, page["items"], path ++ ["items"])
+      page_items(ctx, kind, page["items"], path ++ ["items"]) ++
+      page_detail_groups(ctx, kind, page["details"], path ++ ["details"])
   end
 
   defp page_rule(_ctx, kind, _page, path),
@@ -182,6 +183,35 @@ defmodule RelaDSL.Description.Check do
 
   defp page_names(_ctx, kind, _names, path),
     do: p(path, :page, [kind], "#{Enum.join(path, ".")}: expected a list")
+
+  defp page_detail_groups(_ctx, _kind, nil, _path), do: []
+
+  defp page_detail_groups(ctx, kind, groups, path) when is_list(groups) do
+    Enum.flat_map(groups, fn group ->
+      if is_map(group) do
+        keys(group, ~w(title fields relations), path) ++
+          if(text?(group["title"]), do: [], else: p(path, :page, [kind], "details need a title")) ++
+          page_names(ctx, kind, group["fields"], path ++ ["fields"]) ++
+          page_detail_relations(ctx, kind, group["relations"], path ++ ["relations"])
+      else
+        p(path, :page, [kind], "details must be a list of groups")
+      end
+    end)
+  end
+
+  defp page_detail_groups(_ctx, kind, _groups, path),
+    do: p(path, :page, [kind], "details must be a list of groups")
+
+  defp page_detail_relations(_ctx, _kind, nil, _path), do: []
+
+  defp page_detail_relations(ctx, kind, names, path) when is_list(names) do
+    Enum.flat_map(names, fn name ->
+      if rel(ctx, name), do: [], else: p(path, :page, [kind, name], "unknown relation")
+    end)
+  end
+
+  defp page_detail_relations(_ctx, kind, _names, path),
+    do: p(path, :page, [kind], "details relations must be a list")
 
   defp page_intro(_ctx, _kind, nil, _path), do: []
 

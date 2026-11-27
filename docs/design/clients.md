@@ -39,8 +39,8 @@ A decision, a to-do's steps and stuck work are such stacks (`header`, `text` id 
 
 The **Machines** tab (contract 0.43.0; Runtimes in the code) is such a stack when there is
 one machine: its page is the tab's page (`header` MACHINE · its key, the state line,
-Health, Slots, Queue, Recently finished, Upgrades, Edit configuration in the toolbar and
-Details). Desired but unverified slots and an unavailable queue are marked unknown. If
+Health, Slots, Queue, Recently finished, Upgrades, Edit configuration in the toolbar, and
+standalone Identity and Versions blocks when those details are known). Desired but unverified slots and an unavailable queue are marked unknown. If
 attempts cannot be read, slot activity and recently finished work are unknown, not empty.
 Recently finished includes lost attempts even when boot repair could not establish an end time;
 these sort after dated attempts and have no invented timestamp or duration. A recent poll is
@@ -187,7 +187,7 @@ nothing about an action, only how it is triggered.
 | Main answer | the first of `answers` (or an option's Choose): the next step | `primary` button (success) | key in green |
 | Decline | weight `decline` (`no`, deprecated): Won't do, Decline, Decline all | `secondary` button; Decline all under several alternatives (icon `decline`) a quiet `plain` button with a blue `xmark.circle`; one with `note` opens the note form on click, its label unchanged | key in the primary colour; its label stays unchanged when a note is needed |
 | Other answer | weight `other`: Ask, Delegate (a decision, D-0106: its form chooses the proposer or another person), Pick up | the opened item's in the window's toolbar after its actions, its icon and short label; in a sheet a `plain` button with its icon | in the key line, in order |
-| Other action | the `actions` block: change, hand over, delete, create under, Failures… (test only) | the opened item's in the window's toolbar, never a button on the page; its icon in the primary colour (dark: PrismDarkGap's readable primary), Delete red and last | muted in the key line |
+| Other action | the `actions` block: change, hand over, delete, create under, Failures… (test only) | the opened item's in the window's toolbar, never a button on the page; its icon in the primary colour (dark: PrismDarkGap's readable primary), Delete red and last, Remove red with a trash icon | muted in the key line |
 
 - **Mac**: the main answer and the decline as buttons at the page's bottom; everything
   else for the opened item (its actions and `other` answers) in the window's toolbar at the

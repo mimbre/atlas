@@ -149,6 +149,7 @@ final class DecisionPageTests: XCTestCase {
             return ["id": "actions", "type": "actions", "props": ["actions": [
                 ["label": "Update decision", "key": "u", "to": "/k/decision/D-7/edit", "icon": "edit", "button": "Update"],
                 ["label": "Delete decision", "key": "d", "to": "/k/decision/D-7/delete", "icon": "delete", "button": "Delete"],
+                ["label": "Remove", "key": "m", "to": "/k/decision/D-7/remove_item/R-1", "icon": "remove", "help": "Remove it from its flow: its run ends"],
                 ["label": "Hand to…", "key": "h", "to": "/k/decision/D-7/links/owner", "icon": "hand_over", "button": "Hand to"],
                 ["label": "Failures…", "key": "!", "to": "/k/decision/D-7/faults", "icon": "faults", "button": "Failures"],
             ]]]
@@ -157,11 +158,11 @@ final class DecisionPageTests: XCTestCase {
 
         XCTAssertTrue(PageActions.ofPage(page).isEmpty, "none is the page's own, shown under its title")
         let (rest, delete) = PageActions.split(PageActions.others(page))
-        XCTAssertEqual(rest.map(\.key), ["u", "h", "!"])
+        XCTAssertEqual(rest.map(\.key), ["u", "m", "h", "!"])
         XCTAssertEqual(delete?.key, "d")
         XCTAssertEqual(rest.map { ActionIcon.symbol($0.icon) },
-                       ["pencil", "person.and.arrow.left.and.arrow.right", "exclamationmark.triangle"])
-        XCTAssertEqual(rest.map(PageActions.tooltip), ["Update decision", "Hand to…", "Failures…"])
+                       ["pencil", "trash", "person.and.arrow.left.and.arrow.right", "exclamationmark.triangle"])
+        XCTAssertEqual(rest.map(PageActions.tooltip), ["Update decision", "Remove it from its flow: its run ends", "Hand to…", "Failures…"])
         XCTAssertTrue(PageActions.others(nil).isEmpty, "nothing open, no toolbar actions")
     }
 

@@ -149,7 +149,7 @@ defmodule RelaDSL.Description.ChecksTest do
     c =
       concept(
         entity:
-          ~s(page state: [:state], intro: [field: :title], sections: [:title], items: [relation: :contains, empty: [open: "Nothing yet"]]),
+          ~s(page state: [:state], intro: [field: :title], sections: [:title], items: [relation: :contains, empty: [open: "Nothing yet"]], details: [[title: "Information", fields: [:title], relations: [:contains]]]),
         concept: ~s(relation :contains, label: "contains", from: [:keeper], to: [:thing])
       )
 
@@ -161,7 +161,10 @@ defmodule RelaDSL.Description.ChecksTest do
              "state" => ["state"],
              "intro" => %{"field" => "title"},
              "sections" => ["title"],
-             "items" => %{"relation" => "contains", "empty" => %{"open" => "Nothing yet"}}
+             "items" => %{"relation" => "contains", "empty" => %{"open" => "Nothing yet"}},
+             "details" => [
+               %{"title" => "Information", "fields" => ["title"], "relations" => ["contains"]}
+             ]
            }
 
     assert Enum.find(kinds, &(&1.name == "keeper")).page == nil
@@ -174,6 +177,9 @@ defmodule RelaDSL.Description.ChecksTest do
 
     assert checked(concept(entity: "page items: [relation: :kept_by]")) ==
              [{:relation_end, ["kept_by", "to", "thing"]}]
+
+    assert checked(concept(entity: "page details: [[title: \"Bad\", fields: [:colour]]]")) ==
+             [{:unknown_field, ["thing", "colour"]}]
 
     assert checked(concept(entity: "page shape: 3")) == [{:unknown_keys, ["shape"]}]
 

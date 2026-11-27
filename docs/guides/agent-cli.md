@@ -15,6 +15,8 @@ atlas put pull_request --url https://github.com/mimbre/atlas/pull/14 --in IS-Atl
 
 For its owner, `atlas get` (and `set`, which prints the item after) first prints what there is to do: a decision's choice (its question, the recommendation and each option by its key), a to-do's steps (its why, every step in full, then its answers on their keys), or the to-do's own fields. Blocks, fields and step lines this client does not know yet are left out, never fatal; `--json` keeps them as Control sent them.
 
+When a fact's page groups its fields into several item blocks, `atlas get` combines their fields and relation origins in page order; the exact edit-form values remain unchanged.
+
 Control connections optionally accept
 `ATLAS_CONTROL_ENDPOINT=tls://<full-node-name>.tail8263c4.ts.net:<port>`. This selection
 also reaches discovery, the TUI's `steer` child and worker-output sockets. System CA

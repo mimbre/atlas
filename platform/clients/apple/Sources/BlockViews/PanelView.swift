@@ -362,6 +362,7 @@ public enum ActionIcon {
         switch name {
         case "edit": "pencil"
         case "delete": "trash"
+        case "remove": "trash"
         case "hand_over": "person.and.arrow.left.and.arrow.right"
         case "question": "questionmark.bubble"
         case "delegate": "arrow.uturn.backward"

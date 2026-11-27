@@ -366,7 +366,7 @@ struct OtherActionsView: View {
                 } else {
                     Image(systemName: ActionIcon.symbol(action.icon) ?? "ellipsis.circle")
                         .resizable().scaledToFit()
-                        .foregroundStyle(action.icon == "delete" ? Prism.Colors.error : PrismDarkGap.icon(scheme))
+                        .foregroundStyle(action.icon == "delete" || action.icon == "remove" ? Prism.Colors.error : PrismDarkGap.icon(scheme))
                 }
             }
             .frame(width: 16, height: 16)
@@ -380,7 +380,7 @@ struct OtherActionsView: View {
 }
 
 /// Quiet icon-only toolbar actions with descriptive tooltips and accessibility labels.
-/// Delete uses the danger colour and opens Control's confirm first.
+/// Delete and remove use the danger colour and open Control's confirm first.
 public struct ItemToolbar: ToolbarContent {
     let actions: [ActionModel]
     let pending: SessionState.Pending?
@@ -416,14 +416,14 @@ public struct ItemToolbar: ToolbarContent {
 }
 
 /// A toolbar action's icon: in the primary colour (its dark-appearance text colour in
-/// dark), Delete's in the danger colour.
+/// dark), delete and remove in the danger colour.
 private struct ToolbarIcon: View {
     let icon: String?
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Image(systemName: ActionIcon.symbol(icon) ?? "ellipsis.circle")
-            .foregroundStyle(icon == "delete" ? Prism.Colors.error : PrismDarkGap.icon(scheme))
+            .foregroundStyle(icon == "delete" || icon == "remove" ? Prism.Colors.error : PrismDarkGap.icon(scheme))
     }
 }
 
