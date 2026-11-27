@@ -17,9 +17,10 @@ consequences. A definition holds alternatives only, at least one (one proposal, 
 alternatives), and no "no" option: Decline is always available, so a definition
 with a `decline` option is refused with "A decision has no 'no' option; Decline is
 always available". There must be one `recommended` ID, first in the options array,
-and a short `rationale`. An open decision whose stored definition still has a
-decline option takes a definition without it (`atlas set <D> options=<json>`); its
-`option_history` keeps the old one as plain past data.
+and a short `rationale`. An open decision with a legacy decline option still shows
+its question and adopting alternatives; the old decline option is never selectable.
+The complete original definition remains in the selection snapshot or offer history.
+Any newly supplied definition must omit the decline option.
 
 ```sh
 atlas put decision --env test --title 'Example storage' \
