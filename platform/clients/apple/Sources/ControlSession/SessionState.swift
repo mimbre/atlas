@@ -859,9 +859,9 @@ public struct SessionState: Sendable, Equatable {
         if let tab = Self.tab(showing: index, in: shell) { activeTab = tab.id }
     }
 
-    /// A filtered page names its parent tab in `back`.
+    /// A direct tab destination wins; a filtered page names its parent tab in `back`.
     static func tab(showing page: PageMessage, in shell: Shell) -> ShellTabModel? {
-        (shell.tabs ?? []).first { $0.to == page.path || $0.to == page.back }
+        tab(showing: page.path, in: shell) ?? tab(showing: page.back, in: shell)
     }
 
     static func tab(showing path: String?, in shell: Shell) -> ShellTabModel? {

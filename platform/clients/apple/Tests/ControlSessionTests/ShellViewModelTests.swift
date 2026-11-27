@@ -85,6 +85,18 @@ final class ShellViewModelTests: XCTestCase {
         XCTAssertEqual(shell.activeTab, "parts")
     }
 
+    func testDirectTabDestinationWinsOverAnotherTabsBackPath() {
+        let h = Harness()
+        let sent = [Lines.tab("assigned", "/"), Lines.tab("machines", "/machines")]
+        h.connect(boot: Lines.boot(tabs: sent, initialTo: "/", activeTab: "assigned"), start: Lines.page("/"))
+
+        h.session.selectTab("machines")
+        XCTAssertEqual(h.connection.take(), [.open(OpenRequest(to: "/machines"))])
+        h.connection.receive(Lines.with(Lines.page("/machines"), "back", "/"))
+
+        XCTAssertEqual(ShellViewModel(h.state).activeTab, "machines")
+    }
+
     func testATabBootDidNotSendCannotBeChosen() {
         let h = Harness()
         h.connect()
