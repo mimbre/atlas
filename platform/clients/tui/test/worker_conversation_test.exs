@@ -639,7 +639,7 @@ defmodule AtlasTui.WorkerConversationTest do
 
   # A worker page as Control lays it out: the Worker part, and a Conversation part that
   # leads with what the worker said and folds the rest under a collapsible Details.
-  defp layout_model do
+  defp layout_model(role \\ "related") do
     item = fn id, title, fields ->
       %{
         "id" => id,
@@ -681,7 +681,7 @@ defmodule AtlasTui.WorkerConversationTest do
             "kind" => "part",
             "start" => "worker-output",
             "end" => "worker-record",
-            "props" => %{"title" => "fixture conversation part", "role" => "related"}
+            "props" => %{"title" => "fixture conversation part", "role" => role}
           },
           %{
             "kind" => "section",
@@ -735,5 +735,30 @@ defmodule AtlasTui.WorkerConversationTest do
     {folded, []} = Model.operation(unfolded, "sections_toggle")
     refute screen(folded) =~ "fixture record"
     assert Model.rows(folded) == []
+  end
+
+  test "a details part with a multi-block disclosure has no enclosing card" do
+    model = layout_model("details")
+
+    for width <- [90, 140] do
+      rendered = View.render(model, width, 60, 5)
+      text = View.plain(rendered)
+      assert text =~ "▸ fixture details"
+      refute text =~ "fixture stream"
+
+      refute Enum.any?(List.flatten(rendered), fn {style, text} ->
+               text =~ "fixture details" and match?({:card, _}, style)
+             end)
+
+      {open, []} = Model.operation(model, "sections_toggle")
+      text = open |> View.render(width, 60, 5) |> View.plain()
+      assert text =~ "▾ fixture details"
+      assert text =~ "fixture stream"
+      assert text =~ "fixture guidance"
+      assert text =~ "fixture record"
+      assert [%{id: "g-1"}] = Model.rows(open)
+      {closed, []} = Model.operation(open, "sections_toggle")
+      assert Model.rows(closed) == []
+    end
   end
 end
