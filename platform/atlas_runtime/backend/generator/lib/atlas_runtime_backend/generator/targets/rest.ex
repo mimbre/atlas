@@ -223,6 +223,7 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
     resource? = Enum.any?(items, fn {{_, kind, _}, _} -> kind == :resource end)
     stream? = Enum.any?(items, fn {{_, kind, _}, _} -> kind == :stream end)
+
     upload? =
       Enum.any?(items, fn {{_, kind, item}, _} ->
         kind == :resource and Map.get(item, :upload) != nil
