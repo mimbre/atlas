@@ -65,7 +65,8 @@ gutter between them. Room left over is only at the **far right**, after the last
 What gives way as the room narrows, in this order:
 
 1. **The sidebar.** TUI: below 290 columns the tabs move to the tab bar. Filters
-   stay on the list at every width, with counts and `[` / `]` keys for previous / next.
+   stay on the list at every width: bracketed labels and counts, a coloured `•` on the
+   active filter, and `[` / `]` keys for previous / next.
    Mac: the sidebar stays until step 3.
 2. **The details** go under the main blocks. Mac: beside while the page's column holds
    720 + 280 pt (a window of about 1600 pt), else as a recessed card under the page.

@@ -876,7 +876,8 @@ defmodule AtlasTui.View do
     groups
     |> Enum.map(fn group ->
       count = if is_nil(group.count), do: "", else: " #{group.count}"
-      text = "[#{single_line(group.label)}#{count}]"
+      marker = if group.active, do: "• ", else: ""
+      text = "[#{marker}#{single_line(group.label)}#{count}]"
       {if(group.active, do: :active, else: :dim), cell_cut(text, width)}
     end)
     |> Enum.reduce([], fn {_, text} = segment, lines ->

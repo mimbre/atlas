@@ -183,6 +183,32 @@ defmodule AtlasTui.ColumnsSidebarTest do
     end
   end
 
+  test "group bindings remain available in a narrow single column" do
+    page = list("/_supervised", "Supervised by you", ["W-3"])
+
+    groups = %{
+      "id" => "groups",
+      "type" => "groups",
+      "props" => %{
+        "groups" => [
+          %{"label" => "Decisions", "count" => 2, "to" => "/_supervised/decide/open"},
+          %{"label" => "To-Dos", "count" => 3, "to" => "/_supervised/todo/open"}
+        ],
+        "actions" => [
+          %{"key" => "]", "label" => "Next group", "to" => "/_supervised/decide/open"},
+          %{"key" => "[", "label" => "Previous group", "to" => "/_supervised/todo/open"}
+        ]
+      }
+    }
+
+    model = ConsoleProjectionFixture.model(%{page | "blocks" => [groups | page["blocks"]]})
+    model = put_in(model.console.viewport, {48, 24})
+
+    for {key, to} <- [{"]", "/_supervised/decide/open"}, {"[", "/_supervised/todo/open"}] do
+      assert {_, [{:send, %{"op" => "open", "to" => ^to}}]} = Model.key(model, {:char, key})
+    end
+  end
+
   test "a list's group heading is plain: bold title, dim count, no box lines" do
     model = wide(250)
     {model, [{:send, %{"op" => "open", "to" => "/_supervised"}}]} = Model.key(model, :tab)

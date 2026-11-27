@@ -245,8 +245,10 @@ defmodule AtlasTui.ConsoleTransportTest do
     }
 
     send_message(socket, page)
-    screen = see(server, "[All 2] [Ready 1]")
+    screen = see(server, "[• All 2] [Ready 1]")
     assert length(Regex.scan(~r/\[Ready 1\]/, screen)) == 1
+    tmux(server, ["resize-window", "-t", "console", "-x", "48", "-y", "24"])
+    see(server, "[• All 2] [Ready 1]")
     tmux(server, ["send-keys", "-t", "console", "-l", "]"])
     assert %{"op" => "open", "to" => "/k/widget/ready"} = read(socket)
     :gen_tcp.close(socket)
