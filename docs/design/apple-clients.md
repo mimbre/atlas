@@ -235,7 +235,7 @@ Above the columns is the title bar; there is no status bar: the shell's state is
 | Actions and forms | `action`/`form` blocks, `submit` | Buttons under the page. A form opens as a sheet over the right column; a confirm opens as a dialog. |
 | Agent behind `:` | the steer agent | A toolbar button, and `:` or `⌘K`. Its plan shows in a panel. |
 | Notices and connection | `notice`, page `position`, reconcile | Sidebar foot, one line: "● Connected", or a red warning and "Not connected"; the plain words, last notice, position, last hint and reconcile interval in the state's popover. |
-| Worker page | worker blocks | Right column. The conversation scrolls; Details is a disclosure group. |
+| Worker page | worker blocks | Right column. State and identity are separate blocks; conversation and execution details stay visible. |
 
 Rules:
 
