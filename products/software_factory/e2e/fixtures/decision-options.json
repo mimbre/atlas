@@ -2,8 +2,7 @@
   "question": "How should the private example be stored?",
   "options": [
     {"id":"files","text":"Use files","details":"Keep the example as local files.","effect":"adopt","rule":"Store the private example in files.","consequences":"Create the private example files."},
-    {"id":"memory","text":"Use memory","details":"Keep the example only in memory.","effect":"adopt","rule":"Store the private example in memory.","consequences":"Create the private in-memory example."},
-    {"id":"decline","text":"Do neither","details":"Do not adopt either storage rule.","effect":"decline","rule":"","consequences":""}
+    {"id":"memory","text":"Use memory","details":"Keep the example only in memory.","effect":"adopt","rule":"Store the private example in memory.","consequences":"Create the private in-memory example."}
   ],
   "recommended": "files",
   "rationale": "Files keep this example easy to inspect."

@@ -261,7 +261,7 @@ defmodule AtlasControl.SessionTest do
   test "a client sees the top list at once", %{port: port} do
     FakeStore.put("W-1", %{"title" => "One"})
     c = client(port)
-    assert %{"env" => "test", "spec" => "0.40.0"} = next(c, "welcome")
+    assert %{"env" => "test", "spec" => "0.41.0"} = next(c, "welcome")
     assert %{"path" => "/", "title" => "Widgets", "reason" => "open"} = page = next(c, "page")
     assert rows(page) == ["One"]
   end
@@ -334,7 +334,8 @@ defmodule AtlasControl.SessionTest do
       "label" => "Failures…",
       "to" => "/faults",
       "icon" => "faults",
-      "button" => "Failures"
+      "button" => "Failures",
+      "help" => "Cause a failure here, to see how it is shown (test only)"
     }
 
     assert ["c"] = for(a <- get_in(hd(home["blocks"]), ["props", "actions"]), do: a["key"])

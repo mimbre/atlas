@@ -144,7 +144,7 @@ defmodule AtlasAgent.ActionsTest do
         "props" => %{
           "answers" => [
             %{"label" => "Decline", "key" => "f", "to" => "/f", "note" => true},
-            %{"label" => "Ask a question", "key" => "q", "to" => "/q", "icon" => "question"}
+            %{"label" => "Ask", "key" => "q", "to" => "/q", "icon" => "question"}
           ]
         }
       }

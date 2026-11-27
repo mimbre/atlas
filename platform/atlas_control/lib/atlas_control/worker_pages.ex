@@ -105,7 +105,13 @@ defmodule AtlasControl.WorkerPages do
   end
 
   defp health_action,
-    do: Blocks.action(label: "Health", key: "h", to: Pages.path({:worker_page, :health, %{}}))
+    do:
+      Blocks.action(
+        label: "Health",
+        key: "h",
+        to: Pages.path({:worker_page, :health, %{}}),
+        help: "Show the health of Atlas's services and machines"
+      )
 
   defp worker_row(worker, detail) do
     execution = worker["execution"]
@@ -205,14 +211,24 @@ defmodule AtlasControl.WorkerPages do
           Blocks.action(
             label: "Queue guidance for this turn",
             key: "g",
-            to: path(execution, :worker_guidance)
+            to: path(execution, :worker_guidance),
+            help: "Queue a message the agent reads in this turn"
           )
         ],
         else: []
 
     actions =
       if view["item_to"],
-        do: actions ++ [Blocks.action(label: "Open current item", key: "i", to: view["item_to"])],
+        do:
+          actions ++
+            [
+              Blocks.action(
+                label: "Open current item",
+                key: "i",
+                to: view["item_to"],
+                help: "Open the item this turn works on"
+              )
+            ],
         else: actions
 
     content =

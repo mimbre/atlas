@@ -283,7 +283,11 @@ defmodule RelaDSL.Control.Model do
         agent: spec["agent"],
         delete_error: if(is_binary(spec["delete_error"]), do: spec["delete_error"]),
         hidden: state_fields(presenters, kind),
-        presented: Enum.any?(presenters, &(&1["kind"] == kind))
+        presented: Enum.any?(presenters, &(&1["kind"] == kind)),
+        # Whom its decider may delegate it to (a Delegate's other person): the kinds the
+        # relation its single choice names as the delegating one points at.
+        delegate_kinds:
+          get_in(relations, [get_in(spec, ["decision_options", "delegated"]) || "", "to"]) || []
       }
     end
   end
@@ -331,7 +335,11 @@ defmodule RelaDSL.Control.Model do
 
   defp relation(name, rel) do
     actions = rel["actions"] || %{}
-    pair = fn op -> with %{"label" => l, "key" => k} <- actions[op], do: %{label: l, key: k} end
+
+    pair = fn op ->
+      with %{"label" => l, "key" => k} = a <- actions[op],
+           do: %{label: l, key: k, help: a["help"]}
+    end
 
     %{
       name: name,
@@ -357,6 +365,7 @@ defmodule RelaDSL.Control.Model do
             %{
               label: change["label"],
               key: change["key"],
+              help: change["help"],
               with: List.wrap(change["with"]),
               cause: change["cause"]
             }
@@ -658,7 +667,13 @@ defmodule RelaDSL.Control.Model do
       described:
         for(
           %{"key" => key, "label" => label, "to" => to} = described <- spec["actions"] || [],
-          do: %{key: key, label: label, to: to, when: described["when"] || %{}}
+          do: %{
+            key: key,
+            label: label,
+            to: to,
+            help: described["help"],
+            when: described["when"] || %{}
+          }
         )
     }
   end
@@ -678,8 +693,11 @@ defmodule RelaDSL.Control.Model do
 
     restart =
       case words["restart"] do
-        %{"label" => label, "key" => key} -> %{label: to_text(label), key: to_text(key)}
-        _ -> nil
+        %{"label" => label, "key" => key} = r ->
+          %{label: to_text(label), key: to_text(key), help: r["help"]}
+
+        _ ->
+          nil
       end
 
     for p <- Enum.reverse(presenters), into: %{} do

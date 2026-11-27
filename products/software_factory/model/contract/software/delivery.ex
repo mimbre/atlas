@@ -393,7 +393,14 @@ defmodule Model.Delivery do
         why: "its pull request conflicts with develop, and its agent's update did not resolve it",
         instructions:
           "Its agent could not update its pull request with develop: the update ended without a result, Code could not push it (its branch moved meanwhile), or it still conflicts. Update it by hand (once it is green and mergeable it is yours to merge), or close it.",
-        answers: [[key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]]
+        answers: [
+          [
+            key: "c",
+            label: "Close it",
+            help: "Close it: nothing more is built for it",
+            change: %{values: %{gate_result: :close}}
+          ]
+        ]
       )
 
       branch to: :done, when: "entity.gate_result == 'close'"
@@ -564,7 +571,14 @@ defmodule Model.Delivery do
         instructions:
           "Its agents could not make its CI pass: their fixes did not, changed nothing, or Code could not push them (its CI fix push says how the last one ended; branch_taken: someone else pushed onto its branch meanwhile). Fix its pull request by hand (once its CI passes it is yours to merge), or close it.",
         section: [field: :pr_checks_failure, label: "What fails"],
-        answers: [[key: "c", label: "Close it", change: %{values: %{gate_result: :close}}]]
+        answers: [
+          [
+            key: "c",
+            label: "Close it",
+            help: "Close it: nothing more is built for it",
+            change: %{values: %{gate_result: :close}}
+          ]
+        ]
       )
 
       branch to: :done, when: "entity.gate_result == 'close'"
@@ -620,10 +634,16 @@ defmodule Model.Delivery do
         instructions:
           "Its pull request was closed on GitHub without merging, so nothing of it reaches develop; any agent task or push of it that was under way was cancelled. Build it again for a fresh author on a fresh base of develop, whose result Code opens a new pull request from, or close it. Reopening its pull request on GitHub takes it back to waiting for its CI.",
         answers: [
-          [key: "b", label: "Build it again", change: %{values: %{gate_result: :rebuild}}],
+          [
+            key: "b",
+            label: "Build it again",
+            help: "Build it again: a fresh author on a fresh base of develop",
+            change: %{values: %{gate_result: :rebuild}}
+          ],
           [
             key: "c",
             label: "Close it",
+            help: "Close it: nothing more is built for it",
             weight: :decline,
             change: %{values: %{gate_result: :close}}
           ]
@@ -650,10 +670,16 @@ defmodule Model.Delivery do
         instructions:
           "Its result has no changes against develop, so Code opened no pull request. Build it again for a fresh author on a fresh base of develop (when its agent failed to change what it should), or close it when nothing was to change.",
         answers: [
-          [key: "b", label: "Build it again", change: %{values: %{gate_result: :rebuild}}],
+          [
+            key: "b",
+            label: "Build it again",
+            help: "Build it again: a fresh author on a fresh base of develop",
+            change: %{values: %{gate_result: :rebuild}}
+          ],
           [
             key: "c",
             label: "Close it",
+            help: "Close it: nothing more is built for it",
             weight: :decline,
             change: %{values: %{gate_result: :close}}
           ]
@@ -684,10 +710,16 @@ defmodule Model.Delivery do
           "An agent task of its build ended without a result, or Code refused to open its pull request (its publication says why; then what failed is none). What failed names the task, how it ended and why. Retry runs that step again with a fresh task: its author on a fresh base of develop, a fix of its CI on its pull request's head, any other on its latest result. Or close it.",
         section: [field: :task_failure, label: "What failed"],
         answers: [
-          [key: "r", label: "Retry", change: %{values: %{gate_result: :retry}}],
+          [
+            key: "r",
+            label: "Retry",
+            help: "Run the step that failed again, with a fresh task",
+            change: %{values: %{gate_result: :retry}}
+          ],
           [
             key: "c",
             label: "Close it",
+            help: "Close it: nothing more is built for it",
             weight: :decline,
             change: %{values: %{gate_result: :close}}
           ]
@@ -728,15 +760,22 @@ defmodule Model.Delivery do
           "The agent reviewing its author's result ended without a verdict; what failed says how and why. Its author's result is complete in Code. Retry runs a fresh review of it; Publish without review has Code open its pull request from it, its body saying no review was made; or close it.",
         section: [field: :task_failure, label: "What failed"],
         answers: [
-          [key: "r", label: "Retry", change: %{values: %{gate_result: :retry}}],
+          [
+            key: "r",
+            label: "Retry",
+            help: "Run a fresh review of its author's result",
+            change: %{values: %{gate_result: :retry}}
+          ],
           [
             key: "p",
             label: "Publish without review",
+            help: "Have Code open its pull request without a review; its body says so",
             change: %{values: %{gate_result: :publish}}
           ],
           [
             key: "c",
             label: "Close it",
+            help: "Close it: nothing more is built for it",
             weight: :decline,
             change: %{values: %{gate_result: :close}}
           ]

@@ -90,7 +90,13 @@ defmodule AtlasBFFContract.Contract do
   # kind (`icon` on a `row`, a `header`, a `panel` and a `shell_group`; a tab that lists
   # a kind takes its kind's when the model names none for the tab); a client that does
   # not know the name shows none.
-  version "0.40.0"
+  # 0.41.0: every action and answer explains itself (`help` on an `action` and a
+  # `panel_answer`, a client's tooltip; without it the label), a choice may too (`choice`'s
+  # `help`); an input may be shown and asked only while another input holds a value
+  # (`input`'s `shown_when`), and a required choice without a value has nothing chosen
+  # until the user chooses: a decision's Delegate (the proposer or another person) is such
+  # a form. A decision's Decline sends no `detail` any more.
+  version "0.41.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

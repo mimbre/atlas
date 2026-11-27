@@ -58,7 +58,13 @@ defmodule Model.Assignment do
     max_outgoing: 1,
     inverse: {:assignments, "assignments"},
     actions: [
-      change: [label: "Hand to…", key: "h", with: [:deadline], cause: "handed to {to} by {by}"]
+      change: [
+        label: "Hand to…",
+        key: "h",
+        help: "Hand it to someone else: they are next in line to do something with it",
+        with: [:deadline],
+        cause: "handed to {to} by {by}"
+      ]
     ]
   )
 
@@ -67,7 +73,7 @@ defmodule Model.Assignment do
     why: "Why",
     instructions: "How",
     answers: "Answers",
-    restart: [label: "Restart", key: "g"],
+    restart: [label: "Restart", key: "g", help: "Start its ended run again"],
     reopened:
       "Reopened after its run ended: nothing is expected and nobody owns it until its run is restarted"
   )

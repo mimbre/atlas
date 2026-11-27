@@ -100,6 +100,27 @@ final class TodoPageTests: XCTestCase {
         XCTAssertEqual(PageActions.ofPage(try Self.page()), [])
     }
 
+    /// Melle: a to-do's bottom keeps only Done and Won't do; Update, Hand to and Delete are
+    /// in the window's toolbar, Update and Delete as their icons alone, Hand to with its label.
+    func testTheBottomKeepsDoneAndWontDoAndTheToolbarHasUpdateHandToAndDelete() throws {
+        var blocks = Self.blocks
+        let actions = try XCTUnwrap(blocks.firstIndex { $0["id"] as? String == "actions" })
+        blocks[actions] = ["id": "actions", "type": "actions", "props": ["actions": [
+            ["label": "Update chore", "key": "u", "to": "/k/chore/TD-12/edit", "icon": "edit", "button": "Update"],
+            ["label": "Delete chore", "key": "d", "to": "/k/chore/TD-12/delete", "icon": "delete", "button": "Delete"],
+            ["label": "Hand to…", "key": "t", "to": "/k/chore/TD-12/links/assigned_to", "icon": "hand_over", "button": "Hand to"],
+        ]]]
+        let page = try Self.page(blocks)
+        let answers = try XCTUnwrap(PagePresentation(page).entries.lazy.compactMap { entry -> AnswersBlock? in
+            if case .answers(let block) = entry.item { block } else { nil }
+        }.first)
+
+        XCTAssertEqual(AnswersView.shown(answers, toolbar: true).map(\.label), ["Done", "Won't do"])
+        let toolbar = PageActions.toolbar(page)
+        XCTAssertEqual(toolbar.map(\.key), ["u", "t", "d"])
+        XCTAssertEqual(toolbar.map(PageActions.iconOnly), [true, false, true])
+    }
+
     func testATextSaysItsLabelAndHowLongAgoOrOnlyItsText() throws {
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-26T12:05:00Z"))
 

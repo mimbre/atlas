@@ -8,12 +8,15 @@ import SwiftUI
 
 /// The three columns: the tabs boot sent (sidebar), the active tab's index page (middle)
 /// and the page opened from a row (right); the title bar with the page's title only (the
-/// viewer's name and the environment are in the sidebar's foot) and the index page's own
-/// actions (`PageActions.ofPage`); no status bar: the shell's state is in the sidebar's foot. The opened page shows its own
+/// viewer's name and the environment are in the sidebar's foot); the index page's own
+/// actions (Create to-do: `PageActions.listToolbar`) in the list column's toolbar above the
+/// list, as quiet icons (`ItemToolbar`); no status bar: the shell's state is in the
+/// sidebar's foot. The opened page shows its own
 /// actions next to its title, at its top; what else can be done with the opened item (its
-/// `actions` blocks: Update, Hand to, Failures…, Delete) is in the toolbar at the right
-/// (`ItemToolbar`), in its context menu and in the Actions menu, and follows the item open;
-/// none when nothing is. An action's page (its confirm, form or more
+/// `actions` blocks and its answers of weight `other`: Update, Ask a question, Hand over,
+/// Leave it to the proposer, Hand to, Failures…, Delete) is in the toolbar at the right
+/// (`ItemToolbar`, `PageActions.toolbar`), in its context menu and in the Actions menu, and
+/// follows the item open; none when nothing is. An action's page (its confirm, form or more
 /// actions) is a sheet over them; the keys of the shown page's actions take them. What is
 /// done and not answered yet shows at once: on its button, on the sheet and in the status
 /// bar. The agent's plan, from an `agent:<intent>` action, is a sheet over all of it.
@@ -60,11 +63,15 @@ struct ShellView: View {
             Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
                    act: session.act)
                 .navigationSplitViewColumnWidth(WindowLayout.list)
+                // The list's own actions (Create to-do) above it, quiet icons.
+                .toolbar {
+                    ItemToolbar(actions: PageActions.listToolbar(shell.index), pending: shell.pending, act: session.act)
+                }
         } detail: {
             Column(page: shell.opened, header: true, selectedPath: shell.selectedPath, open: session.open,
                    act: session.act)
                 .toolbar {
-                    ItemToolbar(actions: PageActions.others(shell.opened), pending: shell.pending, act: session.act)
+                    ItemToolbar(actions: PageActions.toolbar(shell.opened), pending: shell.pending, act: session.act)
                 }
         }
         .onGeometryChange(for: Bool.self) { WindowLayout.showsSidebar(window: $0.size.width) } action: { shows in
@@ -101,13 +108,6 @@ struct ShellView: View {
         // The title bar shows the page's title only: the viewer's name and the environment
         // live in the sidebar's foot.
         .navigationTitle(shell.title ?? "")
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                if let index = shell.index {
-                    ActionButtons(actions: PageActions.ofPage(index), act: session.act)
-                }
-            }
-        }
         .environment(\.pendingAction, shell.pending)
         .environment(\.panelKeys, keys.panels)
     }

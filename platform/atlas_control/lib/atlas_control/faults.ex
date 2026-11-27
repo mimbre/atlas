@@ -226,7 +226,14 @@ defmodule AtlasControl.Faults do
 
     if offered?() and to != nil and Enum.any?(page.blocks, &(&1["type"] in ["list", "item"])) do
       action =
-        Blocks.action(label: "Failures…", key: "!", to: to, icon: "faults", button: "Failures")
+        Blocks.action(
+          label: "Failures…",
+          key: "!",
+          to: to,
+          icon: "faults",
+          button: "Failures",
+          help: "Cause a failure here, to see how it is shown (test only)"
+        )
 
       if Enum.any?(page.blocks, &(&1["type"] == "actions")) do
         blocks =

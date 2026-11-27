@@ -381,7 +381,8 @@ defmodule AtlasControl.PagesTest do
              "label" => "Create part",
              "key" => "c",
              "to" => "/k/part/new/of_widget/W-1",
-             "icon" => "create"
+             "icon" => "create",
+             "help" => "Create a new part"
            } in more(
              {:item, "widget", "W-1"},
              @d,
@@ -987,7 +988,13 @@ defmodule AtlasControl.PagesTest do
 
     %{blocks: [%{"props" => start}]} = render(:home, @counted, [%{"facts" => []}])
     # The ways to other lists are the page's actions, not the list's.
-    assert %{"key" => "g", "label" => "Helpers", "to" => "/k/helper", "page" => true} in start[
+    assert %{
+             "key" => "g",
+             "label" => "Helpers",
+             "to" => "/k/helper",
+             "page" => true,
+             "help" => "Open the list of helpers"
+           } in start[
              "actions"
            ]
 
@@ -1106,7 +1113,9 @@ defmodule AtlasControl.PagesTest do
       "to" => "/k/widget/W-1/links/checked_by",
       "icon" => "hand_over",
       # A button says nothing of the form that follows.
-      "button" => "Hand to"
+      "button" => "Hand to",
+      # Without words of the model's own, its label says what it does.
+      "help" => "Hand to…"
     }
 
     answers = fn widget ->
@@ -2235,7 +2244,8 @@ defmodule AtlasControl.PagesTest do
              "key" => "v",
              "label" => "Check",
              "to" => "/k/widget/W-1/set/checked_by",
-             "icon" => "hand_over"
+             "icon" => "hand_over",
+             "help" => "Check"
            } in more(
              route,
              @answering,
@@ -2705,5 +2715,28 @@ defmodule AtlasControl.PagesTest do
 
     assert {:refuse, _} = Shop.Reviewed.answer("widget", "f", item, %{key: "bob", kind: "member"})
     assert {:refuse, _} = Shop.Reviewed.answer("widget", "v", item, viewer)
+  end
+
+  # Every action and answer Control sends says what it does in full (`help`, contract
+  # 0.41.0): Control's words for its own, the model's (else its label) for the model's.
+  test "every action and answer explains itself: on an item, a list and the start page" do
+    widget = fact("W-1", %{"name" => "One"})
+    route = {:item, "widget", "W-1"}
+    answers = [%{"fact" => widget} | for(_ <- tl(Pages.reads(route, @d)), do: %{"facts" => []})]
+
+    for blocks <- [
+          render(route, @d, answers).blocks,
+          render({:list, "part"}, @d, [%{"facts" => []}]).blocks,
+          render(:home, shop(Counted), [%{"facts" => []}]).blocks
+        ] do
+      offered =
+        for b <- blocks,
+            props = b["props"] || %{},
+            a <- List.wrap(props["actions"]) ++ List.wrap(props["answers"]),
+            do: a
+
+      assert offered != []
+      for a <- offered, do: assert(is_binary(a["help"]) and a["help"] != "", inspect(a))
+    end
   end
 end

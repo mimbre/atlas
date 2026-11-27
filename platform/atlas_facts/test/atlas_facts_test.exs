@@ -67,13 +67,12 @@ defmodule AtlasFactsTest do
     first = %{
       "id" => "first",
       "text" => "First",
-      "details" => "Leave it unchanged",
-      "effect" => "decline",
-      "rule" => "",
-      "consequences" => ""
+      "details" => "Use the first",
+      "effect" => "adopt",
+      "rule" => "Use the first",
+      "consequences" => "The first holds"
     }
 
-    # Something to adopt beside the decline: declines alone are no choice.
     second = %{
       first
       | "id" => "second",
@@ -120,7 +119,6 @@ defmodule AtlasFactsTest do
         "field" => "status",
         "open" => "proposed",
         "adopt" => "accepted",
-        "decline" => "rejected",
         "superseded" => "superseded",
         "replaceable" => ["accepted", "superseded"]
       },

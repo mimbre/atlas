@@ -1243,6 +1243,41 @@ defmodule RelaDSL.SchemaTest do
       )
     end
 
+    test "an answer's help is a text; a delegation words both its choices" do
+      assert compile!(
+               presented(
+                 ~s|present expected: "A", answers: [[key: "a", label: "A", help: "Does A", set: :r]]|
+               )
+             )
+
+      refused(
+        presented(~s|present expected: "A", answers: [[key: "a", label: "A", help: 1, set: :r]]|),
+        5,
+        "help: a text"
+      )
+
+      delegation = fn choices ->
+        presented(
+          ~s|present expected: "A", answers: [[key: "l", label: "Delegate", hand_over: true, | <>
+            ~s|change: %{self: :r, values: %{left: true}}#{choices}]]|
+        )
+      end
+
+      assert compile!(
+               delegation.(
+                 ~s|, choices: [change: [label: "The proposer", help: "Decides"], hand_over: [label: "Another person"]]|
+               )
+             )
+
+      refused(delegation.(""), 5, "with hand_over: true choices:")
+
+      refused(
+        delegation.(~s|, choices: [change: [label: "The proposer"]]|),
+        5,
+        "with hand_over: true choices:"
+      )
+    end
+
     test "a final state that presents" do
       refused(
         """

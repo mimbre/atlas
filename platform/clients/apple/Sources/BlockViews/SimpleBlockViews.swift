@@ -225,25 +225,26 @@ struct OptionView: View {
 }
 
 /// An alternative's own Choose as Prism's button: the recommended one (weight main)
-/// `primary`, every other `secondary`. Its key is not shown (the menu bar lists it, its
-/// tooltip names it).
+/// `primary`, every other `secondary`. Its key is not shown (the menu bar lists it); its
+/// tooltip says what it does (`AnswerLook.tooltip`).
 struct OptionButton: View {
     let answer: PanelAnswerModel
     let pending: Bool
     let take: () -> Void
 
     var body: some View {
-        PrismActionButton(label: AnswerLook.label(answer), key: answer.key, pending: pending,
+        PrismActionButton(label: AnswerLook.label(answer), help: AnswerLook.tooltip(answer), pending: pending,
                           variant: answer.weight == "main" ? .primary : .secondary, take: take)
     }
 }
 
-/// Prism's button, its key only in its tooltip; pending, Prism's loading button (its
-/// spinner in place of the label). With `icon` (an SF Symbol), Prism's with-icon look. A
-/// `plain` one keeps its label legible in dark appearance (`PrismDarkGap.buttonStyle`).
+/// Prism's button, `help` (`Tooltip`: Control's `help`, else its label) its tooltip;
+/// pending, Prism's loading button (its spinner in place of the label). With `icon` (an SF
+/// Symbol), Prism's with-icon look. A `plain` one keeps its label legible in dark
+/// appearance (`PrismDarkGap.buttonStyle`).
 struct PrismActionButton: View {
     let label: String
-    let key: String?
+    let help: String
     let pending: Bool
     let variant: PrismButtonVariant
     var tone: PrismButtonTone = .accent
@@ -272,29 +273,33 @@ struct PrismActionButton: View {
                                               icon: icon != nil, scheme: scheme))
         .textSelection(.disabled)
         .disabled(pending)
-        .help([label, KeyGlyph.glyph(key).map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
+        .help(help)
     }
 }
 
 /// An `answers` block, on the page itself: a button per answer, in Control's order, each
 /// taking its answer as the page's action of that key (`Panel.action`), as Prism's buttons
-/// by the weight Control gives each (`AnswerLook`).
+/// by the weight Control gives each (`AnswerLook`). On the opened item (`toolbar`) only
+/// the main answer and the decline: its `other` answers are in the window's toolbar
+/// (`PageActions.toolbar`).
 struct AnswersView: View {
     let block: AnswersBlock
+    var toolbar = false
     let act: (ActionModel) -> Void
     @Environment(\.pendingAction) private var pending
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
+        let answers = Self.shown(block, toolbar: toolbar)
         VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
             FlowLayout(spacing: Prism.Spacing.px10) {
-                ForEach(Array((block.answers ?? []).enumerated()), id: \.offset) { _, answer in
+                ForEach(Array(answers.enumerated()), id: \.offset) { _, answer in
                     let action = Panel.action(answer)
                     AnswerButton(answer: answer, pending: PageActions.isPending(action, pending)) { act(action) }
                 }
             }
             // What an answer means, small under the buttons (Decline: what declining keeps).
-            ForEach(Array(Self.details(block).enumerated()), id: \.offset) { _, detail in
+            ForEach(Array(Self.details(answers).enumerated()), id: \.offset) { _, detail in
                 Text(detail).prism(Prism.Typography.caption).foregroundStyle(PrismDarkGap.muted(scheme))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -305,9 +310,15 @@ struct AnswersView: View {
         .padding(.bottom, Prism.Spacing.px10)
     }
 
+    /// The answers the page shows: all of them, or on the opened item (`toolbar`) those
+    /// that are not the toolbar's (`PageActions.inToolbar`).
+    static func shown(_ block: AnswersBlock, toolbar: Bool) -> [PanelAnswerModel] {
+        (block.answers ?? []).filter { !toolbar || !PageActions.inToolbar($0) }
+    }
+
     /// Each answer's explanation, after its label ("Decline: Keeps one block per kind").
-    static func details(_ block: AnswersBlock) -> [String] {
-        (block.answers ?? []).compactMap { answer in
+    static func details(_ answers: [PanelAnswerModel]) -> [String] {
+        answers.compactMap { answer in
             guard let detail = answer.detail, !detail.isEmpty else { return nil }
             return "\(AnswerLook.label(answer)): \(detail)"
         }
@@ -360,11 +371,15 @@ struct OtherActionsView: View {
     }
 }
 
-/// The opened item's actions (`PageActions.others`) in the window's toolbar, at its right,
-/// in Control's order (Update, Hand to, Failures…): each its icon (`ActionIcon`) in the
-/// primary colour with its short label (`button`), so the toolbar's Icon and Text shows
-/// both, and its label and key as its tooltip; Delete last, at the same spacing, in the
-/// danger colour (it opens Control's confirm first). None when no item is open.
+/// Toolbar actions as quiet toolbar items, never the system's prominent capsule: the opened
+/// item's (`PageActions.toolbar`: its actions, Update first, then its `other` answers,
+/// Delete last) in the window's toolbar at its right, and the index page's own
+/// (`PageActions.listToolbar`: Create to-do) above the list. At the same spacing: each its
+/// icon (`ActionIcon`) in the primary colour, Delete's in the danger colour (it opens
+/// Control's confirm first); Update, Delete and Create icon-only, every other its short
+/// label (`button`) beside its icon (`PageActions.iconOnly`), whatever the toolbar's
+/// display setting; each Control's `help`, else its label, as its tooltip. None when there
+/// are none.
 public struct ItemToolbar: ToolbarContent {
     let actions: [ActionModel]
     let pending: SessionState.Pending?
@@ -377,29 +392,30 @@ public struct ItemToolbar: ToolbarContent {
     }
 
     public var body: some ToolbarContent {
-        let (rest, delete) = PageActions.split(actions)
         ToolbarItemGroup(placement: .primaryAction) {
-            ForEach(Array((rest + [delete].compactMap { $0 }).enumerated()), id: \.offset) { _, action in
-                button(action)
-            }
+            ForEach(Array(actions.enumerated()), id: \.offset) { _, action in button(action) }
         }
     }
 
     private func button(_ action: ActionModel) -> some View {
         let busy = PageActions.isPending(action, pending)
+        // A view of its own, not a `Label`: the toolbar's display setting neither hides
+        // nor adds a title.
         return Button { act(action) } label: {
-            Label {
-                Text(AnswerLook.label(action))
-            } icon: {
+            HStack(spacing: Prism.Spacing.px6) {
                 if busy {
                     ProgressView().progressViewStyle(.prism(.accent, size: .size16))
                 } else {
                     ToolbarIcon(icon: action.icon)
                 }
+                if !PageActions.iconOnly(action) {
+                    Text(AnswerLook.label(action))
+                }
             }
         }
         .disabled(busy)
         .help(PageActions.tooltip(action))
+        .accessibilityLabel(AnswerLook.label(action))
     }
 }
 
@@ -415,8 +431,8 @@ private struct ToolbarIcon: View {
     }
 }
 
-/// The opened item's actions (`PageActions.others`) as a context menu's items, in the
-/// toolbar's order: each its label and icon, Delete last after a divider, destructive.
+/// The opened item's toolbar actions (`PageActions.toolbar`) as a context menu's items, in
+/// the toolbar's order: each its label and icon, Delete last after a divider, destructive.
 struct ItemActionsMenu: View {
     let actions: [ActionModel]
     let act: (ActionModel) -> Void
