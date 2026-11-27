@@ -39,8 +39,8 @@ A decision, a to-do's steps and stuck work are such stacks (`header`, `text` id 
 
 The **Machines** tab (contract 0.43.0; Runtimes in the code) is such a stack when there is
 one machine: its page is the tab's page (`header` MACHINE · its key, the state line,
-Health, Slots, Queue, Recently finished, Upgrades, Edit configuration in the toolbar and
-Details). Desired but unverified slots and an unavailable queue are marked unknown. If
+Health, Slots, Queue, Recently finished, Upgrades, Edit configuration in the toolbar, and
+standalone Identity and Versions blocks when those details are known). Desired but unverified slots and an unavailable queue are marked unknown. If
 attempts cannot be read, slot activity and recently finished work are unknown, not empty.
 Recently finished includes lost attempts even when boot repair could not establish an end time;
 these sort after dated attempts and have no invented timestamp or duration. A recent poll is
