@@ -37,6 +37,11 @@ A decision, a to-do's steps and stuck work are such stacks (`header`, `text` id 
 `text` role `error`, `option` / `instruction`, `answers`, `actions`); see
 `platform/atlas_control/backend/README.md`.
 
+In the TUI, a `text` block with `format: "markdown"` presents headings as H1–H6
+below the page title, emphasis, lists, visible link destinations and literal fenced code.
+Links are not opened automatically, HTML is not interpreted, and unsupported syntax
+remains readable. An absent or unknown format retains the existing plain-text presentation.
+
 The **Machines** tab (contract 0.43.0; Runtimes in the code) is such a stack when there is
 one machine: its page is the tab's page (`header` MACHINE · its key, the state line,
 Health, Slots, Queue, Recently finished, Upgrades, Edit configuration in the toolbar and
