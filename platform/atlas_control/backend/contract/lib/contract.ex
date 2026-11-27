@@ -86,7 +86,11 @@ defmodule AtlasBFFContract.Contract do
   # 0.39.0: an answer names what it does (`panel_answer`'s `icon`: question, hand_over,
   # delegate), as an action does. A decision's Decline is always offered and asks for an
   # alternative; an option may be marked as whoever gave it (its `badge`).
-  version "0.39.0"
+  # 0.40.0: what kind of thing an item is has one icon, the model's semantic name for the
+  # kind (`icon` on a `row`, a `header`, a `panel` and a `shell_group`; a tab that lists
+  # a kind takes its kind's when the model names none for the tab); a client that does
+  # not know the name shows none.
+  version "0.40.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

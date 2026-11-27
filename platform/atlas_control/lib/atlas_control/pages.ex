@@ -244,6 +244,28 @@ defmodule AtlasControl.Pages do
   def kind?(m, kind), do: is_map(kind(m, kind))
 
   @doc """
+  The icon the model names for `kind`, a semantic name (`decision`, `to_do`) a client draws
+  as it likes; nil when the model names none, or has no such kind. One kind has one icon
+  everywhere: on its rows, on its page's header and on its tab or group.
+  """
+  def kind_icon(m, kind) do
+    case kind(m, kind) do
+      %{} = k -> Map.get(k, :icon)
+      _ -> nil
+    end
+  end
+
+  # A page's header and panel with the icon of the kind of its fact; as they are without one.
+  defp iconed(blocks, nil), do: blocks
+
+  defp iconed(blocks, icon) do
+    Enum.map(blocks, fn
+      {id, block} when id in ["header", "panel"] -> {id, put_in(block, ["props", "icon"], icon)}
+      other -> other
+    end)
+  end
+
+  @doc """
   The relations by which a fact of `kind` belongs to a parent: those that start at the
   kind and the model marks as `parent` (at most one), sorted. A change form offers each,
   to move the fact. An association is never one.
@@ -927,6 +949,7 @@ defmodule AtlasControl.Pages do
       id: fact["key"],
       label: label(kind(m, from), fact),
       kind: singular(m, from),
+      icon: kind_icon(m, from),
       detail: detail,
       to: path({:item, from, fact["key"]}),
       tone: tone,
@@ -1893,6 +1916,7 @@ defmodule AtlasControl.Pages do
       id: fact["key"],
       label: label(kind(m, kind), fact),
       kind: singular(m, kind),
+      icon: kind_icon(m, kind),
       detail: detail,
       to: path({:item, kind, fact["key"]}),
       tone: tone,
@@ -2214,7 +2238,7 @@ defmodule AtlasControl.Pages do
             %{steps: %{from: from}} = todo.section
             shown = for f <- k.fields, f.name == from, do: f.label
 
-            head = todo_blocks(todo, key, label(k, fact), next)
+            head = todo_blocks(todo, key, label(k, fact), next) |> iconed(kind_icon(m, kind))
 
             item =
               item
@@ -2272,7 +2296,7 @@ defmodule AtlasControl.Pages do
               end
 
             content =
-              head ++
+              iconed(head, kind_icon(m, kind)) ++
                 others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
                 [{"item", details.(item, head)}] ++
@@ -2844,6 +2868,7 @@ defmodule AtlasControl.Pages do
               label: label(k, fact),
               detail: join_detail(detail(k, fact), counted.(fact["key"])),
               kind: k && k.label,
+              icon: kind_icon(m, kind),
               to: path({:item, kind, fact["key"]}),
               links: links(k, fact),
               tone: tone,
@@ -3220,6 +3245,7 @@ defmodule AtlasControl.Pages do
               label: if(judged, do: about(from_k, fact), else: label(from_k, fact)),
               detail: detail(from_k, fact),
               kind: from_k && from_k.label,
+              icon: kind_icon(m, from),
               to: path({:item, from, fact["key"]}),
               links: links(from_k, fact),
               tone: tone,
@@ -3272,6 +3298,7 @@ defmodule AtlasControl.Pages do
             label: label(from_k, fact),
             detail: detail(from_k, fact),
             kind: from_k && from_k.label,
+            icon: kind_icon(m, from),
             to: path({:item, from, fact["key"]}),
             tone: tone,
             since: since

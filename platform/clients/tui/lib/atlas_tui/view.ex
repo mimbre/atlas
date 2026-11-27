@@ -43,6 +43,25 @@ defmodule AtlasTui.View do
     "waiting" => :tone_waiting,
     "done" => :tone_done
   }
+  # What kind of thing a row opens (Control's `icon`, the model's semantic name for the
+  # kind): one monochrome character before the key, in the row's own colour; none for a
+  # name the TUI does not know. A page's header leads with it in place of ◆.
+  @kind_glyphs %{
+    "decision" => "◆",
+    "to_do" => "☐",
+    "scene" => "□",
+    "use_case" => "◇",
+    "issue" => "•",
+    "agent" => "◉",
+    "machinery" => "▣",
+    "person" => "○",
+    "task" => "▪",
+    "pull_request" => "⇄",
+    "pr_review" => "◎",
+    "pr_test" => "▷",
+    "runtime_upgrade" => "↑",
+    "agent_request" => "▹"
+  }
   # A title keeps at least this many cells (or all of its own) before the age column goes.
   @title_floor 40
   @column_title_floor 20
@@ -732,6 +751,7 @@ defmodule AtlasTui.View do
 
     pending = Enum.map(rows, &(&1.pending == true))
     tones = Enum.map(rows, & &1.tone)
+    glyphs = Enum.map(rows, &@kind_glyphs[&1.icon])
     ages = Enum.map(rows, &age(&1.since, now))
 
     {ids, titles, summaries} =
@@ -747,6 +767,11 @@ defmodule AtlasTui.View do
       if Enum.any?(tones, &Map.has_key?(@tone_styles, &1)) and available >= 8, do: 2, else: 0
 
     available = available - dot_room
+
+    glyph_room =
+      if Enum.any?(glyphs) and available >= 8, do: 2, else: 0
+
+    available = available - glyph_room
     id_room = min(ids, min(div(available, 3), max(available - 3, 0)))
     id_gap = if id_room > 0, do: 2, else: 0
     available = max(available - id_room - id_gap, 0)
@@ -781,10 +806,10 @@ defmodule AtlasTui.View do
     {summary_room, _summary_gap, title_room} = columns(available - age_room, titles, summaries)
 
     content =
-      [prepared, pending, tones, ages]
+      [prepared, pending, tones, ages, glyphs]
       |> Enum.zip()
       |> Enum.with_index()
-      |> Enum.map(fn {{{id, title, summary}, pending?, tone, age}, i} ->
+      |> Enum.map(fn {{{id, title, summary}, pending?, tone, age, glyph}, i} ->
         style = if at + i == model.selected, do: :selected, else: :bold
         marker = if style == :selected, do: "›", else: " "
         marker = if marker_room == 3, do: " " <> marker <> " ", else: marker
@@ -808,6 +833,13 @@ defmodule AtlasTui.View do
             true -> [{@tone_styles[tone], @dot}, {label_style, " "}]
           end
 
+        kind =
+          cond do
+            glyph_room == 0 -> []
+            glyph == nil -> [{label_style, "  "}]
+            true -> [{label_style, glyph <> " "}]
+          end
+
         aged =
           if age_room > 0,
             do: [
@@ -827,6 +859,7 @@ defmodule AtlasTui.View do
         coalesce(
           [{label_style, marker}] ++
             dot ++
+            kind ++
             [{label_style, identity}] ++
             aged ++
             [{label_style, cell_pad(title, title_room)}] ++
@@ -958,12 +991,27 @@ defmodule AtlasTui.View do
     ]
 
     body = indent.(byline) ++ Enum.flat_map(sections, &if(&1 == [], do: [], else: [[] | &1]))
-    heading(keyed(panel.heading, panel.key), panel.title, panel.aside, width) ++ body
+
+    heading(
+      keyed(panel.heading, panel.key),
+      panel.title,
+      panel.aside,
+      width,
+      @kind_glyphs[panel.icon] || "◆"
+    ) ++ body
   end
 
-  # A page's header: its eyebrow ("TO DO FOR YOU") with the fact's key, its title under it.
+  # A page's header: its eyebrow ("TO DO FOR YOU") with the fact's key, its title under it;
+  # led by its kind's glyph when the TUI knows it.
   defp block(%Header{} = header, _at, _model, width, _room),
-    do: heading(keyed(header.eyebrow, header.key), header.title, nil, width)
+    do:
+      heading(
+        keyed(header.eyebrow, header.key),
+        header.title,
+        nil,
+        width,
+        @kind_glyphs[header.icon] || "◆"
+      )
 
   # What went wrong (`role` error): a card, its label as a heading in the error colour over
   # its text (the label says what it is, not the colour alone).
@@ -1276,11 +1324,12 @@ defmodule AtlasTui.View do
   end
 
   # A page's or a decision's heading: its eyebrow (what is asked of its owner, with the
-  # fact's key) after ◆, bold light blue, `aside` dim at its right where it fits (else
-  # under the title); the title bold under it. No bar: the page's background.
-  defp heading(eyebrow, title, aside, width) do
+  # fact's key) after its mark (◆, or the kind's glyph), bold light blue, `aside` dim at its
+  # right where it fits (else under the title); the title bold under it. No bar: the page's
+  # background.
+  defp heading(eyebrow, title, aside, width, mark) do
     inner = max(width - 1, 1)
-    lead = if single_line(eyebrow) == "", do: "◆", else: "◆ " <> single_line(eyebrow)
+    lead = if single_line(eyebrow) == "", do: mark, else: mark <> " " <> single_line(eyebrow)
     aside = single_line(aside)
     [first | rest] = detail_wrap(lead, inner)
     room = inner - display_width(first) - 2

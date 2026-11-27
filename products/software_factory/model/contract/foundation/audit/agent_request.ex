@@ -36,6 +36,7 @@ defmodule Model.AgentRequest do
     it: the plan's summary and its outcome. Its steps hang under it. The cause
     of every change the agent made (SC-Atlas-04, UC-Atlas-19).
     """ do
+    icon(:agent_request)
     field(:title, :string, required: true, description: "The request, in Melle's words")
     field(:page, :string, description: "The page it was asked on")
     field(:planner, :string, description: "Who planned it")

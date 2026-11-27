@@ -77,6 +77,7 @@ defmodule Model.Scene do
     An actor-centred view of the system, with one angle and one zoom level
     (Flux's meaning). The id is its code, e.g. SC-Atlas-01.
     """ do
+    icon(:scene)
     field(:title, :string, required: true, description: "Without the code (Flux: name)")
     field(:description, :string, description: "The text (Flux: description)", multiline: true)
 

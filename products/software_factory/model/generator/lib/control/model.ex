@@ -234,6 +234,7 @@ defmodule RelaDSL.Control.Model do
         name: kind,
         label: singular(spec, kind),
         plural: plural(spec, kind),
+        icon: if(is_binary(spec["icon"]), do: spec["icon"]),
         about: spec["description"],
         top: kind not in children and spec["top"] != false,
         newest_first: spec["order"] == "newest",

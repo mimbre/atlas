@@ -10,6 +10,7 @@ defmodule Model.Agent do
     An agent that works with Atlas. The id is short and lower case, made from the
     name, e.g. coordinator.
     """ do
+    icon(:agent)
     field(:name, :string, required: true, description: "As it is shown")
 
     field(:cannot_run, :string,

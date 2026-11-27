@@ -47,7 +47,7 @@ defmodule AtlasControl.Shell do
             to: tab["to"],
             section: tab["section"] || "work",
             key: tab["key"],
-            icon: tab["icon"] || icon(route),
+            icon: tab["icon"] || icon(m, route),
             groups: groups(m, route),
             for_you: for_you?(route)
           )
@@ -260,18 +260,21 @@ defmodule AtlasControl.Shell do
 
   defp canonical_tab(to), do: to |> Pages.route() |> Pages.path()
 
-  # The icon of a tab whose model names none, from the page it opens.
-  defp icon(:home), do: "assigned"
-  defp icon({:supervised_by_you, _}), do: "supervised"
-  defp icon({:open_for_you, _}), do: "open"
-  defp icon({:worker_page, _, _}), do: "workers"
-  defp icon(_route), do: nil
+  # The icon of a tab whose model names none: a list's, its kind's (as on its rows); else
+  # one from the page it opens.
+  defp icon(m, {:list, kind}), do: Pages.kind_icon(m, kind)
+  defp icon(_m, :home), do: "assigned"
+  defp icon(_m, {:supervised_by_you, _}), do: "supervised"
+  defp icon(_m, {:open_for_you, _}), do: "open"
+  defp icon(_m, {:worker_page, _, _}), do: "workers"
+  defp icon(_m, _route), do: nil
 
   # Whether a tab's count is what waits for the viewer: what is assigned to them.
   defp for_you?(route), do: route == :home
 
   # The groups of the page a tab opens (`Pages.groups/2`), each with the page that shows
-  # only its items; nil when it has none.
+  # only its items and, for a group of one kind (what is assigned), that kind's icon; nil
+  # when it has none.
   defp groups(m, route) do
     screen =
       case route do
@@ -290,7 +293,8 @@ defmodule AtlasControl.Shell do
               Blocks.shell_group(
                 label: label,
                 to: Pages.path({:group, screen, key, nil}),
-                for_you: for_you?(route)
+                for_you: for_you?(route),
+                icon: if(screen == :assigned, do: Pages.kind_icon(m, key))
               )
     end
   end

@@ -32,6 +32,7 @@ defmodule Model.PrReview do
     The review of one pull request by a person, created by the pull request's
     flow. Its outcome is reported back to the pull request.
     """ do
+    icon(:pr_review)
     field(:title, :string, required: true, description: "What is reviewed")
     field(:verdict, :string, description: "The reviewer's verdict: approved or changes_requested")
 

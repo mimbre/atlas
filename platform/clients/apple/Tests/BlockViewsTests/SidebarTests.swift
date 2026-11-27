@@ -1,3 +1,4 @@
+import AppKit
 import AtlasControlKit
 @testable import BlockViews
 import ControlSession
@@ -33,7 +34,8 @@ final class SidebarTests: XCTestCase {
         [
             ["id": "assigned", "label": "Assigned to you", "to": "/", "section": "work", "icon": "assigned",
              "count": 3, "for_you": true,
-             "groups": [["label": "Decisions", "to": "/_g/assigned/decision", "count": 2, "for_you": true],
+             "groups": [["label": "Decisions", "to": "/_g/assigned/decision", "count": 2, "for_you": true,
+                         "icon": "decision"],
                         ["label": "To-Dos", "to": "/_g/assigned/to_do", "count": 0, "for_you": true]]],
             ["id": "open", "label": "Open for you", "to": "/_open", "section": "work", "icon": "open", "count": 4,
              "for_you": false],
@@ -59,11 +61,21 @@ final class SidebarTests: XCTestCase {
     }
 
     func testAnIconNameMapsToASymbolAndAnUnknownOneToNone() {
-        for name in ["assigned", "supervised", "open", "scenes", "agents", "todos", "activity", "workers"] {
-            XCTAssertNotNil(SidebarLook.symbol(name), name)
+        // The pages' names and every kind the model names an icon for; each a symbol the
+        // system has (one it lacks would show no icon at all).
+        for name in ["assigned", "supervised", "open", "workers", "decision", "to_do", "scene", "use_case",
+                     "issue", "agent", "machinery", "person", "task", "pull_request", "pr_review", "pr_test",
+                     "runtime_upgrade", "agent_request"] {
+            let symbol = SidebarLook.symbol(name)
+            XCTAssertNotNil(symbol, name)
+            XCTAssertNotNil(NSImage(systemSymbolName: symbol ?? "", accessibilityDescription: nil), name)
         }
         XCTAssertNil(SidebarLook.symbol("something-new"))
         XCTAssertNil(SidebarLook.symbol(nil))
+
+        // A group of one kind carries its kind's icon, as its rows and its page's header.
+        let work = SidebarItem.rows(Self.shell(Self.tabs), section: "work", folded: [])
+        XCTAssertEqual(work.map(\.icon), ["assigned", "decision", nil, "open"])
 
         let browse = SidebarItem.rows(Self.shell(Self.tabs), section: "browse", folded: [])
         XCTAssertEqual(browse.map(\.label), ["Scenes"])

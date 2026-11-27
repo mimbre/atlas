@@ -30,6 +30,7 @@ defmodule Model.PrTest do
     The test of one pull request by a person, created by the pull request's
     flow. Its outcome is reported back to the pull request.
     """ do
+    icon(:pr_test)
     field(:title, :string, required: true, description: "What is tested")
     field(:verdict, :string, description: "The tester's verdict: passed or failed")
 

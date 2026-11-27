@@ -32,6 +32,8 @@ defmodule Model.Machinery do
     tasks as work. The id is short and lower case, its name in Flow's configuration,
     e.g. mac-mini.
     """ do
+    icon(:machinery)
+
     field(:name, :string,
       required: true,
       description: "As it is shown; its name in Flow's configuration",
