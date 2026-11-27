@@ -46,6 +46,27 @@ class CredoGateTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("Credo.Check.Warning.Dbg", result.stdout)
 
+    def test_moved_finding_is_baselined_but_new_finding_is_reported(self):
+        self.source.write_text(BAD)
+        self.git("add", ".")
+        self.git("commit", "-qm", "existing finding")
+        moved = BAD.replace("  def value", "  # Context.\n  def value")
+        self.source.write_text(moved)
+        self.git("add", ".")
+        result = self.gate("staged")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with_new = moved.replace("end\n", "\n  def other, do: dbg(:new)\nend\n")
+        self.source.write_text(with_new)
+        self.git("add", ".")
+        result = self.gate("staged")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.count("Credo.Check.Warning.Dbg"), 1, result.stdout)
+        self.source.write_text(moved.replace("dbg(:ok)", "dbg(:changed)"))
+        self.git("add", ".")
+        result = self.gate("staged")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Credo.Check.Warning.Dbg", result.stdout)
+
     def test_invalid_source_is_an_error(self):
         self.source.write_text("defmodule Broken do\n")
         self.git("add", ".")
