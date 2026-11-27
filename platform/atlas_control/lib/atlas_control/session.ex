@@ -858,7 +858,7 @@ defmodule AtlasControl.Session do
   end
 
   # Upgrade to the newest build: checked again from fresh reads, then the upgrade is put in
-  # under the machine as a person's create is (`create/5`), naming the newest build; its
+  # under the machine using `create/5`, naming the newest build; its
   # page is shown once it is stored. Flow's work source then drains, updates, restarts and
   # verifies the Runtime.
   defp submit({:machine_page, :machine_upgrade, %{machine: machine}} = route, _raw, state) do
