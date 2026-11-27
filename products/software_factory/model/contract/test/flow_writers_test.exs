@@ -3,7 +3,8 @@ defmodule Model.FlowWritersTest do
   M3 P5 (decision 2026-11-17 §6.4; Flow plan decision 11): Flow's work source leaser
   (`flow/dispatch`) and its report receiver (`flow/delivery`) are Flow, the same writer
   (`by: "flow"`), from their own Bus endpoints. Facts stores what they write on Flow's own
-  `task` fields (both) and `task_attempt` fields (the receiver only), and nothing else:
+  `task` fields (both), and `task_attempt`, `machinery` and `runtime_upgrade` fields (the
+  receiver only, which runs the poll's configuration and upgrade steps), and nothing else:
   never a run, never another kind, never with another `by`. Flow's Landing
   (`flow/landing`, F3-L) was retired with the package kind (IS-Atlas-100): its endpoint
   writes nothing any more. Asserted on
@@ -50,7 +51,9 @@ defmodule Model.FlowWritersTest do
              "by" => "flow",
              "senders" => %{
                "task" => [@dispatch, @delivery],
-               "task_attempt" => [@delivery]
+               "task_attempt" => [@delivery],
+               "machinery" => [@delivery],
+               "runtime_upgrade" => [@delivery]
              }
            }
   end
@@ -87,6 +90,30 @@ defmodule Model.FlowWritersTest do
     assert refused?(check(attempt, as(@delivery, "someone")))
   end
 
+  test "3b. a poll's configuration and upgrade records: from the receiver, never the leaser" do
+    for change <- [
+          {"machinery",
+           %{
+             "op" => "change",
+             "key" => "mac-mini",
+             "values" => %{"applied_version" => 7, "refused_version" => 0},
+             "links" => %{}
+           }},
+          {"runtime_upgrade",
+           %{
+             "op" => "change",
+             "key" => "RU-01",
+             "values" => %{"step" => "draining", "from_build" => "b", "from_incarnation" => "i"},
+             "links" => %{}
+           }}
+        ] do
+      assert check(change, as(@delivery)) == :ok
+      assert check(change, as("flow")) == :ok
+      assert refused?(check(change, as(@dispatch)))
+      assert refused?(check(change, as(@delivery, "someone")))
+    end
+  end
+
   test "4. a run is the Engine's alone: refused from the leaser, the receiver and Landing" do
     kind = description().flow_runtime |> RelaDSL.Description.Plain.unorder()
     kind = kind["flow_runtime"]["kind"]
@@ -103,7 +130,7 @@ defmodule Model.FlowWritersTest do
 
     others =
       for {kind, spec} <- extension["entities"] || %{},
-          kind not in ["task", "task_attempt"],
+          kind not in ["task", "task_attempt", "machinery", "runtime_upgrade"],
           {field, p} <- spec["properties"] || %{},
           p["set_by"] == ["flow"],
           do: {kind, field}
