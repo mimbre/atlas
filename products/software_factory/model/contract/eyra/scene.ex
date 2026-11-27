@@ -20,7 +20,7 @@ defmodule Model.Scene do
       design, D-0099), and "Accept it"
       (`accepting`) goes to the supervisor, who looks at them, changes, removes or adds
       any by hand, and accepts the break-down. Its run ends there and hands the scene to
-      `accept_scene` (`phase: accept`). After a "Not accepted", its agent reads the
+      `accept_scene` (`phase: accept`). After a "Decline", its agent reads the
       producer's note and proposes only what is missing: nothing under the scene is redone.
       A scene too vague to design use cases from is not guessed at (UC-Atlas-24): its agent
       writes its questions instead (`asks:`), Flow puts them in the scene's `questions`,
@@ -29,7 +29,7 @@ defmodule Model.Scene do
       recorded), who may rewrite the description and
       answers with a note (`answers`); a fresh pass of its agent then reads the questions,
       the answers and the description as they are now. The run keeps its supervisor.
-      Its supervisor's "Not accepted", with a note (the scene's `note`), throws the proposal
+      Its supervisor's "Decline", with a note (the scene's `note`), throws the proposal
       away: Flow deletes the use cases it made (those added by hand stay; `creates:
       [discard: true]`) and the run goes back to its break-down, whose agent reads the note.
     * `accept_scene` **Accept** (Accept the scene): waits until every use case under it is accepted
@@ -38,7 +38,7 @@ defmodule Model.Scene do
       (`produced_by`: who put it in; the configured decider for a scene that records none). While it waits
       (`building`) it is its producer's, with no to-do: nothing is built on the scene and
       nobody has anything to do on it. Accept ends the
-      pipeline; Not accepted keeps the producer's note (`note`) and starts a new round of
+      pipeline; Decline keeps the producer's note (`note`) and starts a new round of
       `break_down_scene` (`phase: break_down`), which this run waits for
       (`breaking_down`). So does a scene with nothing under it.
 
@@ -185,7 +185,7 @@ defmodule Model.Scene do
   # with a short intent; no use case is made of it, Design proposes one. While Design is
   # under way, the intent is a line added to its producer's answers, which its agent reads;
   # once Design was accepted, it is the producer's note of an extra Design round (as a
-  # "Not accepted" is), which proposes what is missing for it and comes back to accept.
+  # Decline is), which proposes what is missing for it and comes back to accept.
   @suggest [
     key: "s",
     label: "Suggest a use case",
@@ -390,8 +390,9 @@ defmodule Model.Scene do
           ],
           [
             key: "n",
-            label: "Not accepted",
+            label: "Decline",
             help: "Say why not: its break-down proposes what is missing",
+            prompt: "What is missing?",
             note: true,
             change: %{values: %{verdict: :reject, note: "$note"}}
           ]

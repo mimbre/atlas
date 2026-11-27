@@ -898,7 +898,7 @@ defmodule AtlasFlow.Runs.Run do
               "key" => key,
               "values" => %{},
               "by" => "flow",
-              "cause" => "Not accepted: proposed by #{last["key"]}, discarded"
+              "cause" => "Declined: proposed by #{last["key"]}, discarded"
             }
           }
         end

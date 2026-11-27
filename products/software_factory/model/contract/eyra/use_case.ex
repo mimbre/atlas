@@ -11,7 +11,7 @@ defmodule Model.UseCase do
       (`order`: they are built in that order), and "Accept it" (`accepting`) goes to the
       supervisor, who changes or removes any by hand (the use case's page offers no Create
       of an issue, which Plan makes) and accepts the break-down. Its run ends there and
-      hands the use case on (`phase: accept`). "Not accepted", with a note
+      hands the use case on (`phase: accept`). "Decline", with a note
       (`supervisor_note`), throws the proposal away: Flow deletes the issues it made (those
       added by hand stay; `creates: [discard: true]`) and the run goes back to its
       break-down, whose agent reads the note.
@@ -292,8 +292,9 @@ defmodule Model.UseCase do
           ],
           [
             key: "n",
-            label: "Not accepted",
+            label: "Decline",
             help: "Say why not: its agent's issues are removed and it proposes again",
+            prompt: "What should Plan propose instead?",
             note: true,
             change: %{values: %{verdict: :reject, supervisor_note: "$note"}}
           ]
