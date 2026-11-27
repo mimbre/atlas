@@ -60,7 +60,7 @@ gutter between them. Room left over is only at the **far right**, after the last
 | Sidebar: the tabs, their counts and groups | fixed, about 240 pt | 24 cells, from 290 columns (else the tab bar) |
 | List: the tab's rows | fixed, about 360 pt | 60 cells |
 | Page: the item's main blocks | at most 720 pt (100 characters of the body font) | at most 100 cells |
-| Details: the page's details group | 280–480 pt, growing with the room | 40–100 cells, growing with the room |
+| Details: the page's details group | 280–720 pt (as wide as the page at most), growing with the room | 40–100 cells, growing with the room |
 
 What gives way as the room narrows, in this order:
 
@@ -124,10 +124,10 @@ blue planned or waiting, green done. An unknown tone is no dot.
 |---|---|
 | Page title (`PageHeader`, a sheet's title) | `title6` (20) |
 | Panel, option, list and item titles; a row card's title | `title7` (16) |
-| Running text (why, a step's text, an option's Rule and Then, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
+| Running text (why, a step's text, an option's Rule and Consequences, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
 | Labels (a section's or the details' title, a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
-| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name; production's environment in the title bar | `labelsmall` (14) |
-| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's headings and foot; the status bar; the environment in the title bar) | `caption` (14) |
+| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name | `labelsmall` (14) |
+| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's headings and foot, with the environment there (production as Prism's danger tag); the status bar) | `caption` (14) |
 | A count's badge in the sidebar | `captionsmall` (12), strong |
 | Native buttons (a sheet's Cancel, Save, Confirm, Run; the page's and the toolbar's actions) | the system's control font: see the gaps |
 | Prism's buttons (answers, options' answers, other actions) | Prism's own `button` (18): see the gaps |

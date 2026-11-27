@@ -30,11 +30,11 @@ final class DecisionPageTests: XCTestCase {
         ["id": "header", "type": "header", "props": ["eyebrow": "YOUR DECISION", "key": "D-7", "title": "How do we store examples?"]],
         ["id": "why", "type": "text", "props": ["label": "Why", "text": "Nothing to run."]],
         option(1, "Use SQLite", badge: "★ Recommended", tone: "success",
-               fields: [("Rule", "Store examples in SQLite."), ("Then", "One file per environment.")],
+               fields: [("Rule", "Store examples in SQLite."), ("Consequences", "One file per environment.")],
                answer: ["label": "Choose", "key": "1", "to": "/k/decision/D-7/answer/1", "submit_to": call("adopt-sqlite"),
                         "weight": "main"]),
         option(2, "Use Postgres",
-               fields: [("Rule", "Store examples in Postgres."), ("Then", "A server to run.")],
+               fields: [("Rule", "Store examples in Postgres."), ("Consequences", "A server to run.")],
                answer: ["label": "Choose", "key": "2", "to": "/k/decision/D-7/answer/2", "submit_to": call("adopt-postgres"),
                         "weight": "other"]),
         ["id": "answers", "type": "answers", "props": ["answers": [
@@ -49,7 +49,7 @@ final class DecisionPageTests: XCTestCase {
         ["id": "header", "type": "header", "props": ["eyebrow": "YOUR DECISION", "key": "W-1", "title": "W-1 is stuck: what now?"]],
         ["id": "why", "type": "text", "props": ["text": "inspect · attempt 2 failed · stuck", "since": "2026-11-26T09:00:00Z"]],
         ["id": "failure", "type": "text", "props": ["label": "What went wrong", "text": "The bulb did not fit.", "role": "error"]],
-        option(1, "Retry", badge: "★ Recommended", tone: "success", fields: [("Then", "Inspects it again.")],
+        option(1, "Retry", fields: [("Consequences", "Inspects it again.")],
                answer: ["label": "Choose", "key": "r", "to": "/k/widget/W-1/answer/r", "weight": "main",
                         "submit_to": ["endpoint": "answer", "params": ["kind": "widget", "key": "W-1", "answer": "retry"]]],
                alone: true),
@@ -109,7 +109,7 @@ final class DecisionPageTests: XCTestCase {
         XCTAssertEqual(decision.map(\.n), [1, 2])
         XCTAssertEqual(decision.map(\.text), ["Use SQLite", "Use Postgres"])
         XCTAssertEqual(decision.map(\.badge), ["★ Recommended", nil])
-        XCTAssertEqual(decision.map { $0.fields?.map(\.label) }, [["Rule", "Then"], ["Rule", "Then"]])
+        XCTAssertEqual(decision.map { $0.fields?.map(\.label) }, [["Rule", "Consequences"], ["Rule", "Consequences"]])
         XCTAssertEqual(decision.map { $0.fields?.map(\.value) }, [
             ["Store examples in SQLite.", "One file per environment."],
             ["Store examples in Postgres.", "A server to run."],
@@ -118,6 +118,10 @@ final class DecisionPageTests: XCTestCase {
         let stuck = Self.options(try Self.page("/k/widget/W-1", Self.stuck))
         XCTAssertEqual(stuck.map(\.text), ["Retry"])
         XCTAssertEqual(stuck.map(\.alone), [true])
+        // The only proposal shows no number and has no badge; alternatives show theirs.
+        XCTAssertEqual(stuck.map(Option.number), [nil])
+        XCTAssertEqual(decision.map(Option.number), [1, 2])
+        XCTAssertEqual(stuck.map(\.badge), [nil])
         XCTAssertEqual(stuck.map { $0.fields?.map(\.value) }, [["Inspects it again."]])
     }
 

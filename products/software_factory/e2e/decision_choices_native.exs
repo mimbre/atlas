@@ -394,7 +394,7 @@ try do
                do: [%{"label" => "Details", "value" => offered["details"]}],
                else: [
                  %{"label" => "Rule", "value" => offered["rule"]},
-                 %{"label" => "Then", "value" => offered["consequences"]}
+                 %{"label" => "Consequences", "value" => offered["consequences"]}
                ]
              )
   end

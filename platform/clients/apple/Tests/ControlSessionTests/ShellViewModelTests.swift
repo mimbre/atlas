@@ -197,22 +197,6 @@ final class ShellViewModelTests: XCTestCase {
         XCTAssertEqual(ShellViewModel(test.state).env, "test")
     }
 
-    func testAShellWithAGreetingExposesItAndOneWithoutExposesNone() {
-        let person = Harness()
-        person.connect(boot: Lines.boot(greeting: "Hello, Sam."))
-        XCTAssertEqual(ShellViewModel(person.state).greeting, "Hello, Sam.")
-        XCTAssertEqual(ShellViewModel(person.state).title, "Console")
-
-        let agent = Harness()
-        agent.connect(boot: Lines.boot())
-        XCTAssertNil(ShellViewModel(agent.state).greeting)
-        XCTAssertEqual(ShellViewModel(agent.state).title, "Console")
-
-        // A later boot without one takes it away.
-        person.clock.advance(by: 5)
-        person.connection.receive(Lines.boot())
-        XCTAssertNil(ShellViewModel(person.state).greeting)
-    }
     func testSelectionFollowsDisplayedIdentityThroughRedirectPushFailureAndTabChange() {
         let h = Harness()
         h.connect()

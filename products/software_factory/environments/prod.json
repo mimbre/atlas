@@ -13,7 +13,7 @@
     "host": "127.0.0.1",
     "port": 7593,
     "tabs": [
-      { "id": "workers", "label": "Workers", "to": "/workers", "section": "browse", "key": "g w", "icon": "machines" }
+      { "id": "workers", "label": "Workers", "to": "/workers", "section": "browse", "key": "g w", "icon": "workers" }
     ],
     "workers": {
       "read": { "actors": ["melle"] },

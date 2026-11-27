@@ -7,8 +7,8 @@ import Prism
 import SwiftUI
 
 /// The three columns: the tabs boot sent (sidebar), the active tab's index page (middle)
-/// and the page opened from a row (right); the title bar with the title, the shell's
-/// greeting (when it has one) as its subtitle, the environment and the index page's own
+/// and the page opened from a row (right); the title bar with the page's title only (the
+/// viewer's name and the environment are in the sidebar's foot) and the index page's own
 /// actions (`PageActions.ofPage`); the status bar below. The opened page shows its own
 /// actions next to its title, at its top. An action's page (its confirm, form or more
 /// actions) is a sheet over them; the keys of the shown page's actions take them. What is
@@ -81,12 +81,10 @@ struct ShellView: View {
             }
             .environment(\.pendingAction, shell.pending)
         }
+        // The title bar shows the page's title only: the viewer's name and the environment
+        // live in the sidebar's foot.
         .navigationTitle(shell.title ?? "")
-        .greeting(shell.greeting)
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                EnvironmentBadge(env: shell.env, production: shell.isProduction)
-            }
             ToolbarItemGroup(placement: .primaryAction) {
                 if let index = shell.index {
                     ActionButtons(actions: PageActions.ofPage(index), act: session.act)
@@ -100,19 +98,6 @@ struct ShellView: View {
         }
         .environment(\.pendingAction, shell.pending)
         .environment(\.panelKeys, keys.panels)
-    }
-}
-
-extension View {
-    /// The shell's greeting as the window's subtitle, only when the shell has one: a shell
-    /// without a greeting keeps the title bar as it was.
-    @ViewBuilder
-    fileprivate func greeting(_ text: String?) -> some View {
-        if let text {
-            navigationSubtitle(text)
-        } else {
-            self
-        }
     }
 }
 
@@ -173,22 +158,6 @@ struct Column: View {
         }
     }
 }
-
-/// The environment in the title bar; production as the inverted badge, as in the TUI.
-struct EnvironmentBadge: View {
-    let env: String
-    let production: Bool
-
-    var body: some View {
-        Text(env)
-            .prism(production ? Prism.Typography.labelsmall : Prism.Typography.caption)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .foregroundStyle(production ? Color(nsColor: .windowBackgroundColor) : .secondary)
-            .background(production ? Color.primary : Color.clear, in: RoundedRectangle(cornerRadius: 4))
-    }
-}
-
 
 /// Started without the launcher: how to start it.
 struct NotLaunchedView: View {
