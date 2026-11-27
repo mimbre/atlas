@@ -143,7 +143,11 @@ declined.
   person, and Facts refuses an agent or anyone else setting `delegated_by`. Flow asks
   the gate again (`accept_decision` version 2: a delegation is the one route to an
   agent; principles and production releases still go to a person), and the proposer
-  chooses, recorded as "decided by coordinator on behalf of ada, delegated".
+  chooses, recorded as "decided by coordinator on behalf of ada, delegated". Its
+  choice links `decided_by` to the proposer, even where the decider is linked there
+  already (they declined or asked first): Facts lets the one the assignment names
+  replace the decider there only while `delegated_by` names exactly that decider
+  (`only_target.delegated` on `decided_by`), and refuses anyone else, saying so.
 
 A revising or answering decision goes to its proposer: `proposed_by`, the person
 who created it (set on create when a person creates it), else the coordinator,

@@ -800,6 +800,83 @@ defmodule Model.DecisionOptionsTest do
     assert content["values"]["status"] == "accepted"
     assert cause =~ "decided by coordinator on behalf of ada, delegated"
 
+    # Facts stores it, though its decider is decided_by already (they asked a question
+    # first): the proposer it is assigned to takes their place. Nobody else does, and not
+    # without the delegation.
+    stored =
+      put_in(fact, ["links"], %{
+        "decided_by" => ["ada"],
+        "delegated_by" => ["ada"],
+        "assignment" => ["AS-D-private"]
+      })
+
+    verdict = %{
+      "verdict" => "agent",
+      "fingerprint" =>
+        AtlasBus.SubjectFingerprint.of(stored, @authority["decider"]["fingerprint"])
+    }
+
+    kinds = %{"ada" => "person", "bob" => "person", "coordinator" => "agent", "dev1" => "agent"}
+
+    stores = fn current, writer ->
+      lookup = %{
+        "current" => fn -> current end,
+        "fact" => fn
+          "assignment", "AS-D-private" ->
+            %{key: "AS-D-private", properties: %{}, links: %{"assigned_to" => ["coordinator"]}}
+
+          of, key ->
+            if kinds[key] == of, do: %{key: key, properties: %{}, links: %{}}
+        end,
+        "list" => fn
+          "gate_verdict" ->
+            {:ok,
+             [
+               %{
+                 key: "GV-private",
+                 links: %{"about" => ["D-private"]},
+                 properties:
+                   Map.merge(verdict, %{
+                     "gate" => "accept_decision",
+                     "subject" => "D-private",
+                     "purpose" => "decider"
+                   })
+               }
+             ]}
+
+          _ ->
+            {:ok, []}
+        end,
+        "incoming" => fn _, _, _ -> [] end,
+        "fingerprint" => &AtlasBus.SubjectFingerprint.of/2
+      }
+
+      change = %{
+        content
+        | "links" => %{"decided_by" => [writer]}
+      }
+
+      Model.AtlasEyra.check(
+        "decision",
+        Map.put(change, "key", "D-private"),
+        %{"by" => writer},
+        lookup
+      )
+    end
+
+    assert :ok == stores.(stored, "coordinator")
+
+    for {current, writer} <- [
+          {stored, "dev1"},
+          {stored, "bob"},
+          {put_in(stored, ["links", "delegated_by"], ["bob"]), "coordinator"},
+          {update_in(stored, ["links"], &Map.delete(&1, "delegated_by")), "coordinator"}
+        ] do
+      assert {:refuse, reasons} = stores.(current, writer)
+
+      assert "only the one who decides sets decided_by, to themselves; another only once its decider left it to them, its proposer" in reasons
+    end
+
     # A worker agent is never its proposer: it gets nothing to answer.
     assert {:refuse, _} =
              Model.AtlasEyra.answer(

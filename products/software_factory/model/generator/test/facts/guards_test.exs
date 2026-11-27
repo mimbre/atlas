@@ -166,6 +166,60 @@ defmodule RelaDSL.Facts.GuardsTest do
     end
   end
 
+  test "only_target with delegated: the owner takes the place of the ones who left it to it" do
+    only = %{
+      "error" => "only who rules it sets ruled_by",
+      "delegated" => %{"by" => "left_by", "owner" => %{"via" => "desk", "relation" => "held_by"}}
+    }
+
+    rules = %{"only_target" => %{"ruled_by" => only}}
+    desks = %{"D-1" => %{"held_by" => ["C-1"]}, "D-2" => %{"held_by" => ["C-2"]}}
+
+    check = fn current_links, keys, writer ->
+      current = %{"values" => %{}, "links" => current_links}
+
+      Writes.check_rules(rules, "change", "R-2", current, %{}, %{"ruled_by" => keys}, %{
+        "writer" => writer,
+        "links_of" => fn "desk", desk -> desks[desk] || %{} end
+      })
+    end
+
+    left = %{"ruled_by" => ["J-1"], "left_by" => ["J-1"], "desk" => ["D-1"]}
+
+    # Its owner (the desk's holder) takes the place of the judge who left it.
+    assert :ok = check.(left, ["C-1"], "C-1")
+
+    # Not the owner; not to itself; nobody left it; someone else left it; no owner.
+    for {links, keys, writer} <- [
+          {left, ["C-2"], "C-2"},
+          {left, ["C-2"], "C-1"},
+          {left, ["C-1", "J-1"], "C-1"},
+          {left, [], "C-1"},
+          {Map.delete(left, "left_by"), ["C-1"], "C-1"},
+          {%{left | "left_by" => ["J-2"]}, ["C-1"], "C-1"},
+          {Map.delete(left, "desk"), ["C-1"], "C-1"}
+        ] do
+      assert {:refused, ["only who rules it sets ruled_by"]} = check.(links, keys, writer),
+             inspect({links, keys, writer})
+    end
+
+    # Without delegated the owner may not.
+    plain = %{"only_target" => %{"ruled_by" => Map.delete(only, "delegated")}}
+
+    assert {:refused, [_]} =
+             Writes.check_rules(
+               plain,
+               "change",
+               "R-2",
+               %{"links" => left},
+               %{},
+               %{
+                 "ruled_by" => ["C-1"]
+               },
+               %{"writer" => "C-1", "links_of" => fn _, desk -> desks[desk] end}
+             )
+  end
+
   test "an open fact is changed and deleted freely" do
     open = %{"values" => %{"title" => "T", "state" => "open"}, "links" => %{}}
     assert :ok = check("change", open, %{"title" => "Other"})
