@@ -65,6 +65,15 @@ bin/atlas-dev e2e --env test                               # the end-to-end test
 node --test platform/ops/ci/tested-tree.test.mjs           # CI's tested-tree record (Node 18+)
 ```
 
+Git-agent pre-push can run `ruby platform/ops/dialyzer/check.rb` after `bin/generate`.
+It analyzes each tracked Mix project in the dev environment, with the platform apps
+analyzed together in the software factory umbrella. Dialyxir and its dependencies are
+locked separately under `platform/ops/dialyzer`; project dependencies must be available
+from Hex (or its offline cache). Dialyxir keeps its per-project PLTs in the build
+directories and its core PLTs in Mix home, and checks them on each run. The first run
+can take substantially longer. Findings and missing prerequisites fail the check; this
+does not change Runtime's `bin/check` or install a Git hook.
+
 Four commands, each with its own purpose:
 
 - `atlas`: Control's client. The Console (`atlas tui`), the agents' commands on facts, and provisioning (`atlas help`).
