@@ -525,7 +525,10 @@ defmodule Model.DecisionOptionsTest do
                  mark["end"] == "decision-raw-option_history"
              end)
 
-      refute Enum.any?(Map.get(page, :console_actions, []), &(&1.operation["name"] == "sections_toggle"))
+      refute Enum.any?(
+               Map.get(page, :console_actions, []),
+               &(&1.operation["name"] == "sections_toggle")
+             )
     end
 
     legacy =
