@@ -10,8 +10,8 @@ defmodule AtlasControl.MachinesPage do
 
   1. `header` (MACHINE, its key, its name, its kind's icon) and `text` `state`: seen,
      draining or upgrading (an upgrade that has not ended), not seen or unknown; and its build;
-  2. `item` `health`: when it last polled, how long a poll waits and since when it runs this
-     incarnation; a `text` `health-error`
+  2. `item` `health`: when it last polled, how long a poll waits and when this incarnation
+     was first observed by current health tracking; a `text` `health-error`
      (role error) says what to do when it is not seen;
   3. `list` `slots`: desired slots with unknown status, and attempts known to be busy;
      the desired configuration is not proof of the Runtime's applied slots;
@@ -26,8 +26,8 @@ defmodule AtlasControl.MachinesPage do
 
   Where a value comes from: the facts (the machine, its upgrades and the attempts that ran
   on it, read through `read`), Flow's health answer (`flow`: each Runtime's last poll with
-  its build and incarnation, and the queue; memory only, so a restarted core knows a
-  Runtime again from its first poll).
+  its build and incarnation, and the queue; memory only, so restarting health tracking
+  loses previous observations).
   """
 
   alias AtlasControl.{HealthPage, Pages}
@@ -93,7 +93,7 @@ defmodule AtlasControl.MachinesPage do
         {:none, "The core's Runtime build candidate is unknown."}
 
       not is_binary(build) ->
-        {:none, "Its build is not known: it has not polled since the core started."}
+        {:none, "Its build is not known: current health tracking has not seen it."}
 
       build == newest ->
         {:none, "It runs the core's build, #{newest}; whether a newer release exists is unknown."}
@@ -387,14 +387,14 @@ defmodule AtlasControl.MachinesPage do
            "#{HealthPage.span(seconds(polled, c.now))} ago, #{HealthPage.moment(polled)}"
 
          true ->
-           "not since the core started"
+           "not seen by current health tracking"
        end},
       {"Polls",
        case runtime && runtime["poll_max"] do
          n when is_integer(n) -> "each poll waits up to #{n} s for work"
          _ -> nil
        end},
-      {"Running since", since && HealthPage.moment(since)},
+      {"Observed since", since && HealthPage.moment(since)},
       {"Core build", newest_text(runtime, c, offer)}
     ]
   end
@@ -427,8 +427,8 @@ defmodule AtlasControl.MachinesPage do
             "its Runtime may be stopped or cut off from the core."
 
         true ->
-          "#{key} has not polled since the core started: its Runtime may be stopped or cut " <>
-            "off from the core."
+          "#{key} has not been seen by current health tracking: its Runtime may be stopped " <>
+            "or cut off from the core."
       end
 
     [

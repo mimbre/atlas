@@ -140,7 +140,7 @@ defmodule AtlasControl.MachinesPageTest do
     assert pairs(page, "health") == %{
              "Last seen" => "12 s ago, 27 Nov 11:59:48 UTC",
              "Polls" => "each poll waits up to 25 s for work",
-             "Running since" => "27 Nov 09:00:00 UTC",
+             "Observed since" => "27 Nov 09:00:00 UTC",
              "Core build" => "unknown: the core does not know its own build"
            }
 
@@ -430,6 +430,23 @@ defmodule AtlasControl.MachinesPageTest do
 
   test "missing Flow is unknown, not open" do
     assert props(tab(flow: nil), "state")["text"] == "Unknown"
+  end
+
+  test "after health tracking restarts, a missing observation makes no core-start claim" do
+    assert props(tab(), "state")["text"] =~ "Seen"
+    page = tab(flow: %{"runtimes" => [], "queue" => []}, newest: "develop-bbbbbbbbbbbb")
+    assert props(page, "state")["text"] == "Not seen"
+    assert pairs(page, "health")["Last seen"] == "not seen by current health tracking"
+    assert props(page, "health-error")["text"] =~ "has not been seen by current health tracking"
+    refute Map.has_key?(pairs(page, "health"), "Observed since")
+
+    confirm =
+      render({:machine_page, :machine_upgrade, %{machine: "mini"}},
+        flow: %{"runtimes" => [], "queue" => []},
+        newest: "develop-bbbbbbbbbbbb"
+      )
+
+    assert props(confirm, "confirm")["text"] =~ "current health tracking has not seen it"
   end
 
   test "a machine not seen within the limit says so in the error tone, and what to do" do

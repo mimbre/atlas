@@ -44,8 +44,9 @@ Details). Desired but unverified slots and an unavailable queue are marked unkno
 attempts cannot be read, slot activity and recently finished work are unknown, not empty.
 Recently finished includes lost attempts even when boot repair could not establish an end time;
 these sort after dated attempts and have no invented timestamp or duration. A recent poll is
-**Seen**, not proof the Runtime is open; unavailable Flow or upgrade facts make its state
-unknown. Unavailable upgrade facts also make the upgrade list unknown and prevent an offer
+**Seen**, not proof the Runtime is open; the first observation is relative to current health
+tracking, which can restart separately from the core. Unavailable Flow or upgrade facts make
+its state unknown. Unavailable upgrade facts also make the upgrade list unknown and prevent an offer
 or confirmation. Machines offers an upgrade only when the core's candidate build is published and
 proven newer than the installed build, and no upgrade is underway. Page renders cache this
 proof for five minutes and globally limit new pair checks to one per 150 seconds to protect
