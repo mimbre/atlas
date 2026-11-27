@@ -62,7 +62,7 @@ defmodule RelaDSL.Facts.Writes do
     writes such a fact with that relation empty (UC-Atlas-23): a create that links nobody
     through it is refused, whoever writes it (Flow too), and says so. Likewise the relation
     its `create.proposer` names, but only to the writer itself, when it is a fact of the
-    kind the relation leads to and assists nobody (a person who puts a decision in); a
+    kind the relation leads to and assists nobody (who puts it in themselves); a
     create that links nobody through it is not refused (an agent's proposal names none).
   - `limit`: `%{"max", "field", "values", "error"}`: a new link to a parent through it is
     refused while `max` facts of the kind whose `field` is one of `values` point at that

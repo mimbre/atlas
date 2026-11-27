@@ -154,9 +154,9 @@ defmodule RelaDSL.Schema do
   `produced_by`, which Flow sets when a run makes it, or a create when who puts it in is
   its producer, `create(producer:)`), and the configured actor when it
   links to nobody (an item made by hand, or before it was recorded); never the run's
-  supervisor. `default: {kind, key, producer: {kind, relation}}` asks whom the subject
-  links to through `relation`, a fact of that other kind (a decision's `proposed_by`
-  person), and the named owner when it links to nobody. Every subflow names an
+  supervisor. `default: {kind, key, producer: relation, producer_kind: kind}` asks whom
+  the subject links to through `relation`, a fact of that other kind (who proposed it),
+  and the named owner when it links to nobody. Every subflow names an
   owner, and every state that is not final resolves to exactly one: its own (`owner`
   inside the state, with the same options) or the subflow's. Waiting is not a status:
   `wait_for` names the roles that decide, and the owner still answers for the item.
@@ -1048,7 +1048,7 @@ defmodule RelaDSL.Schema do
       %{default: {kind, [config: role, producer: relation]}} = o ->
         %{o | default: %{kind: kind, config: role, producer: relation}}
 
-      %{default: {kind, key, [producer: {producer_kind, relation}]}} = o ->
+      %{default: {kind, key, [producer: relation, producer_kind: producer_kind]}} = o ->
         %{
           o
           | default: %{kind: kind, key: key, producer: relation, producer_kind: producer_kind}
@@ -1116,7 +1116,7 @@ defmodule RelaDSL.Schema do
           else: [pre <> "default's producer #{inspect(relation)} is not a valid name"]
         )
 
-  defp default_problems({kind, key, [producer: {producer_kind, relation}]}, pre) do
+  defp default_problems({kind, key, [producer: relation, producer_kind: producer_kind]}, pre) do
     default_problems({kind, key}, pre) ++
       for {what, v} <- [producer_kind: producer_kind, producer: relation],
           not valid_name?(v),
@@ -1138,7 +1138,7 @@ defmodule RelaDSL.Schema do
   defp default_problems(other, pre),
     do: [
       pre <>
-        "default must be {kind, key} or {kind, config: role} (and supervisor: false, or producer: relation), or {kind, key, producer: {kind, relation}}, such as {:team, :desk}; " <>
+        "default must be {kind, key} or {kind, config: role} (and supervisor: false, or producer: relation), or {kind, key, producer: relation, producer_kind: kind}, such as {:team, :desk}; " <>
         "got #{inspect(other)}"
     ]
 

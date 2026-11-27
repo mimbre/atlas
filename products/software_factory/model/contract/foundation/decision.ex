@@ -508,7 +508,7 @@ defmodule Model.Decision do
 
   # Its proposer: the person who put it in, else (an agent did, or nobody is recorded) the
   # coordinator, which answers through Control; never a worker agent (D-0106).
-  @proposer {:agent, :coordinator, producer: {:person, :proposed_by}}
+  @proposer {:agent, :coordinator, producer: :proposed_by, producer_kind: :person}
 
   subflow :decide, label: "Decide", subject: :decision do
     run_as "system:atlas-flow"
