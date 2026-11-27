@@ -501,12 +501,17 @@ defmodule RelaDSL.Schema do
   under that heading; or `[field:, label:]`, the whole field under that label; either
   with `steps: true` when the field is shown as its numbered steps) and
   `answers:` (each `[key:, label:, set: relation]` or `remove: relation`, or `change:`,
-  or `hand_over: true`: the page's own hand-over action of the same key, as an answer).
+  or `hand_over: true`: the page's own hand-over action, as an answer).
   An answer may say its weight: `weight: :main` (the positive one), `weight: :decline` (the
   declining one) or `weight: :other`; else the first answer is the main one and the first
-  other that asks a note the decline. `icon:` names what it does (a client's symbol). A
+  other that asks a note the decline. `icon:` names what it does (a client's symbol);
+  `help:` says in full what it does (a client's tooltip). A
   change may word its cause (`cause:`, `{note}` the note), and one that asks a note the
-  question its form asks (`prompt:`, "What is your alternative?").
+  question its form asks (`prompt:`, "What is your alternative?"). A change with
+  `hand_over: true` is a delegation: its form chooses between the change (to whom the
+  change leaves it) and handing it over to someone else, in its `choices:` words
+  (`[change: [label:, help:], hand_over: [label:, help:]]`; `{relation}` in a label is the
+  keys the fact links through it).
   """
   defmacro present(opts), do: item(:present, [opts])
 
@@ -1304,7 +1309,7 @@ defmodule RelaDSL.Schema do
           why: opts[:why],
           instructions: opts[:instructions],
           section: if(sec = opts[:section], do: Map.new(List.wrap(sec))),
-          answers: for(a <- List.wrap(opts[:answers]), do: Map.new(List.wrap(a)))
+          answers: for(a <- List.wrap(opts[:answers]), do: answer_map(a))
         }
 
         present =
@@ -1523,7 +1528,9 @@ defmodule RelaDSL.Schema do
             "present's answer #{inspect(Map.to_list(a))} must be [key:, label:, " <>
               "and set: or remove: a relation, or change: %{values:, self:}], " <>
               "or [key:, label:, hand_over: true], with weight: :main, :decline or :other or " <>
-              "none, icon: a name, and for a change cause: a text, and note: true with prompt: a text"
+              "none, icon: a name, help: a text, and for a change cause: a text, note: true " <>
+              "with prompt: a text, and with hand_over: true choices: [change: [label:, help:], " <>
+              "hand_over: [label:, help:]]"
   end
 
   defp answer?(%{change: change} = a, text?) do
@@ -1531,14 +1538,28 @@ defmodule RelaDSL.Schema do
       is_map(change[:values]) and change[:values] != %{} and is_atom(change[:self]) and
       Map.keys(change) -- [:values, :self] == [] and
       a[:note] in [nil, true] and (a[:prompt] == nil or (a[:note] == true and text?.(a[:prompt]))) and
-      (a[:cause] == nil or text?.(a[:cause])) and look?(a) and
-      Map.keys(a) -- [:key, :label, :change, :note, :prompt, :cause, :weight, :icon] == []
+      (a[:cause] == nil or text?.(a[:cause])) and look?(a, text?) and delegation?(a, text?) and
+      Map.keys(a) --
+        [
+          :key,
+          :label,
+          :change,
+          :note,
+          :prompt,
+          :cause,
+          :weight,
+          :icon,
+          :help,
+          :hand_over,
+          :choices
+        ] ==
+        []
   end
 
   # Hand over: the page's own hand-over of the work to someone else, as an answer.
   defp answer?(%{hand_over: true} = a, text?) do
-    text?.(a[:key]) and text?.(a[:label]) and look?(a) and
-      Map.keys(a) -- [:key, :label, :hand_over, :weight, :icon] == []
+    text?.(a[:key]) and text?.(a[:label]) and look?(a, text?) and
+      Map.keys(a) -- [:key, :label, :hand_over, :weight, :icon, :help] == []
   end
 
   defp answer?(a, text?) do
@@ -1546,14 +1567,45 @@ defmodule RelaDSL.Schema do
 
     text?.(a[:key]) and text?.(a[:label]) and map_size(ops) == 1 and
       Enum.all?(ops, fn {_, r} -> is_atom(r) and r != nil end) and
-      a[:weight] in [nil, :main, :decline] and map_size(Map.delete(a, :weight)) == 3
+      a[:weight] in [nil, :main, :decline] and (a[:help] == nil or text?.(a[:help])) and
+      map_size(Map.drop(a, [:weight, :help])) == 3
   end
 
-  # How an answer looks: its weight, and what it does by name (`icon`, a client's symbol).
-  defp look?(a),
+  # How an answer looks: its weight, what it does by name (`icon`, a client's symbol) and
+  # in full (`help`, a client's tooltip).
+  defp look?(a, text?),
     do:
       a[:weight] in [nil, :main, :decline, :other] and
-        (a[:icon] == nil or (is_atom(a[:icon]) and valid_name?(a[:icon])))
+        (a[:icon] == nil or (is_atom(a[:icon]) and valid_name?(a[:icon]))) and
+        (a[:help] == nil or text?.(a[:help]))
+
+  # A change that may hand the work over instead (a delegation) words both in `choices`;
+  # any other change has neither.
+  defp delegation?(%{hand_over: true, choices: %{} = choices}, text?) do
+    Enum.sort(Map.keys(choices)) == [:change, :hand_over] and
+      Enum.all?(choices, fn {_, words} ->
+        is_map(words) and text?.(words[:label]) and
+          (words[:help] == nil or text?.(words[:help])) and
+          Map.keys(words) -- [:label, :help] == []
+      end)
+  end
+
+  defp delegation?(a, _text?), do: a[:hand_over] == nil and a[:choices] == nil
+
+  # An answer as a map; a delegation's `choices` words as maps too (they go to JSON).
+  defp answer_map(a) do
+    a = Map.new(List.wrap(a))
+
+    case a[:choices] do
+      [_ | _] = choices ->
+        if Keyword.keyword?(choices) and Enum.all?(choices, fn {_, w} -> Keyword.keyword?(w) end),
+          do: %{a | choices: Map.new(choices, fn {k, w} -> {k, Map.new(w)} end)},
+          else: a
+
+      _ ->
+        a
+    end
+  end
 
   defp put_set(s, props) do
     twice = for {k, _} <- props, Keyword.has_key?(s.set, k), do: "sets #{k} twice"

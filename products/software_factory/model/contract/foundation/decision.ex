@@ -94,7 +94,7 @@ defmodule Model.Decision do
 
     field(:options, :string,
       description:
-        "Single-choice JSON: question, options (id, text, details, effect, rule, consequences), recommended ID and rationale",
+        "Single-choice JSON: question, alternatives only (id, text, details, effect adopt, rule, consequences; no 'no' option: Decline is always available), recommended ID and rationale",
       multiline: true
     )
 
@@ -127,17 +127,16 @@ defmodule Model.Decision do
         field: :status,
         open: :proposed,
         adopt: :accepted,
-        decline: :rejected,
         superseded: :superseded,
         replaceable: [:accepted, :superseded],
         # Unanswered, back with its proposer (D-0106).
         returned: [:revising, :answering]
       ],
-      # An adopted option's rule and consequences become the decision's; a decline sets neither.
+      # An adopted option's rule and consequences become the decision's.
       adopt: [rule: :decision, consequences: :consequences],
       # Declining gives an alternative: written with `revising`, it becomes an adopt option.
       alternative: [field: :alternative, status: :revising],
-      # Who left it to its proposer (Leave it to the proposer, D-0106).
+      # Who left it to its proposer (Delegate, to the proposer, D-0106).
       delegated: :delegated_by,
       # What one offered revision covers, besides the definition itself.
       content: [
@@ -162,7 +161,8 @@ defmodule Model.Decision do
       ],
       errors: [
         invalid:
-          "a decision needs a question, rationale, distinct complete options (at least one to adopt), and the recommended option first",
+          "a decision needs a question, rationale, distinct complete alternatives (at least one), and the recommended alternative first",
+        no_option: "A decision has no 'no' option; Decline is always available",
         not_json: "decision options must be a JSON definition",
         removed: "decision options cannot be removed or answered without their definition",
         unselected: "select an offered option to decide this decision",
@@ -212,7 +212,7 @@ defmodule Model.Decision do
 
     field(:left_to_proposer, :boolean,
       description:
-        "Its decider left it to its proposer (Leave it to the proposer, D-0106); Flow clears it when it asks who decides",
+        "Its decider left it to its proposer (Delegate, to the proposer, D-0106); Flow clears it when it asks who decides",
       label: "Left to its proposer"
     )
 
@@ -357,7 +357,7 @@ defmodule Model.Decision do
   relation(:delegated_by,
     label: "delegated by",
     description:
-      "The person who left it to its proposer (Leave it to the proposer, D-0106), the one way an agent decides; at most one.",
+      "The person who left it to its proposer (Delegate, to the proposer, D-0106), the one way an agent decides; at most one.",
     from: [:decision],
     to: [:person],
     max_outgoing: 1,
@@ -471,13 +471,15 @@ defmodule Model.Decision do
     answer_within: [test: "5m", prod: "48h"]
 
   # Its decider's answers (D-0106), in both person states: Accept (or Choose an option),
-  # Decline with an alternative, Ask a question, Hand over and, unless a fixed person rule
-  # holds, Leave it to the proposer. Nothing ends declined: a decline or a question goes
-  # back to its proposer (`revising`, `answering`), who returns it to its decider; the
-  # one who declined or asked is its decider then (`decided_by`).
+  # Decline with an alternative, Ask and Delegate: to another person, or, unless a fixed
+  # person rule holds, to its proposer, who then decides as they delegate. Nothing ends
+  # declined: a decline or a question goes back to its proposer (`revising`,
+  # `answering`), who returns it to its decider; the one who declined or asked is its
+  # decider then (`decided_by`).
   @accept [
     key: "a",
     label: "Accept",
+    help: "Accept the decision as proposed: it becomes decided, by you",
     weight: :main,
     change: %{self: :decided_by, values: %{status: :accepted, decided_at: "$now"}}
   ]
@@ -485,6 +487,7 @@ defmodule Model.Decision do
   @decline [
     key: "f",
     label: "Decline",
+    help: "Decline it and give your alternative: it goes back to its proposer to work out",
     note: true,
     prompt: "What is your alternative?",
     cause: "declined, with an alternative: {note}",
@@ -494,7 +497,8 @@ defmodule Model.Decision do
 
   @ask [
     key: "q",
-    label: "Ask a question",
+    label: "Ask",
+    help: "Ask the proposer a question",
     note: true,
     prompt: "What do you need to know?",
     cause: "asked: {note}",
@@ -503,14 +507,34 @@ defmodule Model.Decision do
     change: %{self: :decided_by, values: %{status: :answering, question: "$note"}}
   ]
 
-  @hand_over [key: "h", label: "Hand over", hand_over: true, weight: :other, icon: :hand_over]
-
-  @leave [
+  # Under a fixed person rule a person decides: Delegate only hands it to another person.
+  @hand_over [
     key: "l",
-    label: "Leave it to the proposer",
+    label: "Delegate",
+    help: "Let another person decide",
+    hand_over: true,
+    weight: :other,
+    icon: :delegate
+  ]
+
+  # Delegate (D-0106): its form chooses the proposer, who decides as the decider delegates
+  # (`delegated_by`, recorded "on behalf of …, delegated"), or another person, to whom
+  # the page hands it over (they decide instead).
+  @delegate [
+    key: "l",
+    label: "Delegate",
+    help: "Let someone else decide: the proposer or another person",
     weight: :other,
     icon: :delegate,
-    change: %{self: :delegated_by, values: %{left_to_proposer: true}}
+    hand_over: true,
+    change: %{self: :delegated_by, values: %{left_to_proposer: true}},
+    choices: [
+      change: [
+        label: "The proposer ({proposed_by}) — decides on your behalf",
+        help: "The proposer decides, as you delegate"
+      ],
+      hand_over: [label: "Another person", help: "The person you choose decides instead of you"]
+    ]
   ]
 
   # Its proposer: the person who put it in, else (an agent did, or nobody is recorded) the
@@ -556,7 +580,7 @@ defmodule Model.Decision do
         answers: [@accept, @decline, @ask, @hand_over],
         why: "a fixed person rule holds",
         instructions:
-          "A person accepts it, or declines with an alternative or asks a question: it then goes back to its proposer, and returns. A principle names enforced_by. This wait never times out."
+          "A person accepts it, or declines with an alternative or asks a question: it then goes back to its proposer, and returns. Delegate hands it to another person. A principle names enforced_by. This wait never times out."
       )
     end
 
@@ -580,10 +604,10 @@ defmodule Model.Decision do
       present(
         expected: "Have a person decide",
         deadline: :no_answer,
-        answers: [@accept, @decline, @ask, @hand_over, @leave],
+        answers: [@accept, @decline, @ask, @delegate],
         why: "the decider gate requires a person",
         instructions:
-          "Accept it, or decline with an alternative or ask a question: it then goes back to its proposer, and returns. Hand it over to another person, or leave it to its proposer, who then decides on your behalf. After the answer limit Flow asks the gate again."
+          "Accept it, or decline with an alternative or ask a question: it then goes back to its proposer, and returns. Or delegate it: to its proposer, who then decides as you delegate it, or to another person, who decides instead. After the answer limit Flow asks the gate again."
       )
     end
 
@@ -639,6 +663,7 @@ defmodule Model.Decision do
           [
             key: "p",
             label: "Propose again",
+            help: "Propose it again with the alternative worked out: it returns to its decider",
             weight: :main,
             change: %{values: %{returned: true}}
           ]
@@ -663,6 +688,7 @@ defmodule Model.Decision do
           [
             key: "a",
             label: "Answer",
+            help: "Answer its decider's question: it returns to them",
             note: true,
             prompt: "Your answer",
             cause: "answered: {note}",

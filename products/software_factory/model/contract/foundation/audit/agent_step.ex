@@ -37,7 +37,15 @@ defmodule Model.AgentStep do
 
     agent(:step)
     by_hand(false)
-    action(key: "x", label: "Overrule", to: "agent:overrule", when: [state: [:stored]])
+
+    action(
+      key: "x",
+      label: "Overrule",
+      help: "Undo what the agent stored in this step",
+      to: "agent:overrule",
+      when: [state: [:stored]]
+    )
+
     create(ask: [:title, :n, :tool, :state, :detail, :made, :values, :was])
   end
 

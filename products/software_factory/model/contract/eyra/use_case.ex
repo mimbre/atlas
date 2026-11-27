@@ -158,7 +158,14 @@ defmodule Model.UseCase do
             [label: "Needs", earlier: true]
           ]
         ],
-        actions: [[key: "i", label: "Full proposal", record: :proposal]]
+        actions: [
+          [
+            key: "i",
+            label: "Full proposal",
+            help: "Open the agent's full proposal for this break-down",
+            record: :proposal
+          ]
+        ]
       ]
     )
   end
@@ -252,6 +259,8 @@ defmodule Model.UseCase do
           [
             key: "a",
             label: "Answered",
+            help:
+              "Say you answered its questions, with a note of your answers: its agent tries again",
             note: true,
             change: %{values: %{verdict: :answered, answers: "$note"}}
           ]
@@ -275,10 +284,16 @@ defmodule Model.UseCase do
         instructions:
           "Read the issues under it, which its agent proposed; change any, or remove one (Remove, on its page), then accept them. They can then be picked up and built. Or say why not: the issues its agent proposed are removed, and it proposes again with your note; issues you added stay.",
         answers: [
-          [key: "a", label: "Accept", change: %{values: %{verdict: :accept}}],
+          [
+            key: "a",
+            label: "Accept",
+            help: "Accept its issues: they can be picked up and built",
+            change: %{values: %{verdict: :accept}}
+          ],
           [
             key: "n",
             label: "Not accepted",
+            help: "Say why not: its agent's issues are removed and it proposes again",
             note: true,
             change: %{values: %{verdict: :reject, supervisor_note: "$note"}}
           ]

@@ -646,8 +646,9 @@ defmodule AtlasTuiTest do
     assert screen(m) |> String.split("abcdefghij") |> length() == 13
   end
 
-  @notes_form update_in(@form, ["blocks", Access.at(0), "props", "inputs"], fn inputs ->
-                inputs ++
+  # Its required id filled in, so it may be sent.
+  @notes_form update_in(@form, ["blocks", Access.at(0), "props", "inputs"], fn [key | rest] ->
+                [Map.put(key, "value", "T-1") | rest] ++
                   [%{"name" => "notes", "label" => "Notes", "kind" => "multiline", "value" => ""}]
               end)
 
@@ -687,6 +688,75 @@ defmodule AtlasTuiTest do
     assert Model.focusable(Model.form(m2)) |> Enum.at(m2.focus) |> Map.get(:name) == "state"
     {m3, _} = press(m, [:tab])
     assert Enum.at(Model.focusable(Model.form(m3)), m3.focus) == :submit
+  end
+
+  # A Delegate's form (D-0106): nothing chosen until the user chooses; whom only once
+  # "Someone else" is chosen; nothing sent until each shown required input has a value.
+  @delegate_form put_in(@form, ["blocks", Access.at(0), "props"], %{
+                   "title" => "Delegate D-1 to…",
+                   "submit_label" => "Delegate",
+                   "submit_to" => %{
+                     "endpoint" => "answer",
+                     "params" => %{"kind" => "decision", "key" => "D-1", "answer" => "l"}
+                   },
+                   "cancel_to" => "/k/decision/D-1",
+                   "inputs" => [
+                     %{
+                       "name" => "to",
+                       "label" => "To",
+                       "kind" => "choice",
+                       "required" => true,
+                       "choices" => [
+                         %{
+                           "value" => "proposer",
+                           "label" => "The proposer (melle) — decides on your behalf",
+                           "help" => "The proposer decides, as you delegate"
+                         },
+                         %{"value" => "other", "label" => "Someone else"}
+                       ]
+                     },
+                     %{
+                       "name" => "whom",
+                       "label" => "Whom",
+                       "kind" => "choice",
+                       "required" => true,
+                       "shown_when" => %{"name" => "to", "value" => "other"},
+                       "choices" => [
+                         %{"value" => "bob", "label" => "bob: Bob"},
+                         %{"value" => "zoe", "label" => "zoe: Zoe"}
+                       ]
+                     }
+                   ]
+                 })
+
+  test "a form's required choice starts unchosen; an input shown only for a choice; no send before" do
+    m = model(@delegate_form)
+    form = Model.form(m)
+    assert [%{name: "to"}, :submit, :cancel] = Model.focusable(form, m.values)
+    refute Model.ready?(form, m.values)
+    assert screen(m) =~ "‹ choose ›"
+    refute screen(m) =~ "Whom"
+
+    # Nothing is sent while nothing is chosen.
+    assert {_, []} = press(m, [:ctrl_s])
+
+    # The proposer: what it means under it, and sent alone.
+    {m, _} = press(m, [:right])
+    assert m.values["to"] == "proposer"
+    assert screen(m) =~ "The proposer decides, as you delegate"
+
+    assert {_, [{:send, %{"values" => %{"to" => "proposer"} = values}}]} = press(m, [:ctrl_s])
+    refute Map.has_key?(values, "whom")
+
+    # Someone else: then whom, required too.
+    {m, _} = press(m, [:right])
+    assert m.values["to"] == "other"
+    assert [%{name: "to"}, %{name: "whom"}, :submit, :cancel] = Model.focusable(form, m.values)
+    assert {_, []} = press(m, [:ctrl_s])
+    {m, _} = press(m, [:down, :right])
+
+    assert {_, [{:send, %{"values" => %{"to" => "other", "whom" => "bob"}}}]} =
+             press(m, [:ctrl_s])
   end
 
   test "a multi-line value: entering it starts on its first line; End goes to the end of the cursor's line" do

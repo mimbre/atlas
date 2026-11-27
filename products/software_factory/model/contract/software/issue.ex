@@ -275,7 +275,14 @@ defmodule Model.Issue do
           ]
         ],
         links: [[key: "o", label: "Open on GitHub", field: :pr_url]],
-        actions: [[key: "r", label: "Full review", record: :review]]
+        actions: [
+          [
+            key: "r",
+            label: "Full review",
+            help: "Open the review of its pull request",
+            record: :review
+          ]
+        ]
       ],
       stuck: [
         heading: "YOUR DECISION",
@@ -288,7 +295,14 @@ defmodule Model.Issue do
           r: "Runs that step again with a fresh task.",
           c: "Ends it; nothing more is built for it."
         ],
-        actions: [[key: "l", label: "Agent's log", record: :last]]
+        actions: [
+          [
+            key: "l",
+            label: "Agent's log",
+            help: "Open the task whose attempt failed",
+            record: :last
+          ]
+        ]
       ],
       review_stuck: [
         heading: "YOUR DECISION",
@@ -302,7 +316,14 @@ defmodule Model.Issue do
           p: "Code opens its pull request without a review; its body says so.",
           c: "Ends it; nothing more is built for it."
         ],
-        actions: [[key: "l", label: "Agent's log", record: :last]]
+        actions: [
+          [
+            key: "l",
+            label: "Agent's log",
+            help: "Open the task whose attempt failed",
+            record: :last
+          ]
+        ]
       ]
     )
   end

@@ -11,14 +11,16 @@ import SwiftUI
 /// header: the panel names what it is about, and its buttons are the page's actions. A page
 /// with a `header` block (`hasHeader`) has that in place of its own. Its `text` and
 /// `answers` blocks are on the page too, each `instruction` and each `option` in a card of
-/// its own. The opened item's (`header`) other actions, its `actions` blocks, are not on
-/// the page but in the window's toolbar (`ItemToolbar`, put there by its container) and in
-/// its context menu (`ItemActionsMenu`); another page shows them where Control put them.
+/// its own. On the opened item (`header`) its other actions (its `actions` blocks) and its
+/// answers of weight `other` are not on the page but in the window's toolbar
+/// (`PageActions.toolbar`, `ItemToolbar`, put there by its container) and in its context
+/// menu (`ItemActionsMenu`): its bottom keeps only the main answer and the decline. Another
+/// page shows them where Control put them.
 public struct PageView: View {
     let presentation: PagePresentation
     let pageActions: [ActionModel]
-    /// What else can be done with the opened item (its `actions` blocks): in its context
-    /// menu; none on a page that is no opened item (`header` not set).
+    /// The opened item's toolbar actions (`PageActions.toolbar`): in its context menu; none
+    /// on a page that is no opened item (`header` not set).
     let itemActions: [ActionModel]
     let header: Bool
     let selectedPath: String?
@@ -33,7 +35,7 @@ public struct PageView: View {
                 act: @escaping (ActionModel) -> Void = { _ in }) {
         presentation = PagePresentation(page)
         pageActions = PageActions.ofPage(page)
-        itemActions = header ? PageActions.others(page) : []
+        itemActions = header ? PageActions.toolbar(page) : []
         self.header = header
         self.selectedPath = selectedPath
         self.open = open
@@ -237,7 +239,7 @@ public struct PageView: View {
             HeaderBlockView(block: block, actions: headerActions, act: act)
         case .text(let text): TextBlockView(block: text)
         case .instruction(let instruction): InstructionView(block: instruction)
-        case .answers(let answers): AnswersView(block: answers, act: act)
+        case .answers(let answers): AnswersView(block: answers, toolbar: header, act: act)
         // The opened item's are in the window's toolbar.
         case .actions where header:
             EmptyView()
