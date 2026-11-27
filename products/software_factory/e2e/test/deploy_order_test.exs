@@ -21,6 +21,19 @@ defmodule AtlasE2E.DeployOrderTest do
     work = Path.join(dir, "work")
     origin = Path.join(dir, "origin.git")
     File.mkdir_p!(Path.join(work, "platform/ops"))
+    File.mkdir_p!(Path.join(work, "products/software_factory/environments"))
+    File.write!(Path.join(work, "products/software_factory/environments/test.json"), """
+    {"fly":{"app":"core","rela_app":"rela"}}
+    """)
+    File.mkdir_p!(Path.join(dir, "bin"))
+    File.write!(Path.join(dir, "bin/flyctl"), """
+    #!/bin/sh
+    set -eu
+    if [ "${FLY_FAIL:-}" = "$3" ]; then exit 1; fi
+    if [ "$3" = core ]; then tag="${CORE_TAG:-unknown}"; else tag="${RELA_TAG:-unknown}"; fi
+    printf '{"Machines":[{"image_ref":{"tag":"%s"}}]}' "$tag"
+    """)
+    File.chmod!(Path.join(dir, "bin/flyctl"), 0o755)
     git!(dir, ["init", "--bare", origin])
     git!(work, ["init", "-b", "develop"])
     git!(work, ["config", "user.name", "Deployment fixture"])
@@ -79,6 +92,47 @@ defmodule AtlasE2E.DeployOrderTest do
     assert lines(c) == ["rela develop-#{c.old}", "core develop-#{c.old}"]
   end
 
+  test "stale Fly change followed by a client-only head still deploys", c do
+    fly_change = advance(c)
+    File.mkdir_p!(Path.join(c.work, "platform/clients/apple"))
+    File.write!(Path.join(c.work, "platform/clients/apple/client"), "client")
+    git!(c.work, ["add", "."])
+    git!(c.work, ["commit", "-m", "client only"])
+    git!(c.work, ["push", "origin", "HEAD:develop"])
+    client_head = git!(c.work, ["rev-parse", "HEAD"])
+    git!(c.work, ["checkout", "--detach", fly_change])
+    assert {out, 0} = deliver(c, fly_change, deployed(c.old))
+    assert out =~ "skipping stale"
+    git!(c.work, ["checkout", "--detach", client_head])
+    assert {_, 0} = deliver(c, client_head, deployed(c.old))
+    assert lines(c) == ["rela develop-#{client_head}", "core develop-#{client_head}"]
+    assert {out, 0} = deliver(c, client_head, deployed(client_head))
+    assert out =~ "already has the Fly-relevant tree"
+    assert length(lines(c)) == 2
+  end
+
+  test "client-only changes do not redeploy an equivalent pair", c do
+    File.mkdir_p!(Path.join(c.work, "platform/clients/apple"))
+    File.write!(Path.join(c.work, "platform/clients/apple/client"), "client")
+    git!(c.work, ["add", "."])
+    git!(c.work, ["commit", "-m", "client only"])
+    git!(c.work, ["push", "origin", "HEAD:develop"])
+    current = git!(c.work, ["rev-parse", "HEAD"])
+    assert {out, 0} = deliver(c, current, deployed(c.old))
+    assert out =~ "already has the Fly-relevant tree"
+    assert lines(c) == []
+  end
+
+  test "unknown or mismatched deployed labels reconcile, while status failure refuses", c do
+    assert {_, 0} = deliver(c, c.old, [{"CORE_TAG", "develop-#{c.old}"}, {"RELA_TAG", "unknown"}])
+    assert length(lines(c)) == 2
+    assert {_, code} = deliver(c, c.old, [{"FLY_FAIL", "core"}])
+    assert code != 0
+    assert length(lines(c)) == 2
+  end
+
+  defp deployed(sha), do: [{"CORE_TAG", "develop-#{sha}"}, {"RELA_TAG", "develop-#{sha}"}]
+
   test "unavailable or missing remote head refuses before any deployment", c do
     for remote <- [Path.join(c.dir, "does-not-exist"), Path.join(c.dir, "empty.git")] do
       if String.ends_with?(remote, "empty.git"), do: git!(c.dir, ["init", "--bare", remote])
@@ -131,6 +185,9 @@ defmodule AtlasE2E.DeployOrderTest do
              "cancel-in-progress" => false,
              "queue" => "max"
            }
+    refute c.job["if"] =~ "outputs.deploy"
+    checkout = Enum.find(c.job["steps"], &(&1["uses"] == "actions/checkout@v4"))
+    assert checkout["with"]["fetch-depth"] == 0
 
     assert Enum.any?(
              c.jobs["deploy-prod"]["steps"],
@@ -151,14 +208,22 @@ defmodule AtlasE2E.DeployOrderTest do
       cd: c.work,
       stderr_to_stdout: true,
       env:
-        [
-          {"GITHUB_SHA", sha},
-          {"DEPLOY_LOG", c.log},
-          {"PAIR_READY", nil},
-          {"PAIR_RELEASE", nil},
-          {"ATLAS_FLY_TOKEN_RELA", "unused-fixture"},
-          {"ATLAS_FLY_TOKEN_CORE", "unused-fixture"}
-        ] ++ extra
+        Map.merge(
+          %{
+            "GITHUB_SHA" => sha,
+            "DEPLOY_LOG" => c.log,
+            "PAIR_READY" => nil,
+            "PAIR_RELEASE" => nil,
+            "ATLAS_FLY_TOKEN_RELA" => "unused-fixture",
+            "ATLAS_FLY_TOKEN_CORE" => "unused-fixture",
+            "PATH" => Path.join(c.dir, "bin") <> ":" <> System.fetch_env!("PATH"),
+            "CORE_TAG" => nil,
+            "RELA_TAG" => nil,
+            "FLY_FAIL" => nil
+          },
+          Map.new(extra)
+        )
+        |> Map.to_list()
     )
   end
 
