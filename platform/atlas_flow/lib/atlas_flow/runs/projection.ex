@@ -146,7 +146,7 @@ defmodule AtlasFlow.Runs.Projection do
 
   # The run with its subject's producer (`producer`, `%{"kind", "key"}` or nil), only when
   # its state's owner asks the producer (`AtlasFlow.Model.owner/3`): whom the subject, as
-  # this projection read it, links to through that owner's relation, of the owner's kind.
+  # this projection read it, links to through that owner's relation, of the kind it asks.
   defp produced(subflow, run, fact) do
     default = (subflow.owner(run["state"]) || %{})["default"] || %{}
 
@@ -158,7 +158,7 @@ defmodule AtlasFlow.Runs.Projection do
         producer =
           case List.wrap(get_in(fact, ["links", relation])) do
             [key | _] when is_binary(key) and key != "" ->
-              %{"kind" => default["kind"], "key" => key}
+              %{"kind" => AtlasFlow.Model.producer_kind(default), "key" => key}
 
             _ ->
               nil

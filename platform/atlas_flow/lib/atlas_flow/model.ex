@@ -137,7 +137,10 @@ defmodule AtlasFlow.Model do
   the one the subject links to through that relation, which the projection passes as the
   run's `producer` (`%{"kind", "key"}` or nil): the human supervisor of the run that made
   the subject. With none (an item made by hand, or before its producer was recorded), it
-  is the configured actor. Never the run's own supervisor. The projection passes the run with
+  is the configured actor, or the named one (`%{"kind", "key", "producer"}`). The
+  producer is of the owner's kind, unless the owner names another (`"producer_kind"`: the
+  producer of one kind, else the configured actor of another).
+  Never the run's own supervisor. The projection passes the run with
   its subflow's `spans` and its supervisor as the run's fact links it, of the
   supervision relation's holder kind (`AtlasFlow.Runs.Projection`). A run of a subflow a
   span names in its `with:` lies in no span of its own: the projection passes it with
@@ -146,10 +149,10 @@ defmodule AtlasFlow.Model do
   """
   def owner(owner, actors, run \\ nil)
 
-  def owner(%{"config" => _, "producer" => _} = owner, actors, run) do
+  def owner(%{"producer" => _} = owner, actors, run) do
     case producer(owner, run) do
       %{} = producer -> producer
-      nil -> owner(Map.delete(owner, "producer"), actors, nil)
+      nil -> owner(Map.drop(owner, ["producer", "producer_kind"]), actors, nil)
     end
   end
 
@@ -178,10 +181,14 @@ defmodule AtlasFlow.Model do
   def producer(%{"producer" => relation}) when is_binary(relation), do: relation
   def producer(_owner), do: nil
 
-  # The subject's producer, as the projection passes it, when it is of the owner's kind.
-  defp producer(%{"kind" => kind}, %{"producer" => %{"kind" => kind, "key" => key}})
-       when is_binary(key) and key != "",
-       do: %{"kind" => kind, "key" => key}
+  @doc "The kind of the producer `owner` (a state's default) asks: its own, unless it names one."
+  def producer_kind(owner), do: owner["producer_kind"] || owner["kind"]
+
+  # The subject's producer, as the projection passes it, when it is of the kind asked.
+  defp producer(owner, %{"producer" => %{"kind" => kind, "key" => key}})
+       when is_binary(key) and key != "" do
+    if kind == producer_kind(owner), do: %{"kind" => kind, "key" => key}
+  end
 
   defp producer(_owner, _run), do: nil
 

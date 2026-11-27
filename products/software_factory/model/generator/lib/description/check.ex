@@ -552,7 +552,7 @@ defmodule RelaDSL.Description.Check do
     keys(
       rule,
       names ++
-        ~w(answered_at answered_by status adopt content content_links legacy_fingerprint errors),
+        ~w(answered_at answered_by status adopt alternative delegated content content_links legacy_fingerprint errors),
       path
     ) ++
       Enum.flat_map(names, &field(ctx, kind, rule[&1], path)) ++
@@ -567,8 +567,25 @@ defmodule RelaDSL.Description.Check do
       ) ++
       field(ctx, kind, rule["answered_at"], path) ++
       relation(ctx, rule["answered_by"], kind, path ++ ["answered_by"]) ++
-      keys(status, ~w(field open adopt decline superseded replaceable), path ++ ["status"]) ++
+      keys(
+        status,
+        ~w(field open adopt decline superseded replaceable returned),
+        path ++ ["status"]
+      ) ++
       if(is_map(status), do: field(ctx, kind, status["field"], path), else: []) ++
+      if(rule["alternative"] == nil,
+        do: [],
+        else:
+          keys(rule["alternative"], ~w(field status), path ++ ["alternative"]) ++
+            if(is_map(rule["alternative"]),
+              do: field(ctx, kind, rule["alternative"]["field"], path),
+              else: []
+            )
+      ) ++
+      if(rule["delegated"] == nil,
+        do: [],
+        else: relation(ctx, rule["delegated"], kind, path ++ ["delegated"])
+      ) ++
       keys(adopt, ~w(rule consequences), path ++ ["adopt"]) ++
       if(is_map(adopt),
         do: Enum.flat_map(Map.values(adopt), &field(ctx, kind, &1, path)),
@@ -628,9 +645,10 @@ defmodule RelaDSL.Description.Check do
   defp create(ctx, kind, create, path) do
     id = (is_map(create) && create["id"]) || %{}
 
-    keys(create, ~w(ask id defaults producer), path) ++
+    keys(create, ~w(ask id defaults producer proposer), path) ++
       Enum.flat_map(List.wrap(is_map(create) && create["ask"]), &field(ctx, kind, &1, path)) ++
       create_producer(ctx, kind, is_map(create) && create["producer"], path ++ ["producer"]) ++
+      create_producer(ctx, kind, is_map(create) && create["proposer"], path ++ ["proposer"]) ++
       Enum.flat_map((is_map(create) && create["defaults"]) || %{}, fn {name, value} ->
         values(ctx, kind, %{name => [value]}, path ++ ["defaults"])
       end) ++
@@ -638,12 +656,14 @@ defmodule RelaDSL.Description.Check do
       if(is_map(id) and id["from"], do: field(ctx, kind, id["from"], path ++ ["id"]), else: [])
   end
 
-  # The relation a create links to who puts the fact in: one from the kind, to one fact at
-  # most, that nobody sets by hand (`set_by`), so the create is its one other writer.
+  # The relation a create links to who puts the fact in (`producer`), or to the person who
+  # proposes it (`proposer`): one from the kind, to one fact at most, that nobody sets by
+  # hand (`set_by`), so the create is its one other writer.
   defp create_producer(_ctx, _kind, value, _path) when value in [nil, false], do: []
 
   defp create_producer(ctx, kind, relation, path) do
     spec = is_binary(relation) && ctx.relations[relation]
+    key = List.last(path)
 
     cond do
       not is_map(spec) or kind not in (spec["from"] || []) ->
@@ -651,7 +671,7 @@ defmodule RelaDSL.Description.Check do
           path,
           :create_producer,
           [kind, relation],
-          "#{kind}.create.producer: #{inspect(relation)} is no relation from #{kind}"
+          "#{kind}.create.#{key}: #{inspect(relation)} is no relation from #{kind}"
         )
 
       spec["max_outgoing"] != 1 or get_in(ctx.x, ["relations", relation, "set_by"]) in [nil, []] ->
@@ -659,7 +679,7 @@ defmodule RelaDSL.Description.Check do
           path,
           :create_producer,
           [kind, relation],
-          "#{kind}.create.producer: #{relation} must lead to one fact at most (max_outgoing 1) and be set by nobody by hand (set_by)"
+          "#{kind}.create.#{key}: #{relation} must lead to one fact at most (max_outgoing 1) and be set by nobody by hand (set_by)"
         )
 
       true ->

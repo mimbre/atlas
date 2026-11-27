@@ -54,13 +54,19 @@ defmodule Model.Decision do
     ]
   )
 
+  # A decision is never declined into an end (D-0106): declining gives an alternative and
+  # sends it back to its proposer (`revising`), as a question does (`answering`); both
+  # return it to its decider as `proposed`. `rejected` stays for the decisions that ended
+  # so before.
   type(:decision_status,
-    values: [:proposed, :accepted, :rejected, :superseded],
+    values: [:proposed, :accepted, :rejected, :superseded, :revising, :answering],
     labels: [
       proposed: "Proposed",
       accepted: "Accepted",
       rejected: "Rejected",
-      superseded: "Superseded"
+      superseded: "Superseded",
+      revising: "Revising",
+      answering: "Answering a question"
     ]
   )
 
@@ -122,10 +128,16 @@ defmodule Model.Decision do
         adopt: :accepted,
         decline: :rejected,
         superseded: :superseded,
-        replaceable: [:accepted, :superseded]
+        replaceable: [:accepted, :superseded],
+        # Unanswered, back with its proposer (D-0106).
+        returned: [:revising, :answering]
       ],
       # An adopted option's rule and consequences become the decision's; a decline sets neither.
       adopt: [rule: :decision, consequences: :consequences],
+      # Declining gives an alternative: written with `revising`, it becomes an adopt option.
+      alternative: [field: :alternative, status: :revising],
+      # Who left it to its proposer (Leave it to the proposer, D-0106).
+      delegated: :delegated_by,
       # What one offered revision covers, besides the definition itself.
       content: [
         :title,
@@ -149,7 +161,7 @@ defmodule Model.Decision do
       ],
       errors: [
         invalid:
-          "a decision needs a question, rationale, distinct complete options (two to adopt, or one to adopt and a decline), and the recommended option first",
+          "a decision needs a question, rationale, distinct complete options (at least one to adopt), and the recommended option first",
         not_json: "decision options must be a JSON definition",
         removed: "decision options cannot be removed or answered without their definition",
         unselected: "select an offered option to decide this decision",
@@ -169,11 +181,42 @@ defmodule Model.Decision do
       label: "Enforced by"
     )
 
-    field(:status, :decision_status, description: "Proposed, accepted, rejected or superseded")
+    field(:status, :decision_status,
+      description:
+        "Proposed, accepted, superseded, back with its proposer (revising, answering a question), or rejected (before D-0106)"
+    )
 
     field(:decided_at, :datetime,
       description: "When it was accepted or rejected",
       label: "Decided at"
+    )
+
+    field(:alternative, :string,
+      description:
+        "Its decider's alternative, given when declining (D-0106); it is among the options since",
+      multiline: true
+    )
+
+    field(:question, :string,
+      description: "What its decider needs to know before deciding",
+      multiline: true
+    )
+
+    field(:answer, :string,
+      description: "Its proposer's answer to its decider's question",
+      multiline: true
+    )
+
+    field(:left_to_proposer, :boolean,
+      description:
+        "Its decider left it to its proposer (Leave it to the proposer, D-0106); Flow clears it when it asks who decides",
+      label: "Left to its proposer"
+    )
+
+    field(:returned, :boolean,
+      description:
+        "Its proposer returned it to its decider, revised or answered (D-0106); Flow then proposes it again and clears it",
+      label: "Returned"
     )
 
     field(:no_work, :boolean,
@@ -225,7 +268,9 @@ defmodule Model.Decision do
         :no_work
       ],
       id: [prefix: "D-", digits: 4, first: 24],
-      defaults: [status: :proposed]
+      defaults: [status: :proposed],
+      # The person who puts it in proposes it; an agent's proposal names none (D-0106).
+      proposer: :proposed_by
     )
 
     requires(
@@ -304,7 +349,8 @@ defmodule Model.Decision do
 
   relation(:delegated_by,
     label: "delegated by",
-    description: "The person whose delegated authority an agent decided under; at most one.",
+    description:
+      "The person who left it to its proposer (Leave it to the proposer, D-0106), the one way an agent decides; at most one.",
     from: [:decision],
     to: [:person],
     max_outgoing: 1,
@@ -313,6 +359,19 @@ defmodule Model.Decision do
       error: "only the person who delegates sets delegated_by, to themselves",
       also: [:migration]
     ]
+  )
+
+  # Who proposed it (D-0106): the person who put it in, whom a decline or a question sends
+  # it back to; none when an agent put it in, and its coordinator answers instead.
+  relation(:proposed_by,
+    label: "proposed by",
+    description:
+      "The person who put it in, whom it goes back to when declined or asked about; none when an agent did (its coordinator then). Set by its create only.",
+    from: [:decision],
+    to: [:person],
+    max_outgoing: 1,
+    inverse: {:proposed, "proposed"},
+    set_by: [:flow]
   )
 
   relation(:supersedes,
@@ -341,9 +400,11 @@ defmodule Model.Decision do
     )
   end
 
-  # Who accepts or rejects a proposed decision in the ledger.
+  # Who accepts a proposed decision in the ledger. An agent only when its decider left it to
+  # its proposer (D-0106): that explicit choice, per decision, is the one way, after the
+  # fixed person rules; nothing else, a timeout neither, hands a decision to an agent.
   defgate :accept_decision,
-    version: 1,
+    version: 2,
     # slice 4 makes it :smart (a version change, data only)
     flavor: :rule,
     purpose: :decider,
@@ -379,28 +440,75 @@ defmodule Model.Decision do
     ],
     rule: [
       first: [
-        [when: [{:equals, :timed_out, true}], then: :agent_unverified],
+        [when: [{:equals, :delegated, true}], then: :agent],
         [when: [{:in, :category, ["product", "security"]}], then: :person],
         [when: [{:equals, :reversibility, "one_way"}], then: :person],
         [
           when: [{:at_least, :overrule_rate, 0.2}, {:at_least, :verdicts_seen, 10}],
           then: :person
-        ],
-        [when: [{:equals, :delegated, true}], then: :agent]
+        ]
       ],
       otherwise: :advise
     ],
+    # agent_unverified stays a verdict for the runs and verdicts recorded with it (D-0102);
+    # no outcome gives it any more.
     verdicts: [:person_always, :person, :agent, :agent_unverified],
     decide: [
       person_always: :person_always,
       person: :person,
       agent: :agent,
-      agent_unverified: :agent_unverified,
       advise: :person,
       uncertain: :person,
       error: :person
     ],
     answer_within: [test: "5m", prod: "48h"]
+
+  # Its decider's answers (D-0106), in both person states: Accept (or Choose an option),
+  # Decline with an alternative, Ask a question, Hand over and, unless a fixed person rule
+  # holds, Leave it to the proposer. Nothing ends declined: a decline or a question goes
+  # back to its proposer (`revising`, `answering`), who returns it to its decider; the
+  # one who declined or asked is its decider then (`decided_by`).
+  @accept [
+    key: "a",
+    label: "Accept",
+    weight: :main,
+    change: %{self: :decided_by, values: %{status: :accepted, decided_at: "$now"}}
+  ]
+
+  @decline [
+    key: "f",
+    label: "Decline",
+    note: true,
+    prompt: "What is your alternative?",
+    cause: "declined, with an alternative: {note}",
+    weight: :decline,
+    change: %{self: :decided_by, values: %{status: :revising, alternative: "$note"}}
+  ]
+
+  @ask [
+    key: "q",
+    label: "Ask a question",
+    note: true,
+    prompt: "What do you need to know?",
+    cause: "asked: {note}",
+    weight: :other,
+    icon: :question,
+    change: %{self: :decided_by, values: %{status: :answering, question: "$note"}}
+  ]
+
+  @hand_over [key: "h", label: "Hand over", hand_over: true, weight: :other, icon: :hand_over]
+
+  @leave [
+    key: "l",
+    label: "Leave it to the proposer",
+    weight: :other,
+    icon: :delegate,
+    change: %{self: :delegated_by, values: %{left_to_proposer: true}}
+  ]
+
+  # Its proposer: the person who put it in, else (an agent did, or nobody is recorded) the
+  # coordinator, which answers through Control; never a worker agent (D-0106).
+  @proposer {:agent, :coordinator, producer: :proposed_by, producer_kind: :person}
 
   subflow :decide, label: "Decide", subject: :decision do
     run_as "system:atlas-flow"
@@ -409,7 +517,12 @@ defmodule Model.Decision do
     start :create
     initial :deciding
 
+    # Who decides comes from the gate, which sees a delegation; a leave is asked once. A
+    # decision its proposer returns is proposed again here (a status is its decider's
+    # choice, so Flow writes it, not the proposer).
     state :deciding, label: "Who decides" do
+      set left_to_proposer: false, returned: false, status: :proposed
+
       gate :accept_decision,
         person_always: :for_person_always,
         person: :for_person,
@@ -420,68 +533,58 @@ defmodule Model.Decision do
     state :for_person_always, label: "Decide it" do
       owner via: :assignment,
             relation: :assigned_to,
-            default: {:person, config: :decider},
+            default: {:person, config: :decider, producer: :decided_by},
             preserve_kind: :person
 
       wait_for [:principle_authority, :decider],
         on: :status,
         reset: false,
         accepted: :accepted,
-        rejected: :rejected
+        rejected: :rejected,
+        revising: :revising,
+        answering: :answering
 
       present(
         expected: "Have a person decide",
-        answers: [
-          [
-            key: "a",
-            label: "Accept",
-            change: %{self: :decided_by, values: %{status: :accepted, decided_at: "$now"}}
-          ],
-          [
-            key: "f",
-            label: "Reject",
-            note: true,
-            change: %{self: :decided_by, values: %{status: :rejected, decided_at: "$now"}}
-          ]
-        ],
+        answers: [@accept, @decline, @ask, @hand_over],
         why: "a fixed person rule holds",
         instructions:
-          "A person accepts or rejects with decided_by and decided_at. A principle names enforced_by. This wait never times out."
+          "A person accepts it, or declines with an alternative or asks a question: it then goes back to its proposer, and returns. A principle names enforced_by. This wait never times out."
       )
     end
 
     state :for_person, label: "Decide it" do
       owner via: :assignment,
             relation: :assigned_to,
-            default: {:person, config: :decider},
+            default: {:person, config: :decider, producer: :decided_by},
             preserve_kind: :person
 
-      wait_for :decider, on: :status, reset: false, accepted: :accepted, rejected: :rejected
+      wait_for :decider,
+        on: :status,
+        reset: false,
+        accepted: :accepted,
+        rejected: :rejected,
+        revising: :revising,
+        answering: :answering
+
       timer :no_answer, {:gate_limit, :accept_decision}, to: :deciding
+      branch to: :deciding, when: "entity.left_to_proposer == true"
 
       present(
         expected: "Have a person decide",
         deadline: :no_answer,
-        answers: [
-          [
-            key: "a",
-            label: "Accept",
-            change: %{self: :decided_by, values: %{status: :accepted, decided_at: "$now"}}
-          ],
-          [
-            key: "f",
-            label: "Reject",
-            note: true,
-            change: %{self: :decided_by, values: %{status: :rejected, decided_at: "$now"}}
-          ]
-        ],
+        answers: [@accept, @decline, @ask, @hand_over, @leave],
         why: "the decider gate requires a person",
         instructions:
-          "Accept or reject with decided_by and decided_at. After the answer limit Flow asks the gate again."
+          "Accept it, or decline with an alternative or ask a question: it then goes back to its proposer, and returns. Hand it over to another person, or leave it to its proposer, who then decides on your behalf. After the answer limit Flow asks the gate again."
       )
     end
 
-    state :for_agent, label: "An agent may decide" do
+    # Left to its proposer (D-0106): the person who put it in, else the coordinator, decides
+    # on behalf of the one who left it.
+    state :for_agent, label: "Left to its proposer" do
+      owner via: :assignment, relation: :assigned_to, default: @proposer
+
       wait_for [:delegate, :decider],
         on: :status,
         reset: false,
@@ -489,9 +592,11 @@ defmodule Model.Decision do
         rejected: :rejected
 
       present(
-        expected: "Have it decided",
-        why: "the recorded gate permits an agent",
-        instructions: "Accept or reject with decided_by and decided_at."
+        expected: "Decide it: its decider left it to you",
+        answers: [@accept],
+        why: "its decider left it to its proposer",
+        instructions:
+          "Its decider left it to you, its proposer: choose, and it is decided by you on their behalf, delegated."
       )
     end
 
@@ -510,6 +615,57 @@ defmodule Model.Decision do
         instructions:
           "Accept or reject with decided_by and decided_at. The decision carries a red flag until a person confirms or overrules its gate verdict."
       )
+    end
+
+    # Declined with an alternative: its proposer words it among the options and proposes
+    # it again; it returns to its decider.
+    state :revising, label: "Revise it" do
+      owner via: :assignment, relation: :assigned_to, default: @proposer
+
+      present(
+        expected: "Revise it with its decider's alternative",
+        why: "its decider declined it, with an alternative",
+        instructions:
+          "Its decider declined it and gave the alternative below; it is among its options now, as theirs. Word it as you like and set the recommendation (the recommended option first) with Update, then propose it again: it returns to its decider.",
+        section: [field: :alternative, label: "Their alternative"],
+        answers: [
+          [
+            key: "p",
+            label: "Propose again",
+            weight: :main,
+            change: %{values: %{returned: true}}
+          ]
+        ]
+      )
+
+      branch to: :deciding, when: "entity.returned == true"
+    end
+
+    # Asked a question: its proposer answers, adding what answers it to the decision (its
+    # context, or an option's details) if they like; it returns to its decider.
+    state :answering, label: "Answer its question" do
+      owner via: :assignment, relation: :assigned_to, default: @proposer
+
+      present(
+        expected: "Answer its decider's question",
+        why: "its decider asked a question before deciding",
+        instructions:
+          "Its decider asks the question below. Add what answers it to the decision (its context, or an option's details) with Update if you like, then answer: it returns to its decider.",
+        section: [field: :question, label: "Their question"],
+        answers: [
+          [
+            key: "a",
+            label: "Answer",
+            note: true,
+            prompt: "Your answer",
+            cause: "answered: {note}",
+            weight: :main,
+            change: %{values: %{returned: true, answer: "$note"}}
+          ]
+        ]
+      )
+
+      branch to: :deciding, when: "entity.returned == true"
     end
 
     final :accepted, label: "Accepted"
@@ -533,10 +689,12 @@ defmodule Model.Decision do
       owner_relation: :assigned_to,
       field: :expected
     ],
-    admission: [status: [:proposed, :rejected, :superseded]],
+    admission: [status: [:proposed, :rejected, :superseded, :revising, :answering]],
     imports: [
       [when: [status: [:rejected]], state: :rejected],
-      [when: [status: [:superseded]], state: :accepted]
+      [when: [status: [:superseded]], state: :accepted],
+      [when: [status: [:revising]], state: :revising],
+      [when: [status: [:answering]], state: :answering]
     ],
     verification: [
       kind: :gate_verdict,
