@@ -839,9 +839,10 @@ defmodule AtlasControl.Pages do
   end
 
   # What is assigned to the client, calm (platform/atlas_control/backend/README.md): its
-  # groups (per kind) and the list, each row with its key, without technical noise; on a
-  # group's page (`active`, a kind) only that kind's. No Overview: the tab and the groups
-  # carry the count. The technical details are an agent's or developer's (`atlas get`).
+  # groups (per kind) and the list, each row with its key, without technical noise, in
+  # work order (`work_order/1`); on a group's page (`active`, a kind) only that kind's. No
+  # Overview: the tab and the groups carry the count. The technical details are an agent's
+  # or developer's (`atlas get`).
   defp assigned(m, by, answers, marked, active) do
     rule = assigned_rule(m)
     all = assigned_facts(m, answers, marked)
@@ -850,7 +851,13 @@ defmodule AtlasControl.Pages do
     list =
       Blocks.list(
         title: rule.title || "",
-        rows: for(item <- items, do: calm_row(m, rule.relation, item, by)),
+        rows:
+          work_order(
+            for {from, fact, link} = item <- items do
+              {calm_row(m, rule.relation, item, by),
+               deadline(m, [{link_kind(m, rule.relation), link}, {from, fact}])}
+            end
+          ),
         empty: rule.empty,
         actions: start_actions(m)
       )
@@ -864,6 +871,42 @@ defmodule AtlasControl.Pages do
       [{"list", list}]
     )
   end
+
+  # Work order, the one order of every work list (Assigned to you, Open for you, Supervised
+  # by you; browse lists keep theirs): `[{row, deadline}]` to rows, those with a deadline
+  # first, soonest at the top; then by how long each has waited (the row's `since`), oldest
+  # first, undated last; ties by key. Clients show rows in the order they get them.
+  defp work_order(rows) do
+    rows
+    |> Enum.sort_by(fn {row, deadline} ->
+      since = instant(row["since"])
+      {deadline == nil, deadline, since == nil, since, key_order(row["id"])}
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  # A work row's deadline: the first of `written` (`[{kind, fact}]`) that sets one, as
+  # Facts' presentation of the work says it (`deadline`), else in the field its kind's late
+  # rule names (`after`); nil when none does.
+  defp deadline(m, written) do
+    Enum.find_value(written, fn {kind_name, fact} ->
+      instant(get_in(fact, ["presentation", "deadline"])) ||
+        case kind_name && kind(m, kind_name) do
+          %{late: %{after: name}} -> instant(get_in(fact, ["values", name]))
+          _ -> nil
+        end
+    end)
+  end
+
+  # An ISO 8601 time as microseconds since the epoch, to compare; nil when it is none.
+  defp instant(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, at, _} -> DateTime.to_unix(at, :microsecond)
+      _ -> nil
+    end
+  end
+
+  defp instant(_), do: nil
 
   @doc """
   A page's technical details (the worker pages'): `{content, markup}` to add to the page,
@@ -1747,7 +1790,12 @@ defmodule AtlasControl.Pages do
              Blocks.list(
                title: span_title(m, s),
                rows:
-                 for({kind, fact, work} <- facts, do: screen_row(m, kind, fact, work, by, false)),
+                 work_order(
+                   for {kind, fact, work} <- facts do
+                     {screen_row(m, kind, fact, work, by, false),
+                      deadline(m, [{written_on(s), work}, {kind, fact}])}
+                   end
+                 ),
                empty: rule.empty
              )}
           end
@@ -1854,9 +1902,14 @@ defmodule AtlasControl.Pages do
           Blocks.list(
             title: rule.title || "",
             rows:
-              for(
-                {kind, fact, work} <- items,
-                do: screen_row(m, kind, fact, work, by, active == nil, doing[fact["key"]])
+              work_order(
+                for {kind, fact, work} <- items do
+                  {screen_row(m, kind, fact, work, by, active == nil, doing[fact["key"]]),
+                   deadline(m, [
+                     {written_on(span_of(m, kind, work["presentation"])), work},
+                     {kind, fact}
+                   ])}
+                end
               ),
             empty: rule.empty
           )
