@@ -617,7 +617,7 @@ defmodule RelaDSL.Description.Check do
         else:
           keys(
             rule["errors"],
-            ~w(invalid not_json removed unselected changed selection),
+            ~w(invalid not_json removed unselected changed selection unworded),
             path ++ ["errors"]
           ) ++
             if(is_map(rule["errors"]) and Enum.all?(Map.values(rule["errors"]), &text?/1),

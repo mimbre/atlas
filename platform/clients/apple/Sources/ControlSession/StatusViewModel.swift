@@ -1,6 +1,6 @@
 import AtlasControlKit
 
-/// The status bar, from the session: the connection, the position of the page on screen,
+/// The shell's state for the sidebar's foot, from the session: the connection, the position of the page on screen,
 /// how and when it last changed, the last hint, the reconcile interval, the last notice, an
 /// `open` that failed, and what is being sent (or opened, or asked) and not answered yet.
 public struct StatusViewModel: Sendable, Equatable {
@@ -39,7 +39,7 @@ public struct StatusViewModel: Sendable, Equatable {
 
     public var isConnected: Bool { connection == .connected }
 
-    /// How the status bar marks the connection.
+    /// How the sidebar's foot marks the connection.
     public enum Mark: Sendable, Equatable { case connected, connecting, notConnected }
 
     public var mark: Mark {

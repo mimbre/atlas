@@ -23,12 +23,12 @@ final class TypographyTests: XCTestCase {
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
     /// Prism's smaller end, one set (docs/design/clients.md, Typography): running text
-    /// `bodysmall` (commands in the monospaced face at its size), labels `label`, meta and
+    /// `bodysmall`, commands `monosmall` (16/24, as `bodysmall`), labels `label`, meta and
     /// eyebrows `caption`/`labelsmall`, a count's badge `captionsmall`, titles
     /// `title6`/`title7`. Nothing that acts or is copied (a button, a command) larger than the
     /// text that explains it.
     private static let scale: Set<String> = ["title6", "title7", "label", "labelsmall", "caption", "captionsmall",
-                                             "bodysmall"]
+                                             "bodysmall", "monosmall"]
 
     func testAtlasViewsSetTheirTextInPrismTypographyOnly() throws {
         let found = try Self.lines().filter { _, code in
@@ -48,6 +48,18 @@ final class TypographyTests: XCTestCase {
             }
         }
         XCTAssertEqual(found, [], "use one of \(Self.scale.sorted())")
+    }
+
+    /// One button size: every Prism button (`PrismButtonStyle`, `.prism(…)` as a button
+    /// style, `PrismButtonLooks`) in Prism's `small` size, about 32pt tall, no larger than
+    /// the running text it acts on.
+    func testPrismButtonsAreSmall() throws {
+        let button = try NSRegularExpression(pattern: #"PrismButtonStyle\(|PrismButtonLooks\(|buttonStyle\(\s*\.prism\("#)
+        let found = try Self.lines().filter { _, code in
+            button.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil
+                && !code.contains("size: .small")
+        }.map(\.at)
+        XCTAssertEqual(found, [], "give every Prism button `size: .small`")
     }
 
     /// Every code line (comments cut off) of Atlas's views, with where it is.

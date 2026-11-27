@@ -1,4 +1,4 @@
-/// Where the app's update stands, and what the status bar says about it (`statusText`).
+/// Where the app's update stands, and what the sidebar's foot says about it (`statusText`).
 /// Every text says what is true now and what happens next or what to do (UC-Atlas-47).
 public enum UpdateStatus: Sendable, Equatable {
     /// Not asked yet, or the newest release is this app: nothing to say.
@@ -24,7 +24,7 @@ public enum UpdateStatus: Sendable, Equatable {
     public static let checkMinutes = 10
     public static let newerControlCheckMinutes = 1
 
-    /// The status bar's line; nil when there is nothing to say.
+    /// The sidebar's foot's line; nil when there is nothing to say.
     public func statusText(installed: InstalledApp?) -> (text: String, tone: Tone)? {
         switch self {
         case .quiet, .notRelease:

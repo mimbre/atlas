@@ -3455,8 +3455,9 @@ defmodule AtlasControl.Pages do
 
   # A decision's choice (`todo.choice`): the question, why, then each option to adopt with
   # its rule and what follows from it, one added from whoever declined marked as theirs
-  # (`by`, D-0106). Declining is the page's own Decline (with an alternative); a decline
-  # option the definition holds only explains what declining keeps.
+  # (`by`, D-0106): until its proposer works it out it has neither, and shows none.
+  # Declining is the page's own Decline (with an alternative); a decline option the
+  # definition holds only explains what declining keeps.
   defp choice_blocks(todo, choice, key, others) do
     adopts = Enum.filter(choice["options"], &(&1["effect"] == "adopt"))
     chosen = Enum.filter(todo.answers, &Map.has_key?(&1, :name))
@@ -3468,10 +3469,12 @@ defmodule AtlasControl.Pages do
           recommended: option["id"] == choice["recommended"],
           by: option["by"],
           answer: a,
-          fields: [
-            Blocks.pair(label: "Rule", value: option["rule"]),
-            Blocks.pair(label: "Consequences", value: option["consequences"])
-          ]
+          fields:
+            for(
+              {label, field} <- [{"Rule", "rule"}, {"Consequences", "consequences"}],
+              is_binary(option[field]) and String.trim(option[field]) != "",
+              do: Blocks.pair(label: label, value: option[field])
+            )
         }
       end
 
@@ -3620,7 +3623,7 @@ defmodule AtlasControl.Pages do
 
     taken = option_keys ++ if(decline, do: [decline.answer.key], else: [])
 
-    answer = fn o, label, weight ->
+    answer = fn o, label, weight, icon ->
       action = by_key[o.answer.key]
 
       Blocks.panel_answer(
@@ -3630,7 +3633,8 @@ defmodule AtlasControl.Pages do
         submit_to: action["submit_to"],
         note: if(o.answer.note, do: true),
         weight: weight,
-        detail: if(weight == "decline", do: o.text)
+        detail: if(weight == "decline", do: o.text),
+        icon: icon
       )
     end
 
@@ -3640,10 +3644,21 @@ defmodule AtlasControl.Pages do
       |> Enum.map(fn {o, n} ->
         {badge, tone} =
           cond do
-            alone? -> {nil, nil}
-            o.recommended -> {"★ Recommended", "success"}
-            is_binary(o[:by]) -> {"#{o.by}'s alternative", nil}
-            true -> {nil, nil}
+            alone? ->
+              {nil, nil}
+
+            o.recommended ->
+              {"★ Recommended", "success"}
+
+            # Not yet worked out (no Rule, no Consequences): the note says who does that.
+            is_binary(o[:by]) and o.fields == [] ->
+              {"#{o.by}'s alternative, to be worked out by the proposer", nil}
+
+            is_binary(o[:by]) ->
+              {"#{o.by}'s alternative", nil}
+
+            true ->
+              {nil, nil}
           end
 
         {"option-#{n}",
@@ -3653,19 +3668,24 @@ defmodule AtlasControl.Pages do
            badge: badge,
            tone: tone,
            fields: o.fields,
-           answer: answer.(o, "Choose", if(n == 1, do: "main", else: "other")),
+           answer: answer.(o, "Choose", if(n == 1, do: "main", else: "other"), nil),
            alone: if(alone?, do: true)
          )}
       end)
 
+    # Under several alternatives Decline all is a quiet action with its icon; under one
+    # proposal Decline stands next to Accept, as a decline.
+    decline_all? = not (alone? or adopts == [])
+
     decided =
-      if(alone?, do: [answer.(hd(adopts), "Accept", "main")], else: []) ++
+      if(alone?, do: [answer.(hd(adopts), "Accept", "main", nil)], else: []) ++
         if(decline,
           do: [
             answer.(
               decline,
-              if(alone? or adopts == [], do: "Decline", else: "Decline all"),
-              "decline"
+              if(decline_all?, do: "Decline all", else: "Decline"),
+              "decline",
+              if(decline_all?, do: "decline")
             )
           ],
           else: []

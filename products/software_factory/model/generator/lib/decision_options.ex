@@ -51,7 +51,8 @@ defmodule RelaDSL.DecisionOptions do
     "removed" => "options cannot be removed or answered without their definition",
     "unselected" => "select an offered option to answer",
     "changed" => "the offered options changed; open the record again",
-    "selection" => "selection must apply exactly one offered option with its answer time"
+    "selection" => "selection must apply exactly one offered option with its answer time",
+    "unworded" => "work out each alternative's rule and consequences before offering it again"
   }
 
   defp error(rule, key), do: get_in(rule, ["errors", key]) || @errors[key]
@@ -59,20 +60,32 @@ defmodule RelaDSL.DecisionOptions do
   defp text?(value), do: is_binary(value) and String.trim(value) != ""
 
   # An option: its id, text, details, effect and payload; one added from whoever declined
-  # says whose it is (`by`).
+  # says whose it is (`by`), and has no rule or consequences until its proposer works it
+  # out (`unworded?/1`).
   defp option?(%{} = option) do
     Enum.sort(Map.keys(Map.delete(option, "by"))) == ~w(consequences details effect id rule text) and
       (not Map.has_key?(option, "by") or text?(option["by"])) and
       is_binary(option["id"]) and Regex.match?(~r/^[a-z][a-z0-9_-]{0,63}$/, option["id"]) and
       Enum.all?(~w(text details), &text?(option[&1])) and
       case option["effect"] do
-        "adopt" -> text?(option["rule"]) and text?(option["consequences"])
-        "decline" -> option["rule"] == "" and option["consequences"] == ""
-        _ -> false
+        "adopt" ->
+          (text?(option["rule"]) and text?(option["consequences"])) or
+            (Map.has_key?(option, "by") and unworded?(option))
+
+        "decline" ->
+          option["rule"] == "" and option["consequences"] == ""
+
+        _ ->
+          false
       end
   end
 
   defp option?(_), do: false
+
+  # An alternative to adopt that its proposer has not worked out yet: no rule, no
+  # consequences. It is never offered so.
+  defp unworded?(option),
+    do: option["effect"] == "adopt" and option["rule"] == "" and option["consequences"] == ""
 
   # The record fields an adopted option sets from its payload.
   defp adopted(rule), do: Map.values(rule["adopt"] || %{})
@@ -135,9 +148,10 @@ defmodule RelaDSL.DecisionOptions do
   # A decline sends the open offer back to its proposer with the alternative of whoever
   # declined (D-0106): the change that sets the revise status with a text in the
   # alternative field adds that text to the definition as a new adopt option, theirs
-  # (`by`), its rule and consequences the alternative until the proposer words them. The
-  # recommendation stays; the proposer sets it. A record without a definition keeps the
-  # alternative in its field only.
+  # (`by`): its title only, with a note whose it is, its rule and consequences empty until
+  # the proposer works them out (it is not offered again before). The recommendation
+  # stays; the proposer sets it. A record without a definition keeps the alternative in
+  # its field only.
   defp with_alternative(rule, change, current) do
     values = change["values"] || %{}
     field = get_in(rule, ["alternative", "field"])
@@ -156,10 +170,11 @@ defmodule RelaDSL.DecisionOptions do
         %{
           "id" => alternative_id(definition["options"]),
           "text" => alternative,
-          "details" => if(by, do: "#{by}'s alternative", else: "The decider's alternative"),
+          "details" =>
+            "#{if(by, do: "#{by}'s", else: "The decider's")} alternative, to be worked out by the proposer",
           "effect" => "adopt",
-          "rule" => alternative,
-          "consequences" => alternative
+          "rule" => "",
+          "consequences" => ""
         }
         |> then(&if(by, do: Map.put(&1, "by", by), else: &1))
 
@@ -303,6 +318,10 @@ defmodule RelaDSL.DecisionOptions do
       true ->
         with {:ok, definition} <- decode(rule, text) do
           cond do
+            after_values[field] == status(rule, "open") and
+                Enum.any?(definition["options"], &unworded?/1) ->
+              [error(rule, "unworded")]
+
             selected in [nil, ""] ->
               if snapshot not in [nil, ""] or after_values[rule["revision"]] not in [nil, ""] or
                    after_values[field] not in unanswered(rule),

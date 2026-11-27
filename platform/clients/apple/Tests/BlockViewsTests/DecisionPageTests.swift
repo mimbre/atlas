@@ -125,6 +125,46 @@ final class DecisionPageTests: XCTestCase {
         XCTAssertEqual(stuck.map { $0.fields?.map(\.value) }, [["Inspects it again."]])
     }
 
+    /// An alternative its decider gave (D-0106) has only its title and whose it is until its
+    /// proposer works it out: its card shows no empty Rule or Consequences.
+    func testAnAlternativeNotWorkedOutYetShowsNoEmptyFields() throws {
+        let blocks = Self.decision.map { block -> [String: Any] in
+            guard block["id"] as? String == "option-2" else { return block }
+            return Self.option(2, "Use the database we have", badge: "melle's alternative",
+                               fields: [("Rule", ""), ("Consequences", " ")],
+                               answer: ["label": "Choose", "key": "2", "to": "/k/decision/D-7/answer/2",
+                                        "submit_to": Self.call("alternative"), "weight": "other"])
+        }
+        let options = Self.options(try Self.page("/k/decision/D-7", blocks))
+        XCTAssertEqual(options.map { Option.fields($0).map(\.label) }, [["Rule", "Consequences"], []])
+    }
+
+    /// The opened item's other actions (its `actions` blocks) are the toolbar's, its context
+    /// menu's and the Actions menu's, not the page's own: Failures… (icon `faults`) among
+    /// them, never a primary button under the title; Delete last, apart; each its label and
+    /// key as its tooltip.
+    func testTheItemsActionsAreTheToolbarsWithDeleteLastAndFailuresAmongThem() throws {
+        let blocks = Self.decision.map { block -> [String: Any] in
+            guard block["id"] as? String == "actions" else { return block }
+            return ["id": "actions", "type": "actions", "props": ["actions": [
+                ["label": "Update decision", "key": "u", "to": "/k/decision/D-7/edit", "icon": "edit", "button": "Update"],
+                ["label": "Delete decision", "key": "d", "to": "/k/decision/D-7/delete", "icon": "delete", "button": "Delete"],
+                ["label": "Hand to…", "key": "h", "to": "/k/decision/D-7/links/owner", "icon": "hand_over", "button": "Hand to"],
+                ["label": "Failures…", "key": "!", "to": "/k/decision/D-7/faults", "icon": "faults", "button": "Failures"],
+            ]]]
+        }
+        let page = try Self.page("/k/decision/D-7", blocks)
+
+        XCTAssertTrue(PageActions.ofPage(page).isEmpty, "none is the page's own, shown under its title")
+        let (rest, delete) = PageActions.split(PageActions.others(page))
+        XCTAssertEqual(rest.map(\.key), ["u", "h", "!"])
+        XCTAssertEqual(delete?.key, "d")
+        XCTAssertEqual(rest.map { ActionIcon.symbol($0.icon) },
+                       ["pencil", "person.and.arrow.left.and.arrow.right", "exclamationmark.triangle"])
+        XCTAssertEqual(rest.map(PageActions.tooltip), ["Update (u)", "Hand to (h)", "Failures (!)"])
+        XCTAssertTrue(PageActions.others(nil).isEmpty, "nothing open, no toolbar actions")
+    }
+
     func testEachOptionsButtonSendsExactlyThatOptionsAnswerAsItsKeyDoes() throws {
         let page = try Self.page("/k/decision/D-7", Self.decision)
 

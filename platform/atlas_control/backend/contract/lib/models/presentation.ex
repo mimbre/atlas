@@ -75,7 +75,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # it, never by `note`. `button`: what a client that shows it as a button says on it,
   # when that is not its `label` (no `…`); a note it asks opens on the click, the button
   # does not say so. `detail`: a short explanation shown with it (Decline: what declining
-  # keeps). `icon` (since 0.39.0): what it does, by name (question, hand_over, delegate),
+  # keeps). `icon` (since 0.39.0): what it does, by name (question, hand_over, delegate, decline),
   # which a client may show as an icon; one it does not know it shows without.
   defmodel :panel_answer do
     field :label, :string, required: true

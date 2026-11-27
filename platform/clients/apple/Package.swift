@@ -22,7 +22,7 @@ let kit: Target.Dependency = .product(name: "AtlasControlKit", package: identity
 // Prism, Eyra's design system: its tokens and components (Tag, Button, StepIndicator,
 // MessageBar, Spinner), exactly at this release. What Atlas still adds (dark appearance,
 // which Prism has no tokens for yet) is in Sources/BlockViews/PrismDarkGap.swift.
-let prism: Package.Dependency = .package(url: "https://github.com/novasoftwarefoundation/prism-swift.git", exact: "0.7.0")
+let prism: Package.Dependency = .package(url: "https://github.com/novasoftwarefoundation/prism-swift.git", exact: "0.8.0")
 
 let package = Package(
     name: "AtlasApple",

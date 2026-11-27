@@ -326,9 +326,37 @@ defmodule AtlasControl.SessionTest do
     home = next(a, "page")
     next(b, "page")
 
-    # `! Failures…` on a browsing page, after its own actions.
-    actions = home["blocks"] |> hd() |> get_in(["props", "actions"])
-    assert %{"key" => "!", "label" => "Failures…", "to" => "/faults"} = List.last(actions)
+    # `! Failures…` on a browsing page: none of its own actions (those stand out), but what
+    # else can be done there, an icon (`faults`); in an `actions` block of its own when the
+    # page has none, last in the one it has.
+    failures = %{
+      "key" => "!",
+      "label" => "Failures…",
+      "to" => "/faults",
+      "icon" => "faults",
+      "button" => "Failures"
+    }
+
+    assert ["c"] = for(a <- get_in(hd(home["blocks"]), ["props", "actions"]), do: a["key"])
+
+    assert %{
+             "id" => "actions:faults",
+             "type" => "actions",
+             "props" => %{"actions" => [^failures]}
+           } =
+             List.last(home["blocks"])
+
+    page = %{
+      blocks: [
+        %{"type" => "item", "props" => %{}},
+        %{"type" => "actions", "props" => %{"actions" => [%{"key" => "u"}]}}
+      ]
+    }
+
+    to = "/k/widget/W-1/faults"
+
+    assert %{blocks: [_item, %{"props" => %{"actions" => [%{"key" => "u"}, %{"to" => ^to}]}}]} =
+             AtlasControl.Faults.with_action(page, {:item, "widget", "W-1"})
 
     # The node's: Control's own (no Runtime or Flow runs here to offer more).
     put(a, %{"op" => "open", "to" => "/faults"})

@@ -14,7 +14,7 @@ Platform specifics stay in [apple-clients.md](apple-clients.md) (the Mac and iOS
 What a client knows without Control is **shell**: the connection (connecting, connected,
 retrying every 2 s), its own contract version and Control's, the tunnel `bin/atlas` opens,
 and self-update (the TUI started by `atlas` takes the newest build; the Mac app reads its
-release feed). The shell is shown in the **status line** (the Mac's status bar, the TUI's
+release feed). The shell is shown in the **status line** (the Mac's sidebar foot, the TUI's
 status line), never in the content area.
 
 Everything else is **content**: tabs, counts, pages, blocks, actions, their labels and keys
@@ -89,12 +89,12 @@ Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 |---|---|---|
 | Title / eyebrow (`header`) | On the page, no card: eyebrow and key in small caps in the accent's text colour (`TO DO FOR YOU · TD-12`), the title as the page title; the page's own actions beside it | Eyebrow with the key (`◆ YOUR DECISION · D-0104`) bold in the eyebrow colour, title under it |
 | Why / text (`text`) | On the page, muted: `Why: … · 3h ago`, its age kept current | Dim paragraph after its label, with its age |
-| Option (`option`) | A calm card: number as Prism's `StepIndicator`, text, badge in its tone (★ Recommended success; `melle's alternative` neutral), Rule/Then rows, its own Choose as a Prism button (recommended `primary`, others `secondary`); none when `alone` (Accept answers it) | A filled card (selected one on the selected surface, marked ▸): number, text, badge, fields, then its answer on its key |
+| Option (`option`) | A calm card: number as Prism's `StepIndicator`, text, badge in its tone (★ Recommended success; `melle's alternative` neutral), Rule/Then rows (a field without a text shows no section: an alternative not worked out yet has only its title), its own Choose as a Prism button (recommended `primary`, others `secondary`); none when `alone` (Accept answers it) | A filled card (selected one on the selected surface, marked ▸): number, text, badge, fields, then its answer on its key |
 | Step (`instruction`) | A calm card per step, number in a badge, lines in order | A filled card per step, numbers aligned, lines in order; text bold |
-| Command (in a step) | A light inset with a copy icon after it | Plain behind a bar; the selected one highlighted (`c` copies, `y`) |
+| Command (in a step) | A light inset with a copy icon right after the command, in the primary colour at the action icons' 16pt; after a copy a brief ✓, also primary | Plain behind a bar; the selected one highlighted (`c` copies, `y`) |
 | Route (in a step) | Muted ⌘, parts as small labels with › between | Muted ⌘, parts bold in the route colour |
 | Answers (`answers`) | A Prism button per answer in Control's order by its weight: `main` `primary`, `decline` `secondary`, others `plain`, with the SF Symbol of its `icon` (question `questionmark.bubble`, hand_over `person.and.arrow.left.and.arrow.right`, delegate `arrow.uturn.backward`) in the primary colour; labels say nothing of what follows (no `…`, no `· note`); a `detail` small under the buttons | The key line: each answer on its key, the main one and the decline in the primary colour, a note answer `· note`; a `detail` dim under it |
-| Other actions (`actions`) | One row of `plain` buttons, unpadded, quieter than the answers; a dangerous one opens Control's confirm | In the answers' key line, muted, after the answers (else a key line of its own) |
+| Other actions (`actions`) | The opened item's in the window's toolbar at the right, never on the page: each its SF Symbol (edit `pencil`, hand_over `person.and.arrow.left.and.arrow.right`, faults `exclamationmark.triangle`, …) in the primary colour with its short label (Icon and Text shows both) and its label and key as tooltip, in Control's order, Delete last in red; the same in the page's context menu and the Actions menu; none when nothing is open. Elsewhere (a sheet) one row of quiet icon buttons. A dangerous one opens Control's confirm | In the answers' key line, muted, after the answers (else a key line of its own) |
 | What went wrong (`text` role `error`) | Prism's `MessageBar` in danger: label as heading, text under it | A card, label as a heading in the error colour over its text |
 | Details (part `details`/`related`) | Own column, or a recessed card (grey5) under the page | Own column, or a compact card under its heading at the page's end |
 | Row card (list row) | A small card: the kind's icon (grey; primary on the selected card while the list has the focus), kind and key in small caps (`DECISION · D-0104`) and age, the title on at most a few lines, the state under it on a line of its own; no status dot | One line: dot, kind glyph, key, age, title (state dropped below 80) |
@@ -128,11 +128,12 @@ blue planned or waiting, green done (the TUI's dot). An unknown tone is no dot.
 | Running text (why, a step's text, an option's Rule and Consequences, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
 | Labels (a section's or the details' title, a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
 | Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name | `labelsmall` (14) |
-| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's headings and foot, with the environment there (production as Prism's danger tag); the status bar) | `caption` (14) |
+| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's foot, with the environment there (production as Prism's danger tag), with the connection in plain words and the last notice) | `caption` (14) |
+| The sidebar's section headings (WORK, BROWSE: eyebrows as a card's top line, uppercase, spaced, muted, more space above) | `labelsmall` |
 | A count's badge in the sidebar | `captionsmall` (12), strong |
 | Native buttons (a sheet's Cancel, Save, Confirm, Run; the page's and the toolbar's actions) | the system's control font: see the gaps |
-| Prism's buttons (answers, options' answers, other actions) | Prism's own `button` (18): see the gaps |
-| Commands (in a step; the launch hints) | the system's monospaced face at `bodysmall`'s size (16/24), never larger than the step's text |
+| Prism's buttons (answers, options' Choose, Accept/Decline, other actions, the icon buttons beside a title, a sheet's Prism buttons) | Prism's `small` size (`buttonsmall`, 16; about 32pt tall), one size everywhere (`TypographyTests` keeps it so) |
+| Commands (in a step; the launch hints) | `monosmall` (16/24, SF Mono), never larger than the step's text |
 
 Prism gaps, and where Atlas's temporary shims live:
 
@@ -143,9 +144,8 @@ Prism gaps, and where Atlas's temporary shims live:
 | Success and warning too faint as text on white | TUI: dark text on warninglight in light; Mac: the badge as Prism's `Tag` in its tone |
 | White on primary is 4.30:1 | `primaryshade` (primary at 97%, 4.51:1) in `palette.ex`; `PrismDarkGap.accentText` on the Mac |
 | Plain button's size and dark label | Mac: other actions as unpadded plain buttons, label in `PrismDarkGap.text` in dark (`PrismDarkGap.buttonStyle`) |
-| `mono` names the system (proportional) font | Mac: commands (and a panel row's key, a fallback's type) in the system's monospaced face (`.monospaced()`) |
-| No `monosmall`: `mono` is 20/24, larger than the running text (`bodysmall`, 16/24) beside it | Mac: commands at `bodysmall` in the monospaced face |
-| `PrismButtonStyle` sets `button` (18) and takes no typography: no `buttonsmall` button | Mac: Prism's buttons as they are (18), a little larger than the text that explains them |
+| `mono` named the system (proportional) font before 0.8.0 | Mac: a panel row's key and a fallback's type in the system's monospaced face (`.monospaced()`) |
+| `Tag` has one size (28pt), too tall for a line of meta text | Mac: the sidebar foot's environment tag as `PrismDarkGap.smallTag` (Prism's tag look at `labelsmall` with less padding) |
 | No macOS density: Prism's sizes are iOS's and the web's | Mac: Prism's smaller end, until Prism's macOS density |
 | No typography for native controls | Mac: a form's labels and text fields in `bodysmall` (SwiftUI takes the font there); the system's own font where it does not: native push buttons (a sheet's Cancel, Save, Confirm, Run; the page's and the toolbar's actions), a picker's value and pop-up menu, the window title and subtitle, the menu bar and the Actions menu |
 
@@ -159,13 +159,14 @@ nothing about an action, only how it is triggered.
 | Weight | What it is | Mac | TUI |
 |---|---|---|---|
 | Main answer | the first of `answers` (or an option's Choose): the next step | `primary` button (success) | key in green |
-| Decline | weight `decline` (`no`, deprecated): Won't do, Decline, Decline all | `secondary` button; one with `note` opens the note form on click, its label unchanged | key in the primary colour, `· note` when it asks one |
+| Decline | weight `decline` (`no`, deprecated): Won't do, Decline, Decline all | `secondary` button; Decline all under several alternatives (icon `decline`) a quiet `plain` button with a blue `xmark.circle`; one with `note` opens the note form on click, its label unchanged | key in the primary colour, `· note` when it asks one |
 | Other answer | weight `other`: Ask a question, Hand over, Leave it to the proposer (a decision, D-0106) | `plain` button, its `icon` in the primary colour as an other action's | in the key line, in order |
-| Other action | the `actions` block: change, hand over, delete, create under | `plain` button, quieter, its icon in the primary colour (dark: PrismDarkGap's readable primary) | muted in the key line |
+| Other action | the `actions` block: change, hand over, delete, create under, Failures… (test only) | the opened item's in the window's toolbar, never a button on the page; its icon in the primary colour (dark: PrismDarkGap's readable primary), Delete red | muted in the key line |
 
-- **Mac**: buttons on the page, and the menu bar's **Actions** menu lists the shown page's
-  actions with their keys. Keys are invisible on the page (a button's tooltip names its
-  key) but work whichever column has the focus. A pending action shows a spinner on its
-  button.
+- **Mac**: answers as buttons on the page; the opened item's other actions in the window's
+  toolbar at the right (and its context menu); the menu bar's **Actions** menu lists the
+  shown page's actions with their keys. Keys are invisible on the page (a button's tooltip
+  names its key) but work whichever column has the focus. A pending action shows a spinner
+  on its button.
 - **TUI**: the **key line** under the page names each action on its key, in Control's
   order, with the keys of the column that has the focus.

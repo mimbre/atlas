@@ -231,18 +231,19 @@ defmodule Model.DecisionOptionsTest do
     {:ok, before} = Options.decode(@rule, @text)
     {:ok, after_decline} = Options.decode(@rule, own["values"]["options"])
 
-    # The offer as it was, then theirs: to adopt, its rule and what follows the
-    # alternative until the proposer words them. The recommendation stays the proposer's.
+    # The offer as it was, then theirs: to adopt, its title only with a note whose it is,
+    # its rule and consequences empty until the proposer works them out. The
+    # recommendation stays the proposer's.
     assert Enum.drop(after_decline["options"], -1) == before["options"]
     assert after_decline["recommended"] == before["recommended"]
 
     assert List.last(after_decline["options"]) == %{
              "id" => "alternative",
              "text" => "Use the database we have",
-             "details" => "melle's alternative",
+             "details" => "melle's alternative, to be worked out by the proposer",
              "effect" => "adopt",
-             "rule" => "Use the database we have",
-             "consequences" => "Use the database we have",
+             "rule" => "",
+             "consequences" => "",
              "by" => "melle"
            }
 
@@ -258,14 +259,28 @@ defmodule Model.DecisionOptionsTest do
     refute Options.open?(@rule, revised)
     assert revised["values"]["selected_option"] == nil
 
-    # Its proposer words it and sets the recommendation, while it is theirs.
+    # Not worked out, it is not proposed again.
+    assert [why] = Options.check(@rule, "change", revised, %{"status" => "proposed"}, %{})
+    assert why =~ "rule and consequences"
+
+    # Its proposer works it out and sets the recommendation, while it is theirs.
     reworded =
       after_decline
       |> Map.put("options", Enum.reverse(after_decline["options"]))
       |> Map.put("recommended", "alternative")
       |> put_in(["options", Access.at(0), "rule"], "Store it in the database we have")
+      |> put_in(["options", Access.at(0), "consequences"], "No second store to run")
 
     assert :ok == check(revised, %{"options" => JSON.encode!(reworded)}, "coordinator", "agent")
+
+    assert [] ==
+             Options.check(
+               @rule,
+               "change",
+               revised,
+               %{"options" => JSON.encode!(reworded), "status" => "proposed"},
+               %{}
+             )
 
     # A second decline adds a second alternative beside the first.
     again =
@@ -545,7 +560,13 @@ defmodule Model.DecisionOptionsTest do
     decline = Enum.find(definition["options"], &(&1["effect"] == "decline"))
 
     assert [
-             %{"label" => "Decline all", "key" => "f", "note" => true, "weight" => "decline"} =
+             %{
+               "label" => "Decline all",
+               "key" => "f",
+               "note" => true,
+               "weight" => "decline",
+               "icon" => "decline"
+             } =
                decline_answer
              | own
            ] = answers_of(blocks)
@@ -600,6 +621,9 @@ defmodule Model.DecisionOptionsTest do
                | own
              ] = answers_of(blocks)
 
+      # One proposal: Decline stands as a decline next to Accept, without an icon.
+      refute Map.has_key?(decline_answer, "icon")
+
       assert_own_answers(own)
 
       # Accept sends the proposal's own answer; Decline opens its form.
@@ -618,33 +642,43 @@ defmodule Model.DecisionOptionsTest do
 
     assert [_, _] = Enum.filter(blocks, &(&1["type"] == "option"))
 
-    assert [%{"label" => "Decline all", "weight" => "decline"} = decline | own] =
+    assert [
+             %{"label" => "Decline all", "weight" => "decline", "icon" => "decline"} = decline
+             | own
+           ] =
              answers_of(blocks)
 
     refute Map.has_key?(decline, "detail")
     assert_own_answers(own)
   end
 
-  test "an option added from a decline is marked as whoever gave it" do
+  test "an option added from a decline is marked as whoever gave it; not worked out, it shows no rule" do
     definition = JSON.decode!(@text)
 
     theirs = %{
       "id" => "alternative",
       "text" => "Use the database we have",
-      "details" => "melle's alternative",
+      "details" => "melle's alternative, to be worked out by the proposer",
       "effect" => "adopt",
       "rule" => "Use the database we have",
-      "consequences" => "Use the database we have",
+      "consequences" => "No second store to run",
       "by" => "melle"
     }
 
-    {blocks, _resolve, _note} =
-      served(JSON.encode!(Map.update!(definition, "options", &(&1 ++ [theirs]))))
+    for {option, labels, badge} <- [
+          {theirs, ["Rule", "Consequences"], "melle's alternative"},
+          {%{theirs | "rule" => "", "consequences" => ""}, [],
+           "melle's alternative, to be worked out by the proposer"}
+        ] do
+      {blocks, _resolve, _note} =
+        served(JSON.encode!(Map.update!(definition, "options", &(&1 ++ [option]))))
 
-    assert [_files, _memory, %{"props" => card}] =
-             Enum.filter(blocks, &(&1["type"] == "option"))
+      assert [_files, _memory, %{"props" => card}] =
+               Enum.filter(blocks, &(&1["type"] == "option"))
 
-    assert %{"text" => "Use the database we have", "badge" => "melle's alternative"} = card
+      assert %{"text" => "Use the database we have", "badge" => ^badge} = card
+      assert for(f <- card["fields"], do: f["label"]) == labels
+    end
   end
 
   test "owner projection separates semantic answer identity from numeric shortcuts" do

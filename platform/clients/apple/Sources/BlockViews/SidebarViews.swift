@@ -110,9 +110,40 @@ public enum SidebarLook {
         case .notConnected: "Not connected"
         }
     }
+
+    /// What the foot's state shows on click or hover, one per line: the connection in plain
+    /// words (why, what happens next), `extra` (the last notice, the app's update, a boot
+    /// failure), then the technical details: the page's position, its last change and hint,
+    /// the refresh interval, a contract difference and an `open` that failed.
+    public static func details(_ status: StatusViewModel, extra: [String] = []) -> String {
+        let words = status.text()
+        var lines = [words.prefix(1).uppercased() + words.dropFirst()] + extra
+        if let position = status.position { lines.append("position \(position)") }
+        if let update = status.lastUpdate { lines.append("\(update.reason.rawValue) \(update.at ?? "")") }
+        if let hint = status.lastHint {
+            lines.append("last hint \(hint.at ?? "")\(hint.position.map { " @\($0)" } ?? "")")
+        }
+        lines.append("refresh every \(status.reconcileSeconds.formatted()) s")
+        if let warning = status.versionWarning { lines.append(warning) }
+        if let failure = status.openFailure { lines.append("\(failure.path) could not be read (\(failure.reason))") }
+        return lines.joined(separator: "\n")
+    }
 }
 
-/// The sidebar: the "Work" and "Browse" sections with their small, muted headings, and,
+/// What the sidebar's foot says of the connection: its mark (the short state on the foot)
+/// and its details (in the state's popover).
+public struct SidebarConnection: Equatable {
+    public var mark: StatusViewModel.Mark
+    public var details: String
+
+    public init(mark: StatusViewModel.Mark, details: String) {
+        self.mark = mark
+        self.details = details
+    }
+}
+
+/// The sidebar: the "Work" and "Browse" sections under eyebrow headings (WORK, BROWSE, as
+/// a card's top line: uppercase, spaced, `labelsmall`, muted), and,
 /// separated at the bottom, the person's name, the environment and the connection. Up and
 /// down move the selection through the rows; a tab's chevron folds its groups.
 public struct SidebarView: View {
@@ -123,7 +154,7 @@ public struct SidebarView: View {
     let name: String?
     let env: String
     let production: Bool
-    let connection: StatusViewModel.Mark
+    let connection: SidebarConnection
     let select: (SidebarItem.ID) -> Void
     let fold: (String, Bool) -> Void
 
@@ -131,7 +162,7 @@ public struct SidebarView: View {
     @FocusState private var focused: Bool
 
     public init(work: [SidebarItem], browse: [SidebarItem], selection: SidebarItem.ID?, stale: Bool, name: String?,
-                env: String, production: Bool, connection: StatusViewModel.Mark,
+                env: String, production: Bool, connection: SidebarConnection,
                 select: @escaping (SidebarItem.ID) -> Void, fold: @escaping (String, Bool) -> Void) {
         self.work = work
         self.browse = browse
@@ -173,11 +204,11 @@ public struct SidebarView: View {
     @ViewBuilder
     private func section(_ title: String, _ items: [SidebarItem]) -> some View {
         if !items.isEmpty {
-            Text(title)
-                .prism(Prism.Typography.caption)
+            Text(title.uppercased()).tracking(0.6)
+                .prism(Prism.Typography.labelsmall)
                 .foregroundStyle(PrismDarkGap.muted(scheme))
                 .padding(.horizontal, 10)
-                .padding(.top, 12)
+                .padding(.top, 18)
                 .padding(.bottom, 4)
             ForEach(items) { item in
                 SidebarRow(item: item, selected: item.id == selection, stale: stale,
@@ -296,13 +327,16 @@ struct SidebarBadge: View {
     }
 }
 
-/// The sidebar's foot, below a line: the person's name, the environment and the
-/// connection.
+/// The sidebar's foot, below a line, the shell's one place for its state, never wrapping:
+/// the person's name; then on one line the environment (production as a small danger tag),
+/// the connection's dot (not connected: a red warning sign) and its short state. The plain words (why, what happens next) and
+/// the technical details are in a popover on the state (click; hover shows them too).
 struct SidebarFoot: View {
     let name: String?
     let env: String
     let production: Bool
-    let connection: StatusViewModel.Mark
+    let connection: SidebarConnection
+    @State private var showsDetails = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -314,19 +348,42 @@ struct SidebarFoot: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            HStack(spacing: 6) {
-                // Production stands out as Prism's danger tag; another environment plain.
+            HStack(alignment: .center, spacing: 6) {
                 if production {
-                    PrismTag(tone: .danger) { Text(env).prism(Prism.Typography.caption.emphasis(.strong)) }.fixedSize()
+                    PrismDarkGap.smallTag(env, tone: .danger)
                 } else {
                     Text(env)
                 }
                 Text("·")
-                Circle().fill(dot).frame(width: 7, height: 7)
-                Text(SidebarLook.connection(connection))
+                Button { showsDetails.toggle() } label: {
+                    HStack(spacing: 5) {
+                        // Not connected: a clearly visible warning, as Mail's; else a quiet dot.
+                        if connection.mark == .notConnected {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(Prism.Colors.error)
+                        } else {
+                            Circle().fill(dot).frame(width: 7, height: 7)
+                        }
+                        Text(SidebarLook.connection(connection.mark))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(connection.details)
+                .popover(isPresented: $showsDetails, arrowEdge: .top) {
+                    Text(connection.details)
+                        .prism(Prism.Typography.caption)
+                        .foregroundStyle(PrismDarkGap.text(scheme))
+                        .textSelection(.enabled)
+                        .lineLimit(nil)
+                        .frame(width: 280, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(Prism.Spacing.px10)
+                }
             }
             .prism(Prism.Typography.caption)
             .foregroundStyle(PrismDarkGap.muted(scheme))
+            .fixedSize()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
@@ -336,7 +393,7 @@ struct SidebarFoot: View {
     }
 
     private var dot: Color {
-        switch connection {
+        switch connection.mark {
         case .connected: Prism.Colors.success
         case .connecting: Prism.Colors.warning
         case .notConnected: Prism.Colors.error
