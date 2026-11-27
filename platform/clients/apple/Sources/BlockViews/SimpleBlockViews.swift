@@ -393,7 +393,7 @@ public struct ItemToolbar: ToolbarContent {
     }
 
     public var body: some ToolbarContent {
-        ToolbarItemGroup(placement: .automatic) {
+        ToolbarItemGroup(placement: .navigation) {
             ForEach(Array(actions.enumerated()), id: \.offset) { _, action in button(action) }
         }
     }
