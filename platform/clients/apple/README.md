@@ -95,6 +95,35 @@ and handling any running instance remain coordinator actions. The existing local
 7593 tunnel must already be available; this helper does not manage it. This is a local
 development package, with no distribution identity or release claim.
 
+### Updating the laptop's local bundle
+
+`tools/update_local_app.py` is the replacement for the existing
+`~/.local/bin/atlas-console-update` invoked by `local.atlas.console-update` every ten
+minutes. It does not install or start a service. After this change is reviewed and
+integrated, the coordinator must replace that executable **atomically**, when the old
+updater is not executing, without changing the existing launch agent. Until then the
+old updater remains active and can forcibly quit Console; this source change alone
+does not make the installed service safe.
+
+The updater requires the existing signed local bundle and its recorded commit and
+endpoint, fetches master into a disposable clone, refuses non-descendant revisions,
+and requires the exact revision's successful CI production-deployment gate. That gate
+is a release signal, not proof of an independent review. It generates the model, runs
+Swift tests, builds the release binary, signs and verifies a staged copy, and checks
+master and the installed bundle again before an atomic exchange. It preserves the
+bundle identifier, launcher, endpoint and other contents. The previous bundle remains
+in a uniquely named hidden folder in Applications as `previous-bundle` (without an
+`.app` extension); it is not automatically deleted. No credentials are bundled.
+
+It never quits or reopens Console: while it is running, the updater defers until the
+user quits normally, so an open form or confirmation is not interrupted. A concurrent
+launch at the exchange can continue using the retained old bundle. Failures exit
+nonzero and are logged by the existing launch agent to
+`~/Library/Logs/atlas-console-update.log`; GitHub API/network, Xcode, Swift, model
+generation and a successful CI gate are required. It neither starts nor changes the
+prod tunnel. Isolated fake-build, real-signature and atomic-exchange smoke:
+`python3 -B tools/test_update_local_app.py`.
+
 Private helper/launcher regression (no Swift app, GUI or Control connection):
 
 ```sh
