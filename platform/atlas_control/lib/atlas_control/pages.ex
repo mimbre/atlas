@@ -2442,7 +2442,10 @@ defmodule AtlasControl.Pages do
               [{"header", header}] ++
                 if(text == "",
                   do: [],
-                  else: [{"intro", Blocks.text(text: text, format: Map.get(field(k, intro) || %{}, :format))}]
+                  else: [
+                    {"intro",
+                     Blocks.text(text: text, format: Map.get(field(k, intro) || %{}, :format))}
+                  ]
                 ) ++
                 for(
                   name <- List.wrap(spec["sections"]),
@@ -2450,8 +2453,13 @@ defmodule AtlasControl.Pages do
                   f != nil,
                   value = fact["values"][name],
                   value not in [nil, ""],
-                  do: {"section-" <> name,
-                       Blocks.text(label: f.label, text: to_text(value), format: Map.get(f, :format))}
+                  do:
+                    {"section-" <> name,
+                     Blocks.text(
+                       label: f.label,
+                       text: to_text(value),
+                       format: Map.get(f, :format)
+                     )}
                 ) ++
                 todo_blocks ++
                 for({id, {_title, list}} <- primary, do: {id, list}) ++
