@@ -210,7 +210,7 @@ defmodule AtlasAgent.CLITest do
         "id" => "page-detail-0",
         "type" => "item",
         "props" => %{
-          "title" => "People",
+          "title" => "Ownership",
           "fields" => [
             %{"label" => "Produced by", "value" => "ada", "origin" => %{"cause" => "Created"}}
           ]
