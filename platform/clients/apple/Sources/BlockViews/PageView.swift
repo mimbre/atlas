@@ -301,7 +301,6 @@ public struct PageView: View {
             Text(section.title).prism(Prism.Typography.title6)
                 .accessibilityAddTraits(.isHeader)
                 .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
-            Divider()
             blocks(section, inDetails: inDetails, detailHeading: detailHeading)
         }
     }

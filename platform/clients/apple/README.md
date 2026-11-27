@@ -35,7 +35,7 @@ Item pages show a header's optional state and current age beneath its title and 
 optional progress aside alongside its heading.
 Overview lists keep their own ground; list rows on opened pages, including under section
 headings, sit on the page background as individually shadowed cards with room for their
-shadows.
+shadows. Section headings have no divider line.
 
 ## Build, test, run
 
