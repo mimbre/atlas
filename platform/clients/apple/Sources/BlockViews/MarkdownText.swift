@@ -1,4 +1,5 @@
 import Foundation
+import Prism
 import SwiftUI
 
 /// Foundation parses Markdown into attributed text; no HTML view or code execution is involved.
@@ -85,11 +86,11 @@ struct MarkdownText: View {
             ForEach(Array(document.parts.enumerated()), id: \.offset) { _, part in
                 if let level = part.headingLevel {
                     Text("\(Text(part.prefix))\(Text(part.text))")
-                        .font(.system(size: headingSize(level), weight: .semibold))
+                        .prism(Self.headingTypography(level))
                         .accessibilityAddTraits(.isHeader)
                 } else {
                     Text("\(Text(part.prefix))\(Text(part.text))")
-                        .font(part.isCode ? .system(.body, design: .monospaced) : nil)
+                        .prism(part.isCode ? Prism.Typography.monosmall : Prism.Typography.bodysmall)
                 }
             }
         }
@@ -100,15 +101,13 @@ struct MarkdownText: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // Every Markdown heading is smaller than the page title; preserve all six levels.
-    private func headingSize(_ level: Int) -> CGFloat {
+    // The page title is title3; Prism has four smaller title levels.
+    nonisolated static func headingTypography(_ level: Int) -> PrismTypography {
         switch level {
-        case 1: 18
-        case 2: 17
-        case 3: 16
-        case 4: 15
-        case 5: 14
-        default: 13
+        case 1: Prism.Typography.title4
+        case 2: Prism.Typography.title5
+        case 3: Prism.Typography.title6
+        default: Prism.Typography.title7
         }
     }
 }
