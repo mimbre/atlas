@@ -166,7 +166,7 @@ The release job `deploy-mac-app` builds against the published package, after
   decode answers what the session waits for as a failure, as the TUI (which goes by `op`
   alone) does: a welcome ends the session, a boot reply fails the boot (the shell stays,
   stale, and the connection too), and a page answering the `open` ends it with
-  `openFailure` for the status bar (or asks for the newer wish).
+  `openFailure` for the foot's popover (or asks for the newer wish).
   Later slices add `history` for Back (each entry keeps its selection and scroll), the
   page cache (newest per path by `position`, at most a fixed number of paths), selection
   kept by row `key` (else `to`) and pending marks (S2). On iOS the session also closes
@@ -224,7 +224,7 @@ A standard Mac window with three columns (`NavigationSplitView`), like Mail or N
 | Middle | The tab's index page. |
 | Right | The page opened from a row. |
 
-Above the columns is the title bar; below them is the status bar.
+Above the columns is the title bar; there is no status bar: the shell's state is in the sidebar's foot, and the page has the window's full height (its scroll content ends with room for its last blocks).
 
 | Part | Source in the BFF | macOS |
 |---|---|---|
@@ -234,7 +234,7 @@ Above the columns is the title bar; below them is the status bar.
 | Opened page | `open` on a row | Right column. Back and Forward (`⌘[` / `⌘]`, Esc) use the app's own history, as in the TUI. |
 | Actions and forms | `action`/`form` blocks, `submit` | Buttons under the page. A form opens as a sheet over the right column; a confirm opens as a dialog. |
 | Agent behind `:` | the steer agent | A toolbar button, and `:` or `⌘K`. Its plan shows in a panel. |
-| Notices and connection | `notice`, page `position`, reconcile | Status bar: connected, position, last hint, reconcile interval, last notice. |
+| Notices and connection | `notice`, page `position`, reconcile | Sidebar foot, one line: "● Connected", or a red warning and "Not connected"; the plain words, last notice, position, last hint and reconcile interval in the state's popover. |
 | Worker page | worker blocks | Right column. The conversation scrolls; Details is a disclosure group. |
 
 Rules:
@@ -275,7 +275,7 @@ What differs by platform beyond the layout stays in the platform targets:
 | Forms: text (wraps), multiline (enter = new line), choice, boolean, readonly, errors, Ctrl+S | `AtlasTui.Model`, `AtlasTui.Text`, `AtlasTui.View` | `BlockViews.FormView` in a sheet over the right column; ⌘S / Done |
 | Submit, confirm, refused page (`refused`), errors on the form | `AtlasTui.Console`, `AtlasTui.Model` | `Session.submit(call, values)`; a confirm as a dialog |
 | Pending marker `⋯ being processed`, pending pages | `AtlasTui.View`, `AtlasTui.Console` | `BlockViews` row marker, muted; `Session` |
-| Notices with tone; status bar: connected, updated how and when, position, last hint, reconcile interval; not connected, with why and what happens next in plain words (no message in the content area or over the window) | `AtlasTui.View` (`status/3`) | the status bar below the columns (`StatusViewModel.text`) |
+| Notices with tone; status bar: connected, updated how and when, position, last hint, reconcile interval; not connected, with why and what happens next in plain words (no message in the content area or over the window) | `AtlasTui.View` (`status/3`) | the sidebar's foot, one line: the environment, then "● Connected", or a red warning sign and "Not connected"; a click on the state opens a popover with the plain words (why, what happens next), the last notice, the app's update, position, last hint and reconcile interval (`StatusViewModel.text`) |
 | Hints for recent paths, refresh every `reconcile_seconds` | `AtlasTui.App`, `AtlasTui.Console` | `Session` with an injected clock |
 | Page cache: newest per path, shown at once on Back and tab switch | `AtlasTui.PageCache` | `Session.cache` |
 | Parts: side by side or stacked; own scroll each; tab moves focus | `AtlasTui.View`, `AtlasTui.Model` | `BlockViews.PartsLayout` |
@@ -304,13 +304,13 @@ target with the approved shell (§2): the three-column window, the sidebar from 
 tabs, `active_tab` and `initial_to`, with counts and `⌘1`–`⌘9`; the title bar with the
 title, the environment and the inverted prod badge; the tab's index page in the middle
 column and an opened page on the right (blocks it does not show yet appear as fallbacks);
-the status bar (connected, position, last hint, reconcile interval, last notice).
+the sidebar's foot, one line: the environment, then "● Connected", or a red warning sign and "Not connected"; a click on the state opens a popover with the plain words (why, what happens next), the last notice, the app's update, position, last hint and reconcile interval.
 *Accepted when* unit tests drive a fake connection and clock through: welcome then first
 page; a too-old/wrong-env bye ends the session with its text; a dropped connection
 retries every 2 s and reopens the page; refresh is sent each interval (Control answers
 none while a form is being edited, and a draft is never replaced). The shell's model
 shows exactly the tabs `boot` sent, in its order, up to 64, and no tab of its own; a
-failed boot keeps the last good tabs; the status bar's model follows the session. An
+failed boot keeps the last good tabs; the foot's model (`StatusViewModel`) follows the session. An
 integration test (§7) connects to a real Control and gets a welcome, a page and a boot
 shell. `swift build` for macOS and iOS.
 *Built, with these choices the coordinator accepted:* `hello` says `client: "tui"` (§2);
@@ -364,7 +364,7 @@ the layout model, not screenshots).
 
 **S4 Forms and submit.** Actions as buttons under the page; a form as a sheet over the
 right column with every input kind, errors, submit by `call` (endpoint and params, values
-as text) and cancel; a confirm as a dialog; refused and stored; notices in the status bar.
+as text) and cancel; a confirm as a dialog; refused and stored; notices in the sidebar's foot.
 *Accepted when* a fixture form round-trips the user's values into the exact `submit` the
 TUI sends (compared with captured `sent.jsonl`); a refused page shows its errors in the
 sheet; a stored page closes it.

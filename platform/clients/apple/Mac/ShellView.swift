@@ -9,7 +9,7 @@ import SwiftUI
 /// The three columns: the tabs boot sent (sidebar), the active tab's index page (middle)
 /// and the page opened from a row (right); the title bar with the page's title only (the
 /// viewer's name and the environment are in the sidebar's foot) and the index page's own
-/// actions (`PageActions.ofPage`); the status bar below. The opened page shows its own
+/// actions (`PageActions.ofPage`); no status bar: the shell's state is in the sidebar's foot. The opened page shows its own
 /// actions next to its title, at its top. An action's page (its confirm, form or more
 /// actions) is a sheet over them; the keys of the shown page's actions take them. What is
 /// done and not answered yet shows at once: on its button, on the sheet and in the status
@@ -24,8 +24,23 @@ struct ShellView: View {
     /// sidebar toggle still shows and hides it in between.
     @State private var visibility: NavigationSplitViewVisibility = .all
     @State private var sidebarShown: Bool?
-    /// The status bar's height, kept clear under the sidebar.
-    @State private var statusBar: CGFloat = 0
+
+    /// The shell's state for the sidebar's foot, its one place: the connection's mark, and in
+    /// its popover the plain words, the last notice, the app's update and the details.
+    private func connection(_ shell: ShellViewModel) -> SidebarConnection {
+        let status = StatusViewModel(session.state)
+        let boot = shell.bootFailure.map { failure in
+            switch failure {
+            case .control(let text): text
+            case .invalid: "shell not accepted; showing the last good tabs"
+            case .unreadable(let reason): "shell could not be read (\(reason)); showing the last good tabs"
+            case .timedOut: "boot timed out"
+            }
+        }
+        let notes = [status.notice?.text, updater.status.statusText(installed: updater.installed)?.text,
+                     boot].compactMap { $0 }
+        return SidebarConnection(mark: status.mark, details: SidebarLook.details(status, extra: notes))
+    }
 
     /// A submit, with what it is in the words of the page that declares it.
     private func submit(_ call: CallModel, _ values: [String: String]) {
@@ -37,11 +52,7 @@ struct ShellView: View {
     var body: some View {
         let shell = ShellViewModel(session.state)
         NavigationSplitView(columnVisibility: $visibility) {
-            Sidebar(shell: shell, connection: StatusViewModel(session.state).mark, select: session.selectTab,
-                    filter: session.filter)
-                // The sidebar runs to the window's bottom edge under the status bar: its
-                // foot stays above the bar.
-                .safeAreaPadding(.bottom, statusBar)
+            Sidebar(shell: shell, connection: connection(shell), select: session.selectTab, filter: session.filter)
         } content: {
             Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
                    act: session.act)
@@ -91,11 +102,6 @@ struct ShellView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            StatusBar(status: StatusViewModel(session.state), shell: shell,
-                      update: updater.status.statusText(installed: updater.installed))
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { statusBar = $0 }
-        }
         .environment(\.pendingAction, shell.pending)
         .environment(\.panelKeys, keys.panels)
     }
@@ -108,7 +114,7 @@ struct ShellView: View {
 /// holds boot's limit of 64.
 struct Sidebar: View {
     let shell: ShellViewModel
-    let connection: StatusViewModel.Mark
+    let connection: SidebarConnection
     let select: (String) -> Void
     let filter: (String) -> Void
 
@@ -166,10 +172,10 @@ struct NotLaunchedView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Start the app with the environment it is for:").prism(Prism.Typography.title7)
-            Text("bin/atlas mac --env test").monospaced().prism(Prism.Typography.bodysmall).textSelection(.enabled)
+            Text("bin/atlas mac --env test").prism(Prism.Typography.monosmall).textSelection(.enabled)
             Text("or, against a Control already listening:").foregroundStyle(.secondary)
-            Text("swift run AtlasMac --env test --host 127.0.0.1 --port <control port>").monospaced()
-                .prism(Prism.Typography.bodysmall).textSelection(.enabled)
+            Text("swift run AtlasMac --env test --host 127.0.0.1 --port <control port>")
+                .prism(Prism.Typography.monosmall).textSelection(.enabled)
             switch problem {
             case .notLaunched: EmptyView()
             case .missing(let name): Text("Missing: \(name)").foregroundStyle(.red)

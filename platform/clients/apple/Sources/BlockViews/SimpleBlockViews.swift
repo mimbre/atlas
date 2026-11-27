@@ -398,9 +398,8 @@ struct RouteLine: View {
 }
 
 /// One command in a light inset that hugs it (grey5 with a thin grey4 edge in light, a
-/// step below the card in dark; no shadow), in the system's monospaced face at the running
-/// text's size (`bodysmall`: Prism's `mono` is larger and has no small variant), so no
-/// larger than the step's text; selectable, wrapping at the card's width, with a copy icon
+/// step below the card in dark; no shadow), in Prism's `monosmall` (16/24, as the step's
+/// `bodysmall`), so no larger than the step's text; selectable, wrapping at the card's width, with a copy icon
 /// right after it; for a moment after a copy the icon is a checkmark.
 struct CommandBlock: View {
     let command: String
@@ -410,7 +409,7 @@ struct CommandBlock: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
-            Text(command).monospaced().textSelection(.enabled)
+            Text(command).prism(Prism.Typography.monosmall).textSelection(.enabled)
                 .foregroundStyle(PrismDarkGap.text(scheme))
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: copy) {

@@ -149,14 +149,26 @@ enum PrismDarkGap {
 
     /// A Prism button's style in this appearance: Prism's own, but a `plain` one in dark,
     /// whose grey1 label is unreadable on a dark surface: Prism's plain look with the label
-    /// in `text` (white). `icon`: the label is a `Label`, its icon before its title (Prism's
-    /// with-icon look).
+    /// in `text` (white). `icon`: the label holds its icon before its title (Prism's
+    /// with-icon look). Always Prism's `small` size: one button size, no larger than the
+    /// running text it acts on.
     static func buttonStyle(_ variant: PrismButtonVariant, tone: PrismButtonTone, padded: Bool, loading: Bool,
                             icon: Bool = false, scheme: ColorScheme) -> AnyButtonStyle {
         scheme == .dark && variant == .plain
             ? AnyButtonStyle(PlainInDark(padded: padded, loading: loading, icon: icon))
-            : AnyButtonStyle(PrismButtonStyle(variant, tone: tone, padded: padded, loading: loading,
+            : AnyButtonStyle(PrismButtonStyle(variant, tone: tone, size: .small, padded: padded, loading: loading,
                                               icon: icon ? .start : nil))
+    }
+
+    /// Prism's `Tag` in its tone at the height of a `labelsmall` line (Prism's Tag has one
+    /// size, 28pt, too tall for a line of meta text): its look with less padding.
+    @MainActor static func smallTag(_ text: String, tone: PrismTagTone) -> some View {
+        var looks = PrismTagLooks(tone: tone)
+        looks.label.padding = .init(top: 1, leading: 6, bottom: 1, trailing: 6)
+        looks.label.typography = Prism.Typography.labelsmall
+        return Text(text)
+            .prismLook(looks.label)
+            .fixedSize()
     }
 
     private struct PlainInDark: ButtonStyle {
@@ -165,7 +177,7 @@ enum PrismDarkGap {
         let icon: Bool
 
         func makeBody(configuration: Configuration) -> some View {
-            var looks = PrismButtonLooks(.plain, padded: padded, withIcon: icon, pressed: configuration.isPressed,
+            var looks = PrismButtonLooks(.plain, size: .small, padded: padded, withIcon: icon, pressed: configuration.isPressed,
                                          loading: loading)
             looks.root.foreground = PrismDarkGap.text(.dark)
             return label(configuration, looks)
@@ -174,15 +186,10 @@ enum PrismDarkGap {
                 .prismBox(looks.root)
         }
 
-        @ViewBuilder private func label(_ configuration: Configuration, _ looks: PrismButtonLooks) -> some View {
-            if icon {
-                HStack(spacing: looks.root.gap ?? Prism.Spacing.px5) {
-                    configuration.label.labelStyle(.iconOnly).prismLook(looks.icon)
-                    configuration.label.labelStyle(.titleOnly).prismLook(looks.label)
-                }
-            } else {
-                configuration.label.prismLook(looks.label)
-            }
+        /// The caller's label as is: an icon button's label already holds its icon
+        /// (`PrismActionButton`), so splitting it as a `Label` showed the icon twice.
+        private func label(_ configuration: Configuration, _ looks: PrismButtonLooks) -> some View {
+            configuration.label.prismLook(looks.label)
         }
     }
 

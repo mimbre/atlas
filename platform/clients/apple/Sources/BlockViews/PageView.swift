@@ -61,6 +61,7 @@ public struct PageView: View {
                 ScrollView {
                     detailsView(details).padding(.vertical, Prism.Spacing.px10)
                 }
+                .contentMargins(.bottom, Prism.Spacing.px30, for: .scrollContent)
                 .frame(width: width)
                 Spacer(minLength: 0)
             }
@@ -110,6 +111,9 @@ public struct PageView: View {
             }
         }
         .listStyle(.inset)
+        // Room after the last block, so its answers and its card's shadow scroll fully into
+        // view at any window height.
+        .contentMargins(.bottom, Prism.Spacing.px30, for: .scrollContent)
         .focused($listFocused)
         // A page of lists (no panel, no details) lies on the list's ground, so its row
         // cards stand out from it; another keeps the system's.
