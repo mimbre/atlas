@@ -889,7 +889,6 @@ defmodule AtlasControl.Pages do
 
     list =
       Blocks.list(
-        title: rule.title || "",
         rows:
           work_order(
             for {from, fact, link} = item <- items do
@@ -1268,8 +1267,8 @@ defmodule AtlasControl.Pages do
   The groups of a screen, from the model alone, each a filter of it: `[{key, label}]`.
   What is assigned (`:assigned`) per kind of the facts the assignments are components of
   (else per kind they start at); Open for you and Supervised by you per supervised span,
-  keyed `{subflow, span}`. A group's page is `{:group, screen, key, by}`; the shell offers
-  the same groups under the page's tab (`AtlasControl.Shell`).
+  keyed `{subflow, span}`. A group's page is `{:group, screen, key, by}`; list pages
+  expose these destinations in their `groups` blocks.
   """
   def groups(m, :assigned) do
     case assigned_rule(m) do
@@ -2337,6 +2336,153 @@ defmodule AtlasControl.Pages do
           ] ++ sections
 
         cond do
+          is_map(Map.get(k, :page)) ->
+            spec = k.page
+
+            {_tone, since} =
+              status(fact, for({_, _, part, _} <- parts, do: part) ++ [fact], form[:by])
+
+            state =
+              for name <- List.wrap(spec["state"]),
+                  f = field(k, name),
+                  f != nil,
+                  value = fact["values"][name],
+                  value not in [nil, ""],
+                  do: show(f, value)
+
+            intro = get_in(spec, ["intro", "field"])
+            text = if intro, do: to_text(fact["values"][intro]), else: ""
+            related = Enum.zip(relations, child_answers)
+            item_relation = get_in(spec, ["items", "relation"])
+
+            item_state =
+              if in_span?(m, kind, work) and supervisor(work) == [] and
+                   work["waiting_for"] == nil,
+                 do: "pick_up",
+                 else: work["state"]
+
+            {primary, remaining} =
+              related
+              |> Enum.map(fn {{relation, from, r} = rel, child_answer} ->
+                {title, list} = child_list(m, rel, child_answer, false, form[:by])
+                id = list_id(relation, from, r)
+                rows = list["props"]["rows"]
+                list = put_in(list, ["props", "title"], title)
+
+                list =
+                  if relation == item_relation do
+                    empty =
+                      if match?(%{"facts" => facts} when is_list(facts), child_answer),
+                        do:
+                          get_in(spec, ["items", "empty", item_state]) || list["props"]["empty"],
+                        else: list["props"]["empty"]
+
+                    list
+                    |> put_in(["props", "empty"], empty)
+                    |> put_in(
+                      ["props", "aside"],
+                      if(rows == [],
+                        do: nil,
+                        else:
+                          "#{Enum.count(rows, &(&1["tone"] == "done"))} of #{length(rows)} done"
+                      )
+                    )
+                  else
+                    list
+                  end
+
+                {relation == item_relation, {id, {title, list}}}
+              end)
+              |> Enum.split_with(&elem(&1, 0))
+
+            primary = Enum.map(primary, &elem(&1, 1))
+
+            remaining =
+              Enum.map(remaining, &elem(&1, 1)) ++
+                cause_lists(m, key, cause_answers, form[:by]) ++
+                parent_lists(m, kind, fact) ++
+                Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
+                  parent_lists(m, part_kind, part)
+                end)
+
+            header =
+              Blocks.header(
+                eyebrow: String.upcase(k.label),
+                key: key,
+                title: label(k, fact),
+                icon: kind_icon(m, kind),
+                detail: if(state == [], do: nil, else: Enum.join(state, " · ")),
+                since: since
+              )
+
+            # Keep the existing proposal panel and its navigation, including its answer actions.
+            panel_blocks =
+              if panel do
+                {block, _listed} = panel_block(m, kind, key, fact, todo, panel, related)
+                [{"panel", block}]
+              else
+                []
+              end
+
+            todo_blocks = if todo && !panel, do: [{"todo", todo_item(todo)}], else: []
+
+            panel_keys =
+              for {"panel", block} <- panel_blocks,
+                  answer <- block["props"]["answers"] || [],
+                  do: answer["key"]
+
+            remaining_next = Enum.reject(next, &(&1["key"] in panel_keys))
+
+            answer_blocks =
+              if remaining_next == [],
+                do: [],
+                else: [{"answers", answers_block(remaining_next, (todo && todo.answers) || [])}]
+
+            content =
+              [{"header", header}] ++
+                if(text == "",
+                  do: [],
+                  else: [
+                    {"intro",
+                     Blocks.text(text: text, format: Map.get(field(k, intro) || %{}, :format))}
+                  ]
+                ) ++
+                for(
+                  name <- List.wrap(spec["sections"]),
+                  f = field(k, name),
+                  f != nil,
+                  value = fact["values"][name],
+                  value not in [nil, ""],
+                  do:
+                    {"section-" <> name,
+                     Blocks.text(
+                       label: f.label,
+                       text: to_text(value),
+                       format: Map.get(f, :format)
+                     )}
+                ) ++
+                todo_blocks ++
+                for({id, {_title, list}} <- primary, do: {id, list}) ++
+                panel_blocks ++
+                answer_blocks ++
+                others_block(more) ++
+                [
+                  {"item",
+                   item |> put_in(["props", "title"], "") |> put_in(["props", "actions"], [])}
+                ] ++
+                for({id, {_title, list}} <- remaining, do: {id, list})
+
+            markup =
+              [
+                Blocks.part("item", List.last(["item" | Enum.map(remaining, &elem(&1, 0))]),
+                  title: "Details",
+                  role: "details"
+                )
+              ] ++
+                for({id, {title, _list}} <- remaining, do: Blocks.section(id, id, title: title))
+
+            page("#{k.label} #{key}", back, content, markup)
+
           deciding and todo.section[:steps] != nil ->
             # A to-do with steps, as a stack of simple blocks: its header, why, each step,
             # its answers and the page's next steps; what is judged; then the details,

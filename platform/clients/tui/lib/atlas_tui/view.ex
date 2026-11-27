@@ -511,9 +511,7 @@ defmodule AtlasTui.View do
     {lines, Map.new(drawn, fn {column, _, _, viewport} -> {column, viewport} end)}
   end
 
-  # The sidebar: the tabs one under the other under their section's heading (Work,
-  # Browse), each with its count and its groups indented under it; the one shown marked
-  # and selected.
+  # The top-level tabs under their section headings, with counts and selection.
   defp sidebar_lines(model, width) do
     at = Columns.sidebar_at(model)
 
@@ -529,8 +527,8 @@ defmodule AtlasTui.View do
               if(section, do: [[]], else: []) ++
                 [[{:dim, if(row.section == "work", do: "Work", else: "Browse")}]]
 
-        style = if i == at, do: :selected, else: if(row.group?, do: :dim, else: :plain)
-        lead = if(i == at, do: "› ", else: "  ") <> if(row.group?, do: "  ", else: "")
+        style = if i == at, do: :selected, else: :plain
+        lead = if(i == at, do: "› ", else: "  ")
         count = if row.count, do: " #{row.count}", else: ""
         label = cell_cut(single_line(row.label), max(width - String.length(lead <> count), 1))
         line = lead <> label
@@ -616,12 +614,7 @@ defmodule AtlasTui.View do
   # needs is missing) is drawn plainly, and markup that cannot be drawn leaves its blocks
   # as they are; never a crash.
   defp nodes(tree, model, width, room) do
-    {terminal, _height} = model.console.viewport
-    # The header's group row stands in for a list's own groups line (`group_row?/2`).
-    row? = AtlasTui.ConsoleView.group_row?(model, terminal)
-
     tree
-    |> Enum.reject(&(row? and match?({:block, %AtlasTui.Blocks.Groups{}, _}, &1)))
     |> Enum.map(fn
       {:block, block, at} ->
         try do
@@ -729,15 +722,18 @@ defmodule AtlasTui.View do
   defp block(%ListBlock{} = list, at, model, width, _room) do
     rows = list.rows || []
 
-    # A plain heading: an empty row, then the bold title with its count dim beside it (too
-    # narrow for that, the count wraps with the title).
+    # Control's aside replaces the count when present.
     heading =
       if list.title do
-        count = " · #{length(rows)}"
+        count =
+          case single_line(list.aside) do
+            "" -> " · #{length(rows)}"
+            aside -> " · " <> aside
+          end
 
         lines =
-          if width > String.length(count) + 4 do
-            {first, [last]} = Enum.split(list_wrap(list.title, width - String.length(count)), -1)
+          if width > display_width(count) + 4 do
+            {first, [last]} = Enum.split(list_wrap(list.title, width - display_width(count)), -1)
             Enum.map(first, &[{:bold, &1}]) ++ [[{:bold, last}, {:dim, count}]]
           else
             for line <- list_wrap(list.title <> count, width), do: [{:bold, line}]
@@ -745,7 +741,9 @@ defmodule AtlasTui.View do
 
         [[] | lines]
       else
-        []
+        for line <- list_wrap(single_line(list.aside), width),
+            list.aside not in [nil, ""],
+            do: [{:dim, line}]
       end
 
     now = model.now || DateTime.utc_now()
@@ -879,7 +877,10 @@ defmodule AtlasTui.View do
   defp block(%AtlasTui.Blocks.Groups{groups: groups}, _at, _model, width, _room) do
     groups
     |> Enum.map(fn group ->
-      {if(group.active, do: :active, else: :dim), " #{single_line(group.label)} #{group.count} "}
+      count = if is_nil(group.count), do: "", else: " #{group.count}"
+      marker = if group.active, do: "• ", else: ""
+      text = "[#{marker}#{single_line(group.label)}#{count}]"
+      {if(group.active, do: :active, else: :dim), cell_cut(text, width)}
     end)
     |> Enum.reduce([], fn {_, text} = segment, lines ->
       case lines do
@@ -887,7 +888,7 @@ defmodule AtlasTui.View do
           used = Enum.reduce(line, 0, fn {_, t}, used -> used + display_width(t) end)
 
           if used + 1 + display_width(text) <= width,
-            do: [line ++ [{:dim, "·"}, segment] | done],
+            do: [line ++ [{:dim, " "}, segment] | done],
             else: [[segment], line | done]
 
         [] ->
@@ -998,17 +999,16 @@ defmodule AtlasTui.View do
     ) ++ body
   end
 
-  # A page's header: its eyebrow ("TO DO FOR YOU") with the fact's key, its title under it;
-  # led by its kind's glyph when the TUI knows it.
-  defp block(%Header{} = header, _at, _model, width, _room),
-    do:
-      heading(
-        keyed(header.eyebrow, header.key),
-        header.title,
-        nil,
-        width,
-        @kind_glyphs[header.icon] || "◆"
-      )
+  # A page's header and optional state line with its compact age.
+  defp block(%Header{} = header, _at, model, width, _room) do
+    heading(
+      keyed(header.eyebrow, header.key),
+      header.title,
+      nil,
+      width,
+      @kind_glyphs[header.icon] || "◆"
+    ) ++ state_line(header, model, width)
+  end
 
   # What went wrong (`role` error): a card, its label as a heading in the error colour over
   # its text (the label says what it is, not the colour alone).
@@ -1318,6 +1318,17 @@ defmodule AtlasTui.View do
       for {start, length} <- Text.rows(line, max(width, 1)),
           do: line |> String.slice(start, length) |> String.trim_trailing()
     end)
+  end
+
+  defp state_line(header, model, width) do
+    text =
+      [single_line(header.detail), age(header.since, model.now || DateTime.utc_now())]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join(" · ")
+
+    if text == "",
+      do: [],
+      else: for(line <- detail_wrap(text, max(width - 1, 1)), do: [{:plain, " "}, {:dim, line}])
   end
 
   # A page's or a decision's heading: its eyebrow (what is asked of its owner, with the

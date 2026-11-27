@@ -25,6 +25,14 @@ struct HeaderBlockView: View {
                 }
             }
             PageHeader(title: block.title ?? "", actions: actions, act: act)
+            if block.detail?.isEmpty == false || block.since?.isEmpty == false {
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(HeaderState.line(block, now: context.date) ?? "")
+                        .prism(Prism.Typography.caption)
+                        .foregroundStyle(PrismDarkGap.muted(scheme))
+                        .textSelection(.enabled)
+                }
+            }
         }
         .accessibilityElement(children: .contain)
         .padding(.horizontal, Prism.Spacing.px15)
@@ -281,7 +289,8 @@ struct PrismActionButton: View {
                 HStack(alignment: .center, spacing: Prism.Spacing.px6) {
                     Image(systemName: icon).resizable().scaledToFit()
                         .frame(width: 13, height: 13)
-                        .foregroundStyle(PrismDarkGap.icon(scheme))
+                        .foregroundStyle(variant == .primary ? AnyShapeStyle(.foreground)
+                                                             : AnyShapeStyle(PrismDarkGap.icon(scheme)))
                     Text(label)
                 }
             } else {

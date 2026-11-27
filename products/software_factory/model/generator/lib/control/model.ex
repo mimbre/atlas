@@ -289,6 +289,7 @@ defmodule RelaDSL.Control.Model do
           end,
         agent: spec["agent"],
         delete_error: if(is_binary(spec["delete_error"]), do: spec["delete_error"]),
+        page: if(is_map(spec["page"]), do: spec["page"]),
         hidden: state_fields(presenters, kind),
         decision_options: spec["decision_options"],
         presented: Enum.any?(presenters, &(&1["kind"] == kind)),

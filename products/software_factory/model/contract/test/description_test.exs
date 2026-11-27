@@ -78,8 +78,10 @@ defmodule Model.DescriptionTest do
     kinds = AtlasEyra.kinds()
 
     marked =
-      for kind <- kinds, field <- kind.fields, field.format == "markdown",
-        do: {kind.name, field.name}
+      for kind <- kinds,
+          field <- kind.fields,
+          field.format == "markdown",
+          do: {kind.name, field.name}
 
     assert Enum.sort(marked) ==
              [{"issue", "description"}, {"scene", "description"}, {"use_case", "description"}]

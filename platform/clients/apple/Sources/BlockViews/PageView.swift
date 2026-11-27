@@ -26,13 +26,16 @@ public struct PageView: View {
     let selectedPath: String?
     let open: (String) -> Void
     let act: (ActionModel) -> Void
+    let filter: (String) -> Void
+    let selectedGroup: String?
     @Environment(\.colorScheme) private var scheme
     /// Whether the list has the keys: its selected card shows Prism's tint, else calm grey.
     @FocusState private var listFocused: Bool
 
     public init(page: PageMessage, header: Bool = false, selectedPath: String? = nil,
                 open: @escaping (String) -> Void,
-                act: @escaping (ActionModel) -> Void = { _ in }) {
+                act: @escaping (ActionModel) -> Void = { _ in },
+                filter: ((String) -> Void)? = nil, selectedGroup: String? = nil) {
         presentation = PagePresentation(page)
         pageActions = PageActions.ofPage(page)
         itemActions = header ? PageActions.toolbar(page) : []
@@ -40,6 +43,8 @@ public struct PageView: View {
         self.selectedPath = selectedPath
         self.open = open
         self.act = act
+        self.filter = filter ?? open
+        self.selectedGroup = selectedGroup
     }
 
     /// The page from the left of its column (`WindowLayout.columns`): its main blocks at most
@@ -60,7 +65,9 @@ public struct PageView: View {
             HStack(alignment: .top, spacing: 0) {
                 list(main).frame(width: columns.page)
                 ScrollView {
-                    detailsView(details).padding(.vertical, Prism.Spacing.px10)
+                    detailsView(details)
+                        .padding(.top, Prism.Spacing.px22)
+                        .padding(.bottom, Prism.Spacing.px10)
                 }
                 .contentMargins(.bottom, Prism.Spacing.px30, for: .scrollContent)
                 .frame(width: width)
@@ -90,8 +97,18 @@ public struct PageView: View {
                     still(PageHeader(title: presentation.title, actions: pageActions, act: act))
                 case .title(let title):
                     still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.px10))
+                case .heading(let title, let aside):
+                    still(HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
+                        Text(title).prism(Prism.Typography.label).accessibilityAddTraits(.isHeader)
+                        if let aside {
+                            Text(aside).prism(Prism.Typography.caption).foregroundStyle(PrismDarkGap.muted(scheme))
+                        }
+                    }
+                    .padding(.horizontal, Prism.Spacing.px15)
+                    .padding(.top, Prism.Spacing.px10))
                 case .empty(let empty):
-                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary))
+                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, header ? Prism.Spacing.px15 : 0))
                 case .row(let row):
                     RowCard(row: row, selected: line.to == selectedPath, focused: listFocused)
                         .listRowInsets(EdgeInsets())
@@ -137,6 +154,7 @@ public struct PageView: View {
         enum Content {
             case header
             case title(String)
+            case heading(String, aside: String?)
             case empty(String)
             case row(RowModel)
             case actions([ActionModel])
@@ -169,8 +187,9 @@ public struct PageView: View {
 
     private func detailsContent(_ details: PagePresentation.Details, inCard: Bool) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-            Text(details.title).prism(Prism.Typography.label)
+            Text(details.title).prism(Prism.Typography.title6)
                 .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, inCard ? 0 : Prism.Spacing.px15)
             ForEach(details.groups) { group in
                 switch group {
                 case .entry(let entry): entryView(entry, inDetails: inCard)
@@ -197,7 +216,12 @@ public struct PageView: View {
             case .entry(let entry):
                 switch entry.item {
                 case .list(let list):
-                    if let title = list.title { blocks.append(Line(id: group.id + "/title", content: .title(title))) }
+                    if (header && list.title != nil) || list.aside != nil {
+                        blocks.append(Line(id: group.id + "/title",
+                                           content: .heading(list.title ?? "", aside: list.aside)))
+                    } else if let title = list.title {
+                        blocks.append(Line(id: group.id + "/title", content: .title(title)))
+                    }
                     let rows = list.rows ?? []
                     if rows.isEmpty, let empty = list.empty {
                         blocks.append(Line(id: group.id + "/empty", content: .empty(empty)))
@@ -244,6 +268,7 @@ public struct PageView: View {
                                         followsCardsBeforeDetails: Bool = false) -> some View {
         switch entry.item {
         case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
+        case .groups(let groups): GroupFilters(groups: groups, selected: selectedGroup, filter: filter)
         case .item(let item): ItemBlockView(item: item, inDetails: inDetails, act: act)
         case .option(let option): OptionView(block: option, act: act)
         case .panel(let panel):
@@ -285,12 +310,14 @@ public struct PageView: View {
             DisclosureGroup(isExpanded: expansion(section)) {
                 blocks(section, inDetails: inDetails).padding(.top, Prism.Spacing.px10)
             } label: {
-                Text(section.title).prism(Prism.Typography.label)
+                Text(section.title).prism(Prism.Typography.title6)
+                    .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
             }
         } else {
             VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-                Text(section.title).prism(Prism.Typography.label)
+                Text(section.title).prism(Prism.Typography.title6)
                     .accessibilityAddTraits(.isHeader)
+                    .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
                 Divider()
                 blocks(section, inDetails: inDetails)
             }
@@ -317,9 +344,16 @@ struct ListBlockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
-            if let title = list.title {
-                Text(title).prism(Prism.Typography.title7)
-                    .padding(.bottom, Prism.Spacing.px5)
+            if list.title != nil || list.aside != nil {
+                HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
+                    if let title = list.title {
+                        Text(title).prism(Prism.Typography.title7)
+                    }
+                    if let aside = list.aside {
+                        Text(aside).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.bottom, Prism.Spacing.px5)
             }
             if (list.rows ?? []).isEmpty, let empty = list.empty {
                 Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)

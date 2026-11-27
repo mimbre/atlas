@@ -1,11 +1,10 @@
+defmodule AtlasBFFContract.TextFormatTest.Server do
+  use AtlasBFF.Targets.Server, contract: AtlasBFFContract.Contract
+end
+
 defmodule AtlasBFFContract.TextFormatTest do
   use ExUnit.Case, async: true
-
-  defmodule Server do
-    use AtlasBFF.Targets.Server, contract: AtlasBFFContract.Contract
-  end
-
-  require Server
+  require AtlasBFFContract.TextFormatTest.Server, as: Server
 
   test "text format is optional and passed through without changing text" do
     text = "# Heading\n\n```\ncode\n```"
@@ -21,6 +20,7 @@ defmodule AtlasBFFContract.TextFormatTest do
 
   test "a formatted pair retains its labelled value for older clients" do
     text = "# Heading"
+
     assert %{"label" => "Description", "value" => ^text, "format" => "markdown"} =
              Server.pair(label: "Description", value: text, format: "markdown")
 
