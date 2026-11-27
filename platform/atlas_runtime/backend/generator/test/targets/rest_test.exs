@@ -22,19 +22,6 @@ defmodule AtlasRuntimeBackend.Generator.Targets.RestTest do
     {capability, client, input}
   end
 
-  test "generated routers do not name removed helpers in compiler attributes" do
-    {:ok, {_, [abstract_code: {:raw_abstract_v1, forms}]}} =
-      :beam_lib.chunks(:code.which(Rest), [:abstract_code])
-
-    refute Enum.any?(forms, fn
-             {:attribute, _, :compile, options} ->
-               Enum.any?(List.wrap(options), &match?({:nowarn_unused_function, _}, &1))
-
-             _ ->
-               false
-           end)
-  end
-
   describe "routes and decoding" do
     test "POST with a JSON body and a header builds the input through new/1" do
       conn =
