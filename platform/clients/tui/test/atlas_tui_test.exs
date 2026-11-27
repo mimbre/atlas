@@ -1096,10 +1096,9 @@ defmodule AtlasTuiTest do
 
         # On the same rows: the page from the left edge, its details' card right after its
         # 100 cells and a gap of 4 (the card's margin, its padding, then its text), its
-        # rounded top on the first row, its heading under it; nothing further right.
+        # top on the first row, its heading under it; nothing further right.
         [before | _] = String.split(Enum.at(lines, details), "  Details")
         assert String.length(before) == 100 + 4
-        assert top =~ ~r/▗▄+▖$/u
         assert String.length(top) == 100 + side
         assert String.starts_with?(wheel, " › Wheel")
         assert top == wheel

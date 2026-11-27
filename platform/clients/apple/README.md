@@ -19,11 +19,14 @@ Slice S1 of the design. Later slices add pages, history and the cache (S2), mark
 forms (S4), `ConsoleKit` (S5), `WorkerViews` (S6), the agent (S7), and the launcher with an
 Xcode app target and signing (S8). The macOS app is built as a SwiftPM executable;
 the small local development bundle helper below provides Finder/Dock launch before S8.
+Command copy icons use a semibold SF Symbol for visibility.
 
 Toolbar actions are icon-only with descriptive tooltips and accessibility labels. On the
 page, explicitly main answers precede secondary answers and have no icon; unweighted
 actions are not promoted merely because they are first. When a row of answers sits between
 a stack of cards and details below, its lower spacing matches the cards' shadow room above.
+When a details part contains a collapsible section, its disclosure sits outside a surrounding
+details card and its revealed blocks keep their own presentation.
 
 ## Build, test, run
 
@@ -99,6 +102,44 @@ laptop and opens it in Finder (or pins it to the Dock). Replacing an existing bu
 and handling any running instance remain coordinator actions. The existing localhost
 7593 tunnel must already be available; this helper does not manage it. This is a local
 development package, with no distribution identity or release claim.
+
+### Updating the laptop's local bundle
+
+`tools/update_local_app.py` is the replacement for the existing
+`~/.local/bin/atlas-console-update` invoked by `local.atlas.console-update` every ten
+minutes. It does not install or start a service. The old updater does not share a lock
+with this one, so an idle check followed by replacement cannot rule out a launchd
+start between those operations. Safe migration requires the coordinator to prevent
+new old-updater launches, wait for an existing invocation to exit normally, then
+atomically replace the executable and restore the existing schedule. This change
+does not perform that service operation. Until migration the old updater remains
+active and can forcibly quit Console.
+
+The updater requires the existing signed local bundle and its recorded commit and
+endpoint, fetches master into a disposable clone, refuses non-descendant revisions,
+and requires a successful production gate for that exact revision, no failed or
+cancelled jobs except a failed Mac publishing job, and either a successful tested-tree
+record job or CI's unexpired trusted artifact for that exact Git tree. Thus a missing
+distribution signing identity is not needed locally, but unexplained skipped tests do
+not qualify. These gates are release signals, not proof of independent review. It
+generates the model, runs Swift tests, builds the release binary, signs and verifies a
+staged copy, and checks
+master and the installed bundle again before an atomic exchange. It preserves the
+bundle identifier, launcher, endpoint and other contents. The previous bundle remains
+in a uniquely named hidden folder in Applications as `previous-bundle` (without an
+`.app` extension); it is not automatically deleted. On an interrupted or failed
+exchange, staging is retained as `uninstalled-or-previous-bundle` (or, if its rename
+failed, `Atlas Console.app`) because it may contain the original. No credentials are
+bundled.
+
+It never quits or reopens Console: while it is running, the updater defers until the
+user quits normally, so an open form or confirmation is not interrupted. A concurrent
+launch at the exchange can continue using the retained old bundle. Failures exit
+nonzero and are logged by the existing launch agent to
+`~/Library/Logs/atlas-console-update.log`; GitHub API/network, Xcode, Swift, model
+generation and a successful CI gate are required. It neither starts nor changes the
+prod tunnel. Isolated fake-build, real-signature and atomic-exchange smoke:
+`python3 -B tools/test_update_local_app.py`.
 
 Private helper/launcher regression (no Swift app, GUI or Control connection):
 
