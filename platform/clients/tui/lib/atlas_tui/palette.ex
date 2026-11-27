@@ -20,10 +20,10 @@ defmodule AtlasTui.Palette do
   keycap, grey1 on grey3 in both themes (9.9:1): a key carries no meaning of its own, so
   no colour. `:warning` warns (Prism's warning); in the light theme, where that colour is
   too faint as text on white, it is dark text on warninglight.
-  The `:tone_*` roles draw a list row's dot (where its work stands): red when it needs the
-  viewer, orange when under way, blue when planned or waiting, green when done. In dark the
-  dot is the colour on the surface (≥3:1, a dot is no text); in light, where those colours
-  are too faint on white, the cell is the colour and the dot is drawn on it in white or grey1.
+  The `:tone_*` roles draw a list row's kind icon (where its work stands): red when it needs
+  the viewer, orange when under way, blue when planned or waiting, green when done. In dark
+  the icon is the colour on the surface (≥3:1); in light, where those colours are too faint
+  on white, the cell is the colour and the icon is drawn on it in white or grey1.
   `:error_frame` frames what went wrong in Prism's error (a line, not text); its heading
   is `:error` text.
   `:route` is a part of a route in an instruction (where to click in an app): bold, in
@@ -43,7 +43,7 @@ defmodule AtlasTui.Palette do
   role has the page's background, its own background (a key, a chip) where not. Where a
   role's colour would fall under 4.5:1 on a surface (the error colour on the selected one),
   it takes the theme's text colour; its words say what it is. `:card_edge` and
-  `:card_selected_edge` draw a card's rounded top and bottom rows: the surface colour as
+  `:card_selected_edge` draw a card's straight top and bottom rows: the surface colour as
   the foreground of half blocks on the page.
   """
   @tokens %{

@@ -550,7 +550,7 @@ defmodule AtlasTui.PresentationTest do
     refute Enum.any?(lines["W-2"], &match?({:muted, _}, &1))
   end
 
-  test "a row keeps its dot and shows its kind's glyph before its key; an unknown kind, none" do
+  test "a known kind uses its icon for the status, retaining its colour when selected" do
     m = model()
 
     rows = [
@@ -580,9 +580,12 @@ defmodule AtlasTui.PresentationTest do
         {row.id, View.plain([Enum.find(lines, &(View.plain([&1]) =~ row.id))])}
       end)
 
-    assert text["D-1"] =~ ~r/● ◆ D-1/
-    assert text["TD-1"] =~ ~r/☐ TD-1/
-    refute text["X-1"] =~ ~r/[◆☐□◇•]/
+    assert text["D-1"] =~ ~r/◆ D-1/
+    refute text["D-1"] =~ "●"
+    assert text["TD-1"] =~ ~r/■ TD-1/
+    refute text["X-1"] =~ ~r/[◆■▰▲•]/
+    decision = Enum.find(lines, &(View.plain([&1]) =~ "D-1"))
+    assert {:tone_attention, "◆"} in decision
 
     # The keys stay in one column, a row without a known glyph keeping its blank cell.
     columns =

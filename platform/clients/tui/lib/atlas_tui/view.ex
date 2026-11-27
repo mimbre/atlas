@@ -34,8 +34,8 @@ defmodule AtlasTui.View do
   # How such a row looks: muted (faint), muted inside the highlight when selected; the
   # mark itself keeps the pending colour, so the eye still catches it.
   @pending_style :muted
-  # Where a row's work stands (Control's `tone`): a dot before the id, in the colour of its
-  # meaning (`AtlasTui.Palette`'s `:tone_*`), beside the row's own words, which say it too.
+  # A row's icon identifies its kind and takes Control's status tone. Unknown kinds
+  # retain a dot when a tone is known, so their status is not lost.
   @dot "●"
   @tone_styles %{
     "attention" => :tone_attention,
@@ -43,29 +43,27 @@ defmodule AtlasTui.View do
     "waiting" => :tone_waiting,
     "done" => :tone_done
   }
-  # What kind of thing a row opens (Control's `icon`, the model's semantic name for the
-  # kind): one monochrome character before the key, in the row's own colour; none for a
-  # name the TUI does not know. A page's header leads with it in place of ◆.
+  # Filled glyphs distinguish common kinds without a second status dot.
   @kind_glyphs %{
     "scales" => "◆",
-    "checklist" => "☐",
-    "frame" => "□",
-    "route" => "◇",
+    "checklist" => "■",
+    "frame" => "▰",
+    "route" => "▲",
     "ticket" => "•",
-    "sparkles" => "◉",
-    "gears" => "▣",
-    "figure" => "○",
+    "sparkles" => "✦",
+    "gears" => "✹",
+    "figure" => "✚",
     "hammer" => "▪",
     "merge" => "⇄",
-    "magnifier" => "◎",
-    "flask" => "▷",
+    "magnifier" => "◉",
+    "flask" => "▼",
     "upgrade" => "↑",
-    "history" => "▹"
+    "history" => "▶"
   }
   # A title keeps at least this many cells (or all of its own) before the age column goes.
   @title_floor 40
   @column_title_floor 20
-  # Narrower than this, a list's rows keep only their dot, key and title.
+  # Narrower than this, a list's rows keep only their icon, key and title.
   @narrow 80
   # A multi-line input that does not have the focus shows at most this many rows.
   @resting_rows 8
@@ -759,7 +757,13 @@ defmodule AtlasTui.View do
 
     pending = Enum.map(rows, &(&1.pending == true))
     tones = Enum.map(rows, & &1.tone)
-    glyphs = Enum.map(rows, &@kind_glyphs[&1.icon])
+
+    glyphs =
+      Enum.map(
+        rows,
+        &(@kind_glyphs[&1.icon] || if(Map.has_key?(@tone_styles, &1.tone), do: @dot))
+      )
+
     ages = Enum.map(rows, &age(&1.since, now))
 
     {ids, titles, summaries} =
@@ -770,11 +774,6 @@ defmodule AtlasTui.View do
 
     marker_room = if width >= 3, do: 3, else: 1
     available = max(width - marker_room, 0)
-
-    dot_room =
-      if Enum.any?(tones, &Map.has_key?(@tone_styles, &1)) and available >= 8, do: 2, else: 0
-
-    available = available - dot_room
 
     glyph_room =
       if Enum.any?(glyphs) and available >= 8, do: 2, else: 0
@@ -832,20 +831,11 @@ defmodule AtlasTui.View do
             true -> {style, style, :dim}
           end
 
-        # The dot keeps its own cell in its tone's colours on every row, the selected one
-        # included, so the selection bar runs around it and it still says where it stands.
-        dot =
-          cond do
-            dot_room == 0 -> []
-            not Map.has_key?(@tone_styles, tone) -> [{label_style, "  "}]
-            true -> [{@tone_styles[tone], @dot}, {label_style, " "}]
-          end
-
         kind =
           cond do
             glyph_room == 0 -> []
             glyph == nil -> [{label_style, "  "}]
-            true -> [{label_style, glyph <> " "}]
+            true -> [{Map.get(@tone_styles, tone, label_style), glyph}, {label_style, " "}]
           end
 
         aged =
@@ -866,7 +856,6 @@ defmodule AtlasTui.View do
 
         coalesce(
           [{label_style, marker}] ++
-            dot ++
             kind ++
             [{label_style, identity}] ++
             aged ++
@@ -1366,8 +1355,8 @@ defmodule AtlasTui.View do
 
   # A card: `lines` on a surface of their own (`AtlasTui.Palette`, cards), a column in from
   # the page's edge, a column of padding left and right, each row filled edge to edge; its
-  # top and bottom rows half blocks in the surface's colour on the page (▗▄▄▖, ▝▀▀▘), which
-  # round its corners; no lines. `kind` is `:card`, `:card_selected` (the one selected: the
+  # top and bottom rows are straight half blocks in the surface's colour; no lines.
+  # `kind` is `:card`, `:card_selected` (the one selected: the
   # primary tinted surface) or `:card_error` (what went wrong: a card, its heading in the
   # error colour and saying so). Where the terminal reports no truecolor
   # (`console.truecolor`), a surface could not be told from the page: a card is its lines
@@ -1390,7 +1379,7 @@ defmodule AtlasTui.View do
         else: {:card, :card_edge}
 
     inner = card_width(width)
-    fill = width - 3
+    fill = width - 1
     pad = {{surface, :plain}, " "}
 
     rows =
@@ -1401,8 +1390,8 @@ defmodule AtlasTui.View do
         [{:plain, " "}, pad | content] ++ [pad]
       end
 
-    [[{:plain, " "}, {edge, "▗" <> String.duplicate("▄", fill) <> "▖"}]] ++
-      rows ++ [[{:plain, " "}, {edge, "▝" <> String.duplicate("▀", fill) <> "▘"}]]
+    [[{:plain, " "}, {edge, String.duplicate("▄", fill)}]] ++
+      rows ++ [[{:plain, " "}, {edge, String.duplicate("▀", fill)}]]
   end
 
   # The width of a card's lines in a card `width` wide (its margin, padding or bar).
