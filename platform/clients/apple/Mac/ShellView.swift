@@ -14,7 +14,7 @@ import SwiftUI
 /// sidebar's foot. The opened page shows its own
 /// actions next to its title, at its top; what else can be done with the opened item (its
 /// `actions` blocks and its answers of weight `other`: Update, Ask a question, Hand over,
-/// Leave it to the proposer, Hand to, Failures…, Delete) is in the toolbar at the right
+/// Leave it to the proposer, Hand to, Failures…, Delete) is in the toolbar at the left
 /// (`ItemToolbar`, `PageActions.toolbar`), in its context menu and in the Actions menu, and
 /// follows the item open; none when nothing is. An action's page (its confirm, form or more
 /// actions) is a sheet over them; the keys of the shown page's actions take them. What is
