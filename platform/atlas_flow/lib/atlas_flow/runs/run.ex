@@ -302,6 +302,31 @@ defmodule AtlasFlow.Runs.Run do
     end
   end
 
+  @doc """
+  Whether `run`'s verdict no longer fits `subject`, so its gate is asked again
+  (`refresh_gate/4`): the run is still in the state that verdict led to, and the subject's
+  fingerprint differs from the verdict's. In a later state (the subject back with whoever
+  revises it, say) an edit is expected, and the gate is asked when the run comes back to it.
+  """
+  def stale_verdict?(run, flow, subject) do
+    verdict = run["pending"]["verdict"]
+
+    run["status"] == "active" and is_map(verdict) and
+      is_map(verdict["fingerprint_definition"]) and led_to?(flow, verdict, run["state"]) and
+      AtlasBus.SubjectFingerprint.of(subject, verdict["fingerprint_definition"]) !=
+        verdict["fingerprint"]
+  end
+
+  # Whether `verdict`'s outcome leads from its gate's state to `state`.
+  defp led_to?(flow, verdict, state) do
+    gate = verdict["gate"]
+
+    Enum.any?(flow.states(), fn s ->
+      match?({:gate, %{"gate" => ^gate}}, flow.mechanism(s)) and
+        flow.next(s, %{"gate_result" => verdict["outcome"]}, :result) == {:to, state}
+    end)
+  end
+
   def restart_gate(run, flow, subject, now),
     do:
       {:ok,
