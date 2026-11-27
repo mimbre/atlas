@@ -276,6 +276,7 @@ struct PageHeader: View {
 /// Lays its views out in rows, wrapping to the next row when one is full.
 struct FlowLayout: Layout {
     var spacing: CGFloat
+    var wrapOversized = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = rows(subviews, width: proposal.width ?? .infinity)
@@ -302,12 +303,12 @@ struct FlowLayout: Layout {
         var width: CGFloat = 0
         var height: CGFloat = 0
     }
+
     private func size(of subview: LayoutSubview, width: CGFloat) -> CGSize {
         let ideal = subview.sizeThatFits(.unspecified)
-        guard ideal.width > width else { return ideal }
+        guard wrapOversized, ideal.width > width else { return ideal }
         return subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
     }
-
 
     private func rows(_ subviews: Subviews, width: CGFloat) -> [Row] {
         var rows: [Row] = []
