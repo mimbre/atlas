@@ -4,6 +4,7 @@ import collections
 import difflib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -124,6 +125,21 @@ def baseline_line(issue, previous, current, root, mappings):
     return mappings[path].get(line, NO_BASELINE)
 
 
+def metric_key(issue):
+    patterns = {
+        "Credo.Check.Refactor.CyclomaticComplexity":
+            r"(Function is too complex \(cyclomatic complexity is )([0-9]+)(, max is [0-9]+\)\.)",
+        "Credo.Check.Warning.StructFieldAmount":
+            r"(Struct has more than [0-9]+ fields \()([0-9]+)( found\)\.)",
+    }
+    pattern = patterns.get(issue["check"])
+    match = re.fullmatch(pattern, issue["message"]) if pattern else None
+    if not match:
+        return None
+    normalized = {**issue, "message": match.group(1) + "{}" + match.group(3)}
+    return key(normalized), int(match.group(2))
+
+
 def main():
     if sys.argv[1:] not in (["all"], ["staged"]):
         raise ValueError("usage: python3 tools/credo/check.py {all|staged}")
@@ -141,14 +157,30 @@ def main():
         if previous is not None:
             old = collections.Counter(key(issue) for issue in analyze(previous, root / "head"))
             mappings = {}
-            introduced = []
+            pending = []
             for issue in new:
                 old_line = baseline_line(issue, previous, current, root, mappings)
-                fingerprint = key({**issue, "line_no": old_line}) if old_line is not NO_BASELINE else None
+                mapped = {**issue, "line_no": old_line} if old_line is not NO_BASELINE else None
+                fingerprint = key(mapped) if mapped is not None else None
                 if fingerprint is not None and old[fingerprint]:
                     old[fingerprint] -= 1
                 else:
+                    pending.append((issue, mapped))
+            metrics = collections.defaultdict(list)
+            for fingerprint, count in old.items():
+                if count and (metric := metric_key(json.loads(fingerprint))):
+                    metrics[metric[0]].extend([metric[1]] * count)
+            for values in metrics.values():
+                values.sort()
+            introduced = []
+            for issue, mapped in pending:
+                metric = metric_key(mapped) if mapped is not None else None
+                values = metrics[metric[0]] if metric else []
+                match = next((i for i, value in enumerate(values) if value >= metric[1]), None)
+                if match is None:
                     introduced.append(issue)
+                else:
+                    values.pop(match)
             new = introduced
     for issue in new:
         print(f"{issue['filename']}:{issue['line_no']}:{issue['column']}: "
