@@ -124,8 +124,14 @@ defmodule Model.Decision do
       details: [
         [title: "Authority and status", fields: [:status, :decided_at, :unverified, :verdict]],
         [title: "Scope and reversibility", fields: [:scope, :reversibility]],
-        [title: "Usage and enforcement", fields: [:no_work, :work, :force, :category, :enforced_by]],
-        [title: "History", fields: [:alternative, :question, :answer, :left_to_proposer, :returned]]
+        [
+          title: "Usage and enforcement",
+          fields: [:no_work, :work, :force, :category, :enforced_by]
+        ],
+        [
+          title: "History",
+          fields: [:alternative, :question, :answer, :left_to_proposer, :returned]
+        ]
       ],
       answered_at: :decided_at,
       answered_by: :decided_by,

@@ -2443,7 +2443,9 @@ defmodule AtlasControl.Pages do
               if detail_blocks != [] or technical != [] do
                 first = elem(hd(detail_blocks ++ technical), 0)
                 last = elem(List.last(detail_blocks ++ technical), 0)
-                markup ++ [Blocks.part(first, last, title: "Details", role: "details")] ++
+
+                markup ++
+                  [Blocks.part(first, last, title: "Details", role: "details")] ++
                   technical_section(technical)
               else
                 markup
@@ -3107,6 +3109,7 @@ defmodule AtlasControl.Pages do
       end)
 
     result = Map.merge(%{title: title, back: back}, Blocks.view_model(content, markup))
+
     if Enum.any?(markup, &(get_in(&1, ["props", "collapsible"]) == true)),
       do: Map.put(result, :console_actions, [details_action()]),
       else: result
@@ -3553,13 +3556,22 @@ defmodule AtlasControl.Pages do
             names = group["fields"] ++ if(index == 0, do: [rule["selected"]], else: [])
             labels = for f <- k.fields, f.name in names, do: f.label
             {selected, rest} = Enum.split_with(remaining, &(&1["label"] in labels))
-            present = for f <- k.fields, f.name in names, fact["values"][f.name] not in [nil, ""], do: f.label
+
+            present =
+              for f <- k.fields,
+                  f.name in names,
+                  fact["values"][f.name] not in [nil, ""],
+                  do: f.label
+
             selected = Enum.filter(selected, &(&1["label"] in present))
 
             block =
               if selected == [],
                 do: [],
-                else: [{"decision-detail-#{index}", Blocks.item(title: group["title"], fields: selected)}]
+                else: [
+                  {"decision-detail-#{index}",
+                   Blocks.item(title: group["title"], fields: selected)}
+                ]
 
             {block, rest}
           end)
@@ -3573,10 +3585,14 @@ defmodule AtlasControl.Pages do
               field = Enum.find(k.fields, &(&1.name == name)),
               field != nil do
             {"decision-raw-#{name}",
-             Blocks.item(title: field.label, fields: [Blocks.pair(label: field.label, value: value)])}
+             Blocks.item(
+               title: field.label,
+               fields: [Blocks.pair(label: field.label, value: value)]
+             )}
           end
 
-        {put_in(item, ["props", "fields"], remaining), List.flatten(blocks) ++ history_blocks, technical}
+        {put_in(item, ["props", "fields"], remaining), List.flatten(blocks) ++ history_blocks,
+         technical}
 
       _ ->
         {item, [], []}
@@ -3585,6 +3601,7 @@ defmodule AtlasControl.Pages do
 
   defp decision_history(k, rule, fact) do
     text = get_in(fact, ["values", rule["history"]])
+
     current = %{
       "definition" => get_in(fact, ["values", rule["definition"]]),
       "values" =>
@@ -3595,6 +3612,7 @@ defmodule AtlasControl.Pages do
           {relation, Enum.sort(get_in(fact, ["links", relation]) || [])}
         end)
     }
+
     selected_revision = get_in(fact, ["values", rule["revision"]])
 
     with true <- is_binary(text),
@@ -3609,11 +3627,16 @@ defmodule AtlasControl.Pages do
               else: Map.take(entry, ~w(definition values links)) == current
 
           fields = if same, do: [], else: history_fields(k, entry)
+
           if fields == [],
             do: [],
-            else: [{"decision-history-#{index}", Blocks.item(title: "Earlier offer #{index}", fields: fields)}]
+            else: [
+              {"decision-history-#{index}",
+               Blocks.item(title: "Earlier offer #{index}", fields: fields)}
+            ]
 
-        _ -> []
+        _ ->
+          []
       end)
     else
       _ -> []
@@ -3628,10 +3651,13 @@ defmodule AtlasControl.Pages do
             {:ok, %{} = decoded} -> decoded
             _ -> %{}
           end
-        _ -> %{}
+
+        _ ->
+          %{}
       end
 
     intro = history_pairs([{"Question", offer["question"]}, {"Rationale", offer["rationale"]}])
+
     options =
       offer["options"]
       |> List.wrap()
@@ -3640,9 +3666,16 @@ defmodule AtlasControl.Pages do
         {%{} = option, index} ->
           recommended = is_binary(offer["recommended"]) and option["id"] == offer["recommended"]
           label = "Option #{index}" <> if(recommended, do: " (recommended)", else: "")
-          history_pairs([{label, option["text"]}, {"Details", option["details"]},
-                         {"Rule", option["rule"]}, {"Consequences", option["consequences"]}])
-        _ -> []
+
+          history_pairs([
+            {label, option["text"]},
+            {"Details", option["details"]},
+            {"Rule", option["rule"]},
+            {"Consequences", option["consequences"]}
+          ])
+
+        _ ->
+          []
       end)
 
     values =
@@ -3655,19 +3688,31 @@ defmodule AtlasControl.Pages do
 
     links =
       for {name, keys} <- Enum.sort(if(is_map(entry["links"]), do: entry["links"], else: %{})),
-          is_list(keys), keys != [], Enum.all?(keys, &is_binary/1) do
+          is_list(keys),
+          keys != [],
+          Enum.all?(keys, &is_binary/1) do
         relation = Enum.find(k.relations, &(&1.name == name))
-        Blocks.pair(label: if(relation, do: String.capitalize(relation.label), else: name),
-          value: Enum.join(keys, ", "))
+
+        Blocks.pair(
+          label: if(relation, do: String.capitalize(relation.label), else: name),
+          value: Enum.join(keys, ", ")
+        )
       end
 
     intro ++ options ++ values ++ links
   end
 
   defp history_pairs(pairs),
-    do: for({label, value} <- pairs, is_binary(value), value != "", do: Blocks.pair(label: label, value: value))
+    do:
+      for(
+        {label, value} <- pairs,
+        is_binary(value),
+        value != "",
+        do: Blocks.pair(label: label, value: value)
+      )
 
   defp decision_details_markup(markup, [], []), do: markup
+
   defp decision_details_markup([part | sections], blocks, technical) do
     last =
       cond do
@@ -3675,13 +3720,19 @@ defmodule AtlasControl.Pages do
         sections != [] -> part["end"]
         true -> elem(List.last(blocks), 0)
       end
+
     [%{part | "end" => last} | sections] ++ technical_section(technical)
   end
 
   defp technical_section([]), do: []
+
   defp technical_section(blocks) do
-    [Blocks.section(elem(hd(blocks), 0), elem(List.last(blocks), 0),
-      title: "Technical details", collapsible: true)]
+    [
+      Blocks.section(elem(hd(blocks), 0), elem(List.last(blocks), 0),
+        title: "Technical details",
+        collapsible: true
+      )
+    ]
   end
 
   # The facts this one belongs under: `[{label, keys}]`.
