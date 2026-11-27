@@ -564,9 +564,15 @@ defmodule Model.DecisionOptionsTest do
     page = AtlasControl.Pages.render(route, m, answers)
     blocks = Map.new(page.blocks, &{&1["id"], &1})
     refute blocks["decision-history-1"]
+    assert hd(blocks["decision-history"]["props"]["fields"])["value"] =~ "Facts"
     refute blocks["decision-detail-1"]
     refute blocks["decision-raw-options"]
     refute blocks["decision-raw-option_history"]
+    unknown = put_in(legacy, ["values", "options"], ~s({"future":"content"}))
+    answers = [%{"fact" => unknown} | for(_ <- tl(reads), do: %{"facts" => []})]
+    unknown_page = AtlasControl.Pages.render(route, m, answers)
+    unknown_blocks = Map.new(unknown_page.blocks, &{&1["id"], &1})
+    assert hd(unknown_blocks["decision-offer"]["props"]["fields"])["value"] =~ "Facts"
   end
 
   test "unselected current offers use full content identity, not definition text" do

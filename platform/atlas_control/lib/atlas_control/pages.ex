@@ -3613,9 +3613,21 @@ defmodule AtlasControl.Pages do
     end
   end
 
+  defp offer_summary(_k, definition, _id, _title) when definition in [nil, ""], do: []
+
   defp offer_summary(k, definition, id, title) do
     fields = history_fields(k, %{"definition" => definition})
-    if fields == [], do: [], else: [{id, Blocks.item(title: title, fields: fields)}]
+    fields = if fields == [], do: unavailable_offer(), else: fields
+    [{id, Blocks.item(title: title, fields: fields)}]
+  end
+
+  defp unavailable_offer do
+    [
+      Blocks.pair(
+        label: "Unavailable",
+        value: "This stored record cannot be displayed here; read it through Facts."
+      )
+    ]
   end
 
   defp decision_history(k, rule, fact) do
@@ -3645,20 +3657,29 @@ defmodule AtlasControl.Pages do
               do: entry["revision"] == selected_revision,
               else: Map.take(entry, ~w(definition values links)) == current
 
-          fields = if same, do: [], else: history_fields(k, entry)
+          if same do
+            []
+          else
+            fields = history_fields(k, entry)
+            fields = if fields == [], do: unavailable_offer(), else: fields
 
-          if fields == [],
-            do: [],
-            else: [
+            [
               {"decision-history-#{index}",
                Blocks.item(title: "Earlier offer #{index}", fields: fields)}
             ]
+          end
 
-        _ ->
-          []
+        {_entry, index} ->
+          [
+            {"decision-history-#{index}",
+             Blocks.item(title: "Earlier offer #{index}", fields: unavailable_offer())}
+          ]
       end)
     else
-      _ -> []
+      _ ->
+        if text in [nil, ""],
+          do: [],
+          else: [{"decision-history", Blocks.item(title: "History", fields: unavailable_offer())}]
     end
   end
 
