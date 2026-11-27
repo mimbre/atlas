@@ -2720,8 +2720,10 @@ defmodule AtlasControl.SessionTest do
         tabs = next(tui, "boot")["tabs"]
         assert Enum.all?(tabs, &(not Map.has_key?(&1, "groups")))
 
-        for tab <- tabs, tab["to"] in ["/_open", "/_supervised"], into: %{},
-          do: {tab["to"], tab["count"]}
+        for tab <- tabs,
+            tab["to"] in ["/_open", "/_supervised"],
+            into: %{},
+            do: {tab["to"], tab["count"]}
       end
 
       # Boot never waits for the counts; they are read just after it.

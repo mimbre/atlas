@@ -210,6 +210,7 @@ defmodule AtlasTui.ColumnsSidebarTest do
       model = wide(max(width, 160))
       model = put_in(model.console.viewport, {width, 40})
       model = %{model | console: %{model.console | cache: AtlasTui.PageCache.new(), history: []}}
+
       {model, [{:send, %{"op" => "open"}}]} =
         AtlasTui.Console.to_tab(model, "/_supervised/decide/open")
 
@@ -223,7 +224,12 @@ defmodule AtlasTui.ColumnsSidebarTest do
               "type" => "groups",
               "props" => %{
                 "groups" => [
-                  %{"label" => "Build", "to" => "/_supervised/decide/open", "count" => 2, "active" => true}
+                  %{
+                    "label" => "Build",
+                    "to" => "/_supervised/decide/open",
+                    "count" => 2,
+                    "active" => true
+                  }
                 ]
               }
             }
@@ -247,6 +253,7 @@ defmodule AtlasTui.ColumnsSidebarTest do
         assert effects == []
         {model, []} = Model.key(model, :down)
         assert model.selected == 1
+
         {model, [{:send, %{"op" => "open", "to" => "/k/widget/W-4"}}]} =
           AtlasTui.Console.open(model, "/k/widget/W-4")
 
