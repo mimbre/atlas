@@ -49,6 +49,7 @@ defmodule Model.Issue do
     Small, independently testable work, normally one pull request (Flux's
     meaning). The id is its Atlas code, e.g. IS-Atlas-01.
     """ do
+    icon(:ticket)
     field(:title, :string, required: true, description: "Without the code (Flux: name)")
     field(:description, :string, description: "The text (Flux: description)", multiline: true)
 

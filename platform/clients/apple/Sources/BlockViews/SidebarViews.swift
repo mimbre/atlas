@@ -13,7 +13,7 @@ public struct SidebarItem: Identifiable, Equatable, Sendable {
 
     public let id: ID
     public let label: String
-    /// The semantic icon name Control sent (a tab's only).
+    /// The semantic icon name Control sent: a tab's, or a group's of one kind.
     public let icon: String?
     public let count: Int?
     /// Whether the count is what waits for the user.
@@ -34,7 +34,7 @@ public struct SidebarItem: Identifiable, Equatable, Sendable {
                                   forYou: tab.forYou, open: tab.groups.isEmpty ? nil : open)
             guard open else { return [row] }
             return [row] + tab.groups.map {
-                SidebarItem(id: .group($0.to), label: $0.label, icon: nil, count: $0.count, forYou: $0.forYou,
+                SidebarItem(id: .group($0.to), label: $0.label, icon: $0.icon, count: $0.count, forYou: $0.forYou,
                             open: nil)
             }
         }
@@ -59,19 +59,29 @@ public enum SidebarLook {
         return forYou ? .forYou(count) : .plain(count)
     }
 
-    /// The SF Symbol for a semantic icon name Control sends; nil (no icon) for a name this
-    /// app does not know.
+    /// The SF Symbol for a semantic icon name Control sends: a page's (assigned, supervised,
+    /// open, workers) or a kind's, the one the model names for it, the same on its tab, its
+    /// group, its rows and its page's header; nil (no icon) for a name this app does not know.
     public static func symbol(_ icon: String?) -> String? {
         switch icon {
         case "assigned": "tray"
         case "supervised": "eye"
         case "open": "hand.raised"
-        case "scenes": "rectangle.stack"
-        case "agents": "person.2"
-        case "todos": "checklist"
-        case "activity": "clock.arrow.circlepath"
         case "workers": "cpu"
-        case "decisions": "arrow.triangle.branch"
+        case "scales": "checkmark.seal"
+        case "checklist": "checklist"
+        case "frame": "rectangle.stack"
+        case "route": "list.bullet.rectangle"
+        case "ticket": "smallcircle.filled.circle"
+        case "sparkles": "sparkles"
+        case "gears": "gearshape.2"
+        case "figure": "person"
+        case "hammer": "hammer"
+        case "merge": "arrow.triangle.pull"
+        case "magnifier": "text.magnifyingglass"
+        case "flask": "testtube.2"
+        case "upgrade": "arrow.up.circle"
+        case "history": "clock.arrow.circlepath"
         default: nil
         }
     }
@@ -218,7 +228,18 @@ struct SidebarRow: View {
             .disabled(item.open == nil)
             .padding(.trailing, 4)
             if item.isGroup {
-                Color.clear.frame(width: SidebarLook.indent(group: true), height: 1)
+                // A group of one kind has its kind's icon in its tab's icon column, smaller;
+                // its label stays under its tab's.
+                ZStack {
+                    if let symbol = SidebarLook.symbol(item.icon) {
+                        Image(systemName: symbol)
+                            .prism(Prism.Typography.labelsmall)
+                            .foregroundStyle(PrismDarkGap.sidebarIcon(scheme, selected: selected))
+                    }
+                    Color.clear.frame(width: SidebarLook.icon, height: 1)
+                }
+                .frame(width: SidebarLook.icon)
+                .padding(.trailing, SidebarLook.iconSpace)
             } else {
                 // Without a known icon the column stays (a blank), so the labels line up:
                 // an empty Group takes no room at all, its frame with it.

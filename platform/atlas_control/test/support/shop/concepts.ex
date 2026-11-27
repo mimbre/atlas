@@ -10,6 +10,7 @@ defmodule AtlasControl.Shop.Widget do
   type(:shade, values: [:light, :dark], labels: [light: "Light", dark: "Dark"])
 
   entity :widget, label: "Widget", plural: "widgets", id_type: :manual, id_prefix: "W-" do
+    icon(:widget)
     field(:title, :string, required: true)
     field(:shade, :shade)
     field(:done, :boolean, default: false)
@@ -34,6 +35,7 @@ defmodule AtlasControl.Shop.PutInWidget do
   use RelaDSL
 
   entity :widget, label: "Widget", plural: "widgets", id_type: :manual, id_prefix: "W-" do
+    icon(:widget)
     field(:title, :string, required: true)
     primary(:title)
     create(ask: [:title], id: [prefix: "W-", digits: 2], producer: :put_in_by)
@@ -57,6 +59,7 @@ defmodule AtlasControl.Shop.DecidedWidget do
   type(:widget_state, values: [:open, :final, :dropped])
 
   entity :widget, label: "Widget", plural: "widgets", id_type: :manual, id_prefix: "W-" do
+    icon(:widget)
     field(:title, :string, required: true)
     field(:shade, :shade)
     field(:done, :boolean, default: false)
@@ -484,6 +487,7 @@ defmodule AtlasControl.Shop.SteppedWidget do
   type(:shade, values: [:light, :dark], labels: [light: "Light", dark: "Dark"])
 
   entity :widget, label: "Widget", plural: "widgets", id_type: :manual, id_prefix: "W-" do
+    icon(:widget)
     field(:title, :string, required: true)
     field(:shade, :shade)
     field(:done, :boolean, default: false)
@@ -623,6 +627,7 @@ defmodule AtlasControl.Shop.InstructedWidget do
   type(:shade, values: [:light, :dark], labels: [light: "Light", dark: "Dark"])
 
   entity :widget, label: "Widget", plural: "widgets", id_type: :manual, id_prefix: "W-" do
+    icon(:widget)
     field(:title, :string, required: true)
     field(:shade, :shade)
     field(:done, :boolean, default: false)

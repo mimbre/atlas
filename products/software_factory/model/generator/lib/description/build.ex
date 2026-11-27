@@ -27,7 +27,7 @@ defmodule RelaDSL.Description.Build do
     :closes_parent,
     :review
   ]
-  @entity_notes ~w(top primary plural_label start create properties completion progress connector agent order
+  @entity_notes ~w(top primary plural_label icon start create properties completion progress connector agent order
                    by_hand late actions counts requires authority frozen replaces layering sealed
                    delete_error decision_options panel)
   @listed %{action: "actions", counts: "counts", requires: "requires"}

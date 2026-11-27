@@ -51,7 +51,7 @@ defmodule AtlasControl.ShellTest do
     send_message(
       s,
       Map.merge(
-        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.39.0"),
+        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.40.0"),
         overrides
       )
     )
@@ -60,7 +60,7 @@ defmodule AtlasControl.ShellTest do
   defp connected(port) do
     s = socket(port)
     hello(s)
-    assert %{"op" => "welcome", "spec" => "0.39.0"} = receive_message(s)
+    assert %{"op" => "welcome", "spec" => "0.40.0"} = receive_message(s)
     assert %{"op" => "page"} = receive_message(s)
     s
   end
@@ -119,6 +119,18 @@ defmodule AtlasControl.ShellTest do
     assert %{"icon" => "assigned", "for_you" => true} = tabs["/"]
     assert %{"for_you" => false} = tabs["/k/part"]
     assert Enum.all?(tabs["/"]["groups"] || [], &(&1["for_you"] == true))
+  end
+
+  test "a tab or group of one kind has that kind's icon, as its rows; a kind without one has none" do
+    d = description(Shop.ShelledAssigned)
+    assert {:ok, shell} = Shell.boot(d, "member")
+    tabs = Map.new(shell["tabs"], &{&1["to"], &1})
+
+    assert tabs["/k/widget"]["icon"] == "widget"
+    refute Map.has_key?(tabs["/k/part"], "icon")
+
+    groups = Map.new(tabs["/"]["groups"], &{&1["to"], &1})
+    assert groups["/_assigned/widget"]["icon"] == "widget"
   end
 
   test "a member is greeted and named by its name; an agent, or a model without a greeting, is not greeted" do
@@ -214,7 +226,7 @@ defmodule AtlasControl.ShellTest do
     # D-0105: an older client is welcomed with Control's version.
     old = socket(port)
     hello(old, %{"spec" => "0.1.0"})
-    assert %{"op" => "welcome", "spec" => "0.39.0"} = receive_message(old)
+    assert %{"op" => "welcome", "spec" => "0.40.0"} = receive_message(old)
   end
 
   test "boot separates queued pages and preserves the edit form", %{port: port} do
