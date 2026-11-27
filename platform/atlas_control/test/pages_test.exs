@@ -1706,12 +1706,13 @@ defmodule AtlasControl.PagesTest do
     # No technical details: those are `atlas get`'s.
     assert Enum.map(page.blocks, & &1["id"]) == ["groups", "list"]
 
-    # Calm rows: each item's key; no since, cause or owner; what is to be done (its state's
-    # short name), blocked, late.
+    # Calm rows, deadlines first, soonest at the top (W-2's due date, then the deadline
+    # Facts presents on W-1): each item's key; no since, cause or owner; what is to be done
+    # (its state's short name), blocked, late.
     rows = blocks["list"]["rows"]
-    assert Enum.map(rows, & &1["to"]) == ~w(/k/widget/W-1 /k/widget/W-2 /k/widget/W-3)
-    assert Enum.map(rows, & &1["id"]) == ~w(W-1 W-2 W-3)
-    [one, two, three] = Enum.map(rows, & &1["detail"])
+    assert Enum.map(rows, & &1["to"]) == ~w(/k/widget/W-2 /k/widget/W-1 /k/widget/W-3)
+    assert Enum.map(rows, & &1["id"]) == ~w(W-2 W-1 W-3)
+    [two, one, three] = Enum.map(rows, & &1["detail"])
     assert one == "Needs a look · open · blocked"
     assert two =~ ~r/^Late · due 2020-01-02 12:00$/
     assert three in [nil, ""]
@@ -2285,8 +2286,9 @@ defmodule AtlasControl.PagesTest do
 
     list = by_id(page)["list"]
 
-    # Newest move first; a completed one is not there; what is to be done in it.
-    assert [%{"to" => "/k/part/P-1"}, %{"to" => "/k/widget/W-1"} = older] = list["rows"]
+    # Oldest waiting first, one that says no since last; a completed one is not there;
+    # what is to be done in it.
+    assert [%{"to" => "/k/widget/W-1"} = older, %{"to" => "/k/part/P-1"}] = list["rows"]
     assert older["detail"] == "open"
     assert [%{"key" => "s", "label" => "Widgets", "to" => "/k/widget"}] = list["actions"]
     assert Pages.assigned_count(@assigning, answers) == "2 kept by you"
