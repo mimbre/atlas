@@ -3564,9 +3564,7 @@ defmodule AtlasControl.Pages do
             {block, rest}
           end)
 
-        history = decision_history(get_in(fact, ["values", rule["history"]]), get_in(fact, ["values", rule["definition"]]))
-        history_block =
-          if history == [], do: [], else: [{"decision-history", Blocks.item(title: "Earlier offers", fields: history)}]
+        history_blocks = decision_history(k, rule, fact)
 
         technical =
           for name <- raw_names,
@@ -3578,28 +3576,42 @@ defmodule AtlasControl.Pages do
              Blocks.item(title: field.label, fields: [Blocks.pair(label: field.label, value: value)])}
           end
 
-        {put_in(item, ["props", "fields"], remaining), List.flatten(blocks) ++ history_block, technical}
+        {put_in(item, ["props", "fields"], remaining), List.flatten(blocks) ++ history_blocks, technical}
 
       _ ->
         {item, [], []}
     end
   end
 
-  defp decision_history(text, current) when is_binary(text) do
-    with {:ok, entries} when is_list(entries) <- JSON.decode(text) do
+  defp decision_history(k, rule, fact) do
+    text = get_in(fact, ["values", rule["history"]])
+    current = %{
+      "definition" => get_in(fact, ["values", rule["definition"]]),
+      "values" =>
+        Map.take(fact["values"] || %{}, rule["content"] || [])
+        |> Map.reject(fn {_, value} -> value in [nil, ""] end),
+      "links" =>
+        Map.new(rule["content_links"] || [], fn relation ->
+          {relation, Enum.sort(get_in(fact, ["links", relation]) || [])}
+        end)
+    }
+    selected_revision = get_in(fact, ["values", rule["revision"]])
+
+    with true <- is_binary(text),
+         {:ok, entries} when is_list(entries) <- JSON.decode(text) do
       entries
       |> Enum.with_index(1)
       |> Enum.flat_map(fn
-        {%{"definition" => definition}, index} when is_binary(definition) and definition != current ->
-          case JSON.decode(definition) do
-            {:ok, %{"question" => question} = offer} when is_binary(question) ->
-              options =
-                for %{"text" => text} <- List.wrap(offer["options"]), is_binary(text), do: text
+        {%{} = entry, index} ->
+          same =
+            if is_binary(selected_revision) and selected_revision != "",
+              do: entry["revision"] == selected_revision,
+              else: Map.take(entry, ~w(definition values links)) == current
 
-              [Blocks.pair(label: "Offer #{index}", value: Enum.join([question | options], "\n"))]
-
-            _ -> []
-          end
+          fields = if same, do: [], else: history_fields(k, entry)
+          if fields == [],
+            do: [],
+            else: [{"decision-history-#{index}", Blocks.item(title: "Earlier offer #{index}", fields: fields)}]
 
         _ -> []
       end)
@@ -3608,7 +3620,52 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  defp decision_history(_, _), do: []
+  defp history_fields(k, entry) do
+    offer =
+      case entry["definition"] do
+        text when is_binary(text) ->
+          case JSON.decode(text) do
+            {:ok, %{} = decoded} -> decoded
+            _ -> %{}
+          end
+        _ -> %{}
+      end
+
+    intro = history_pairs([{"Question", offer["question"]}, {"Rationale", offer["rationale"]}])
+    options =
+      offer["options"]
+      |> List.wrap()
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn
+        {%{} = option, index} ->
+          recommended = is_binary(offer["recommended"]) and option["id"] == offer["recommended"]
+          label = "Option #{index}" <> if(recommended, do: " (recommended)", else: "")
+          history_pairs([{label, option["text"]}, {"Details", option["details"]},
+                         {"Rule", option["rule"]}, {"Consequences", option["consequences"]}])
+        _ -> []
+      end)
+
+    values =
+      for {name, value} <- Enum.sort(if(is_map(entry["values"]), do: entry["values"], else: %{})),
+          is_binary(value) or is_number(value) or is_boolean(value),
+          value not in [nil, ""] do
+        field = Enum.find(k.fields, &(&1.name == name))
+        Blocks.pair(label: if(field, do: field.label, else: name), value: to_text(value))
+      end
+
+    links =
+      for {name, keys} <- Enum.sort(if(is_map(entry["links"]), do: entry["links"], else: %{})),
+          is_list(keys), keys != [], Enum.all?(keys, &is_binary/1) do
+        relation = Enum.find(k.relations, &(&1.name == name))
+        Blocks.pair(label: if(relation, do: String.capitalize(relation.label), else: name),
+          value: Enum.join(keys, ", "))
+      end
+
+    intro ++ options ++ values ++ links
+  end
+
+  defp history_pairs(pairs),
+    do: for({label, value} <- pairs, is_binary(value), value != "", do: Blocks.pair(label: label, value: value))
 
   defp decision_details_markup(markup, [], []), do: markup
   defp decision_details_markup([part | sections], blocks, technical) do

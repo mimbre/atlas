@@ -586,12 +586,7 @@ defmodule RelaDSL.Description.Check do
       path
     ) ++
       Enum.flat_map(names, &field(ctx, kind, rule[&1], path)) ++
-      Enum.flat_map(rule["details"] || [], fn group ->
-        keys(group, ~w(title fields), path ++ ["details"]) ++
-          Enum.flat_map(if(is_map(group), do: group["fields"] || [], else: []),
-            &field(ctx, kind, &1, path ++ ["details"])
-          )
-      end) ++
+      decision_details(ctx, kind, rule["details"], path ++ ["details"]) ++
       Enum.flat_map(names, fn key ->
         if get_in(ctx.entities, [kind, "properties", rule[key], "type"]) == "string",
           do: [],
@@ -665,6 +660,21 @@ defmodule RelaDSL.Description.Check do
         [kind],
         "decision_options requires its definition, selection, snapshot and revision fields"
       )
+
+  defp decision_details(_ctx, _kind, nil, _path), do: []
+  defp decision_details(ctx, kind, groups, path) when is_list(groups) do
+    Enum.flat_map(groups, fn group ->
+      if is_map(group) and text?(group["title"]) and is_list(group["fields"]) and
+           Enum.all?(group["fields"], &text?/1) do
+        keys(group, ~w(title fields), path) ++
+          Enum.flat_map(group["fields"], &field(ctx, kind, &1, path))
+      else
+        p(path, :decision_details, [kind], "decision details need a title and a list of field names")
+      end
+    end)
+  end
+  defp decision_details(_ctx, kind, _groups, path),
+    do: p(path, :decision_details, [kind], "decision details must be a list of groups")
 
   defp navigation(nil, _path), do: []
 
