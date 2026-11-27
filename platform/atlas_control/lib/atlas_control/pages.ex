@@ -1267,8 +1267,8 @@ defmodule AtlasControl.Pages do
   The groups of a screen, from the model alone, each a filter of it: `[{key, label}]`.
   What is assigned (`:assigned`) per kind of the facts the assignments are components of
   (else per kind they start at); Open for you and Supervised by you per supervised span,
-  keyed `{subflow, span}`. A group's page is `{:group, screen, key, by}`; the shell offers
-  the same groups under the page's tab (`AtlasControl.Shell`).
+  keyed `{subflow, span}`. A group's page is `{:group, screen, key, by}`; list pages
+  expose these destinations in their `groups` blocks.
   """
   def groups(m, :assigned) do
     case assigned_rule(m) do

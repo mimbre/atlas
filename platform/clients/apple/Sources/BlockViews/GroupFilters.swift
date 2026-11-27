@@ -9,11 +9,8 @@ public struct GroupFilters: View {
     let filter: (String) -> Void
     @Environment(\.colorScheme) private var scheme
 
-    public init(page: PageMessage, selected: String?, filter: @escaping (String) -> Void) {
-        groups = (page.blocks ?? []).flatMap { block in
-            if case .groups(let groups) = block.content { return groups.groups ?? [] }
-            return []
-        }
+    public init(groups: GroupsBlock, selected: String?, filter: @escaping (String) -> Void) {
+        self.groups = groups.groups ?? []
         self.selected = selected
         self.filter = filter
     }
@@ -33,6 +30,9 @@ public struct GroupFilters: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityAddTraits(active ? .isSelected : [])
+                        } else {
+                            Text([group.label ?? "Group", group.count.map(String.init)].compactMap { $0 }.joined(separator: " "))
+                                .prismLook(pillLook(active: false).label)
                         }
                     }
                 }
