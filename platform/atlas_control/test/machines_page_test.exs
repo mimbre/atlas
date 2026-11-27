@@ -1,5 +1,5 @@
 defmodule AtlasControl.MachinesPageTest do
-  # The Machines tab (contract 0.41.0): with one machine, its page; with more, a list. The
+  # The Machines tab (contract 0.43.0): with one machine, its page; with more, a list. The
   # shop's benches are the machines (`AtlasControl.Shop.Benched`), its shifts the attempts
   # that ran on them, its orders the work and its refits the upgrades.
   use ExUnit.Case, async: true

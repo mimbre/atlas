@@ -47,7 +47,7 @@ defmodule RelaDSL.Control.Rules do
   @doc """
   With no fact, the operations the kind offers by hand (`:create`, `:update`, `:delete`).
   With a fact, the actions its page offers: `%{op: :update}` and `%{op: :delete}` as the
-  kind allows, then each action the model adds (`%{label, key, to}`) while the fact's
+  kind allows, then each action the model adds (`%{label, key, to, help}`) while the fact's
   fields have one of the values its `when` names.
   """
   def actions(rule, nil, _viewer), do: rule.by_hand
@@ -65,7 +65,7 @@ defmodule RelaDSL.Control.Rules do
           Enum.all?(described.when, fn {field, allowed} ->
             to_text(values[field]) in allowed
           end),
-          do: Map.take(described, [:label, :key, :to])
+          do: Map.take(described, [:label, :key, :to, :help])
   end
 
   @doc """
@@ -83,8 +83,8 @@ defmodule RelaDSL.Control.Rules do
   `%{text, since, by}`; `section` what the state shows of a fact's field (`%{heading,
   text}`): the part under its `heading`, or the whole field under its `label`; nil when
   that is empty. A section shown as steps (`steps: true`) has `steps: %{from}` too: the
-  field the section shows. Each answer is `%{key, label, note, change, set,
-  remove, weight}`, `weight` `"main"` (exactly one), `"decline"` (at most one) or `"other"`:
+  field the section shows. Each answer is `%{key, label, help, note, change, set,
+  remove, weight, hand_over, choices}`, `weight` `"main"` (exactly one), `"decline"` (at most one) or `"other"`:
   as the model declares it, else the first answer main and the first other that asks a
   note decline. `panel` is the panel the kind's `panel` annotation declares for the state the
   work is in, as written (Control fills it); nil when it declares none.
@@ -228,18 +228,18 @@ defmodule RelaDSL.Control.Rules do
   The explicit restart of the run that presents `fact`, when that run is completed (a
   completed or reopened one) and `viewer` is one its selection's `restart_by` names:
   `owner`, one the owner relation links, or a configured actor's role (`actors`, `%{role
-  => %{"key"}}`). `%{label, key, flow, run, inputs}`: the model's words for it, the
+  => %{"key"}}`). `%{label, key, help, flow, run, inputs}`: the model's words for it, the
   subflow and run to restart, and the kind a request for it is kept as. Nil otherwise,
   and when the model words no restart. Facts checks the request again; this only offers.
   """
   def restart(flow, fact, parts, viewer, actors) do
-    with %{label: label, key: key} <- flow.words[:restart],
+    with %{label: label, key: key} = words <- flow.words[:restart],
          inputs when is_binary(inputs) <- flow.inputs,
          {_written, %{"status" => "completed", "run" => run} = view} when is_binary(run) <-
            written_view(flow, fact, parts),
          by when is_binary(by) <- viewer && viewer[:key],
          true <- restarter?(flow.restart_by[view["flow"]] || [], view, by, actors) do
-      %{label: label, key: key, flow: view["flow"], run: run, inputs: inputs}
+      %{label: label, key: key, help: words[:help], flow: view["flow"], run: run, inputs: inputs}
     else
       _ -> nil
     end
@@ -256,8 +256,8 @@ defmodule RelaDSL.Control.Rules do
 
   # A record with a single choice open to an answer: its adopt options are the answers
   # (`option`: one selects it), and after them the state's own answers but its main one
-  # (Accept, which the options stand for): Decline with an alternative, Ask a question,
-  # Hand over, Leave it to the proposer (D-0106).
+  # (Accept, which the options stand for): Decline with an alternative, Ask, Delegate
+  # (D-0106).
   defp decision_todo(flow, fact, todo) do
     rule = flow[:decision_options]
     text = rule && get_in(fact, ["values", rule["definition"]])
@@ -341,12 +341,15 @@ defmodule RelaDSL.Control.Rules do
     end
   end
 
-  # `prompt`: the question a note it needs asks; `icon`: what it does, by name;
-  # `hand_over`: it is the page's own hand-over (to someone else, D-0106).
+  # `prompt`: the question a note it needs asks; `icon`: what it does, by name; `help`:
+  # what it does, in full; `hand_over`: it is the page's own hand-over (to someone else,
+  # D-0106), or with a change a delegation, whose form chooses between the two in the
+  # words of its `choices` (`%{change: %{label, help}, hand_over: %{label, help}}`).
   defp answer_view(a),
     do: %{
       key: a["key"],
       label: a["label"],
+      help: if(is_binary(a["help"]), do: a["help"]),
       note: a["note"] == true,
       prompt: if(is_binary(a["prompt"]), do: a["prompt"]),
       icon: if(is_binary(a["icon"]), do: a["icon"]),
@@ -354,17 +357,33 @@ defmodule RelaDSL.Control.Rules do
       change: is_map(a["change"]),
       set: if(is_binary(a["set"]), do: a["set"]),
       remove: if(is_binary(a["remove"]), do: a["remove"]),
-      hand_over: a["hand_over"] == true
+      hand_over: a["hand_over"] == true,
+      choices: choices_view(a["choices"])
     }
 
+  defp choices_view(%{"change" => change, "hand_over" => hand_over}),
+    do: %{change: words_view(change), hand_over: words_view(hand_over)}
+
+  defp choices_view(_), do: nil
+
+  defp words_view(words),
+    do: %{label: words["label"], help: if(is_binary(words["help"]), do: words["help"])}
+
   # An agent answering on behalf of whom it assists gets no answer that links the one who
-  # answers: that answer is the person's own.
+  # answers: that answer is the person's own. A delegation keeps its hand-over: whom it
+  # assists may have it handed to someone else, never left to the proposer.
   defp for_whom(todo, nil), do: todo
 
   defp for_whom(todo, _person),
     do:
       Map.update(todo, "answers", [], fn answers ->
-        Enum.reject(answers, &is_binary(get_in(&1, ["change", "self"])))
+        Enum.flat_map(answers, fn a ->
+          cond do
+            not is_binary(get_in(a, ["change", "self"])) -> [a]
+            a["hand_over"] == true -> [Map.drop(a, ["change", "choices"])]
+            true -> []
+          end
+        end)
       end)
 
   # The fact the work is presented on, its presentation and whom the viewer answers for

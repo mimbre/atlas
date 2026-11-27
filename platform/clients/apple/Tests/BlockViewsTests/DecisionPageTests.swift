@@ -28,7 +28,7 @@ final class DecisionPageTests: XCTestCase {
 
     private static let decision: [[String: Any]] = [
         ["id": "header", "type": "header", "props": ["eyebrow": "YOUR DECISION", "key": "D-7", "title": "How do we store examples?"]],
-        ["id": "why", "type": "text", "props": ["label": "Why", "text": "Nothing to run."]],
+        ["id": "why", "type": "text", "props": ["text": "Nothing to run."]],
         option(1, "Use SQLite", badge: "★ Recommended", tone: "success",
                fields: [("Rule", "Store examples in SQLite."), ("Consequences", "One file per environment.")],
                answer: ["label": "Choose", "key": "1", "to": "/k/decision/D-7/answer/1", "submit_to": call("adopt-sqlite"),
@@ -141,8 +141,8 @@ final class DecisionPageTests: XCTestCase {
 
     /// The opened item's other actions (its `actions` blocks) are the toolbar's, its context
     /// menu's and the Actions menu's, not the page's own: Failures… (icon `faults`) among
-    /// them, never a primary button under the title; Delete last, apart; each its label and
-    /// key as its tooltip.
+    /// them, never a primary button under the title; Delete last, apart; each its label as
+    /// its tooltip (no `help` sent).
     func testTheItemsActionsAreTheToolbarsWithDeleteLastAndFailuresAmongThem() throws {
         let blocks = Self.decision.map { block -> [String: Any] in
             guard block["id"] as? String == "actions" else { return block }
@@ -161,8 +161,61 @@ final class DecisionPageTests: XCTestCase {
         XCTAssertEqual(delete?.key, "d")
         XCTAssertEqual(rest.map { ActionIcon.symbol($0.icon) },
                        ["pencil", "person.and.arrow.left.and.arrow.right", "exclamationmark.triangle"])
-        XCTAssertEqual(rest.map(PageActions.tooltip), ["Update (u)", "Hand to (h)", "Failures (!)"])
+        XCTAssertEqual(rest.map(PageActions.tooltip), ["Update decision", "Hand to…", "Failures…"])
         XCTAssertTrue(PageActions.others(nil).isEmpty, "nothing open, no toolbar actions")
+    }
+
+    /// Melle: on a decision the bottom keeps only the main answers (a Choose per card and
+    /// Decline all; Accept and Decline under one proposal); its `other` answers go in the
+    /// toolbar after its actions, taken as their keys take them, Delete last: Update, Ask a
+    /// question, Hand over, Leave it to the proposer, Delete. Update and Delete show their
+    /// icon alone, the others their label too.
+    func testTheOtherAnswersGoInTheToolbarAfterTheActionsWithDeleteLast() throws {
+        let ask = ["label": "Ask a question", "key": "q", "to": "/k/decision/D-7/answer/q", "note": true,
+                   "weight": "other", "icon": "question"] as [String: Any]
+        let hand = ["label": "Hand over", "key": "h", "to": "/k/decision/D-7/links/decided_by",
+                    "weight": "other", "icon": "hand_over"] as [String: Any]
+        let leave = ["label": "Leave it to the proposer", "key": "l", "to": "/k/decision/D-7/answer/l",
+                     "submit_to": Self.call("delegate"), "weight": "other", "icon": "delegate"] as [String: Any]
+        let blocks = Self.decision.map { block -> [String: Any] in
+            switch block["id"] as? String {
+            case "answers":
+                return ["id": "answers", "type": "answers", "props": ["answers": [
+                    ["label": "Decline all", "key": "3", "to": "/k/decision/D-7/answer/3", "note": true,
+                     "weight": "decline", "icon": "decline"],
+                    ask, hand, leave,
+                ]]]
+            case "actions":
+                return ["id": "actions", "type": "actions", "props": ["actions": [
+                    ["label": "Update decision", "key": "u", "to": "/k/decision/D-7/edit", "icon": "edit", "button": "Update"],
+                    ["label": "Delete decision", "key": "d", "to": "/k/decision/D-7/delete", "icon": "delete", "button": "Delete"],
+                ]]]
+            default:
+                return block
+            }
+        }
+        let page = try Self.page("/k/decision/D-7", blocks)
+        let answers = try XCTUnwrap(PagePresentation(page).entries.lazy.compactMap { entry -> AnswersBlock? in
+            if case .answers(let block) = entry.item { block } else { nil }
+        }.first)
+
+        XCTAssertEqual(AnswersView.shown(answers, toolbar: true).map(\.label), ["Decline all"])
+        XCTAssertEqual(AnswersView.shown(answers, toolbar: false).count, 4, "a sheet shows them all")
+        let toolbar = PageActions.toolbar(page)
+        XCTAssertEqual(toolbar.map(\.key), ["u", "q", "h", "l", "d"])
+        XCTAssertEqual(toolbar.map(PageActions.iconOnly), [true, false, false, false, true])
+        XCTAssertEqual(toolbar.map { ActionIcon.symbol($0.icon) },
+                       ["pencil", "questionmark.bubble", "person.and.arrow.left.and.arrow.right",
+                        "arrow.uturn.backward", "trash"])
+        // Each is taken as its key takes it: Ask a question opens its note form, Leave it to
+        // the proposer submits its call.
+        for key in ["q", "h", "l"] {
+            let item = try XCTUnwrap(toolbar.first { $0.key == key })
+            let taken = try XCTUnwrap(PageActions.action(key: key, on: [page]))
+            XCTAssertEqual(item.to, taken.to, key)
+            XCTAssertEqual(item.submitTo, taken.submitTo, key)
+        }
+        XCTAssertTrue(PageActions.toolbar(nil).isEmpty, "nothing open, nothing in the toolbar")
     }
 
     func testEachOptionsButtonSendsExactlyThatOptionsAnswerAsItsKeyDoes() throws {
@@ -211,7 +264,7 @@ final class DecisionPageTests: XCTestCase {
             XCTAssertEqual(action.to, to, "it opens the form that asks its note")
             XCTAssertTrue(PageActions.doable(action))
             XCTAssertEqual(PageActions.action(key: key, on: [page]), action)
-            XCTAssertEqual(AnswersView.details(answers), [detail])
+            XCTAssertEqual(AnswersView.details(AnswersView.shown(answers, toolbar: true)), [detail])
         }
     }
 

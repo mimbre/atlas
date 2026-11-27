@@ -136,4 +136,52 @@ defmodule Model.ControlViewsTest do
 
     assert [%{"label" => "Write the first scene"}] = list["rows"]
   end
+
+  # Every action and answer a page offers explains itself (`help`, a client's tooltip):
+  # the model's words for its own, Control's for the rest. A to-do's page, an item's page
+  # and a list (the decisions' pages: Model.DecisionOptionsTest).
+  test "every action and answer on a to-do, an item and a list explains itself" do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+    form = %{by: "ada", by_kind: "person"}
+    to_do_flow = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "to_do"))
+
+    to_do = %{
+      "key" => "TD-01",
+      "values" => %{"title" => "Rotate the key", "instructions" => "1. Rotate it"},
+      "links" => %{}
+    }
+
+    open =
+      to_do_flow.present("open", to_do["values"])
+      |> Map.merge(%{"owner" => ["ada"], "actionable" => true})
+
+    issue = %{"key" => "IS-Atlas-01", "values" => %{"title" => "Build it"}, "links" => %{}}
+
+    for {route, fact, presentation} <- [
+          {{:item, "to_do", "TD-01"}, to_do, open},
+          {{:item, "issue", "IS-Atlas-01"}, issue, nil}
+        ] do
+      answers =
+        for {{kind, _}, i} <- Enum.with_index(AtlasControl.Pages.reads(route, m)) do
+          cond do
+            i == 0 ->
+              %{"fact" => fact}
+
+            kind == "assignment" and presentation != nil ->
+              %{"fact" => %{"key" => "AS-" <> fact["key"], "presentation" => presentation}}
+
+            true ->
+              %{"facts" => []}
+          end
+        end
+
+      blocks = AtlasControl.Pages.render(route, m, answers, form).blocks
+      assert Model.Offered.all(blocks) != [], inspect(route)
+      assert Model.Offered.unexplained(blocks) == [], inspect(route)
+    end
+
+    list = AtlasControl.Pages.render({:list, "decision"}, m, [%{"facts" => []}], form).blocks
+    assert Model.Offered.all(list) != []
+    assert Model.Offered.unexplained(list) == []
+  end
 end

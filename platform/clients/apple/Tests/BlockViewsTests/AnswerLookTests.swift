@@ -71,4 +71,61 @@ final class AnswerLookTests: XCTestCase {
             XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), symbol)
         }
     }
+
+    /// Melle: every button and toolbar item's tooltip says what it does in full: Control's
+    /// `help`, else its label (not its short button text).
+    func testATooltipIsControlsHelpElseTheLabel() throws {
+        let ask = PanelAnswerModel(label: "Ask", key: "q", to: "/k/decision/D-7/answer/q", note: true,
+                                   weight: "other", icon: "question", help: "Ask the proposer a question")
+        XCTAssertEqual(AnswerLook.tooltip(ask), "Ask the proposer a question")
+        XCTAssertEqual(AnswerLook.tooltip(answer("Choose", weight: "main")), "Choose")
+        XCTAssertEqual(AnswerLook.tooltip(PanelAnswerModel(label: "Accept", help: " ")), "Accept", "a blank help is none")
+
+        let update = ActionModel(label: "Update decision", key: "u", to: "/k/decision/D-7/edit", icon: "edit",
+                                 button: "Update")
+        XCTAssertEqual(PageActions.tooltip(update), "Update decision")
+        let delete = ActionModel(label: "Delete decision", key: "d", to: "/k/decision/D-7/delete", icon: "delete",
+                                 help: "Delete D-7 for good")
+        XCTAssertEqual(PageActions.tooltip(delete), "Delete D-7 for good")
+
+        // An answer in the toolbar keeps its help.
+        let object: [String: Any] = [
+            "op": "page", "reason": "open", "path": "/k/decision/D-7", "title": "D-7", "at": "12:00:00", "position": 1,
+            "blocks": [["id": "answers", "type": "answers", "props": ["answers": [
+                ["label": "Ask", "key": "q", "to": "/k/decision/D-7/answer/q", "note": true, "weight": "other",
+                 "icon": "question", "help": "Ask the proposer a question"],
+            ]]]],
+        ]
+        let line = try JSONSerialization.data(withJSONObject: object)
+        guard case .pageOpen(let page) = try WireLine.decode(ControlMessage.self, from: line) else {
+            return XCTFail("not a page")
+        }
+        XCTAssertEqual(PageActions.toolbar(page).map(PageActions.tooltip), ["Ask the proposer a question"])
+    }
+
+    /// Melle: a list's own actions (Create to-do) are in the list column's toolbar, above
+    /// the list, as a quiet `+` alone, its tooltip Control's help, else its label; its other
+    /// actions (a row's) are not.
+    func testTheListsCreateIsAQuietPlusInItsToolbar() throws {
+        let object: [String: Any] = [
+            "op": "page", "reason": "open", "path": "/k/todo", "title": "To-dos", "at": "12:00:00", "position": 1,
+            "blocks": [["id": "list", "type": "list", "props": [
+                "rows": [["id": "TD-1", "key": "TD-1", "label": "One", "to": "/k/todo/TD-1"]],
+                "actions": [
+                    ["label": "Create to-do", "key": "c", "to": "/k/todo/new", "icon": "create", "page": true],
+                    ["label": "Export", "key": "x", "to": "/k/todo/export"],
+                ],
+            ]]],
+        ]
+        let line = try JSONSerialization.data(withJSONObject: object)
+        guard case .pageOpen(let page) = try WireLine.decode(ControlMessage.self, from: line) else {
+            return XCTFail("not a page")
+        }
+        let toolbar = PageActions.listToolbar(page)
+        XCTAssertEqual(toolbar.map(\.key), ["c"])
+        XCTAssertEqual(toolbar.map(PageActions.iconOnly), [true])
+        XCTAssertEqual(toolbar.map { ActionIcon.symbol($0.icon) }, ["plus"])
+        XCTAssertEqual(toolbar.map(PageActions.tooltip), ["Create to-do"])
+        XCTAssertTrue(PageActions.listToolbar(nil).isEmpty)
+    }
 }

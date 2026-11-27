@@ -23,7 +23,6 @@ defmodule AtlasFacts.Workshops do
                   "field" => "status",
                   "open" => "proposed",
                   "adopt" => "accepted",
-                  "decline" => "rejected",
                   "superseded" => "superseded",
                   "replaceable" => ["accepted", "superseded"]
                 },

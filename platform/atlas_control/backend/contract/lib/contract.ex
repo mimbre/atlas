@@ -90,11 +90,17 @@ defmodule AtlasBFFContract.Contract do
   # kind (`icon` on a `row`, a `header`, a `panel` and a `shell_group`; a tab that lists
   # a kind takes its kind's when the model names none for the tab); a client that does
   # not know the name shows none.
-  # 0.41.0: one Machines tab in place of Agents and Workers: the machines pages
+  # 0.41.0: every action and answer explains itself (`help` on an `action` and a
+  # `panel_answer`, a client's tooltip; without it the label), a choice may too (`choice`'s
+  # `help`); an input may be shown and asked only while another input holds a value
+  # (`input`'s `shown_when`), and a required choice without a value has nothing chosen
+  # until the user chooses: a decision's Delegate (the proposer or someone else) is such
+  # a form. A decision's Decline sends no `detail` any more.
+  # 0.43.0: one Machines tab in place of Agents and Workers: the machines pages
   # (`/machines`, `/machines/:machine`, the Upgrade to the newest build confirm and its
   # `upgrade_machine` submit); `/workers` shows the Machines page (deprecated). The shell
   # says who assists its viewer (`assistant`), shown under their name.
-  version "0.41.0"
+  version "0.43.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

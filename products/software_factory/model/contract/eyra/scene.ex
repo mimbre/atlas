@@ -161,7 +161,14 @@ defmodule Model.Scene do
             [label: "Done", field: :description, after: "Done when:"]
           ]
         ],
-        actions: [[key: "i", label: "Full proposal", record: :proposal]]
+        actions: [
+          [
+            key: "i",
+            label: "Full proposal",
+            help: "Open the agent's full proposal for this break-down",
+            record: :proposal
+          ]
+        ]
       ]
     )
   end
@@ -251,6 +258,8 @@ defmodule Model.Scene do
           [
             key: "a",
             label: "Answered",
+            help:
+              "Say you answered its questions, with a note of your answers: its agent tries again",
             note: true,
             change: %{values: %{verdict: :answered, answers: "$note"}}
           ]
@@ -274,10 +283,16 @@ defmodule Model.Scene do
         instructions:
           "Read the use cases under it, which its agent proposed; change, delete or add any, then accept them. They can then be designed, broken down and built. Or say why not: the use cases its agent proposed are removed, and it proposes again with your note; use cases you added stay.",
         answers: [
-          [key: "a", label: "Accept", change: %{values: %{verdict: :accept}}],
+          [
+            key: "a",
+            label: "Accept",
+            help: "Accept its use cases: they can be designed, broken down and built",
+            change: %{values: %{verdict: :accept}}
+          ],
           [
             key: "n",
             label: "Not accepted",
+            help: "Say why not: its agent's use cases are removed and it proposes again",
             note: true,
             change: %{values: %{verdict: :reject, note: "$note"}}
           ]
@@ -350,11 +365,13 @@ defmodule Model.Scene do
           [
             key: "a",
             label: "Accept",
+            help: "Accept the scene as done, after trying it",
             change: %{self: :accepted_by, values: %{verdict: :accept}}
           ],
           [
             key: "n",
             label: "Not accepted",
+            help: "Say why not: its break-down proposes what is missing",
             note: true,
             change: %{values: %{verdict: :reject, note: "$note"}}
           ]

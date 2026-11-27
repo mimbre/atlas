@@ -991,15 +991,13 @@ defmodule AtlasControl.Session do
     viewer = %{key: state.by, kind: state.by_kind, assists: viewer(state).assists}
     state = %{state | route: route, form: Map.put(state.form, :values, raw)}
 
-    # An agent may give the answers of whom it assists, on their behalf (IS-Atlas-47): the
-    # change is the agent's, its cause says for whom.
-    with {:write, answer} <- state.model.module.answer(kind, name, item, viewer),
-         {:ok, content, cause} <-
-           AtlasControl.Answers.change(answer, key, state.by, raw["note"], DateTime.utc_now()) do
-      put_fact(%{state | cause: cause}, kind, content, {:item, kind, key})
-    else
-      {:refuse, why} -> not_sent(state, route, [why])
-      {:error, problem} -> not_sent(state, route, [problem])
+    case Pages.declared_answer(state.model, kind, name, answers, viewer(state)) do
+      %{hand_over: true, choices: %{}} = answer ->
+        delegation = Pages.delegation(state.model, kind, answer, answers, viewer(state))
+        delegate(delegation, route, kind, key, item, viewer, raw, state)
+
+      _ ->
+        answer(route, kind, key, name, item, viewer, raw, state)
     end
   end
 
@@ -1139,6 +1137,38 @@ defmodule AtlasControl.Session do
   end
 
   defp submit(_route, _raw, state), do: notice(state, "error", "Nothing to submit here.")
+
+  # An agent may give the answers of whom it assists, on their behalf (IS-Atlas-47): the
+  # change is the agent's, its cause says for whom.
+  defp answer(route, kind, key, name, item, viewer, raw, state) do
+    with {:write, answer} <- state.model.module.answer(kind, name, item, viewer),
+         {:ok, content, cause} <-
+           AtlasControl.Answers.change(answer, key, state.by, raw["note"], DateTime.utc_now()) do
+      put_fact(%{state | cause: cause}, kind, content, {:item, kind, key})
+    else
+      {:refuse, why} -> not_sent(state, route, [why])
+      {:error, problem} -> not_sent(state, route, [problem])
+    end
+  end
+
+  # Delegate (D-0106), as its form chose (`Pages.delegate_submit/2`): to the proposer, the
+  # answer's own change; to someone else, the page's own hand-over of the work to them,
+  # as Hand to… gives it. Nothing is sent without a choice the form offered.
+  defp delegate(d, route, kind, key, item, viewer, raw, state) do
+    case Pages.delegate_submit(d, raw) do
+      {:answer, name} ->
+        answer(route, kind, key, name, item, viewer, raw, state)
+
+      {:link, part_kind, part_key, relation, whom} ->
+        change = Pages.change_action(state.model, relation)
+        cause = Pages.change_cause(change || %{}, [whom], state.by, "")
+        state = if cause, do: %{state | cause: cause}, else: state
+        put_fact(state, part_kind, link(part_key, relation, [whom]), {:item, kind, key})
+
+      {:error, why} ->
+        not_sent(state, route, [why])
+    end
+  end
 
   # Each of `facts` (`[{kind, key}]`) deleted, after what is under it (`Pages.under/3`):
   # `:ok`, or the reasons the first that was not deleted gives. One gone already is done.

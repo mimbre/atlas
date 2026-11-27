@@ -208,9 +208,11 @@ defmodule RelaDSL.Description.Check do
 
   defp guidance(_ctx), do: []
 
-  # The words of the explicit restart's action: its label and the key that takes it.
+  # The words of the explicit restart's action: its label, the key that takes it and, if
+  # given, what it does in full (`help`).
   defp restart_words(%{x: %{"todo" => %{"restart" => restart}}}) do
-    if is_map(restart) and Map.keys(restart) -- ~w(label key) == [] and
+    if is_map(restart) and Map.keys(restart) -- ~w(label key help) == [] and
+         (is_nil(restart["help"]) or text?(restart["help"])) and
          text?(restart["label"]) and is_binary(restart["key"]) and
          String.length(restart["key"]) == 1,
        do: [],
@@ -219,7 +221,7 @@ defmodule RelaDSL.Description.Check do
            ["todo", "restart"],
            :restart_words,
            [],
-           "todo.restart: expected label and a one-character key"
+           "todo.restart: expected label, a one-character key and, if given, help"
          )
   end
 
@@ -500,7 +502,7 @@ defmodule RelaDSL.Description.Check do
       ) ++
       connector(ctx, kind, spec["connector"], at.("connector")) ++
       Enum.flat_map(List.wrap(spec["actions"]), fn a ->
-        keys(a, ~w(key label to when), at.("actions")) ++
+        keys(a, ~w(key label to when help), at.("actions")) ++
           values(ctx, kind, a["when"], at.("actions"))
       end) ++
       Enum.flat_map(List.wrap(spec["requires"]), fn r ->
@@ -553,7 +555,7 @@ defmodule RelaDSL.Description.Check do
           else: []
         ) ++
         Enum.flat_map(List.wrap(panel["actions"]), fn a ->
-          keys(a, ~w(key label record), at ++ ["actions"]) ++
+          keys(a, ~w(key label record help), at ++ ["actions"]) ++
             if(Map.has_key?(panel["records"] || %{}, a["record"]),
               do: [],
               else: p(at, :panel, [kind], "#{kind}.panel.#{state}: an action names no record")
@@ -597,7 +599,7 @@ defmodule RelaDSL.Description.Check do
       relation(ctx, rule["answered_by"], kind, path ++ ["answered_by"]) ++
       keys(
         status,
-        ~w(field open adopt decline superseded replaceable returned),
+        ~w(field open adopt superseded replaceable returned),
         path ++ ["status"]
       ) ++
       if(is_map(status), do: field(ctx, kind, status["field"], path), else: []) ++
@@ -639,7 +641,7 @@ defmodule RelaDSL.Description.Check do
         else:
           keys(
             rule["errors"],
-            ~w(invalid not_json removed unselected changed selection unworded),
+            ~w(invalid no_option not_json removed unselected changed selection unworded),
             path ++ ["errors"]
           ) ++
             if(is_map(rule["errors"]) and Enum.all?(Map.values(rule["errors"]), &text?/1),
@@ -1047,7 +1049,7 @@ defmodule RelaDSL.Description.Check do
   defp actions(ctx, spec, actions, path) do
     keys(actions, ~w(set remove change), path) ++
       Enum.flat_map(if(is_map(actions), do: actions, else: %{}), fn {action_name, action} ->
-        keys(action, ~w(key label with cause), path ++ [action_name]) ++
+        keys(action, ~w(key label with cause help), path ++ [action_name]) ++
           for prop <- List.wrap(is_map(action) && action["with"]),
               kind <- spec["from"] || [],
               problem <- field(ctx, kind, prop, path),

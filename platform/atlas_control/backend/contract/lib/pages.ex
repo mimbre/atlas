@@ -18,9 +18,9 @@ defmodule AtlasBFFContract.Pages do
       defpage :open_for_you_group, "/_open/:subflow/:span"
       defpage :supervised_by_you, "/_supervised"
       defpage :supervised_by_you_group, "/_supervised/:subflow/:span"
-      # Deprecated (0.41.0): the Workers board; Control shows the Machines page here.
+      # Deprecated (0.43.0): the Workers board; Control shows the Machines page here.
       defpage :workers, "/workers"
-      # The machines (Runtimes) of the environment (0.41.0): with one, its page; with more,
+      # The machines (Runtimes) of the environment (0.43.0): with one, its page; with more,
       # a list of them, each opening its page. A machine's page: its state, health, slots,
       # queue, recently finished work and upgrades; Upgrade to the newest build (a confirm)
       # when a newer Runtime release exists.

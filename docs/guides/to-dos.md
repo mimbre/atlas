@@ -43,8 +43,8 @@ $ open https://example.com/billing
 $ cp ~/Downloads/receipt.pdf ~/Shared/
 ```
 
-- An optional `Why:` paragraph comes first. It is shown with how long the To-Do has
-  been the owner's.
+- An optional `Why:` paragraph comes first. It is shown without the `Why:`, as the
+  page's intro paragraph, with how long the To-Do has been the owner's.
 - Numbered lines (`1.`, `2.`, …) start the steps. Text without numbered steps is
   one step.
 

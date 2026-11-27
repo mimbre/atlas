@@ -68,12 +68,9 @@ defmodule Model.DecisionOptionsTest do
   end
 
   test "a semantic ID applies only its exact typed payload under actual authority" do
-    for id <- ~w(files memory decline), do: assert(:ok == check(current(), answer(id)))
+    for id <- ~w(files memory), do: assert(:ok == check(current(), answer(id)))
     assert {:refuse, _} = check(current(), answer("files"), "helper", "agent")
     assert {:refuse, _} = check(current(), Map.put(answer("files"), "decision", "Different rule"))
-
-    assert {:refuse, _} =
-             check(current(), Map.put(answer("decline"), "decision", "Smuggled rule"))
 
     assert {:refuse, _} = check(current(), Map.put(answer("files"), "selected_option", "0"))
 
@@ -119,8 +116,8 @@ defmodule Model.DecisionOptionsTest do
              )
   end
 
-  test "answered offers remain immutable even when declined; allowed later changes preserve them" do
-    for id <- ~w(files memory decline) do
+  test "answered offers remain immutable; allowed later changes preserve them" do
+    for id <- ~w(files memory) do
       old = %{
         current()
         | "values" => Map.merge(current()["values"], answer(id)),
@@ -139,33 +136,40 @@ defmodule Model.DecisionOptionsTest do
     end
   end
 
-  test "definitions validate identities, recommendation, complete text and typed effects" do
+  test "definitions validate identities, recommendation, complete text and alternatives only" do
     {:ok, definition} = Options.decode(@rule, @text)
     # Cardinality belongs to the answer contract, not a terminal's single-digit keys.
-    alternatives =
-      for(n <- 1..11, do: Map.put(hd(definition["options"]), "id", "choice#{n}")) ++
-        [List.last(definition["options"])]
+    alternatives = for(n <- 1..11, do: Map.put(hd(definition["options"]), "id", "choice#{n}"))
 
     many = definition |> Map.put("options", alternatives) |> Map.put("recommended", "choice1")
     assert {:ok, _} = Options.decode(@rule, JSON.encode!(many))
 
-    assert {:ok, _} =
-             Options.decode(
-               @rule,
-               JSON.encode!(
-                 Map.put(definition, "options", [
-                   hd(definition["options"]),
-                   List.last(definition["options"])
-                 ])
-               )
-             )
-
-    # Two alternatives need no decline, nor does one proposal: declining is always the
-    # decider's own answer, with an alternative (D-0106).
-    for options <- [Enum.take(definition["options"], 2), [hd(definition["options"])]] do
+    # Two alternatives, or one proposal: declining is always the decider's own answer,
+    # with an alternative (D-0106).
+    for options <- [definition["options"], [hd(definition["options"])]] do
       assert {:ok, _} =
                Options.decode(@rule, JSON.encode!(Map.put(definition, "options", options)))
     end
+
+    # A "no" option is none of them: the form says Decline is always there.
+    no =
+      Map.update!(definition, "options", fn options ->
+        options ++
+          [
+            %{
+              "id" => "decline",
+              "text" => "Do neither",
+              "details" => "Do not adopt either storage rule.",
+              "effect" => "decline",
+              "rule" => "",
+              "consequences" => ""
+            }
+          ]
+      end)
+
+    why = "A decision has no 'no' option; Decline is always available"
+    assert {:error, ^why} = Options.decode(@rule, JSON.encode!(no))
+    assert {:refuse, [^why]} = check(current(), %{"options" => JSON.encode!(no)})
 
     for change <- [
           Map.put(definition, "recommended", "missing"),
@@ -173,21 +177,54 @@ defmodule Model.DecisionOptionsTest do
           put_in(definition, ["options", Access.at(1), "id"], "files"),
           put_in(definition, ["options", Access.at(1), "details"], " "),
           put_in(definition, ["options", Access.at(1), "effect"], "approve"),
-          put_in(definition, ["options", Access.at(2), "rule"], "Not a decline"),
+          put_in(definition, ["options", Access.at(1), "rule"], ""),
           # Whose alternative it is, when it says so, is someone.
           put_in(definition, ["options", Access.at(1), "by"], " "),
-          # No options, or declines alone, are nothing to adopt.
-          Map.put(definition, "options", []),
-          definition
-          |> Map.put("options", [
-            List.last(definition["options"]),
-            Map.put(List.last(definition["options"]), "id", "decline2")
-          ])
-          |> Map.put("recommended", "decline")
+          # No options are nothing to adopt.
+          Map.put(definition, "options", [])
         ] do
       assert {:error, _} = Options.decode(@rule, JSON.encode!(change))
       assert {:refuse, _} = check(current(), %{"options" => JSON.encode!(change)})
     end
+  end
+
+  # Decisions proposed while a definition could hold a "no" option are rewritten without
+  # it: the open decision takes the new definition, its history keeps the old one.
+  test "an open decision whose stored definition has a no option takes one without it" do
+    {:ok, definition} = Options.decode(@rule, @text)
+
+    old =
+      definition
+      |> Map.update!("options", fn options ->
+        options ++
+          [
+            %{
+              "id" => "decline",
+              "text" => "Do neither",
+              "details" => "Do not adopt either storage rule.",
+              "effect" => "decline",
+              "rule" => "",
+              "consequences" => ""
+            }
+          ]
+      end)
+      |> JSON.encode!()
+
+    stored = current(old)
+    assert :ok == check(stored, %{"options" => @text}, "melle")
+
+    change = %{
+      "op" => "change",
+      "key" => "D-private",
+      "values" => %{"options" => @text},
+      "links" => %{}
+    }
+
+    [rewritten] =
+      Model.AtlasEyra.with_change("decision", change, %{"current" => fn -> stored end})
+
+    assert rewritten["values"]["options"] == @text
+    assert [%{"definition" => ^old}] = JSON.decode!(rewritten["values"]["option_history"])
   end
 
   test "a decision may still be created without options and keeps its answers" do
@@ -207,10 +244,10 @@ defmodule Model.DecisionOptionsTest do
     parts = %{"assignment" => %{"presentation" => presentation}}
     todo = Model.AtlasEyra.todo("decision", fact, parts, %{key: "ada", kind: "person"})
     assert todo.choice == nil
-    # Accept, Decline (with an alternative), Ask a question, Hand over, Leave it to the
-    # proposer (D-0106).
-    assert Enum.map(todo.answers, & &1.key) == ~w(a f q h l)
-    assert Enum.map(todo.answers, & &1.weight) == ~w(main decline other other other)
+    # Accept, Decline (with an alternative), Ask, Delegate (D-0106).
+    assert Enum.map(todo.answers, & &1.key) == ~w(a f q l)
+    assert Enum.map(todo.answers, & &1.label) == ~w(Accept Decline Ask Delegate)
+    assert Enum.map(todo.answers, & &1.weight) == ~w(main decline other other)
   end
 
   # D-0106: a decline is no end. Whoever declines gives an alternative; the same Facts
@@ -391,7 +428,7 @@ defmodule Model.DecisionOptionsTest do
     assert [^entry, second] = JSON.decode!(later["values"]["option_history"])
     assert second["definition"] == edited
 
-    for id <- ~w(files decline) do
+    for id <- ~w(files memory) do
       [selected] =
         Model.AtlasEyra.with_change("decision", %{change | "values" => answer(id)}, lookup)
 
@@ -403,7 +440,7 @@ defmodule Model.DecisionOptionsTest do
 
   # The page a TUI opens from Assigned to you, as Control serves it to a Console client:
   # its blocks besides console actions, and how a key resolves on it.
-  defp served(text, values \\ %{}) do
+  defp served(text, values \\ %{}, state \\ "for_person") do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     decide = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "decide"))
 
@@ -414,7 +451,7 @@ defmodule Model.DecisionOptionsTest do
       |> update_in(["values"], &Map.merge(&1, values))
 
     presentation =
-      decide.present("for_person", fact["values"])
+      decide.present(state, fact["values"])
       |> Map.merge(%{"owner" => ["ada"], "actionable" => true})
 
     assignment = %{"key" => "AS-D-private", "values" => %{}, "presentation" => presentation}
@@ -457,20 +494,28 @@ defmodule Model.DecisionOptionsTest do
   defp answers_of(blocks), do: Enum.find(blocks, &(&1["id"] == "answers"))["props"]["answers"]
 
   # The decider's own answers below the options (D-0106), each quiet but Decline, each with
-  # what it does: Ask a question, Hand over (the page's Hand to), Leave it to the proposer.
+  # what it does by name and in full: Ask, and Delegate, whose form chooses the proposer
+  # or another person.
   defp assert_own_answers(answers) do
     assert [
-             %{"label" => "Ask a question", "key" => "q", "note" => true, "weight" => "other"} =
-               ask,
-             %{"label" => "Hand over", "key" => "h", "weight" => "other"} = hand_over,
-             %{"label" => "Leave it to the proposer", "key" => "l", "weight" => "other"} = leave
+             %{"label" => "Ask", "key" => "q", "note" => true, "weight" => "other"} = ask,
+             %{"label" => "Delegate", "key" => "l", "weight" => "other"} = delegate
            ] = answers
 
     assert ask["icon"] == "question"
-    assert hand_over["icon"] == "hand_over"
-    assert hand_over["to"] == "/k/assignment/AS-D-private/links/assigned_to"
-    assert leave["icon"] == "delegate"
-    refute Map.has_key?(leave, "note")
+    assert ask["help"] == "Ask the proposer a question"
+    assert delegate["icon"] == "delegate"
+    assert delegate["help"] == "Let someone else decide: the proposer or another person"
+    assert delegate["to"] == "/k/decision/D-private/answer/l"
+    refute Map.has_key?(delegate, "note")
+    refute Map.has_key?(delegate, "submit_to")
+  end
+
+  # Every action and answer a page offers explains itself (`help`, a client's tooltip):
+  # the model's words for its own, Control's for the rest.
+  defp assert_help(blocks) do
+    assert Model.Offered.all(blocks) != []
+    assert Model.Offered.unexplained(blocks) == []
   end
 
   defp assert_asks(note, to, prompt) do
@@ -522,7 +567,7 @@ defmodule Model.DecisionOptionsTest do
     {blocks, resolve, note} = served(@text)
 
     # In order: the question, why, each alternative (recommended first), the answers, the
-    # details. The decline is no card.
+    # details.
     assert [
              %{"id" => "header", "type" => "header", "props" => header},
              %{"id" => "why", "type" => "text", "props" => why},
@@ -536,7 +581,9 @@ defmodule Model.DecisionOptionsTest do
     definition = JSON.decode!(@text)
     assert header["title"] == definition["question"]
     assert why["text"] == definition["rationale"]
-    assert why["label"] == "Why" and why["text"] != ""
+    # The intro paragraph without a label: no page text starts with "Why:".
+    assert why["text"] != "" and not Map.has_key?(why, "label")
+    refute inspect(blocks) =~ "Why:"
     assert Enum.any?(rest, &(&1["id"] == "item"))
     refute Enum.any?(blocks, &(&1["type"] in ["single_choice", "panel"]))
 
@@ -555,10 +602,8 @@ defmodule Model.DecisionOptionsTest do
     assert %{"label" => "Choose", "key" => "1", "weight" => "main"} = files["answer"]
     assert %{"label" => "Choose", "key" => "2", "weight" => "other"} = memory["answer"]
 
-    # Decline all is the decider's own decline: it asks their alternative; what the
-    # definition's decline option said is the explanation beside it.
-    decline = Enum.find(definition["options"], &(&1["effect"] == "decline"))
-
+    # Decline all is the decider's own decline: it asks their alternative, and says
+    # nothing beside it.
     assert [
              %{
                "label" => "Decline all",
@@ -571,8 +616,9 @@ defmodule Model.DecisionOptionsTest do
              | own
            ] = answers_of(blocks)
 
-    assert decline_answer["detail"] == decline["text"]
+    refute Map.has_key?(decline_answer, "detail")
     assert_own_answers(own)
+    assert_help(blocks)
 
     # Each card's own button (and key) sends exactly that option's answer; `0` the
     # recommended one's; Decline all opens its form first, asking the alternative.
@@ -594,62 +640,44 @@ defmodule Model.DecisionOptionsTest do
 
   test "one proposal: its card without an answer, then Accept and Decline (asking the alternative)" do
     definition = JSON.decode!(@text)
-    [files, _memory, decline] = definition["options"]
+    [files, _memory] = definition["options"]
 
-    # With the definition's decline option, or without one: Decline is always there.
-    for {options, detail} <- [{[files, decline], decline["text"]}, {[files], nil}] do
-      {blocks, resolve, note} = served(JSON.encode!(Map.put(definition, "options", options)))
+    {blocks, resolve, note} = served(JSON.encode!(Map.put(definition, "options", [files])))
 
-      assert [%{"props" => card}] = Enum.filter(blocks, &(&1["type"] == "option"))
-      # The only proposal: no badge (nothing to tell it from; clients show no number for
-      # `alone`), its Rule and Consequences in full.
-      assert %{"n" => 1, "alone" => true} = card
-      refute Map.has_key?(card, "badge")
-      refute Map.has_key?(card, "tone")
-
-      assert [
-               %{"label" => "Rule", "value" => rule},
-               %{"label" => "Consequences", "value" => consequences}
-             ] = card["fields"]
-
-      assert rule == files["rule"] and consequences == files["consequences"]
-
-      assert [
-               %{"label" => "Accept", "key" => "1", "weight" => "main"} = accept,
-               %{"label" => "Decline", "key" => "f", "note" => true, "weight" => "decline"} =
-                 decline_answer
-               | own
-             ] = answers_of(blocks)
-
-      # One proposal: Decline stands as a decline next to Accept, without an icon.
-      refute Map.has_key?(decline_answer, "icon")
-
-      assert_own_answers(own)
-
-      # Accept sends the proposal's own answer; Decline opens its form.
-      assert accept["submit_to"] == card["answer"]["submit_to"]
-      assert decline_answer["detail"] == detail
-      assert %{"name" => "open", "to" => to} = resolve.("f", "answers")
-      assert to == decline_answer["to"]
-      assert_asks(note, to, "What is your alternative?")
-    end
-  end
-
-  test "alternatives without a decline option: a card each with its Choose, and Decline all" do
-    definition = JSON.decode!(@text)
-    text = JSON.encode!(Map.update!(definition, "options", &Enum.take(&1, 2)))
-    {blocks, _resolve, _note} = served(text)
-
-    assert [_, _] = Enum.filter(blocks, &(&1["type"] == "option"))
+    assert [%{"props" => card}] = Enum.filter(blocks, &(&1["type"] == "option"))
+    # The only proposal: no badge (nothing to tell it from; clients show no number for
+    # `alone`), its Rule and Consequences in full.
+    assert %{"n" => 1, "alone" => true} = card
+    refute Map.has_key?(card, "badge")
+    refute Map.has_key?(card, "tone")
 
     assert [
-             %{"label" => "Decline all", "weight" => "decline", "icon" => "decline"} = decline
-             | own
-           ] =
-             answers_of(blocks)
+             %{"label" => "Rule", "value" => rule},
+             %{"label" => "Consequences", "value" => consequences}
+           ] = card["fields"]
 
-    refute Map.has_key?(decline, "detail")
+    assert rule == files["rule"] and consequences == files["consequences"]
+
+    assert [
+             %{"label" => "Accept", "key" => "1", "weight" => "main"} = accept,
+             %{"label" => "Decline", "key" => "f", "note" => true, "weight" => "decline"} =
+               decline_answer
+             | own
+           ] = answers_of(blocks)
+
+    # One proposal: Decline stands as a decline next to Accept, without an icon, and
+    # says nothing beside it.
+    refute Map.has_key?(decline_answer, "icon")
+    refute Map.has_key?(decline_answer, "detail")
+
     assert_own_answers(own)
+    assert_help(blocks)
+
+    # Accept sends the proposal's own answer; Decline opens its form.
+    assert accept["submit_to"] == card["answer"]["submit_to"]
+    assert %{"name" => "open", "to" => to} = resolve.("f", "answers")
+    assert to == decline_answer["to"]
+    assert_asks(note, to, "What is your alternative?")
   end
 
   test "an option added from a decline is marked as whoever gave it; not worked out, it shows no rule" do
@@ -693,8 +721,8 @@ defmodule Model.DecisionOptionsTest do
     viewer = %{key: "ada", kind: "person"}
     todo = Model.AtlasEyra.todo("decision", fact, parts, viewer)
     # The options to adopt on their numbers, then the decider's own answers on their keys.
-    assert Enum.map(todo.answers, & &1.key) == ~w(1 2 f q h l)
-    assert Enum.map(todo.choice["options"], & &1["id"]) == ~w(files memory decline)
+    assert Enum.map(todo.answers, & &1.key) == ~w(1 2 f q l)
+    assert Enum.map(todo.choice["options"], & &1["id"]) == ~w(files memory)
     assert todo.choice["recommended"] == "files"
     assert todo.choice["rationale"] != ""
     item = %{"fact" => fact, "parts" => parts}
@@ -717,7 +745,7 @@ defmodule Model.DecisionOptionsTest do
     assert content["links"]["decided_by"] == ["ada"]
 
     # Declining asks an alternative (D-0106); without one the form asks again.
-    assert Enum.map(todo.answers, & &1.note) == [false, false, true, true, false, false]
+    assert Enum.map(todo.answers, & &1.note) == [false, false, true, true, false]
 
     assert {:write, %{"note" => true, "prompt" => "What is your alternative?"} = declined} =
              Model.AtlasEyra.answer("decision", "f", item, viewer)
@@ -756,7 +784,7 @@ defmodule Model.DecisionOptionsTest do
                ~U[2026-11-16 12:00:00Z]
              )
 
-    # Leaving it to the proposer links its decider as the one who delegates.
+    # Delegating to the proposer links its decider as the one who delegates.
     assert {:write, left} = Model.AtlasEyra.answer("decision", "l", item, viewer)
 
     assert {:ok, %{"values" => %{"left_to_proposer" => true}, "links" => links}, _} =
@@ -764,10 +792,8 @@ defmodule Model.DecisionOptionsTest do
 
     assert links == %{"delegated_by" => ["ada"]}
 
-    # Hand over is the page's own Hand to: no change of its own.
-    assert {:refuse, _} = Model.AtlasEyra.answer("decision", "h", item, viewer)
-
-    for shortcut <- ~w(0 1 2 3 9),
+    # There is no Hand over of its own any more: Delegate's form hands it over too.
+    for shortcut <- ~w(0 1 2 3 9 h),
         do: assert({:refuse, _} = Model.AtlasEyra.answer("decision", shortcut, item, viewer))
 
     assert {:refuse, _} =
@@ -795,6 +821,118 @@ defmodule Model.DecisionOptionsTest do
 
     assert todo.choice == nil
     assert todo.answers == []
+  end
+
+  # D-0106: Delegate is one answer, whose form leaves nothing chosen: the proposer, who
+  # decides as the decider delegates (the answer's own change), or another person, to
+  # whom the page hands it over (they decide instead).
+  test "Delegate's form chooses the proposer or another person; each sends its own write" do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+    decide = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "decide"))
+
+    fact =
+      current() |> Map.put("key", "D-private") |> Map.put("links", %{"proposed_by" => ["melle"]})
+
+    presentation =
+      decide.present("for_person", fact["values"])
+      |> Map.merge(%{"owner" => ["ada"], "actionable" => true})
+
+    assignment = %{"key" => "AS-D-private", "values" => %{}, "presentation" => presentation}
+    item_reads = AtlasControl.Pages.reads({:item, "decision", "D-private"}, m)
+    route = {:answer, "decision", "D-private", "l"}
+    # Its page reads whom it may be delegated to too: people.
+    assert AtlasControl.Pages.reads(route, m) == item_reads ++ [{"person", %{}}]
+    people = for key <- ~w(melle ada bob), do: %{"key" => key, "values" => %{}}
+
+    answers =
+      [%{"fact" => fact}] ++
+        for(_ <- 2..(length(item_reads) - 1)//1, do: %{"facts" => []}) ++
+        [%{"fact" => assignment}, %{"facts" => people}]
+
+    form = %{by: "ada", by_kind: "person"}
+    page = AtlasControl.Pages.render(route, m, answers, form)
+    assert page.title == "Delegate D-private to…"
+
+    assert [%{"type" => "form", "props" => %{"submit_label" => "Delegate", "inputs" => inputs}}] =
+             page.blocks
+
+    assert [to, person] = inputs
+    assert %{"name" => "to", "kind" => "choice", "required" => true} = to
+    refute Map.has_key?(to, "value")
+
+    assert to["choices"] == [
+             %{
+               "value" => "proposer",
+               "label" => "The proposer (melle) — decides on your behalf",
+               "help" => "The proposer decides, as you delegate"
+             },
+             %{
+               "value" => "other",
+               "label" => "Another person",
+               "help" => "The person you choose decides instead of you"
+             }
+           ]
+
+    assert %{
+             "name" => "whom",
+             "kind" => "choice",
+             "required" => true,
+             "shown_when" => %{"name" => "to", "value" => "other"}
+           } = person
+
+    refute Map.has_key?(person, "value")
+    # Anyone but the viewer.
+    assert Enum.map(person["choices"], & &1["value"]) == ~w(bob melle)
+
+    answer = AtlasControl.Pages.declared_answer(m, "decision", "l", answers, form)
+    d = AtlasControl.Pages.delegation(m, "decision", answer, answers, form)
+
+    # To the proposer: the answer's own change, delegated by the decider.
+    assert {:answer, "l"} = AtlasControl.Pages.delegate_submit(d, %{"to" => "proposer"})
+
+    assert {:write, %{"self" => "delegated_by", "values" => %{"left_to_proposer" => true}}} =
+             Model.AtlasEyra.answer(
+               "decision",
+               "l",
+               AtlasControl.Pages.answer_item(m, "decision", answers),
+               %{key: "ada", kind: "person"}
+             )
+
+    # To someone else: the page's own hand-over of its assignment to them.
+    assert {:link, "assignment", "AS-D-private", "assigned_to", "bob"} =
+             AtlasControl.Pages.delegate_submit(d, %{"to" => "other", "whom" => "bob"})
+
+    # Nothing without a choice the form offered.
+    for raw <- [
+          %{},
+          %{"to" => ""},
+          %{"to" => "other"},
+          %{"to" => "other", "whom" => "ada"},
+          %{"to" => "other", "whom" => "zoe"}
+        ] do
+      assert {:error, _} = AtlasControl.Pages.delegate_submit(d, raw)
+    end
+
+    # Proposed by an agent (no person linked), the proposer's choice names nobody.
+    unlinked = List.replace_at(answers, 0, %{"fact" => Map.put(fact, "links", %{})})
+    page = AtlasControl.Pages.render(route, m, unlinked, form)
+    [%{"props" => %{"inputs" => [to | _]}}] = page.blocks
+    assert hd(to["choices"])["label"] == "The proposer — decides on your behalf"
+  end
+
+  test "under a fixed person rule Delegate is the page's own hand-over, on its key" do
+    {blocks, resolve, _note} = served(@text, %{}, "for_person_always")
+
+    assert [_decline, %{"label" => "Ask"}, %{"label" => "Delegate", "key" => "l"} = delegate] =
+             answers_of(blocks)
+
+    assert delegate["to"] == "/k/assignment/AS-D-private/links/assigned_to"
+    assert delegate["help"] == "Let another person decide"
+    assert %{"name" => "open", "to" => to} = resolve.("l", "answers")
+    assert to == delegate["to"]
+    # No second Hand to… beside it.
+    refute inspect(blocks) =~ "Hand to"
+    assert_help(blocks)
   end
 
   # D-0106: leaving it to the proposer is its decider's own choice, made by them, in their

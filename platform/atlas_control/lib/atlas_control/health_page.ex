@@ -179,7 +179,12 @@ defmodule AtlasControl.HealthPage do
 
   defp health_action,
     do:
-      Blocks.action(label: "Health", key: "h", to: Pages.path({:worker_page, :health, %{}}))
+      Blocks.action(
+        label: "Health",
+        key: "h",
+        to: Pages.path({:worker_page, :health, %{}}),
+        help: "Show the health of Atlas's services and machines"
+      )
       |> Map.put("page", true)
 
   defp iso(%DateTime{} = at), do: at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
@@ -187,7 +192,12 @@ defmodule AtlasControl.HealthPage do
 
   defp machines_action,
     do:
-      Blocks.action(label: "Machines", key: "m", to: Pages.path({:machine_page, :machines, %{}}))
+      Blocks.action(
+        label: "Machines",
+        key: "m",
+        to: Pages.path({:machine_page, :machines, %{}}),
+        help: "Show the machines and what they run"
+      )
 
   defp value(%{late: true, text: text}), do: "late · " <> text
   defp value(%{text: text}), do: text

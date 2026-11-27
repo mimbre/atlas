@@ -40,7 +40,7 @@ defmodule AtlasBFFContract.Blocks do
         field :icon, :string
       end
 
-      # A paragraph: its `text`, after its `label` ("Why"), and with `since` (ISO 8601,
+      # A paragraph: its `text`, after its `label` when it has one (an intro paragraph has none), and with `since` (ISO 8601,
       # UTC) how long ago that was, which a client shows after the text ("· 3h ago") and
       # keeps current. `role` error: something went wrong (what a client shows in Prism's
       # error, a tinted card or a red frame).

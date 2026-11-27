@@ -397,9 +397,27 @@ defmodule AtlasTui.Model do
 
   def openable?(_url), do: false
 
-  @doc "What can take focus in a form: its inputs (not the read-only ones), then the buttons."
-  def focusable(%Form{inputs: inputs}),
-    do: Enum.reject(inputs || [], &(&1.kind == "readonly")) ++ [:submit, :cancel]
+  @doc """
+  What can take focus in a form: its shown inputs (`shown/2`; not the read-only ones),
+  then the buttons.
+  """
+  def focusable(%Form{} = form, values \\ %{}),
+    do: Enum.reject(shown(form, values), &(&1.kind == "readonly")) ++ [:submit, :cancel]
+
+  @doc """
+  The inputs a form shows with `values`: each, but one whose `shown_when` names another
+  input's value only while that input holds it.
+  """
+  def shown(%Form{inputs: inputs}, values),
+    do:
+      Enum.filter(inputs || [], fn
+        %Input{shown_when: %{name: name, value: value}} -> values[name] == value
+        _ -> true
+      end)
+
+  @doc "Whether every shown required input of a form has a value: it may be sent."
+  def ready?(%Form{} = form, values),
+    do: Enum.all?(shown(form, values), &(&1.required != true or (values[&1.name] || "") != ""))
 
   # Keys
 
@@ -489,14 +507,14 @@ defmodule AtlasTui.Model do
 
       form ->
         step = if name == "focus_next", do: 1, else: -1
-        focus = Integer.mod(model.focus + step, length(focusable(form)))
+        focus = Integer.mod(model.focus + step, length(focusable(form, model.values)))
         {focus_to(model, focus), []}
     end
   end
 
   def operation(model, "submit_form") do
     cond do
-      form = form(model) -> submit(model, form.submit_to, model.values)
+      form = form(model) -> submit_form(model, form)
       confirm = confirm(model) -> submit(model, confirm.confirm_to, %{})
       true -> {model, []}
     end
@@ -714,7 +732,7 @@ defmodule AtlasTui.Model do
   end
 
   defp form_key(model, %Form{} = form, key) do
-    items = focusable(form)
+    items = focusable(form, model.values)
     focus = min(model.focus, length(items) - 1)
     current = Enum.at(items, focus)
 
@@ -736,7 +754,9 @@ defmodule AtlasTui.Model do
         {focus_to(model, focus + 1), []}
 
       {:enter, :submit} ->
-        submit(model, form.submit_to, model.values)
+        if step_form(model),
+          do: submit(model, form.submit_to, model.values),
+          else: submit_form(model, form)
 
       {:enter, :cancel} ->
         if step_form(model),
@@ -768,7 +788,7 @@ defmodule AtlasTui.Model do
 
   # Moving down into a multi-line input starts at its beginning; moving up, at its end.
   defp focus_to(model, to) do
-    last = length(focusable(step_form(model) || form(model))) - 1
+    last = length(focusable(step_form(model) || form(model), model.values)) - 1
     to = to |> max(0) |> min(last)
 
     cond do
@@ -778,9 +798,11 @@ defmodule AtlasTui.Model do
     end
   end
 
+  # A choice moves from the one chosen; with none chosen yet (a required one Control leaves
+  # open), the first key chooses the first.
   defp choose(model, %Input{choices: choices, name: name}, key) do
     values = Enum.map(choices || [], & &1.value)
-    at = Enum.find_index(values, &(&1 == model.values[name])) || 0
+    at = Enum.find_index(values, &(&1 == model.values[name]))
 
     step =
       case key do
@@ -789,11 +811,27 @@ defmodule AtlasTui.Model do
         _ -> 0
       end
 
-    if values == [] or step == 0 do
-      {model, []}
+    cond do
+      values == [] or step == 0 ->
+        {model, []}
+
+      at == nil ->
+        {put_in(model.values[name], hd(values)), []}
+
+      true ->
+        value = Enum.at(values, rem(at + step + length(values), length(values)))
+        {put_in(model.values[name], value), []}
+    end
+  end
+
+  # A form is sent with the values of the inputs it shows, once each required one has one;
+  # until then it says what is missing and sends nothing.
+  defp submit_form(model, form) do
+    if ready?(form, model.values) do
+      names = MapSet.new(shown(form, model.values), & &1.name)
+      submit(model, form.submit_to, Map.filter(model.values, &MapSet.member?(names, elem(&1, 0))))
     else
-      value = Enum.at(values, rem(at + step + length(values), length(values)))
-      {put_in(model.values[name], value), []}
+      {%{model | notice: %{tone: "error", text: "Fill in every field marked *."}}, []}
     end
   end
 

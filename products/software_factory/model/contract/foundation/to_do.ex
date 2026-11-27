@@ -107,12 +107,14 @@ defmodule Model.ToDo do
           [
             key: "x",
             label: "Done",
+            help: "Close it as done, with a note on how it was done",
             note: true,
             change: %{values: %{status: :done, note: "$note"}}
           ],
           [
             key: "n",
             label: "Won't do",
+            help: "Close it without doing it, with a note on why not",
             note: true,
             change: %{values: %{status: :wont_do, note: "$note"}}
           ]

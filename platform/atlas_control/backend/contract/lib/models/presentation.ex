@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.41.0"
+  version "0.43.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -12,7 +12,9 @@ defmodule AtlasBFFContract.Models.Presentation do
   # kind of thing the action does, by name (edit, delete, hand_over, create, open), which a
   # client may show as an icon; one it does not know it shows without. `button`: what a
   # client that shows it as a button says on it, when that is not its `label` (`Hand to`
-  # for `Hand to…`): a button says nothing of what follows its click.
+  # for `Hand to…`): a button says nothing of what follows its click. `help` (since
+  # 0.41.0): what the action does, in full, which a client shows as its tooltip (without
+  # it, its label).
   defmodel :action do
     field :label, :string, required: true
     field :key, :string, required: true
@@ -21,6 +23,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :page, :boolean
     field :icon, :string
     field :button, :string
+    field :help, :string
   end
 
   # A line of an `instruction` block, in order: `kind` `text` (its `text`, the lines
@@ -76,7 +79,9 @@ defmodule AtlasBFFContract.Models.Presentation do
   # when that is not its `label` (no `…`); a note it asks opens on the click, the button
   # does not say so. `detail`: a short explanation shown with it (Decline: what declining
   # keeps). `icon` (since 0.39.0): what it does, by name (question, hand_over, delegate, decline),
-  # which a client may show as an icon; one it does not know it shows without.
+  # which a client may show as an icon; one it does not know it shows without. `help`
+  # (since 0.41.0): what the answer does, in full, which a client shows as its tooltip
+  # (without it, its label).
   defmodel :panel_answer do
     field :label, :string, required: true
     field :key, :string, required: true
@@ -87,6 +92,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :button, :string
     field :detail, :string
     field :icon, :string
+    field :help, :string
   end
 
   # A web address the user can open outside the client, in a browser: `url`. `key` is
@@ -151,16 +157,28 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :origin, :origin
   end
 
-  # A value an input may take, and how to show it.
+  # A value an input may take, and how to show it; `help` (since 0.41.0): what choosing it
+  # means, in full, which a client shows as its tooltip.
   defmodel :choice do
     field :value, :string, required: true
     field :label, :string, required: true
+    field :help, :string
+  end
+
+  # The input and value another input depends on (`input`'s `shown_when`).
+  defmodel :input_condition do
+    field :name, :string, required: true
+    field :value, :string, required: true
   end
 
   # One input of a form. `kind` is text (one line, wrapped when long), multiline (lines
   # and sections; enter starts a new line), choice, boolean or readonly (shown, never
   # changed, such as an id); values travel as text. A client that does not know a kind
-  # edits it as text.
+  # edits it as text. A `required` input needs a value before the form is sent: a client
+  # keeps its submit disabled until each shown one has one, and Control refuses it
+  # without; a required choice without a `value` has nothing chosen until the user
+  # chooses. `shown_when` (since 0.41.0): the input is shown, and asked, only while the
+  # input it names holds that value; a client sends no value for it otherwise.
   defmodel :input do
     field :name, :string, required: true
     field :label, :string, required: true
@@ -169,6 +187,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :required, :boolean
     field :hint, :string
     field :choices, {:list, :choice}
+    field :shown_when, :input_condition
   end
 
   # A call of one of the contract's endpoints: its name and its parameters, by name. A
@@ -252,7 +271,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # `greeting`: the words a client greets its viewer with, the viewer's name filled in,
   # for a viewer the start's assigned relation points at, when the model words
   # one; `name`, that viewer's name (none for an agent or a migration). Control reads the
-  # name once at boot, so it is part of the shell's revision. `assistant` (0.41.0): the
+  # name once at boot, so it is part of the shell's revision. `assistant` (0.43.0): the
   # line a client shows under that name, the agent that assists the viewer in the
   # model's words ("assistant: coordinator"); none when no such agent assists them.
   defmodel :shell do

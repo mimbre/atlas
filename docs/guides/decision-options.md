@@ -1,10 +1,10 @@
 # Decide by selecting one option
 
 New decisions ask a short question and offer concrete alternatives. Choosing an
-option makes the decision. An `adopt` option applies only its exact `rule` and
+alternative makes the decision. An `adopt` option applies only its exact `rule` and
 `consequences`, using the existing decider authority. Declining selects no option
 and ends nothing (D-0106): it gives an alternative and sends the decision back to
-its proposer (see [Decline, ask, hand over, leave](#decline-ask-hand-over-leave)).
+its proposer (see [Decline, ask, delegate](#decline-ask-delegate)).
 Recommendations and labels never grant permission. Adoption alone starts
 existing supersession and follow-through. Classification and supersedes links on
 the decision apply to all its adopting options; author the set under that authority.
@@ -12,13 +12,14 @@ the decision apply to all its adopting options; author the set under that author
 Create a decision through the existing CLI or creation form. Supply `options` as
 JSON; `--options-file` reads it from a file. The private example at
 `products/software_factory/e2e/fixtures/decision-options.json` shows the complete format. Each option has a
-distinct stable lowercase ID, exact text, details, explicit effect, rule and
-consequences. A `decline` option, which an older definition may hold, has empty
-rule and consequences and is offered no answer: its text explains what declining
-keeps. There must be one `recommended` ID, first in the options array, and a short
-`rationale`. The definition contains at least one option to adopt (one proposal,
-or alternatives) and exactly one selection; a decline is never demanded, as the
-decider can always decline.
+distinct stable lowercase ID, exact text, details, effect `adopt`, rule and
+consequences. A definition holds alternatives only, at least one (one proposal, or
+alternatives), and no "no" option: Decline is always available, so a definition
+with a `decline` option is refused with "A decision has no 'no' option; Decline is
+always available". There must be one `recommended` ID, first in the options array,
+and a short `rationale`. An open decision whose stored definition still has a
+decline option takes a definition without it (`atlas set <D> options=<json>`); its
+`option_history` keeps the old one as plain past data.
 
 ```sh
 atlas put decision --env test --title 'Example storage' \
@@ -61,18 +62,19 @@ Decisions that ended `rejected` before D-0106 stay so.
 
 The native model's semantic answer IDs include the displayed revision and stable
 option ID. Control shows the offer as a stack of simple blocks (D-0104): a
-`header` (YOUR DECISION, the key, the question), a `text` (Why: the rationale),
+`header` (YOUR DECISION, the key, the question), a `text` (the rationale, an intro paragraph without a label),
 then the options to adopt (contract 0.39.0). One proposal is one `option` card
 (`alone`: no answer, badge or number on it, its Rule and Consequences in full) and below it an `answers` block: Accept (`main`, the
 proposal's answer) and Decline (`decline`). Several alternatives are a card each, the
 recommended one first: its number, its text, a badge (`★ Recommended`, or
 `melle's alternative` on one a decider added when declining), its Rule and Consequences and
 its own Choose (the recommended `main`, the rest `other`); below them Decline all
-(`decline`). Decline is always offered and asks "What is your alternative?"; a
-decline option of the definition is no card: its text is the Decline answer's
-`detail`, shown with it. Then the quiet answers, each `other` with its `icon`: Ask
-a question (`question`), Hand over (`hand_over`) and Leave it to the proposer
-(`delegate`). Every answer sends exactly its option's answer. No Mac button says
+(`decline`). Decline is always offered and asks "What is your alternative?", with
+nothing beside it. Then the quiet answers, each `other` with its `icon`: Ask
+(`question`) and Delegate (`delegate`). Every answer and action says in full what it
+does (`help`, contract 0.41.0: a client's tooltip; Ask: "Ask the proposer a
+question", Delegate: "Let someone else decide: the proposer or another person").
+Every answer sends exactly its option's answer. No Mac button says
 what follows its click (no "…", no "· note"); the TUI's key line keeps "· note"
 (`f Decline · note`). A radio, dropdown or cards renderer can use the same answers
 without a model, schema or Flow change. Keyboard shortcuts are projection data.
@@ -81,10 +83,9 @@ interpret option effects. It draws each option as a filled card (rounded with
 half blocks, no lines; without truecolor, a left bar ▌), the selected one on a
 primary-tinted surface and marked ▸; ↑/↓ select an option, starting on the
 recommended one, and never answer; Enter answers the selected one exactly as its
-key does, so a decline still opens its note form. The Mac shows each option as a
-card with its own button, and the quiet answers as plain buttons with their icon
-(SF Symbols `questionmark.bubble`, `person.and.arrow.left.and.arrow.right`,
-`arrow.uturn.backward`) in the primary colour.
+key does. The Mac shows each option as a card with its own button; Ask and Delegate
+are in the window's toolbar after Edit (Edit · Ask · Delegate), their tooltip their
+`help`.
 
 The single-choice mechanism in `products/software_factory/model/generator` (`RelaDSL.DecisionOptions`) is generic:
 it knows no decision fields, statuses or wording. A kind passes them in with its
@@ -93,7 +94,7 @@ for decisions. Next to the fields holding the definition, selection, snapshot,
 revision and history, the annotation gives `adopt` (which option payload goes into
 which field: `rule` into `decision`, `consequences` into `consequences`),
 `answered_at` and `answered_by` (`decided_at` and the `decided_by` relation),
-`status` (the status field, its open, adopt and decline values, which statuses
+`status` (the status field, its open and adopt values, which statuses
 may still become superseded, and `returned`: those an unanswered offer is back with
 its proposer in), `alternative` (the field whose text, written with the revising
 status, becomes a new adopt option), `delegated` (the relation naming who left the
@@ -122,9 +123,9 @@ a card, its heading in the error colour), then each answer as an `option`, the
 first recommended, with what it does (Then), and the agent's log among the other
 answers.
 
-## Decline, ask, hand over, leave
+## Decline, ask, delegate
 
-A proposed decision's decider (D-0106) answers in one of five ways; nothing ends it
+A proposed decision's decider (D-0106) answers in one of four ways; nothing ends it
 declined.
 
 - **Accept / Choose:** it ends `accepted`, as above.
@@ -134,20 +135,28 @@ declined.
   `alternative`, `alternative-2`, …): its text, rule and consequences the decider's
   words, marked as theirs (`by`). The previous offer stays in `option_history`; the
   recommendation stays. `decided_by` names the one who declined.
-- **Ask a question:** asks "What do you need to know?"; the status becomes
-  `answering` with the question in `question`. The history says "asked: …".
-- **Hand over:** the page's Hand to…, under this label: another person decides.
-- **Leave it to the proposer** (not offered under a fixed person rule): sets
-  `delegated_by` to the decider and `left_to_proposer`. Only that person, from their
-  own session, may: Control refuses an agent acting on their behalf or another
-  person, and Facts refuses an agent or anyone else setting `delegated_by`. Flow asks
-  the gate again (`accept_decision` version 2: a delegation is the one route to an
-  agent; principles and production releases still go to a person), and the proposer
-  chooses, recorded as "decided by coordinator on behalf of ada, delegated". Its
-  choice links `decided_by` to the proposer, even where the decider is linked there
-  already (they declined or asked first): Facts lets the one the assignment names
-  replace the decider there only while `delegated_by` names exactly that decider
-  (`only_target.delegated` on `decided_by`), and refuses anyone else, saying so.
+- **Ask** ("Ask the proposer a question"): asks "What do you need to know?"; the
+  status becomes `answering` with the question in `question`. The history says
+  "asked: …".
+- **Delegate** (`l`, "Let someone else decide: the proposer or another person"):
+  opens Control's form "Delegate D-NNNN to…", nothing chosen until the decider
+  chooses (its Delegate stays disabled until then, and Control refuses it without):
+  - **The proposer (<name>) — decides on your behalf** ("The proposer decides, as you
+    delegate"; not offered under a fixed person rule): sets `delegated_by` to the
+    decider and `left_to_proposer`. Only that person, from their own session, may:
+    Control refuses an agent acting on their behalf or another person, and Facts
+    refuses an agent or anyone else setting `delegated_by`. Flow asks the gate again
+    (`accept_decision` version 2: agents never decide unless the decider delegates it;
+    principles and production releases still go to a person), and the proposer
+    carries out what was delegated, recorded as "decided by coordinator on behalf of
+    ada, delegated". Its choice links `decided_by` to the proposer, even where the
+    decider is linked there already (they declined or asked first): Facts lets the one
+    the assignment names replace the decider there only while `delegated_by` names
+    exactly that decider (`only_target.delegated` on `decided_by`), and refuses anyone
+    else, saying so.
+  - **Another person**, then whom (a required choice, shown only then): the page's own
+    Hand to… of its assignment to them, "handed to … by …": they decide instead.
+  Under a fixed person rule Delegate is that Hand to… itself, on `l`.
 
 A revising or answering decision goes to its proposer: `proposed_by`, the person
 who created it (set on create when a person creates it), else the coordinator,

@@ -1026,7 +1026,7 @@ defmodule AtlasTui.View do
     card(lines, width, :card_error, model)
   end
 
-  # A paragraph, dim, after its label ("Why: ") and with how long ago its `since` was; its
+  # A paragraph, dim, after its label when it has one and with how long ago its `since` was; its
   # lines under the first.
   defp block(%TextBlock{} = text, _at, model, width, _room) do
     label = if single_line(text.label) == "", do: "", else: single_line(text.label) <> ": "
@@ -1681,8 +1681,11 @@ defmodule AtlasTui.View do
   defp text_row("#" <> _ = row), do: {:bold, row}
   defp text_row(row), do: {:plain, row}
 
+  # A form's shown inputs (`Model.shown/2`), then its buttons: Submit dim until every
+  # required one has a value (`Model.ready?/2`). Under them the focused input's hint, or
+  # what its chosen choice means (`help`).
   defp form_lines(%Form{} = form, model, width, rows) do
-    items = Model.focusable(form)
+    items = Model.focusable(form, model.values)
     focus = min(model.focus, length(items) - 1)
 
     errors =
@@ -1692,7 +1695,7 @@ defmodule AtlasTui.View do
       end)
 
     inputs =
-      Enum.flat_map(form.inputs, fn input ->
+      Enum.flat_map(Model.shown(form, model.values), fn input ->
         focused = Enum.at(items, focus) == input
         value = model.values[input.name] || ""
 
@@ -1709,8 +1712,11 @@ defmodule AtlasTui.View do
     buttons = [
       [
         {:plain, "   "},
-        {if(Enum.at(items, focus) == :submit, do: :selected, else: :bold),
-         "[ #{form.submit_label} ]"},
+        {cond do
+           Enum.at(items, focus) == :submit -> :selected
+           Model.ready?(form, model.values) -> :bold
+           true -> :dim
+         end, "[ #{form.submit_label} ]"},
         {:plain, "  "},
         {if(Enum.at(items, focus) == :cancel, do: :selected, else: :plain), "[ Cancel ]"}
       ]
@@ -1720,6 +1726,15 @@ defmodule AtlasTui.View do
       case Enum.at(items, focus) do
         %Input{hint: hint} when is_binary(hint) ->
           Enum.map(Text.wrap(hint, width - 6), &[{:dim, "   " <> &1}])
+
+        %Input{choices: [_ | _] = choices, name: name} ->
+          case Enum.find(choices, &(&1.value == model.values[name])) do
+            %{help: help} when is_binary(help) ->
+              Enum.map(Text.wrap(help, width - 6), &[{:dim, "   " <> &1}])
+
+            _ ->
+              []
+          end
 
         _ ->
           []
@@ -1735,7 +1750,9 @@ defmodule AtlasTui.View do
 
   # How many rows the focused multi-line input has, all of it shown.
   defp focused_rows(form, model, width) do
-    case Enum.at(Model.focusable(form), min(model.focus, length(Model.focusable(form)) - 1)) do
+    focusable = Model.focusable(form, model.values)
+
+    case Enum.at(focusable, min(model.focus, length(focusable) - 1)) do
       %Input{kind: "multiline", name: name} ->
         length(visual_rows(model.values[name] || "", field_width(width)))
 
@@ -1755,7 +1772,10 @@ defmodule AtlasTui.View do
           Enum.map(Text.wrap(value, inner), &[{:plain, &1}])
 
         kind when kind in ["choice", "boolean"] ->
-          shown = Enum.find_value(input.choices || [], value, &(&1.value == value && &1.label))
+          shown =
+            Enum.find_value(input.choices || [], value, &(&1.value == value && &1.label))
+
+          shown = if shown == "", do: "choose", else: shown
           [[{if(focused, do: :selected, else: :plain), "‹ #{shown} ›"}]]
 
         "multiline" ->

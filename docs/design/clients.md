@@ -37,7 +37,7 @@ A decision, a to-do's steps and stuck work are such stacks (`header`, `text` id 
 `text` role `error`, `option` / `instruction`, `answers`, `actions`); see
 `platform/atlas_control/backend/README.md`.
 
-The **Machines** tab (contract 0.41.0; Runtimes in the code) is such a stack when there is
+The **Machines** tab (contract 0.43.0; Runtimes in the code) is such a stack when there is
 one machine: its page is the tab's page (`header` MACHINE · its key, the state line,
 Health, Slots, Queue, Recently finished, Upgrades, Upgrade to the newest build as the main
 answer, Edit configuration in the toolbar, Details). A client shows a tab page with a
@@ -96,13 +96,13 @@ Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 | Role (block) | Mac renders | TUI renders |
 |---|---|---|
 | Title / eyebrow (`header`) | On the page, no card: eyebrow and key in small caps in the accent's text colour (`TO DO FOR YOU · TD-12`), the title as the page title; the page's own actions beside it | Eyebrow with the key (`◆ YOUR DECISION · D-0104`) bold in the eyebrow colour, title under it |
-| Why / text (`text`) | On the page, muted: `Why: … · 3h ago`, its age kept current | Dim paragraph after its label, with its age |
+| Intro / text (`text`) | On the page, muted, no label (the why is an intro paragraph): `… · 3h ago`, its age kept current | Dim paragraph (after its label when it has one), with its age |
 | Option (`option`) | A calm card: number as Prism's `StepIndicator`, text, badge in its tone (★ Recommended success; `melle's alternative` neutral), Rule/Then rows (a field without a text shows no section: an alternative not worked out yet has only its title), its own Choose as a Prism button (recommended `primary`, others `secondary`); none when `alone` (Accept answers it) | A filled card (selected one on the selected surface, marked ▸): number, text, badge, fields, then its answer on its key |
 | Step (`instruction`) | A calm card per step, number in a badge, lines in order | A filled card per step, numbers aligned, lines in order; text bold |
 | Command (in a step) | A light inset with a copy icon right after the command, in the primary colour at the action icons' 16pt; after a copy a brief ✓, also primary | Plain behind a bar; the selected one highlighted (`c` copies, `y`) |
 | Route (in a step) | Muted ⌘, parts as small labels with › between | Muted ⌘, parts bold in the route colour |
-| Answers (`answers`) | A Prism button per answer in Control's order by its weight: `main` `primary`, `decline` `secondary`, others `plain`, with the SF Symbol of its `icon` (question `questionmark.bubble`, hand_over `person.and.arrow.left.and.arrow.right`, delegate `arrow.uturn.backward`) in the primary colour; labels say nothing of what follows (no `…`, no `· note`); a `detail` small under the buttons | The key line: each answer on its key, the main one and the decline in the primary colour, a note answer `· note`; a `detail` dim under it |
-| Other actions (`actions`) | The opened item's in the window's toolbar at the right, never on the page: each its SF Symbol (edit `pencil`, hand_over `person.and.arrow.left.and.arrow.right`, faults `exclamationmark.triangle`, …) in the primary colour with its short label (Icon and Text shows both) and its label and key as tooltip, in Control's order, Delete last in red; the same in the page's context menu and the Actions menu; none when nothing is open. Elsewhere (a sheet) one row of quiet icon buttons. A dangerous one opens Control's confirm | In the answers' key line, muted, after the answers (else a key line of its own) |
+| Answers (`answers`) | A Prism button per answer in Control's order by its weight: `main` `primary`, `decline` `secondary`; labels say nothing of what follows (no `…`, no `· note`); a `detail` small under the buttons. On the opened item the page's bottom keeps only these (a Choose per card and Decline all, Accept and Decline, Done and Won't do): its `other` answers are in the window's toolbar (below); in a sheet they stay `plain` buttons with their icon | The key line: each answer on its key, the main one and the decline in the primary colour, a note answer `· note`; a `detail` dim under it |
+| Other actions (`actions`) | The opened item's in the window's toolbar at the right, never on the page, in this order at the same spacing: its actions (Update first), then its `other` answers in Control's order (each taken as its key takes it: its call, else its page or note form), then Delete last; each its SF Symbol (edit `pencil`, question `questionmark.bubble`, hand_over `person.and.arrow.left.and.arrow.right`, delegate `arrow.uturn.backward`, faults `exclamationmark.triangle`, …) in the primary colour, Delete's red; Update and Delete their icon alone, every other its short label too (Ask, Delegate, Hand to, Failures), whatever the toolbar's display setting; its tooltip Control's `help`, else its label. The same in the page's context menu and the Actions menu; none when nothing is open. Elsewhere (a sheet) one row of quiet icon buttons. A dangerous one opens Control's confirm | In the answers' key line, muted, after the answers (else a key line of its own) |
 | What went wrong (`text` role `error`) | Prism's `MessageBar` in danger: label as heading, text under it | A card, label as a heading in the error colour over its text |
 | Details (part `details`/`related`) | Own column, or a recessed card (grey5) under the page | Own column, or a compact card under its heading at the page's end |
 | Row card (list row) | A small card: the kind's icon (grey; primary on the selected card while the list has the focus), kind and key in small caps (`DECISION · D-0104`) and age, the title on at most a few lines, the state under it on a line of its own; no status dot | One line: dot, kind glyph, key, age, title (state dropped below 80) |
@@ -168,13 +168,20 @@ nothing about an action, only how it is triggered.
 |---|---|---|---|
 | Main answer | the first of `answers` (or an option's Choose): the next step | `primary` button (success) | key in green |
 | Decline | weight `decline` (`no`, deprecated): Won't do, Decline, Decline all | `secondary` button; Decline all under several alternatives (icon `decline`) a quiet `plain` button with a blue `xmark.circle`; one with `note` opens the note form on click, its label unchanged | key in the primary colour, `· note` when it asks one |
-| Other answer | weight `other`: Ask a question, Hand over, Leave it to the proposer (a decision, D-0106) | `plain` button, its `icon` in the primary colour as an other action's | in the key line, in order |
-| Other action | the `actions` block: change, hand over, delete, create under, Failures… (test only) | the opened item's in the window's toolbar, never a button on the page; its icon in the primary colour (dark: PrismDarkGap's readable primary), Delete red | muted in the key line |
+| Other answer | weight `other`: Ask, Delegate (a decision, D-0106: its form chooses the proposer or another person), Pick up | the opened item's in the window's toolbar after its actions, its icon and short label; in a sheet a `plain` button with its icon | in the key line, in order |
+| Other action | the `actions` block: change, hand over, delete, create under, Failures… (test only) | the opened item's in the window's toolbar, never a button on the page; its icon in the primary colour (dark: PrismDarkGap's readable primary), Delete red and last | muted in the key line |
 
-- **Mac**: answers as buttons on the page; the opened item's other actions in the window's
-  toolbar at the right (and its context menu); the menu bar's **Actions** menu lists the
-  shown page's actions with their keys. Keys are invisible on the page (a button's tooltip
-  names its key) but work whichever column has the focus. A pending action shows a spinner
-  on its button.
+- **Mac**: the main answer and the decline as buttons at the page's bottom; everything
+  else for the opened item (its actions and `other` answers) in the window's toolbar at the
+  right (and its context menu); a list's own actions (Create to-do) in the list column's
+  toolbar above it, a quiet `+`. No toolbar item is a prominent capsule. The menu bar's
+  **Actions** menu lists the shown page's
+  actions with their keys. Keys are invisible on the page but work whichever column has
+  the focus. Every action's and answer's button and toolbar item has a tooltip: Control's
+  `help` (contract 0.41.0), else its label. A pending action shows a spinner on its button.
+- **Mac forms** (contract 0.41.0): an input with `shown_when` is shown, required and sent
+  only while the input it names holds that value; a required choice without a value starts
+  with none chosen, as radio buttons, each choice's `help` its tooltip; Save waits until
+  every shown required input has a value.
 - **TUI**: the **key line** under the page names each action on its key, in Control's
   order, with the keys of the column that has the focus.
