@@ -48,18 +48,20 @@ defmodule AtlasFlow.Engine do
     fact: finding kinds, facts that changed without a hint about them, and every other
     run is the round's. A hint of Flow's own write is passed over: the run writer's
     writes change nothing a state depends on (Facts checks that), and the task facts the
-    work source writes, which a run's task result is read from, come as
-    `{:reconcile, kind, key}` (below). A lost hint only waits for the round.
+    work source writes, which a run's task result is read from, and the runtime upgrades
+    it moves on, whose step their runs follow, come as `{:reconcile, kind, key}` (below).
+    A lost hint only waits for the round.
 
   It reaches Facts only over the Bus, as the endpoint `flow`.
 
   Tasks go through Flow's work source (`AtlasFlow.Activities.Task`, plan m3 A4). The
   Engine reads only what Facts and `AtlasFlow.Bases`' table hold, and never calls Code or a
   Runtime. `{:reconcile, kind, key}` reconciles that subject's runs now and projects them:
-  `AtlasFlow.Delivery` casts it once a task's result is recorded (its writes are Flow's, so
-  their hints are passed over), and Bases sends it as a plain message once a base a task
-  waits for is cached. Both reach one function. Before the runs were read whole once, or
-  when the reconcile fails, it waits for the round, which reads every task back anyway.
+  `AtlasFlow.Delivery` casts it once a task's result or an upgrade's step is recorded (its
+  writes are Flow's, so their hints are passed over), and Bases sends it as a plain message
+  once a base a task waits for is cached. Both reach one function. Before the runs were
+  read whole once, or when the reconcile fails, it waits for the round, which reads every
+  task back anyway.
 
   It keeps Flow's settled position (`AtlasFlow.Settled`): a hint is settled once the
   engine reconciled and projected what it is about, through the writes it made for it
@@ -232,7 +234,7 @@ defmodule AtlasFlow.Engine do
   end
 
   # Its own write: the run writer's change nothing a state depends on; Delivery's, which a
-  # task's result is read from, come as `{:reconcile, kind, key}`.
+  # task's result and an upgrade's step are read from, come as `{:reconcile, kind, key}`.
   def handle_info({:atlas_bus, %Envelope{class: "stored"} = hint, %{"by" => "flow"}}, state),
     do: {:noreply, settle(state, Settled.seen(state.settled, position(hint)))}
 

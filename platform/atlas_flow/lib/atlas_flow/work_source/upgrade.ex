@@ -30,8 +30,10 @@ defmodule AtlasFlow.WorkSource.Upgrade do
 
   A refused write (the fact changed meanwhile) is logged and the next poll works it out
   again; every order is safe to repeat (the Runtime runs the update command once per
-  upgrade). No machinery fact, no upgrade, or a Facts that does not answer: `:none`, and
-  the poll is answered as before. A poll is never refused or held up for an upgrade.
+  upgrade). A stored write calls `stored` with the upgrade's key: the Engine passes over
+  the hints of Flow's own writes, so Delivery has the upgrade's run reconciled then, as it
+  does a task's. No machinery fact, no upgrade, or a Facts that does not answer: `:none`,
+  and the poll is answered as before. A poll is never refused or held up for an upgrade.
   """
 
   require Logger
@@ -53,29 +55,32 @@ defmodule AtlasFlow.WorkSource.Upgrade do
 
   @doc """
   One poll of Runtime `runtime_id` (`input` the poll's input, atom or string keys): moves
-  its upgrade on, then `{:serve, %{id, build, action}}` or `:none`. `by` is the writer.
+  its upgrade on, then `{:serve, %{id, build, action}}` or `:none`. `by` is the writer;
+  `stored` is called with the key of each upgrade a write of it was stored on.
   """
-  @spec poll(String.t(), map(), String.t()) :: {:serve, map()} | :none
-  def poll(runtime_id, input, by \\ "flow") when is_binary(runtime_id) do
+  @spec poll(String.t(), map(), String.t(), (String.t() -> any())) :: {:serve, map()} | :none
+  def poll(runtime_id, input, by \\ "flow", stored \\ fn _key -> :ok end)
+      when is_binary(runtime_id) do
     input = Translate.normal(input)
+    writer = {by, stored}
 
     case open(runtime_id) do
       {:ok, [current | others]} ->
-        Enum.each(others, &refuse(&1, current, by))
-        step(current, input, by)
+        Enum.each(others, &refuse(&1, current, writer))
+        step(current, input, writer)
 
       _none_or_unreadable ->
         :none
     end
   end
 
-  defp step(fact, input, by) do
+  defp step(fact, input, writer) do
     values = fact["values"]
     report = report(input, fact["key"])
 
     {changes, action} = next(values["step"] || "requested", values, input, report)
 
-    if changes != %{}, do: record(fact, changes, by)
+    if changes != %{}, do: record(fact, changes, writer)
 
     case action do
       nil -> :none
@@ -151,7 +156,7 @@ defmodule AtlasFlow.WorkSource.Upgrade do
     end
   end
 
-  defp refuse(fact, current, by) do
+  defp refuse(fact, current, writer) do
     record(
       fact,
       %{
@@ -159,7 +164,7 @@ defmodule AtlasFlow.WorkSource.Upgrade do
         "failed_step" => "start",
         "reason" => "#{current["key"]} is in progress: one upgrade at a time"
       },
-      by
+      writer
     )
   end
 
@@ -188,7 +193,7 @@ defmodule AtlasFlow.WorkSource.Upgrade do
     end
   end
 
-  defp record(fact, changes, by) do
+  defp record(fact, changes, {by, stored}) do
     values = fact["values"]
     changed = Map.filter(changes, fn {field, value} -> values[field] != value end)
 
@@ -205,6 +210,7 @@ defmodule AtlasFlow.WorkSource.Upgrade do
       case Talk.put(@upgrade, content, digest([fact["key"], fact["version"], changed])) do
         {:stored, _position} ->
           Logger.info("flow work source: upgrade #{fact["key"]}: #{inspect(changed)}")
+          stored.(fact["key"])
 
         other ->
           Logger.warning(
