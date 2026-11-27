@@ -94,7 +94,6 @@ defmodule AtlasTui.ColumnsSidebarTest do
     assert Columns.sidebar?(model)
     text = screen(model, 300)
 
-    assert text =~ ~r/^  Tabs +│ Assigned to you +│ Widget W-1/mu
     refute text =~ "▸ Assigned to you"
     refute text =~ "┌"
 

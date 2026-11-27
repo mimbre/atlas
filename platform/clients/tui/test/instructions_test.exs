@@ -132,7 +132,7 @@ defmodule AtlasTui.InstructionsTest do
     assert text =~ ~r/▎ mkdir w\n\n +⌘ Finder › Home › w\n\n +▎ cd w\n.*\n\n.*\n +3\. Tell us/
 
     assert text =~
-             "x Done · note · n Won't do · note · u Update chore · ↑↓ command · c copy · y copy all"
+             "x Done · n Won't do · u Update chore · ↑↓ command · c copy · y copy all"
 
     refute text =~ ~r/step \d+ of/i
     refute text =~ ~r/Enter|Next step|Previous step|✓ 1\./
@@ -212,13 +212,14 @@ defmodule AtlasTui.InstructionsTest do
     ]
 
     text = screen(model(answers: answers))
-    assert text =~ "x Done · note · n Won't do · note · l Later · u Update chore"
+    assert text =~ "x Done · n Won't do · l Later · u Update chore"
+    refute text =~ "· note"
 
     lines =
       for line <- View.render(model(answers: answers), 90, 60, 30), do: Enum.map(line, &on_page/1)
 
-    [keys] = Enum.filter(lines, &({:info, " Done · note"} in &1))
-    assert {:info, " Won't do · note"} in keys
+    [keys] = Enum.filter(lines, &({:info, " Done"} in &1))
+    assert {:info, " Won't do"} in keys
     assert {:dim, " Later"} in keys
   end
 

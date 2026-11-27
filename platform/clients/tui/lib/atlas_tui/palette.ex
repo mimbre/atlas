@@ -30,9 +30,8 @@ defmodule AtlasTui.Palette do
   `:info`'s colours, primarylight on dark and grey1 on primarylight in light, where
   primary text on white is under 4.5:1.
   `:rest_frame` is the thin line between two columns: grey2 in dark; in light grey1, as
-  grey2 on white stays under 3:1 (2.85:1). `:lit` is the heading of the column with the
-  focus: bold, primarylight on dark, primaryshade on white (4.51:1; primary is under 4.5:1
-  on either surface).
+  grey2 on white stays under 3:1 (2.85:1). `:lit` is the focused column's heading:
+  white on primaryshade, with a visible focus marker.
   `:eyebrow` is a page's eyebrow ("◆ YOUR DECISION · D-0104"): bold light blue on the page,
   primarylight in dark, primaryshade in light (primary on white is under 4.5:1).
 
@@ -119,7 +118,7 @@ defmodule AtlasTui.Palette do
         :frame -> if dark, do: {:primary, :grey1}, else: {:primary, :white}
         :error_frame -> if dark, do: {:error, :grey1}, else: {:error, :white}
         :rest_frame -> if dark, do: {:grey2, :grey1}, else: {:grey1, :white}
-        :lit -> if dark, do: {:primarylight, :grey1}, else: {:primaryshade, :white}
+        :lit -> {:white, :primaryshade}
         :key -> {:grey1, :grey3}
         :warning -> if dark, do: {:warning, :grey1}, else: {:grey1, :warninglight}
         :ok -> if dark, do: {:success, :grey1}, else: {:grey1, :successlight}

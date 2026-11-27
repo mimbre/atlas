@@ -54,8 +54,75 @@ defmodule AtlasTui.ConsoleView do
         [{:dim, "│"}] ++ tabs(shell, console.active, inner) ++ [{:dim, "│"}]
       ] ++
         Enum.map(groups, &([{:dim, "│"}] ++ &1 ++ [{:dim, "│"}])) ++
-        [[{:dim, "└" <> String.duplicate("─", inner) <> "┘"}]]
+        [[{:dim, "└" <> String.duplicate("─", inner) <> "┘"}]] ++
+        breadcrumb(model, width)
     end
+  end
+
+  defp breadcrumb(model, width) do
+    if AtlasTui.Columns.layout(width) == :one and model.console.history != [] do
+      tabs = (model.console.shell || %{})["tabs"] || []
+      paths = Enum.reverse(model.console.history)
+
+      labels =
+        Enum.flat_map(paths, fn entry ->
+          tab =
+            Enum.find_value(tabs, fn tab ->
+              if tab["to"] == entry.path do
+                tab["label"]
+              else
+                Enum.find_value(tab["groups"] || [], fn group ->
+                  if group["to"] == entry.path, do: group["label"]
+                end)
+              end
+            end)
+
+          cached = AtlasTui.PageCache.get(model.console.cache, entry.path)
+
+          case tab || entry[:title] || (cached && cached["title"]) do
+            label when is_binary(label) and label != "" -> [label]
+            _ -> []
+          end
+        end)
+
+      labels = Enum.dedup(labels ++ if(is_binary(model.title), do: [model.title], else: []))
+
+      if length(labels) > 1 do
+        text = "  " <> Enum.join(labels, " › ")
+
+        graphemes = String.graphemes(text)
+
+        if Enum.sum(Enum.map(graphemes, &cell_width/1)) <= width do
+          [[{:dim, text}]]
+        else
+          {suffix, _} =
+            graphemes
+            |> Enum.reverse()
+            |> Enum.reduce_while({[], max(width - 1, 0)}, fn grapheme, {acc, room} ->
+              cells = cell_width(grapheme)
+
+              if cells <= room,
+                do: {:cont, {[grapheme | acc], room - cells}},
+                else: {:halt, {acc, room}}
+            end)
+
+          [[{:dim, "…" <> Enum.join(suffix)}]]
+        end
+      else
+        []
+      end
+    else
+      []
+    end
+  end
+
+  defp cell_width(grapheme) do
+    {width, emoji} =
+      for <<cp::utf8 <- grapheme>>, reduce: {0, false} do
+        {width, emoji} -> {width + :prim_tty.npwcwidth(cp), emoji or cp in [0xFE0F, 0x20E3]}
+      end
+
+    if emoji, do: max(width, 2), else: width
   end
 
   @doc """

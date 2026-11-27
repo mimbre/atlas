@@ -346,6 +346,33 @@ defmodule AtlasTui.ConsoleTest do
     assert detail.console.active == "widgets"
   end
 
+  test "an item opened from a work tab keeps its tab and shows its path on a narrow screen" do
+    model =
+      ready()
+      |> Map.put(:path, "/")
+      |> put_in([Access.key(:console), Access.key(:shell), "tabs", Access.at(0), "to"], "/")
+      |> put_in(
+        [Access.key(:console), Access.key(:shell), "tabs", Access.at(0), "label"],
+        "Assigned to you"
+      )
+
+    {pending, [_]} = Console.open(model, "/k/decision/D-1")
+    detail = Map.put(page("/k/decision/D-1"), "title", "Decision D-1")
+    {opened, []} = Console.receive(pending, detail)
+
+    assert opened.console.active == "widgets"
+    assert screen(opened) =~ "▸ Assigned to you"
+    assert screen(opened) =~ "Assigned to you › Decision D-1"
+    assert screen(opened, 20) =~ "…"
+    assert screen(opened, 20) =~ "Decision D-1"
+    wide_title = %{opened | title: "決定事項界面"}
+    assert screen(wide_title, 20) =~ "…"
+    assert screen(wide_title, 20) =~ "決定事項界面"
+    {returning, [_]} = Console.back(opened)
+    {returned, []} = Console.receive(returning, page("/"))
+    assert returned.console.active == "widgets"
+  end
+
   test "narrow viewport follows active tab and resize preserves shell and content" do
     {model, [_]} = Console.navigate(ready(), "/k/shelf")
     {model, []} = Console.receive(model, page("/k/shelf"))
