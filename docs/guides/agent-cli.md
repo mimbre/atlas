@@ -54,6 +54,8 @@ Hand over… stays the supervisor's own; an agent that assists nobody picks noth
 
 The scene pipeline's flows a person picks up are **Design** (Scene → Use cases), **Plan** (Use case → Issues) and **Build** (Issue → Pull request): each is a group of Open for you and of Supervised by you. A use case is design (D-0099): Design makes it with its Design part, and there is no design step or design status after it. A use case has no Accept of its own: it is accepted by itself once all its issues are done. **Accept** (Accept the scene) goes to the scene's producer once all its use cases are accepted. What Flow writes names the flow so too: `Assigned to: melle (since …, by flow: Flow Design: its agent's break-down is done → melle)`.
 
+Plan may propose UI implementation as a separate issue for independent priority and a separate agent, without making unrelated content or workflow bugs prerequisites. Plan numbers every proposed issue; before accepting, the supervisor clears **Order** on an independent issue so it neither waits for nor holds up numbered work. Numbered issues otherwise wait for earlier numbered issues in the same use case. Keep genuine dependencies ordered or resolve them with the producer; the planner asks the producer when a real dependency or design choice prevents safe planning. Clearing Order does not set priority or route a specialist: the supervisor or coordinator arranges those separately.
+
 ## Retrying or removing a stuck scene, use case or issue
 
 Its supervisor (or an agent that assists them) handles a stuck or failed item from its page, in the Console or with `atlas do` (IS-Atlas-09):
