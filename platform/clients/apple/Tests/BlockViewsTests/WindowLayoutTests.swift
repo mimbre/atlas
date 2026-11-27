@@ -73,6 +73,31 @@ final class WindowLayoutTests: XCTestCase {
         "kind": .string("part"), "start": .string("item"), "end": .string("item"),
         "props": .object(["title": .string("Details"), "role": .string("details")])])
 
+    func testOnlyAnOverviewUsesListGround() {
+        let list = PageMessage(blocks: [Block(raw: Self.list)], markup: [], path: "/k/widget", title: "Widgets")
+        let details = PageMessage(blocks: [Block(raw: Self.list), Block(raw: Self.item)],
+                                  markup: [MarkupEntry(raw: Self.details)], path: "/k/widget/W-01", title: "W-01")
+        let header = JSONValue.object(["id": .string("header"), "type": .string("header"),
+                                       "props": .object(["title": .string("Widget")])])
+        let headed = PageMessage(blocks: [Block(raw: header), Block(raw: Self.list)], markup: [],
+                                 path: "/k/widget/W-01", title: "Widget")
+
+        XCTAssertTrue(PageView(page: list, open: { _ in }).listPage)
+        XCTAssertFalse(PageView(page: list, header: true, open: { _ in }).listPage)
+        XCTAssertFalse(PageView(page: details, open: { _ in }).listPage)
+        XCTAssertFalse(PageView(page: headed, open: { _ in }).listPage)
+    }
+
+    func testPageRowHoverAndSelectionKeepTheirOwnColors() {
+        for scheme in [ColorScheme.light, .dark] {
+            let normal = PrismDarkGap.listCard(scheme, selected: false, focused: true, hovering: false)
+            let hover = PrismDarkGap.listCard(scheme, selected: false, focused: true, hovering: true)
+            let selected = PrismDarkGap.listCard(scheme, selected: true, focused: true, hovering: false)
+            XCTAssertNotEqual(normal, hover)
+            XCTAssertNotEqual(normal, selected)
+        }
+    }
+
     func testAPageStartsAtTheLeftAtMostAPageWide() {
         let page = PageMessage(blocks: [Block(raw: Self.list)], markup: [], path: "/k/widget", title: "Widgets")
         for column in [1800.0, 1200.0, 900.0, 500.0] {

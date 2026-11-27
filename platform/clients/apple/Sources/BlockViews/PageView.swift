@@ -110,10 +110,10 @@ public struct PageView: View {
                     still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
                         .padding(.horizontal, header ? Prism.Spacing.px15 : 0))
                 case .row(let row):
-                    RowCard(row: row, selected: line.to == selectedPath, focused: listFocused)
+                    RowCard(row: row, selected: line.to == selectedPath, focused: listFocused, raised: !listPage)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
-                        .listRowBackground(PrismDarkGap.listGround(scheme))
+                        .listRowBackground(listPage ? PrismDarkGap.listGround(scheme) : PrismDarkGap.card(scheme))
                 case .actions(let actions):
                     still(ActionsView(actions: actions, act: act))
                 case .entry(let entry):
@@ -137,14 +137,14 @@ public struct PageView: View {
         // view at any window height.
         .contentMargins(.bottom, Prism.Spacing.px30, for: .scrollContent)
         .focused($listFocused)
-        // A page of lists (no panel, no details) lies on the list's ground, so its row
-        // cards stand out from it; another keeps the system's.
+        // Only the overview list has its own ground; rows embedded in an opened page
+        // share that page's background.
         .scrollContentBackground(listPage ? .hidden : .automatic)
         .background(listPage ? PrismDarkGap.listGround(scheme) : .clear)
     }
 
-    private var listPage: Bool {
-        presentation.details == nil && !presentation.hasPanel
+    var listPage: Bool {
+        !header && !presentation.hasHeader && presentation.details == nil && !presentation.hasPanel
     }
 
     /// A row of the page's list: the page's header, a list block's title, its empty text,
@@ -267,7 +267,9 @@ public struct PageView: View {
     @ViewBuilder private func entryView(_ entry: PagePresentation.Entry, inDetails: Bool = false,
                                         detailHeading: Bool = false, followsCardsBeforeDetails: Bool = false) -> some View {
         switch entry.item {
-        case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
+        case .list(let list):
+            ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act,
+                          raised: !listPage && !inDetails)
         case .groups(let groups): GroupFilters(groups: groups, selected: selectedGroup, filter: filter)
         case .item(let item): ItemBlockView(item: item, inDetails: inDetails, detailHeading: detailHeading, act: act)
         case .option(let option): OptionView(block: option, detailHeading: detailHeading, act: act)
@@ -342,6 +344,7 @@ struct ListBlockView: View {
     let selectedPath: String?
     let open: (String) -> Void
     let act: (ActionModel) -> Void
+    var raised = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
@@ -360,7 +363,7 @@ struct ListBlockView: View {
                 Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
             }
             ForEach(Array((list.rows ?? []).enumerated()), id: \.offset) { _, row in
-                ListRowView(row: row, selected: row.to == selectedPath, open: open)
+                ListRowView(row: row, selected: row.to == selectedPath, open: open, raised: raised)
             }
             ActionsView(actions: PageActions.ofBlock(list.actions), act: act)
         }
@@ -372,12 +375,13 @@ struct ListRowView: View {
     let row: RowModel
     let selected: Bool
     let open: (String) -> Void
+    var raised = true
 
     var body: some View {
         // The button owns its card. Future nested controls must be siblings of this
         // button, with no overlay or parent tap gesture.
         Button { if let to = row.to { open(to) } } label: {
-            RowCard(row: row, selected: selected, focused: true)
+            RowCard(row: row, selected: selected, focused: true, raised: raised)
         }
         .buttonStyle(.plain)
         .disabled(row.to == nil)
@@ -390,16 +394,16 @@ struct ListRowView: View {
 /// two, the whole of it in a tooltip); under that, muted, its state when Control sends one
 /// (`Decide it · Deadline 2026-12-01 17:00`, on a line of its own so the kind and key never
 /// crowd it out), and whether a write to it is being processed. No status dot: the state
-/// says where it stands in words. The card follows its title's height; it is a little
-/// lighter than the list's ground, rounded, without a shadow (list cards are an overview).
+/// says where it stands in words. The card follows its title's height. Overview rows and
+/// rows inside a recessed details card have no shadow; other page rows cast Prism's card shadow.
 /// Selected: Prism's light primary tint with a thin primary border, and the kind's icon in
-/// primary, while the list has the focus (`focused`), calm grey without it. The outer
-/// List supplies its row ground; nested lists leave the surrounding page visible.
+/// primary, while the list has the focus (`focused`), calm grey without it.
 struct RowCard: View {
     let row: RowModel
     let selected: Bool
     /// Whether the list the card is in has the keys.
     let focused: Bool
+    var raised = false
     @State private var hovering = false
     @Environment(\.colorScheme) private var scheme
 
@@ -411,15 +415,22 @@ struct RowCard: View {
             .padding(.horizontal, Prism.Spacing.px13)
             .padding(.vertical, Prism.Spacing.px10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PrismDarkGap.listCard(scheme, selected: selected, focused: focused, hovering: hovering),
-                        in: shape)
+            .background {
+                let fill = PrismDarkGap.listCard(scheme, selected: selected, focused: focused, hovering: hovering)
+                if raised {
+                    shape.fill(fill).prismShadow(Prism.Shadows.prismCard)
+                } else {
+                    shape.fill(fill)
+                }
+            }
             .overlay {
                 if selected { shape.strokeBorder(PrismDarkGap.listCardEdge(scheme, focused: focused), lineWidth: 1) }
             }
             .contentShape(shape)
             .onHover { hovering = $0 }
-            .padding(.vertical, Prism.Spacing.px3)
-            .padding(.horizontal, Prism.Spacing.px10)
+            .padding(.horizontal, raised ? Prism.Spacing.px13 : Prism.Spacing.px10)
+            .padding(.top, raised ? Prism.Spacing.px10 : Prism.Spacing.px3)
+            .padding(.bottom, raised ? Prism.Spacing.px19 : Prism.Spacing.px3)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
