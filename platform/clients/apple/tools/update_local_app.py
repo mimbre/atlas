@@ -37,21 +37,53 @@ def sha(path):
     return h.hexdigest()
 
 
-def tested_revision(revision):
-    # deploy-prod is gated on the repository's tested-tree and all applicable CI jobs.
+def tested_revision(revision, tree):
     def get(url):
         request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "atlas-console-local-update"})
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.load(response)
+
+    base = "https://api.github.com/repos/mimbre/atlas/actions"
     runs = get(API)["workflow_runs"]
     for item in runs:
         if (item["head_sha"] != revision or item["name"] != "CI"
-                or item["status"] != "completed" or item.get("conclusion") != "success"):
+                or item["path"] != ".github/workflows/ci.yml"
+                or item["status"] != "completed" or item["conclusion"] not in ("success", "failure")):
             continue
-        jobs = get(item["jobs_url"] + "?per_page=100")["jobs"]
-        if any(job["name"] == "Deploy prod on Fly, and a smoke check" and job["conclusion"] == "success" for job in jobs):
+        page = get(item["jobs_url"] + "?per_page=100")
+        jobs = page["jobs"]
+        if page["total_count"] != len(jobs):
+            continue
+        if not any(job["name"] == "Deploy prod on Fly, and a smoke check" and job["conclusion"] == "success" for job in jobs):
+            continue
+        if any(job["status"] != "completed" or
+               (job["conclusion"] not in ("success", "skipped") and
+                not (job["name"] == "Publish the Mac app of this release" and job["conclusion"] == "failure"))
+               for job in jobs):
+            continue
+        if item["conclusion"] == "failure" and not any(
+                job["name"] == "Publish the Mac app of this release" and job["conclusion"] == "failure"
+                for job in jobs):
+            continue
+        if any(job["name"] == "Record the tested tree" and job["conclusion"] == "success" for job in jobs):
             return
-    raise RuntimeError("no successful completed CI run with successful prod gate for master " + revision)
+        # Match CI's own trusted tested-tree lookup, including same repository,
+        # successful originating workflow, and an unexpired exact-tree artifact.
+        name = "tested-tree-" + tree
+        artifacts = get(f"{base}/artifacts?name={name}&per_page=100")["artifacts"]
+        repo_id = item["repository"]["id"]
+        for artifact in artifacts:
+            origin = artifact.get("workflow_run") or {}
+            if (artifact["name"] != name or artifact["expired"] is not False
+                    or origin.get("repository_id") != repo_id or origin.get("head_repository_id") != repo_id
+                    or not isinstance(origin.get("id"), int) or origin["id"] == item["id"]):
+                continue
+            prior = get(f"{base}/runs/{origin['id']}")
+            if (prior["id"] == origin["id"] and prior["path"] == item["path"]
+                    and prior["repository"]["id"] == repo_id and prior["head_repository"]["id"] == repo_id
+                    and prior["status"] == "completed" and prior["conclusion"] == "success"):
+                return
+    raise RuntimeError("no qualifying CI tests and production gate for master " + revision)
 
 
 def metadata(app):
@@ -119,7 +151,8 @@ def update(app):
         if rev == installed:
             print("Up to date: " + rev)
             return
-        tested_revision(rev)
+        tree = output("git", "-C", str(source), "rev-parse", rev + "^{tree}")
+        tested_revision(rev, tree)
         run("git", "-C", str(source), "checkout", "--quiet", "--detach", rev)
         run(str(source / "bin/generate"), "model", cwd=source)
         package = source / "platform/clients/apple"

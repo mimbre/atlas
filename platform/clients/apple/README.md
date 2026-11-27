@@ -109,9 +109,13 @@ active and can forcibly quit Console.
 
 The updater requires the existing signed local bundle and its recorded commit and
 endpoint, fetches master into a disposable clone, refuses non-descendant revisions,
-and requires both overall CI success and the production-deployment gate for that exact
-revision. Those gates are release signals, not proof of an independent review. It
-generates the model, runs Swift tests, builds the release binary, signs and verifies a staged copy, and checks
+and requires a successful production gate for that exact revision, no failed or
+cancelled jobs except a failed Mac publishing job, and either a successful tested-tree
+record job or CI's unexpired trusted artifact for that exact Git tree. Thus a missing
+distribution signing identity is not needed locally, but unexplained skipped tests do
+not qualify. These gates are release signals, not proof of independent review. It
+generates the model, runs Swift tests, builds the release binary, signs and verifies a
+staged copy, and checks
 master and the installed bundle again before an atomic exchange. It preserves the
 bundle identifier, launcher, endpoint and other contents. The previous bundle remains
 in a uniquely named hidden folder in Applications as `previous-bundle` (without an

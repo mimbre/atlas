@@ -88,28 +88,46 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(updater.metadata(self.app)[0]["AtlasGitCommit"], "a" * 40)
         self.assertFalse(list(self.app.parent.glob(".atlas-console-update-*")))
 
-    def test_release_gate_requires_exact_revision_and_success(self):
-        rev = "b" * 40
-        runs = {"workflow_runs": [{"head_sha": rev, "name": "CI", "status": "completed",
-                                   "conclusion": "success", "jobs_url": "https://example.invalid/jobs"}]}
-        jobs = {"jobs": [{"name": "Deploy prod on Fly, and a smoke check", "conclusion": "success"}]}
-        def response(data):
+    def test_release_gate_checks_failures_and_tested_tree(self):
+        rev, tree = "b" * 40, "c" * 40
+        run = {"id": 1, "head_sha": rev, "name": "CI", "status": "completed",
+               "path": ".github/workflows/ci.yml", "conclusion": "failure",
+               "repository": {"id": 10}, "jobs_url": "https://example.invalid/jobs"}
+        jobs = [{"name": "Deploy prod on Fly, and a smoke check", "conclusion": "success", "status": "completed"},
+                {"name": "Publish the Mac app of this release", "conclusion": "failure", "status": "completed"},
+                {"name": "Apple clients", "conclusion": "skipped", "status": "completed"}]
+        artifact = {"name": "tested-tree-" + tree, "expired": False,
+                    "workflow_run": {"id": 2, "repository_id": 10, "head_repository_id": 10}}
+        prior = {"id": 2, "path": run["path"], "repository": {"id": 10}, "head_repository": {"id": 10},
+                 "status": "completed", "conclusion": "success"}
+        def request(req, timeout):
+            url = req.full_url
+            if url == updater.API:
+                data = {"workflow_runs": [run]}
+            elif url.startswith("https://example.invalid/jobs"):
+                data = {"jobs": jobs, "total_count": len(jobs)}
+            elif "/artifacts?" in url:
+                data = {"artifacts": [artifact]}
+            else:
+                data = prior
             return io.BytesIO(json.dumps(data).encode())
-        with patch.object(updater.urllib.request, "urlopen",
-                          side_effect=[response(runs), response(jobs)]):
-            updater.tested_revision(rev)
-        with patch.object(updater.urllib.request, "urlopen", return_value=response(runs)):
-            with self.assertRaisesRegex(RuntimeError, "no successful completed CI"):
-                updater.tested_revision("c" * 40)
-        jobs["jobs"][0]["conclusion"] = "failure"
-        with patch.object(updater.urllib.request, "urlopen",
-                          side_effect=[response(runs), response(jobs)]):
-            with self.assertRaisesRegex(RuntimeError, "no successful completed CI"):
-                updater.tested_revision(rev)
-        runs["workflow_runs"][0]["conclusion"] = "failure"
-        with patch.object(updater.urllib.request, "urlopen", return_value=response(runs)):
-            with self.assertRaisesRegex(RuntimeError, "no successful completed CI"):
-                updater.tested_revision(rev)
+        with patch.object(updater.urllib.request, "urlopen", side_effect=request):
+            updater.tested_revision(rev, tree)
+            for changed, value in ((jobs[2], "failure"), (jobs[2], "cancelled"), (jobs[0], "failure")):
+                original = changed["conclusion"]
+                changed["conclusion"] = value
+                with self.assertRaisesRegex(RuntimeError, "no qualifying CI"):
+                    updater.tested_revision(rev, tree)
+                changed["conclusion"] = original
+            artifact["expired"] = True
+            with self.assertRaisesRegex(RuntimeError, "no qualifying CI"):
+                updater.tested_revision(rev, tree)
+            artifact["expired"] = False
+            prior["conclusion"] = "failure"
+            with self.assertRaisesRegex(RuntimeError, "no qualifying CI"):
+                updater.tested_revision(rev, tree)
+            with self.assertRaisesRegex(RuntimeError, "no qualifying CI"):
+                updater.tested_revision("d" * 40, tree)
 
     def test_interruption_after_exchange_retains_original(self):
         exchange = updater.swap
