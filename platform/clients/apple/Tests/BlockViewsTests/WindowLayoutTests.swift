@@ -56,6 +56,14 @@ final class WindowLayoutTests: XCTestCase {
         XCTAssertFalse(WindowLayout.showsSidebar(window: 800))
     }
 
+    func testLongRoutePartWrapsInsideNarrowColumn() {
+        let part = "Open the very long developer certificate settings in the system configuration"
+        func height(_ width: CGFloat) -> CGFloat {
+            NSHostingView(rootView: RouteLine(parts: [part]).frame(width: width)).fittingSize.height
+        }
+        XCTAssertGreaterThan(height(140), height(350) + 20)
+    }
+
     private static let row: JSONValue = .object(["id": .string("W-01"), "label": .string("One")])
     private static let list: JSONValue = .object(["id": .string("list"), "type": .string("list"),
                                                   "props": .object(["title": .string("Widgets"), "rows": .array([row])])])

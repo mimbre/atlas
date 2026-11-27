@@ -144,6 +144,9 @@ defmodule AtlasControl.MachinesPageTest do
              "Core build" => "unknown: the core does not know its own build"
            }
 
+    assert [%{"label" => "Overall health", "key" => "h", "to" => "/health"}] =
+             props(page, "health")["actions"]
+
     # Desired slots are not evidence of free capacity.
     assert [busy, unknown] = props(page, "slots")["rows"]
 

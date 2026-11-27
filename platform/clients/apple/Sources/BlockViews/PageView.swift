@@ -192,8 +192,8 @@ public struct PageView: View {
                 .padding(.horizontal, inCard ? 0 : Prism.Spacing.px15)
             ForEach(details.groups) { group in
                 switch group {
-                case .entry(let entry): entryView(entry, inDetails: inCard)
-                case .section(let section): sectionView(section, inDetails: inCard)
+                case .entry(let entry): entryView(entry, inDetails: inCard, detailHeading: true)
+                case .section(let section): sectionView(section, inDetails: inCard, detailHeading: true)
                 }
             }
         }
@@ -265,15 +265,15 @@ public struct PageView: View {
     }
 
     @ViewBuilder private func entryView(_ entry: PagePresentation.Entry, inDetails: Bool = false,
-                                        followsCardsBeforeDetails: Bool = false) -> some View {
+                                        detailHeading: Bool = false, followsCardsBeforeDetails: Bool = false) -> some View {
         switch entry.item {
         case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
         case .groups(let groups): GroupFilters(groups: groups, selected: selectedGroup, filter: filter)
-        case .item(let item): ItemBlockView(item: item, inDetails: inDetails, act: act)
-        case .option(let option): OptionView(block: option, act: act)
+        case .item(let item): ItemBlockView(item: item, inDetails: inDetails, detailHeading: detailHeading, act: act)
+        case .option(let option): OptionView(block: option, detailHeading: detailHeading, act: act)
         case .panel(let panel):
             // A view of its own per page: a selection never stays for another page.
-            PanelView(block: panel, others: panelActions, open: open, act: act).id(presentation.path)
+            PanelView(block: panel, others: panelActions, detailHeading: detailHeading, open: open, act: act).id(presentation.path)
         case .header(let block):
             HeaderBlockView(block: block, actions: headerActions, act: act)
         case .text(let text): TextBlockView(block: text)
@@ -298,17 +298,18 @@ public struct PageView: View {
         }
     }
 
-    private func blocks(_ section: PagePresentation.Section, inDetails: Bool) -> some View {
+    private func blocks(_ section: PagePresentation.Section, inDetails: Bool, detailHeading: Bool) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
-            ForEach(section.entries) { entryView($0, inDetails: inDetails) }
+            ForEach(section.entries) { entryView($0, inDetails: inDetails, detailHeading: detailHeading) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false) -> some View {
+    @ViewBuilder private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false,
+                                          detailHeading: Bool = false) -> some View {
         if section.collapsible {
             DisclosureGroup(isExpanded: expansion(section)) {
-                blocks(section, inDetails: inDetails).padding(.top, Prism.Spacing.px10)
+                blocks(section, inDetails: inDetails, detailHeading: detailHeading).padding(.top, Prism.Spacing.px10)
             } label: {
                 Text(section.title).prism(Prism.Typography.title6)
                     .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
@@ -319,7 +320,7 @@ public struct PageView: View {
                     .accessibilityAddTraits(.isHeader)
                     .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
                 Divider()
-                blocks(section, inDetails: inDetails)
+                blocks(section, inDetails: inDetails, detailHeading: detailHeading)
             }
         }
     }
@@ -392,8 +393,8 @@ struct ListRowView: View {
 /// says where it stands in words. The card follows its title's height; it is a little
 /// lighter than the list's ground, rounded, without a shadow (list cards are an overview).
 /// Selected: Prism's light primary tint with a thin primary border, and the kind's icon in
-/// primary, while the list has the focus (`focused`), calm grey without it. The card covers
-/// its whole row with the list's ground around it, so the system's own selection never shows.
+/// primary, while the list has the focus (`focused`), calm grey without it. The outer
+/// List supplies its row ground; nested lists leave the surrounding page visible.
 struct RowCard: View {
     let row: RowModel
     let selected: Bool
@@ -419,7 +420,6 @@ struct RowCard: View {
             .onHover { hovering = $0 }
             .padding(.vertical, Prism.Spacing.px3)
             .padding(.horizontal, Prism.Spacing.px10)
-            .background(PrismDarkGap.listGround(scheme))
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
@@ -495,13 +495,15 @@ struct KindIcon: View {
 struct ItemBlockView: View {
     let item: ItemBlock
     var inDetails = false
+    var detailHeading = false
     let act: (ActionModel) -> Void
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let content = VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             if let title = item.title, !title.isEmpty {
-                Text(title).prism(inDetails ? Prism.Typography.label : Prism.Typography.title7)
+                Text(title).prism(inDetails ? Prism.Typography.label
+                                  : detailHeading ? Prism.Typography.title6 : Prism.Typography.title5)
             }
             // The actions first: the next step is in reach without scrolling.
             ActionsView(actions: PageActions.ofBlock(item.actions), act: act)
@@ -571,3 +573,34 @@ struct FallbackView: View {
         }
     }
 }
+
+#if DEBUG
+struct NestedListPreview: PreviewProvider {
+    static var previews: some View {
+        let blocks: [JSONValue] = [
+            .object(["id": .string("card"), "type": .string("item"), "props": .object([
+                "title": .string("Decision"), "fields": .array([
+                    .object(["label": .string("Status"), "value": .string("Accepted")])
+                ])
+            ])]),
+            .object(["id": .string("verdicts"), "type": .string("list"), "props": .object([
+                "rows": .array([
+                    .object(["label": .string("accept_decision"), "kind": .string("Gate verdict"),
+                             "key": .string("GV-0178"), "to": .string("/verdict/1")]),
+                    .object(["label": .string("accept_decision"), "kind": .string("Gate verdict"),
+                             "key": .string("GV-0177"), "to": .string("/verdict/2")])
+                ])
+            ])])
+        ]
+        let markup: [JSONValue] = [
+            .object(["kind": .string("section"), "start": .string("verdicts"), "end": .string("verdicts"),
+                     "props": .object(["title": .string("Gate verdicts")])])
+        ]
+        return PageView(page: PageMessage(blocks: blocks.map(Block.init(raw:)),
+                                          markup: markup.map(MarkupEntry.init(raw:)),
+                                          path: "/preview", title: "Decision"),
+                        header: true, open: { _ in })
+            .frame(width: 700, height: 500)
+    }
+}
+#endif
