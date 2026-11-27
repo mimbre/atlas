@@ -1011,9 +1011,12 @@ defmodule AtlasTui.View do
       )
 
   defp block(%TextBlock{} = text, _at, model, width, _room)
-       when is_map_key(text, :format) and text.format == "markdown" do
+       when is_map_key(text, :format) and :erlang.map_get(:format, text) == "markdown" do
     label = single_line(text.label)
-    label_lines = if label == "", do: [], else: [[{if(text.role == "error", do: :error, else: :dim), label}]]
+
+    label_lines =
+      if label == "", do: [], else: [[{if(text.role == "error", do: :error, else: :dim), label}]]
+
     inner = if text.role == "error", do: card_width(width), else: max(width - 4, 1)
     lines = AtlasTui.Markdown.render(text.text || "", inner, &display_width/1)
 
@@ -1164,6 +1167,7 @@ defmodule AtlasTui.View do
 
         indent = String.duplicate(" ", padding)
         value_width = max(width - padding, 1)
+
         rows =
           if Map.get(pair, :format) == "markdown" do
             AtlasTui.Markdown.render(pair.value || "—", value_width, &display_width/1)

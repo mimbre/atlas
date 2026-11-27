@@ -3,7 +3,9 @@ defmodule AtlasTui.MarkdownTest do
 
   alias AtlasTui.{Markdown, PanelFixture, View}
 
-  defp plain(lines), do: Enum.map_join(lines, "\n", fn line -> Enum.map_join(line, &elem(&1, 1)) end)
+  defp plain(lines),
+    do: Enum.map_join(lines, "\n", fn line -> Enum.map_join(line, &elem(&1, 1)) end)
+
   defp render(text, width \\ 100), do: Markdown.render(text, width, &String.length/1)
 
   test "all heading levels retain their hierarchy below the page title" do
@@ -24,6 +26,7 @@ defmodule AtlasTui.MarkdownTest do
     <script>alert(1)</script>
     ![image](x)
     """
+
     lines = render(source)
     output = plain(lines)
     assert output =~ "A bold and emphasized paragraph with site (https://example.test)."
@@ -38,26 +41,46 @@ defmodule AtlasTui.MarkdownTest do
   test "wraps long text and strips terminal controls" do
     lines = render("# A long heading\n[a](javascript:alert)\n\e[2Jdanger", 8)
     refute plain(lines) =~ "\e"
-    assert plain(lines) =~ "danger"
+
+    assert lines
+           |> Enum.flat_map(& &1)
+           |> Enum.map_join(&elem(&1, 1))
+           |> String.contains?("danger")
+
     for line <- lines, do: assert(String.length(plain([line])) <= 8)
   end
 
   test "item field Markdown is opt-in and retains plain fields" do
     page = %{
-      "op" => "page", "path" => "/k/test", "title" => "Page",
-      "blocks" => [%{
-        "id" => "item", "type" => "item",
-        "props" => %{"title" => "Details", "fields" => [
-          %{"label" => "Description", "value" => "# Heading\n- **strong**"},
-          %{"label" => "Plain", "value" => "**literal**"},
-          %{"label" => "Unknown", "value" => "**unknown**"}
-        ]}
-      }], "markup" => []
+      "op" => "page",
+      "path" => "/k/test",
+      "title" => "Page",
+      "blocks" => [
+        %{
+          "id" => "item",
+          "type" => "item",
+          "props" => %{
+            "title" => "Details",
+            "fields" => [
+              %{"label" => "Description", "value" => "# Heading\n- **strong**"},
+              %{"label" => "Plain", "value" => "**literal**"},
+              %{"label" => "Unknown", "value" => "**unknown**"}
+            ]
+          }
+        }
+      ],
+      "markup" => []
     }
+
     model = PanelFixture.projected(page)
     [item] = model.blocks
     [marked, plain, unknown] = item.fields
-    item = %{item | fields: [Map.put(marked, :format, "markdown"), plain, Map.put(unknown, :format, "other")]}
+
+    item = %{
+      item
+      | fields: [Map.put(marked, :format, "markdown"), plain, Map.put(unknown, :format, "other")]
+    }
+
     model = %{model | blocks: [item]}
 
     for width <- [24, 80] do
@@ -71,16 +94,24 @@ defmodule AtlasTui.MarkdownTest do
 
   test "only the markdown format changes text blocks in either theme" do
     page = %{
-      "op" => "page", "path" => "/k/test", "title" => "Page",
+      "op" => "page",
+      "path" => "/k/test",
+      "title" => "Page",
       "blocks" => [
         %{"id" => "marked", "type" => "text", "props" => %{"text" => "# Heading"}},
         %{"id" => "plain", "type" => "text", "props" => %{"text" => "# Literal"}},
         %{"id" => "unknown", "type" => "text", "props" => %{"text" => "**literal**"}}
-      ], "markup" => []
+      ],
+      "markup" => []
     }
+
     model = PanelFixture.projected(page)
     [marked, plain, unknown] = model.blocks
-    model = %{model | blocks: [Map.put(marked, :format, "markdown"), plain, Map.put(unknown, :format, "other")]}
+
+    model = %{
+      model
+      | blocks: [Map.put(marked, :format, "markdown"), plain, Map.put(unknown, :format, "other")]
+    }
 
     for width <- [24, 80] do
       rows = View.render(model, width, 40, 30)
@@ -88,7 +119,9 @@ defmodule AtlasTui.MarkdownTest do
       assert output =~ "H1 Heading"
       assert output =~ "# Literal"
       assert output =~ "**literal**"
-      for theme <- [:light, :dark], do: assert(IO.iodata_to_binary(View.to_ansi(rows, theme)) =~ "Heading")
+
+      for theme <- [:light, :dark],
+          do: assert(IO.iodata_to_binary(View.to_ansi(rows, theme)) =~ "Heading")
     end
   end
 end

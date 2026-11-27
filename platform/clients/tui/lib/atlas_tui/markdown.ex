@@ -19,7 +19,8 @@ defmodule AtlasTui.Markdown do
             {wrap([{:dim, line}], width, cell_width), {String.first(marks), String.length(marks)}}
 
           {{char, size}, [_, marks, rest]} ->
-            if String.first(marks) == char and String.length(marks) >= size and String.trim(rest) == "" do
+            if String.first(marks) == char and String.length(marks) >= size and
+                 String.trim(rest) == "" do
               {wrap([{:dim, line}], width, cell_width), nil}
             else
               {wrap([{:plain, line}], width, cell_width), fence}
@@ -76,11 +77,18 @@ defmodule AtlasTui.Markdown do
     {rows, row, _} =
       Enum.reduce(words, {[], [], 0}, fn word, {rows, row, used} ->
         size = Enum.reduce(word, 0, fn {_, char}, n -> n + cell_width.(char) end)
-        {rows, row, used} = if used > 0 and used + size > width, do: {[row | rows], [], 0}, else: {rows, row, used}
+
+        {rows, row, used} =
+          if used > 0 and used + size > width, do: {[row | rows], [], 0}, else: {rows, row, used}
 
         Enum.reduce(word, {rows, row, used}, fn {style, char}, {rows, row, used} ->
           size = cell_width.(char)
-          {rows, row, used} = if used > 0 and used + size > width, do: {[row | rows], [], 0}, else: {rows, row, used}
+
+          {rows, row, used} =
+            if used > 0 and used + size > width,
+              do: {[row | rows], [], 0},
+              else: {rows, row, used}
+
           {rows, [{style, char} | row], used + size}
         end)
       end)
