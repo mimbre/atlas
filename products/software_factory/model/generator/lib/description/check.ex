@@ -162,6 +162,51 @@ defmodule RelaDSL.Description.Check do
 
   defp text?(v), do: is_binary(v) and String.trim(v) != ""
 
+  # A kind's page as a stack of simple blocks (`page`): its state line's fields, the
+  # field its intro is (and the heading of the part shown apart), the relation whose items
+  # it lists (and what comes while there are none, per state), and its details: each a
+  # field of the kind or a relation (its own, or a component's).
+  defp page_rule(_ctx, _kind, nil, _path), do: []
+
+  defp page_rule(ctx, kind, page, path) when is_map(page) do
+    intro = page["intro"]
+    items = page["items"]
+
+    keys(page, ~w(state intro items details), path) ++
+      Enum.flat_map(List.wrap(page["state"]), &field(ctx, kind, &1, path ++ ["state"])) ++
+      if(intro == nil,
+        do: [],
+        else:
+          keys(intro, ~w(field context), path ++ ["intro"]) ++
+            field(ctx, kind, is_map(intro) && intro["field"], path ++ ["intro"])
+      ) ++
+      if(items == nil,
+        do: [],
+        else:
+          keys(items, ~w(relation empty), path ++ ["items"]) ++
+            relation(ctx, is_map(items) && items["relation"], kind, "to", path ++ ["items"]) ++
+            if(is_map(items) and items["empty"] != nil,
+              do:
+                keys(items["empty"], Map.keys(items["empty"] || %{}), path ++ ["items", "empty"]),
+              else: []
+            )
+      ) ++
+      Enum.flat_map(List.wrap(page["details"]), fn name ->
+        if field(ctx, kind, name, path) == [] or rel(ctx, name),
+          do: [],
+          else:
+            p(
+              path ++ ["details"],
+              :page,
+              [kind, name],
+              "#{kind}.page.details: #{inspect(name)} is no field of #{kind} and no relation"
+            )
+      end)
+  end
+
+  defp page_rule(_ctx, kind, _page, path),
+    do: p(path, :page, [kind], "#{kind}.page: expected its state, intro, items and details")
+
   # -- Root constructs -----------------------------------------------------------------
 
   defp guidance(%{x: %{"guidance" => g}} = ctx) do
@@ -427,7 +472,7 @@ defmodule RelaDSL.Description.Check do
 
     keys(
       spec,
-      ~w(top primary plural_label icon start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options panel),
+      ~w(top primary plural_label icon start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options panel page),
       path
     ) ++
       navigation(spec["start"], at.("start")) ++
@@ -488,6 +533,7 @@ defmodule RelaDSL.Description.Check do
       end) ++
       decision_options(ctx, kind, spec["decision_options"], at.("decision_options")) ++
       panels(ctx, kind, spec["panel"], at.("panel")) ++
+      page_rule(ctx, kind, spec["page"], at.("page")) ++
       authority(ctx, kind, spec["authority"], at.("authority")) ++
       layering(ctx, kind, spec["layering"], at.("layering")) ++
       frozen(ctx, kind, spec["frozen"], at.("frozen")) ++

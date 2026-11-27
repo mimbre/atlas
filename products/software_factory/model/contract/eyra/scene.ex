@@ -110,7 +110,7 @@ defmodule Model.Scene do
 
     field(:answers, :string,
       description:
-        "Its producer's answers to its agent's questions; its next break-down reads them",
+        "Its producer's answers to its agent's questions, and the use cases they suggested while Design was under way; its next break-down reads them",
       multiline: true,
       label: "Its producer's answers"
     )
@@ -120,7 +120,7 @@ defmodule Model.Scene do
 
     field(:verdict, :string,
       description:
-        "Flow: the acceptor's verdict (none, accept, reject), its supervisor's acceptance of its use cases (accept), or its producer's answer to its agent's questions (answered)"
+        "Flow: the acceptor's verdict (none, accept, reject), its supervisor's acceptance of its use cases (accept), its producer's answer to its agent's questions (answered), or its producer's suggestion of a use case once Design was accepted (suggest)"
     )
 
     # What its break-down's task branch reads: the run's own result, never written.
@@ -145,24 +145,25 @@ defmodule Model.Scene do
     progress(over: :in_scene, own: :status)
     completion(by: :accepted_by)
 
-    # Accept its use cases, as a panel: Design's proposal, the use cases it made, each
-    # with what it does and when it is done.
-    panel(
-      accepting: [
-        heading: "TO ACCEPT",
-        title: "Design for {key} · {title}",
-        records: [proposal: [relation: :task_of, where: [kind: :plan]]],
-        byline: ["Proposed by {proposal}", [age: ""]],
-        items: [
-          relation: :in_scene,
-          count: ["use case", "use cases"],
-          details: [
-            [label: "What", field: :description, before: "Done when:"],
-            [label: "Done", field: :description, after: "Done when:"]
-          ]
-        ],
-        actions: [[key: "i", label: "Full proposal", record: :proposal]]
-      ]
+    # Its page, as a stack of simple blocks (D-0104): its state line, its description
+    # (what is already built apart), its use cases and what comes while there are none,
+    # one main answer, and its details.
+    page(
+      state: [:phase, :status],
+      intro: [field: :description, context: "Already built"],
+      items: [
+        relation: :in_scene,
+        empty: [
+          pick_up: "Once someone picks up its Design, its agent proposes the use cases here.",
+          break_down:
+            "Design's agent is working out the use cases; they show here once it proposes them.",
+          clarifying:
+            "Design's agent asked its producer questions first; once they are answered, it proposes the use cases.",
+          accepting: "Design proposed no use cases: decline it with a note to try again.",
+          building: "Design starts again to propose its use cases."
+        ]
+      ],
+      details: [:phase, :status, :assigned_to, :produced_by, :based_on, :answers, :note]
     )
   end
 
@@ -180,6 +181,24 @@ defmodule Model.Scene do
     closes_parent: "{parent} is accepted; put this under another {kind}"
   )
 
+  # Its producer suggests a use case (`by: :produced_by`: theirs, whoever has the work),
+  # with a short intent; no use case is made of it, Design proposes one. While Design is
+  # under way, the intent is a line added to its producer's answers, which its agent reads;
+  # once Design was accepted, it is the producer's note of an extra Design round (as a
+  # "Not accepted" is), which proposes what is missing for it and comes back to accept.
+  @suggest [
+    key: "s",
+    label: "Suggest a use case",
+    by: :produced_by,
+    note: true,
+    prompt: "What should a person be able to do?",
+    icon: :suggest,
+    cause: "Suggested a use case: {note}"
+  ]
+  @suggest_during_design @suggest ++
+                           [change: %{append: %{answers: "Suggested use case: {note}"}}]
+  @suggest_after_design @suggest ++ [change: %{values: %{verdict: :suggest, note: "$note"}}]
+
   # Design: Scene → Use cases.
   subflow :break_down_scene, label: "Design", subject: :scene do
     run_as("system:sf-flow")
@@ -188,13 +207,16 @@ defmodule Model.Scene do
     initial(:break_down)
     supervise(:break_down, label: "Design", states: [:break_down, :accepting, :clarifying])
 
+    # While it is broken down, its producer may suggest a use case: the intent is added to
+    # its producer's answers, which its agent reads (`fields:`), as a line of its own.
     state :break_down, label: "Break it down" do
       present(
         expected: "Break it down into use cases",
         why: "it is to be broken down",
         instructions:
           "Its supervisor's Runtime runs one agent on it that proposes its use cases; Flow makes them under it. Its supervisor's pickup starts the work: nothing is done until then.",
-        section: [field: :note, label: "Its producer's or supervisor's note"]
+        section: [field: :note, label: "Its producer's or supervisor's note"],
+        answers: [@suggest_during_design]
       )
 
       task(:plan,
@@ -203,7 +225,7 @@ defmodule Model.Scene do
         cost_class: :standard,
         input: [repository: "github.com/mimbre/atlas", base: "develop"],
         instructions:
-          "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. The use cases already under the scene, if any, are listed after it under \"Already under it\": they stay, so propose only the use cases that are missing, never one of those again. When the scene has a note, it was sent back: by its producer, once built and not accepted, or by its supervisor, who did not accept your earlier proposal, which is gone. Propose only the use cases still missing for what the note asks. When the scene is too vague to design use cases from, do not guess: write your questions to questions.md and nothing else; its producer answers them, or rewrites the scene, and you get it again. When the scene has questions and answers, they are what you asked before and what its producer answered; its description is as its producer left it.",
+          "Break the scene below into the use cases that build it, and design each: a use case is software design. The repository you are given, a Git checkout of develop, is what they build on; the decisions to read first, after the scene, are its architecture. Read what you need, and change none of its files: your only output is your proposal, as asked at the end. Before you propose anything that stores, syncs, schedules or queries data, ask rela what it offers and use that (D-0100): Atlas builds nothing beside rela, and what rela lacks is a request to the rela project, not a workaround in Atlas. Ask the pinned rela itself (docs/guides/rela.md): rela --help, rela <command> --help, or its MCP server, rela mcp. Each use case is one behaviour of the system that its actor sees, small enough to break into a few issues, in the order given; its description states that behaviour: who does what, and what they see then. Its design says how it is built within the existing architecture: which parts of the system change and how, what is new, the data and the flow through it, and how to tell it works. Never change the architecture: when a use case would need a new architecture choice, say so in its note instead of deciding it. The use cases already under the scene, if any, are listed after it under \"Already under it\": they stay, so propose only the use cases that are missing, never one of those again. When the scene has a note, it was sent back: by its producer, once built and not accepted, or by its supervisor, who did not accept your earlier proposal, which is gone. Propose only the use cases still missing for what the note asks. When the scene is too vague to design use cases from, do not guess: write your questions to questions.md and nothing else; its producer answers them, or rewrites the scene, and you get it again. When the scene has questions and answers, they are what you asked before and what its producer answered; its description is as its producer left it. Its producer's answers may also hold use cases they suggested, each on a line of its own (\"Suggested use case: …\", what a person should be able to do): propose one for each that no use case under it already covers.",
         fields: [:title, :description, :questions, :answers],
         children: [:title, :description],
         read_first: true,
@@ -277,8 +299,9 @@ defmodule Model.Scene do
           [key: "a", label: "Accept", change: %{values: %{verdict: :accept}}],
           [
             key: "n",
-            label: "Not accepted",
+            label: "Decline",
             note: true,
+            prompt: "What should Design propose instead?",
             change: %{values: %{verdict: :reject, note: "$note"}}
           ]
         ]
@@ -302,16 +325,20 @@ defmodule Model.Scene do
 
     # Nothing is built on the scene itself, and nobody has anything to do on it: it is
     # assigned to nobody (no default, so Flow removes the owner it gave), and it gives no
-    # to-do (no instructions, no answers). Its producer gets it once Accept is next.
+    # to-do (no instructions; its one answer is its producer's, not an owner's). Its
+    # producer gets it once Accept is next; until then they may suggest a use case, which
+    # hands it to an extra round of its break-down.
     state :building, label: "Waiting for use cases" do
       owner(via: :assignment, relation: :assigned_to)
 
       present(
         expected: "Waiting for its use cases",
-        why: "not all of its use cases are accepted"
+        why: "not all of its use cases are accepted",
+        answers: [@suggest_after_design]
       )
 
       branch(to: :breaking_down, by: :atlas, when: "entity.children == 0")
+      branch(to: :breaking_down, when: "entity.verdict == 'suggest'")
       branch(to: :to_accept, by: :atlas, when: "entity.open_children == 0")
     end
 

@@ -90,7 +90,10 @@ defmodule AtlasBFFContract.Contract do
   # kind (`icon` on a `row`, a `header`, a `panel` and a `shell_group`; a tab that lists
   # a kind takes its kind's when the model names none for the tab); a client that does
   # not know the name shows none.
-  version "0.40.0"
+  # 0.41.0: a fact's page as a stack of simple blocks, as its kind's `page` declares:
+  # a `header`'s state line (`detail`, `since`), a titled `list` with how far
+  # its items are (`aside`), and a `text` of `role` context (what is already there).
+  version "0.41.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

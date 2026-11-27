@@ -34,7 +34,9 @@ type and role and does not compose pages itself.
   when there is room, under them when not.
 
 A decision, a to-do's steps and stuck work are such stacks (`header`, `text` id `why`,
-`text` role `error`, `option` / `instruction`, `answers`, `actions`); see
+`text` role `error`, `option` / `instruction`, `answers`, `actions`); so is the page a
+kind's model declares (`page`, contract 0.41.0: `header` with its state line, `text` intro
+and `context`, a titled `list`, one main `answers`, `actions`, details); see
 `platform/atlas_control/backend/README.md`.
 
 ## 3. Tolerant clients (D-0105)
@@ -88,6 +90,9 @@ Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 | Role (block) | Mac renders | TUI renders |
 |---|---|---|
 | Title / eyebrow (`header`) | On the page, no card: eyebrow and key in small caps in the accent's text colour (`TO DO FOR YOU · TD-12`), the title as the page title; the page's own actions beside it | Eyebrow with the key (`◆ YOUR DECISION · D-0104`) bold in the eyebrow colour, title under it |
+| State line (`header` `detail`, `since`) | Muted under the title, with its age kept current (`Break down · Refine · 3d`) | Dim line under the title, with its age |
+| Already there (`text` role `context`) | A calm card: its label as a small-caps eyebrow (`ALREADY BUILT`) over its text; no error colours | A card, its label in capitals as heading over its text |
+| Titled list on an item page (`list` with `title`) | A heading with its `aside` beside it, muted (`2 of 3 done`), then the same row cards as the list column; without rows its `empty` sentence, muted | `Title · aside` as heading, then the list column's rows (selectable, Enter opens); without rows its `empty` sentence, dim |
 | Why / text (`text`) | On the page, muted: `Why: … · 3h ago`, its age kept current | Dim paragraph after its label, with its age |
 | Option (`option`) | A calm card: number as Prism's `StepIndicator`, text, badge in its tone (★ Recommended success; `melle's alternative` neutral), Rule/Then rows (a field without a text shows no section: an alternative not worked out yet has only its title), its own Choose as a Prism button (recommended `primary`, others `secondary`); none when `alone` (Accept answers it) | A filled card (selected one on the selected surface, marked ▸): number, text, badge, fields, then its answer on its key |
 | Step (`instruction`) | A calm card per step, number in a badge, lines in order | A filled card per step, numbers aligned, lines in order; text bold |

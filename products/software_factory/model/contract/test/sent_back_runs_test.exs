@@ -164,7 +164,7 @@ defmodule Model.SentBackRunsTest do
 
   # Control's to-do, as the owner of "Accept it" sees it: both answers, and Not accepted
   # asks for a note, which it writes with the verdict the run goes back on.
-  test "both to-dos offer Accept and Not accepted, which asks for a note" do
+  test "both to-dos offer Accept and a decline, which asks for a note" do
     for p <- [@plan, @design] do
       fact = %{
         "key" => p.key,
@@ -194,7 +194,9 @@ defmodule Model.SentBackRunsTest do
                Model.AtlasEyra.todo(p.kind, fact, parts, %{key: "ada", kind: "person"})
 
       assert %{label: "Accept", note: false, change: true} = accept
-      assert %{label: "Not accepted", note: true, change: true} = not_accepted
+      # The scene's says Decline, as a proposal's decline does (its page, D-0104).
+      assert %{note: true, change: true, weight: "decline"} = not_accepted
+      assert not_accepted.label in ["Not accepted", "Decline"]
 
       # What it writes: the verdict the run goes back on, and the note.
       gates = Model.AtlasEyra.__rela__(:gates)

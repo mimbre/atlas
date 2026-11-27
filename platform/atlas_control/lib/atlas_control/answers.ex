@@ -1,10 +1,12 @@
 defmodule AtlasControl.Answers do
   @moduledoc """
-  Build one declared owner answer as one Facts change: the change the model's `answer/4`
+  Build one declared answer as one Facts change: the change the model's `answer/4`
   gives (`%{"values", "self", "label", "note", "prompt", "cause", "on_behalf",
-  "delegated"}`), by `by`, at `now`; `self` nil links nobody. A value `"$now"` is the
-  moment it is given, and `"$note"` the note it is given with (as it is given, so a field
-  can keep it as well as the change's cause). A note it needs and is given without is
+  "delegated", "append", "current"}`), by `by`, at `now`; `self` nil links nobody. A value
+  `"$now"` is the moment it is given, and `"$note"` the note it is given with (as it is
+  given, so a field can keep it as well as the change's cause). A field it adds a line to
+  (`append`, its line with `{note}` filled in) keeps what it holds (`current`), the line
+  on a line of its own after it. A note it needs and is given without is
   asked again, with its `prompt` (the question its form asks) when it has one. Its cause
   is the note, or its `cause` with `{note}` filled in when it words one (`asked: {note}`).
   An answer an agent gives for whom it assists (`on_behalf`) stays the agent's; its cause
@@ -26,6 +28,20 @@ defmodule AtlasControl.Answers do
              "$note" -> note
              value -> value
            end}
+        end)
+
+      values =
+        Enum.reduce(answer["append"] || %{}, values, fn {field, line}, values ->
+          line = String.replace(line, "{note}", note)
+
+          Map.put(
+            values,
+            field,
+            case String.trim_trailing((answer["current"] || %{})[field] || "") do
+              "" -> line
+              held -> held <> "\n" <> line
+            end
+          )
         end)
 
       # The relation that links the fact to the one who answers, when the answer names one.

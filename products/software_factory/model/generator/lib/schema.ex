@@ -506,7 +506,10 @@ defmodule RelaDSL.Schema do
   declining one) or `weight: :other`; else the first answer is the main one and the first
   other that asks a note the decline. `icon:` names what it does (a client's symbol). A
   change may word its cause (`cause:`, `{note}` the note), and one that asks a note the
-  question its form asks (`prompt:`, "What is your alternative?").
+  question its form asks (`prompt:`, "What is your alternative?"); it may add a line to a
+  field instead of setting it (`change: %{append: %{field: "Suggested: {note}"}}`). An
+  answer `by:` a relation is not the owner's: it is offered to the one the fact links
+  through it (its producer, `by: :produced_by`), whoever has the work, in that state.
   """
   defmacro present(opts), do: item(:present, [opts])
 
@@ -1521,18 +1524,27 @@ defmodule RelaDSL.Schema do
           not answer?(a, text?),
           do:
             "present's answer #{inspect(Map.to_list(a))} must be [key:, label:, " <>
-              "and set: or remove: a relation, or change: %{values:, self:}], " <>
+              "and set: or remove: a relation, or change: %{values:, self:, append:}], " <>
               "or [key:, label:, hand_over: true], with weight: :main, :decline or :other or " <>
-              "none, icon: a name, and for a change cause: a text, and note: true with prompt: a text"
+              "none, icon: a name, by: a relation, and for a change cause: a text, and note: true with prompt: a text (append needs it)"
   end
 
+  # A change writes values, or adds a line to fields (`append`, the note `{note}` in it,
+  # which needs the note), or both. `by:` a relation: the answer is not its owner's but
+  # the one's the fact links through it (its producer's), whoever has the work.
   defp answer?(%{change: change} = a, text?) do
+    values = change[:values] || %{}
+    append = change[:append] || %{}
+
     text?.(a[:key]) and text?.(a[:label]) and is_map(change) and
-      is_map(change[:values]) and change[:values] != %{} and is_atom(change[:self]) and
-      Map.keys(change) -- [:values, :self] == [] and
+      is_map(values) and is_map(append) and (values != %{} or append != %{}) and
+      Enum.all?(append, fn {f, line} -> is_atom(f) and text?.(line) end) and
+      (append == %{} or a[:note] == true) and is_atom(change[:self]) and
+      Map.keys(change) -- [:values, :self, :append] == [] and
       a[:note] in [nil, true] and (a[:prompt] == nil or (a[:note] == true and text?.(a[:prompt]))) and
       (a[:cause] == nil or text?.(a[:cause])) and look?(a) and
-      Map.keys(a) -- [:key, :label, :change, :note, :prompt, :cause, :weight, :icon] == []
+      (a[:by] == nil or (is_atom(a[:by]) and valid_name?(a[:by]))) and
+      Map.keys(a) -- [:key, :label, :change, :note, :prompt, :cause, :weight, :icon, :by] == []
   end
 
   # Hand over: the page's own hand-over of the work to someone else, as an answer.

@@ -6,8 +6,10 @@ import SwiftUI
 /// A `header` block, on the page itself (no card): the icon of its fact's kind (`KindIcon`,
 /// grey; none for a kind this app does not know), the eyebrow and the key in small caps in
 /// the accent's text colour ("TO DO FOR YOU · TD-12"), then the title as the page's title;
-/// `actions`, the page's own (`PageActions.ofPage`), beside it as `PageHeader` has them.
-/// What else can be done with its subject is in the window's toolbar (`ItemToolbar`).
+/// `actions`, the page's own (`PageActions.ofPage`), beside it as `PageHeader` has them;
+/// under it, muted, its state line with its age (`HeaderState`, as a row card's state line),
+/// the age kept current. What else can be done with its subject is in the window's toolbar
+/// (`ItemToolbar`).
 struct HeaderBlockView: View {
     let block: HeaderBlock
     var actions: [ActionModel] = []
@@ -25,6 +27,14 @@ struct HeaderBlockView: View {
                 }
             }
             PageHeader(title: block.title ?? "", actions: actions, act: act)
+            if block.detail?.isEmpty == false {
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(HeaderState.line(block, now: context.date) ?? "")
+                        .prism(Prism.Typography.caption)
+                        .foregroundStyle(PrismDarkGap.muted(scheme))
+                        .textSelection(.enabled)
+                }
+            }
         }
         .accessibilityElement(children: .contain)
         .padding(.horizontal, Prism.Spacing.px15)
@@ -38,16 +48,19 @@ struct HeaderBlockView: View {
     }
 }
 
-/// A `text` block, on the page itself, muted: "Why: the old key leaked. · 3h ago"
-/// (`TextLine`), its age kept current. With role `error` (something went wrong), as
-/// Prism's `MessageBar` in its danger tone: its label as a heading, its text under it.
+/// A `text` block (`TextLook`), on the page itself, muted: "Why: the old key leaked. · 3h
+/// ago" (`TextLine`), its age kept current. With role `error` (something went wrong), as
+/// Prism's `MessageBar` in its danger tone: its label as a heading, its text under it. With
+/// role `context` (what is already there), in a calm card of its own as an `instruction`'s
+/// (`PanelCard`, without the keys' focus): its label as a small-caps eyebrow, its text under it.
 struct TextBlockView: View {
     let block: TextBlock
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            if block.role == "error" {
+            switch TextLook.of(block) {
+            case .error:
                 PrismMessageBar(tone: .danger) {
                     VStack(spacing: Prism.Spacing.px6) {
                         if let label = block.label {
@@ -61,7 +74,22 @@ struct TextBlockView: View {
                 .textSelection(.enabled)
                 .padding(.horizontal, Prism.Spacing.px15)
                 .accessibilityElement(children: .contain)
-            } else {
+            case .context:
+                VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
+                    if let label = block.label, !label.isEmpty {
+                        Text(label.uppercased()).tracking(0.8).prism(Prism.Typography.labelsmall)
+                            .foregroundStyle(PrismDarkGap.muted(scheme))
+                            .accessibilityAddTraits(.isHeader)
+                    }
+                    Text(TextLine.text(block, now: context.date)).prism(Prism.Typography.bodysmall)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .textSelection(.enabled)
+                .lineLimit(nil)
+                .modifier(PanelCard(focusable: false))
+                .accessibilityElement(children: .contain)
+            case .line:
                 Text(TextLine.line(block, now: context.date))
                     .prism(Prism.Typography.bodysmall)
                     .foregroundStyle(PrismDarkGap.muted(scheme))
@@ -254,14 +282,15 @@ struct PrismActionButton: View {
 
     var body: some View {
         Button(action: take) {
-            // Its icon in the primary colour, every symbol fitted in one square (one size
-            // for all, whatever the symbol's own) and centred on the label's line; its
-            // label as Prism's button text.
+            // Its icon in the primary colour (on a `primary` button, filled in that colour,
+            // its label's), every symbol fitted in one square (one size for all, whatever the
+            // symbol's own) and centred on the label's line; its label as Prism's button text.
             if let icon {
                 HStack(alignment: .center, spacing: Prism.Spacing.px6) {
                     Image(systemName: icon).resizable().scaledToFit()
                         .frame(width: 13, height: 13)
-                        .foregroundStyle(PrismDarkGap.icon(scheme))
+                        .foregroundStyle(variant == .primary ? AnyShapeStyle(.foreground)
+                                                             : AnyShapeStyle(PrismDarkGap.icon(scheme)))
                     Text(label)
                 }
             } else {

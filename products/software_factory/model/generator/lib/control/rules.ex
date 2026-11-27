@@ -162,15 +162,17 @@ defmodule RelaDSL.Control.Rules do
 
   @doc """
   The change the owner's answer `name` writes (`{:write, %{"values", "self", "label",
-  "note", "prompt", "cause", "on_behalf", "delegated"}}`: the values, `"$now"` for the
-  moment it is given and `"$note"` for the note it is given with (trimmed), the relation
-  that links it to the one who answers, whether a note is required and the question its
-  form asks, how its cause is worded (`{note}`), whom an assisting agent answers for (nil
-  when the viewer answers for itself), and whether it is given under that one's
-  delegation (`delegated`: the fact links whom its kind's `decision_options.delegated`
-  relation names, the person who left it to its proposer, D-0106)), for an `item`
-  (`%{"fact", "parts"}`) whose owner `viewer` is, or assists, in a state that offers it.
-  `{:refuse, why}` else.
+  "note", "prompt", "cause", "on_behalf", "delegated", "append", "current"}}`: the values,
+  `"$now"` for the moment it is given and `"$note"` for the note it is given with
+  (trimmed), the relation that links it to the one who answers, whether a note is required
+  and the question its form asks, how its cause is worded (`{note}`), whom an assisting
+  agent answers for (nil when the viewer answers for itself), whether it is given under
+  that one's delegation (`delegated`: the fact links whom its kind's
+  `decision_options.delegated` relation names, the person who left it to its proposer,
+  D-0106), the lines it adds to fields (`append`, `{note}` the note) and those fields as
+  they are (`current`)), for an `item` (`%{"fact", "parts"}`) whose owner `viewer` is, or
+  assists, in a state that offers it; or an answer the state offers the viewer as whom
+  the fact links (`offers/4`). `{:refuse, why}` else.
   """
   def answer(flow, name, item, viewer) do
     found =
@@ -191,11 +193,14 @@ defmodule RelaDSL.Control.Rules do
             Map.put(answer, "on_behalf", on_behalf)
         end
       else
-        _ -> nil
+        _ -> offered(flow, name, item, viewer)
       end
 
     case found do
       %{"change" => change} = answer ->
+        appended = change["append"] || %{}
+        fact = item["fact"]
+
         {:write,
          %{
            "values" => change["values"] || %{},
@@ -205,7 +210,12 @@ defmodule RelaDSL.Control.Rules do
            "prompt" => answer["prompt"],
            "cause" => answer["cause"],
            "on_behalf" => answer["on_behalf"],
-           "delegated" => answer["delegated"] == true
+           "delegated" => answer["delegated"] == true,
+           "append" => appended,
+           "current" =>
+             Map.new(appended, fn {field, _} ->
+               {field, to_text(get_in(fact, ["values", field]))}
+             end)
          }}
 
       nil ->
@@ -221,6 +231,71 @@ defmodule RelaDSL.Control.Rules do
       who
     else
       _ -> nil
+    end
+  end
+
+  # The answer `name` the state offers the viewer as whom the fact links (`by:`), with
+  # whom an assisting agent answers for; nil when it offers none.
+  defp offered(flow, name, item, viewer) do
+    with %{} <- flow,
+         %{"fact" => %{} = fact} <- item,
+         %{} = todo <- offering(flow, fact, item["parts"] || %{}, viewer),
+         {%{} = answer, on_behalf} <-
+           Enum.find(
+             by_answers(todo, fact, viewer),
+             fn {a, _} -> a["key"] == name and is_map(a["change"]) end
+           ) do
+      Map.put(answer, "on_behalf", on_behalf)
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  The answers the state of the work on `fact` offers `viewer`, whoever owns the work:
+  those it gives to whom the fact links through their `by:` relation (its producer), or
+  to an agent that assists them (on their behalf, never one that links the one who
+  answers). Each as `todo/4` gives an answer, the first one `main`; `[]` for anyone else,
+  and while the presentation offers nothing to do.
+  """
+  def offers(flow, fact, parts, viewer) do
+    case offering(flow, fact, parts, viewer) do
+      %{} = todo ->
+        for({a, _on_behalf} <- by_answers(todo, fact, viewer), do: Map.delete(a, "weight"))
+        |> weighed()
+        |> Enum.map(&answer_view/1)
+
+      nil ->
+        []
+    end
+  end
+
+  defp offering(flow, fact, parts, viewer) do
+    with {_written, %{"actionable" => true, "todo" => %{} = todo}} <-
+           written_view(flow, fact, parts),
+         true <- is_binary(viewer && viewer[:key]) do
+      todo
+    else
+      _ -> nil
+    end
+  end
+
+  # The state's answers `by:` a relation that links the viewer (`{answer, nil}`), or whom
+  # it assists (`{answer, them}`, on their behalf: then none that links the one who
+  # answers).
+  defp by_answers(todo, fact, viewer) do
+    for %{"key" => _, "label" => _, "by" => relation} = a <- todo["answers"] || [],
+        on_behalf <- [answering_for(List.wrap(get_in(fact, ["links", relation])), viewer)],
+        on_behalf != false,
+        on_behalf == nil or not is_binary(get_in(a, ["change", "self"])),
+        do: {a, on_behalf}
+  end
+
+  defp answering_for(linked, viewer) do
+    cond do
+      viewer[:key] in linked -> nil
+      is_binary(viewer[:assists]) and viewer[:assists] in linked -> viewer[:assists]
+      true -> false
     end
   end
 
@@ -252,7 +327,9 @@ defmodule RelaDSL.Control.Rules do
     end)
   end
 
-  defp answers(todo), do: for(%{"key" => _, "label" => _} = a <- todo["answers"] || [], do: a)
+  # The owner's answers: none the state gives to whom the fact links (`by:`, `offers/4`).
+  defp answers(todo),
+    do: for(%{"key" => _, "label" => _} = a <- todo["answers"] || [], a["by"] == nil, do: a)
 
   # A record with a single choice open to an answer: its adopt options are the answers
   # (`option`: one selects it), and after them the state's own answers but its main one

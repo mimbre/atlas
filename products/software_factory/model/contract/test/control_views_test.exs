@@ -127,9 +127,12 @@ defmodule Model.ControlViewsTest do
     reads = AtlasControl.Pages.reads({:item, "scene", "SC-Atlas-01"}, m)
     answers = [%{"fact" => scene} | for(_ <- tl(reads), do: %{"facts" => []})]
     page = AtlasControl.Pages.render({:item, "scene", "SC-Atlas-01"}, m, answers)
-    item = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]
-    assert item["title"] == "Scene SC-Atlas-01: Write the first scene"
-    assert [_id, %{"label" => "Title"} | _] = item["fields"]
+    header = Enum.find(page.blocks, &(&1["id"] == "header"))["props"]
+
+    assert %{"eyebrow" => "SCENE", "key" => "SC-Atlas-01", "title" => "Write the first scene"} =
+             header
+
+    assert page.title == "Scene SC-Atlas-01"
 
     %{blocks: [%{"props" => list}]} =
       AtlasControl.Pages.render({:list, "scene"}, m, [%{"facts" => [scene]}])

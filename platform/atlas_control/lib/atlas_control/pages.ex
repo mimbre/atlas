@@ -532,7 +532,7 @@ defmodule AtlasControl.Pages do
           do: {part_kind, presented(m, part_kind, %{"key" => part_key(component, key)})}
 
     [{kind, presented(m, kind, %{"key" => key})} | children] ++
-      causes ++ parts ++ candidate_reads(m, kind)
+      causes ++ parts ++ titled_reads(m, kind) ++ candidate_reads(m, kind)
   end
 
   # A fact's secondary menu offers what its page would: it reads as the page does.
@@ -561,6 +561,27 @@ defmodule AtlasControl.Pages do
 
   def reads(:unknown, _), do: []
   def reads(:kinds, _), do: []
+
+  # A page its kind declares (`page`) names what its details' relations point at with
+  # their titles: it reads every fact of each kind they point at (a relation of the kind's
+  # own; a component's shows its keys).
+  defp titled_reads(m, kind), do: for(to <- titled_kinds(m, kind), do: {to, %{}})
+
+  defp titled_kinds(m, kind) do
+    case kind(m, kind) do
+      %{page: %{"details" => details}} ->
+        for name <- details,
+            r = rel(m, name),
+            is_map(r),
+            kind in r.from,
+            to <- r.to,
+            uniq: true,
+            do: to
+
+      _ ->
+        []
+    end
+  end
 
   # A read of a kind whose work is presented asks Facts for each fact's presentation.
   defp presented(m, kind, read) do
@@ -2148,6 +2169,96 @@ defmodule AtlasControl.Pages do
       else: list_page(kind, k, m, answers, form)
   end
 
+  # A fact whose kind declares its page (`page`) as a stack of simple blocks (D-0104): its
+  # header (what it is, its key and title, and where it stands since when: the page's
+  # `state` fields), its intro (the page's `intro` field, without the part under its
+  # `context` heading, which is a calm block of its own), the facts under it through the
+  # page's `items` relation as rows, with how many are done and, while there are none,
+  # what comes next in the state its work is in (`empty`; `pick_up` while it waits for
+  # one), then its one main answer, its other actions, and its details: the fields and
+  # relations the page names that are filled, those it points at with their titles.
+  defp page(
+         {:item, kind, key},
+         kind,
+         %{page: %{} = spec} = k,
+         m,
+         [%{"fact" => %{} = fact} = answer | rest],
+         form
+       ) do
+    parts = item_parts(m, kind, rest)
+    work = work_presentation(m, kind, fact, parts)
+    todo = m.module.todo(kind, fact, parts_by_kind(parts), viewer(form))
+    offers = offers(m, kind, fact, parts, form)
+    {next, more} = offered(m, kind, k, fact, rest, form)
+
+    {_tone, since} =
+      status(fact, for({_, _, part, _} <- parts, do: part) ++ [fact], form[:by])
+
+    # One main answer: the owner's answers, else Pick up while the work waits for someone
+    # to pick it up, else what the state offers the viewer as whom the fact links. The
+    # flow's other next steps (Retry, the restart) go with the other actions.
+    owners = for a <- (todo && todo.answers) || [], do: a.key
+    offered = for a <- offers, do: a.key
+    {own, others} = Enum.split_with(next, &(&1["key"] in owners))
+    {suggested, steps} = Enum.split_with(others, &(&1["key"] in offered))
+    {picks, rest_next} = Enum.split_with(steps, &String.contains?(&1["to"], "/pick_up/"))
+
+    main =
+      cond do
+        own != [] -> own
+        picks != [] -> picks
+        true -> suggested
+      end
+
+    waits = picks != [] and main == picks
+
+    {intro, context} =
+      case spec["intro"] do
+        %{"field" => name} = intro ->
+          apart(to_text(fact["values"][name]), intro["context"])
+
+        _ ->
+          {"", nil}
+      end
+
+    content =
+      [
+        {"header",
+         Blocks.header(
+           eyebrow: String.upcase(k.label),
+           key: key,
+           title: label(k, fact),
+           icon: kind_icon(m, kind),
+           detail: state_line(k, fact, spec["state"]),
+           since: since
+         )}
+      ] ++
+        if(intro == "", do: [], else: [{"intro", Blocks.text(text: intro)}]) ++
+        if(context,
+          do: [
+            {"context", Blocks.text(label: context.label, text: context.text, role: "context")}
+          ],
+          else: []
+        ) ++
+        items_block(
+          m,
+          kind,
+          spec["items"],
+          rest,
+          if(waits, do: "pick_up", else: work["state"]),
+          form
+        ) ++
+        if(main == [],
+          do: [],
+          else: [{"answers", answers_block(main, ((todo && todo.answers) || []) ++ offers)}]
+        ) ++
+        others_block(more ++ rest_next ++ if(waits, do: [], else: picks)) ++
+        [{"item", Blocks.item(title: "", fields: page_details(m, kind, fact, parts, spec, rest))}]
+
+    markup = [Blocks.part("item", "item", title: "Details", role: "details")]
+    page("#{k.label} #{key}", path(owner(m, kind, answer) || up(m, kind, fact)), content, markup)
+  end
+
   defp page({:item, kind, key}, kind, k, m, [answer | child_answers], form) do
     case answer do
       %{"fact" => nil} ->
@@ -2898,6 +3009,136 @@ defmodule AtlasControl.Pages do
   defp page(_route, _kind, _k, _m, _answers, _form),
     do: missing("Nothing here", "This page does not exist.", "/")
 
+  # A text without the part under `heading` (a line that starts with it, `#` or not, to
+  # the next heading line), and that part as a block of its own: `{text, %{label, text}}`,
+  # or `{text, nil}` when it has none.
+  defp apart(text, heading) when is_binary(heading) and heading != "" do
+    lines = String.split(text, "\n")
+    unheaded = &(&1 |> String.trim_leading() |> String.trim_leading("#") |> String.trim_leading())
+    starts? = &String.starts_with?(String.downcase(unheaded.(&1)), String.downcase(heading))
+
+    case Enum.split_while(lines, &(not starts?.(&1))) do
+      {_, []} ->
+        {String.trim(text), nil}
+
+      {before, [first | after_heading]} ->
+        first =
+          first
+          |> unheaded.()
+          |> String.slice(String.length(heading)..-1//1)
+          |> String.trim_leading(":")
+
+        {body, later} = Enum.split_while(after_heading, &(not String.match?(&1, ~r/^\s*#/)))
+
+        case [first | body] |> Enum.join("\n") |> String.trim() do
+          "" ->
+            {String.trim(text), nil}
+
+          part ->
+            {(before ++ later) |> Enum.join("\n") |> String.trim(), %{label: heading, text: part}}
+        end
+    end
+  end
+
+  defp apart(text, _heading), do: {String.trim(text), nil}
+
+  # Where a fact stands, as its page's `state` fields say it ("Break down · Refine"); nil
+  # when none of them holds anything.
+  defp state_line(k, fact, names) do
+    shown =
+      for name <- List.wrap(names),
+          f = field(k, name),
+          f != nil,
+          value = fact["values"][name],
+          value not in [nil, ""],
+          do: show(f, value)
+
+    if shown == [], do: nil, else: Enum.join(shown, " · ")
+  end
+
+  # The facts under it through the page's `items` relation, as a list titled as on its
+  # other pages, with how many of them are done beside its title, and with none, what
+  # comes next in `state` (the page's `empty` text for it, else the list's own).
+  defp items_block(m, kind, %{"relation" => name} = items, answers, state, form) do
+    relations = child_relations(m, kind)
+
+    case Enum.find_index(relations, &(elem(&1, 0) == name)) do
+      nil ->
+        []
+
+      i ->
+        {title, list} =
+          child_list(m, Enum.at(relations, i), Enum.at(answers, i), false, form[:by])
+
+        rows = list["props"]["rows"]
+        done = Enum.count(rows, &(&1["tone"] == "done"))
+        empty = (items["empty"] || %{})[state] || list["props"]["empty"]
+
+        [
+          {"items",
+           Blocks.list(
+             title: title,
+             rows: rows,
+             empty: empty,
+             aside: if(rows != [], do: "#{done} of #{length(rows)} done")
+           )}
+        ]
+    end
+  end
+
+  defp items_block(_m, _kind, _items, _answers, _state, _form), do: []
+
+  # The details its page names, those that hold something: a field with its label; a
+  # relation of its own with each fact it points at by key and title; one of a component
+  # (its Assignment's) by keys; each relation with the fact that set it.
+  defp page_details(m, kind, fact, parts, spec, answers) do
+    k = kind(m, kind)
+
+    skip =
+      length(child_relations(m, kind)) + length(cause_fields(m)) + length(components(m, kind))
+
+    titled =
+      Enum.zip(titled_kinds(m, kind), Enum.drop(answers, skip))
+      |> Enum.flat_map(fn {to, read} ->
+        for %{"key" => key} = f <- read["facts"] || [], do: {key, label(kind(m, to), f)}
+      end)
+      |> Map.new()
+
+    holders = [{kind, fact} | for({part_kind, _k, part, _} <- parts, do: {part_kind, part})]
+
+    Enum.flat_map(List.wrap(spec["details"]), fn name ->
+      case {field(k, name), rel(m, name)} do
+        {%{} = f, _} ->
+          case fact["values"][name] do
+            value when value in [nil, ""] -> []
+            value -> [Blocks.pair(label: f.label, value: show(f, value))]
+          end
+
+        {nil, %{} = r} ->
+          for {holder_kind, holder} <- holders,
+              holder_kind in r.from,
+              keys = get_in(holder, ["links", name]) || [],
+              keys != [] do
+            origin = get_in(holder, ["origins", name])
+
+            Blocks.pair(
+              label: String.capitalize(r.label),
+              value:
+                Enum.map_join(keys, "\n", fn key ->
+                  Enum.join([key | List.wrap(titled[key])], " ")
+                end),
+              origin:
+                origin &&
+                  Blocks.origin(since: origin["since"], by: origin["by"], cause: origin["cause"])
+            )
+          end
+
+        _ ->
+          []
+      end
+    end)
+  end
+
   defp list_page(kind, k, m, [answer | rest], form) do
     # The only top kind's list is the start page; there is nothing to go back to.
     start? = top_kinds(m) == [kind]
@@ -3133,9 +3374,11 @@ defmodule AtlasControl.Pages do
   # Pick up and Retry), and everything else (`others_block/1`). Nothing raw
   # where the flow covers it: no Delete where Remove ends the run instead, no change of
   # who has a supervised flow's work while nobody picked it up (D-0099), and no Create of
-  # what a flow makes under it. An action on the same key as a next step gives way to it,
+  # what a flow makes under it, nor on a page its kind declares (`page`: its list's own
+  # create is the only one). An action on the same key as a next step gives way to it,
   # and Pick up or Retry to an owner's answer of the same label: a state's own Retry
-  # (back to the step that failed, IS-Atlas-134) stands for the span's.
+  # (back to the step that failed, IS-Atlas-134) stands for the span's. The next steps
+  # include the answers the state offers the viewer as whom the fact links (`offers/4`).
   defp offered(m, kind, k, fact, rest, form) do
     parts = item_parts(m, kind, rest)
     work = work_presentation(m, kind, fact, parts)
@@ -3155,7 +3398,10 @@ defmodule AtlasControl.Pages do
             link_actions(m, part_kind, part, form)
           end)
 
-    answers = answer_actions(kind, fact, todo, handing)
+    answers =
+      answer_actions(kind, fact, todo, handing) ++
+        answer_actions(kind, fact, %{answers: offers(m, kind, fact, parts, form)}, [])
+
     answered = Enum.map(answers, & &1["label"])
 
     next =
@@ -3163,14 +3409,20 @@ defmodule AtlasControl.Pages do
         restart_actions(m, kind, fact, parts, form) ++
         Enum.reject(picks, &(&1["label"] in answered))
 
+    creates = if Map.get(k, :page), do: [], else: create_actions(m, kind, fact["key"])
+
     more =
       supervising ++
         fact_actions(m, k, fact, form, span? and is_binary(work["run"])) ++
-        link_actions(m, kind, fact, form) ++ handing ++ create_actions(m, kind, fact["key"])
+        link_actions(m, kind, fact, form) ++ handing ++ creates
 
     keys = Enum.map(next, & &1["key"])
     {next, Enum.reject(more, &(&1["key"] in keys))}
   end
+
+  # The answers the state of the work on the fact offers the viewer as whom it links.
+  defp offers(m, kind, fact, parts, form),
+    do: m.module.offers(kind, fact, parts_by_kind(parts), viewer(form))
 
   # Everything a fact's page offers besides the flow's next step, below its answers and
   # quieter than they are; nothing when there is nothing.
@@ -4076,7 +4328,10 @@ defmodule AtlasControl.Pages do
 
   defp section_pairs(_todo), do: []
 
-  @doc "The owner's answer `name` (one that writes a change), from fresh item reads; or nil."
+  @doc """
+  The owner's answer `name` (one that writes a change), or one the state offers the viewer
+  as whom the fact links (`offers/4`, its producer), from fresh item reads; or nil.
+  """
   def declared_answer(m, kind, "_restart-" <> run, answers, form) do
     case restart_offer(m, kind, answers, form) do
       %{run: ^run} = offer -> Map.put(offer, :note, false)
@@ -4085,13 +4340,18 @@ defmodule AtlasControl.Pages do
   end
 
   def declared_answer(m, kind, name, [%{"fact" => fact} | rest], form) when is_map(fact) do
-    case m.module.todo(kind, fact, parts_by_kind(item_parts(m, kind, rest)), viewer(form)) do
-      %{answers: answers} ->
-        Enum.find(answers, &((Map.get(&1, :name) || &1.key) == name and &1.change))
+    parts = parts_by_kind(item_parts(m, kind, rest))
 
-      _ ->
-        nil
-    end
+    owners =
+      case m.module.todo(kind, fact, parts, viewer(form)) do
+        %{answers: answers} -> answers
+        _ -> []
+      end
+
+    Enum.find(
+      owners ++ m.module.offers(kind, fact, parts, viewer(form)),
+      &((Map.get(&1, :name) || &1.key) == name and &1.change)
+    )
   end
 
   def declared_answer(_, _, _, _, _), do: nil

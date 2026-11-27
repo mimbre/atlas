@@ -345,6 +345,7 @@ public enum ActionIcon {
         case "create": "plus"
         case "open": "arrow.up.right.square"
         case "faults": "exclamationmark.triangle"
+        case "suggest": "lightbulb"
         default: nil
         }
     }

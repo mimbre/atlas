@@ -31,7 +31,11 @@ defmodule RelaDSL.Control.Model do
       or those a fact's page offers, with the actions the model adds (`action`);
     * `todo(kind, fact, parts, viewer)`: what the fact's owner is to do in the state its
       run is in, and the answers they can give; nil for anyone else;
-    * `answer(kind, name, item, viewer)`: the change an owner's answer writes;
+    * `answer(kind, name, item, viewer)`: the change an owner's answer writes, or an
+      answer the state offers to whom the fact links (`by:`, its producer);
+    * `offers(kind, fact, parts, viewer)`: the answers the state of its work offers the
+      viewer as whom the fact links through an answer's `by:` relation (its producer),
+      whoever owns the work; `[]` for anyone else;
     * `restart(kind, fact, parts, viewer, actors)`: the explicit restart of the completed
       run that presents the fact, for a viewer its selection's `restart_by` names (its
       owner, or a configured actor); nil for anyone else, and without the model's words.
@@ -113,6 +117,18 @@ defmodule RelaDSL.Control.Model do
       )
 
       def todo(_kind, _fact, _parts, _viewer), do: nil
+
+      @doc "The answers the state offers `viewer` as whom the fact links (`by:`); else []."
+      unquote_splicing(
+        for {name, flow} <- Enum.sort(flows) do
+          quote do
+            def offers(unquote(name), fact, parts, viewer),
+              do: RelaDSL.Control.Rules.offers(unquote(Macro.escape(flow)), fact, parts, viewer)
+          end
+        end
+      )
+
+      def offers(_kind, _fact, _parts, _viewer), do: []
 
       @doc "The change the owner's answer `name` writes on the item, or why it is refused."
       unquote_splicing(
@@ -282,6 +298,8 @@ defmodule RelaDSL.Control.Model do
           end,
         agent: spec["agent"],
         delete_error: if(is_binary(spec["delete_error"]), do: spec["delete_error"]),
+        # Its page as a stack of simple blocks (`page`), as written; nil without one.
+        page: if(is_map(spec["page"]), do: spec["page"]),
         hidden: state_fields(presenters, kind),
         presented: Enum.any?(presenters, &(&1["kind"] == kind))
       }

@@ -1142,7 +1142,7 @@ defmodule RelaDSL.SchemaTest do
                hd(flow.states).present.answers
     end
 
-    test "a change answer may link nobody, but always writes values" do
+    test "a change answer may link nobody, but always writes values or adds a line" do
       module =
         compile!(
           presented(
@@ -1162,7 +1162,7 @@ defmodule RelaDSL.SchemaTest do
           ~s|present expected: "A", answers: [[key: "f", label: "F", change: %{self: :signed_by, values: %{}}]]|
         ),
         5,
-        "or change: %{values:, self:}]"
+        "or change: %{values:, self:, append:}]"
       )
     end
 
@@ -1231,7 +1231,7 @@ defmodule RelaDSL.SchemaTest do
           ~s|present expected: "A", answers: [[key: "a", label: "A", set: :r, remove: :r]]|
         ),
         5,
-        "must be [key:, label:, and set: or remove: a relation, or change: %{values:, self:}]"
+        "must be [key:, label:, and set: or remove: a relation, or change: %{values:, self:, append:}]"
       )
 
       refused(
