@@ -637,8 +637,7 @@ defmodule AtlasTui.WorkerConversationTest do
     assert WorkerConversation.output_target(model) == @execution
   end
 
-  # A worker page as Control lays it out: the Worker part, and a Conversation part that
-  # leads with what the worker said and folds the rest under a collapsible Details.
+  # A worker page with legacy collapsible markup around its details.
   defp layout_model(role \\ "related") do
     item = fn id, title, fields ->
       %{
@@ -697,12 +696,11 @@ defmodule AtlasTui.WorkerConversationTest do
 
   defp screen(model), do: model |> View.render(140, 60, 5) |> View.plain()
 
-  test "the conversation leads with the latest assistant text and folds the details" do
+  test "the conversation shows its details and their selectable rows" do
     model = layout_model()
-    # Before any output, Control's placeholder shows; the details are folded.
     assert screen(model) =~ "fixture waiting"
-    refute screen(model) =~ "fixture record"
-    assert Model.rows(model) == []
+    assert screen(model) =~ "fixture record"
+    assert [%{id: "g-1"}] = Model.rows(model)
 
     events =
       Enum.map(1..7, &output_event/1) ++
@@ -711,54 +709,31 @@ defmodule AtlasTui.WorkerConversationTest do
     {model, _} = output_drain(model, nil, events, 8, false)
     shown = screen(model)
 
-    # Control's title stays; the latest five messages, newest last; nothing else leads.
     assert shown =~ "fixture messages"
     refute shown =~ "fixture waiting"
     positions = for n <- 3..7, do: :binary.match(shown, "line #{n}") |> elem(0)
     assert positions == Enum.sort(positions)
-    refute shown =~ ~r/\bline [12]\b/
-    refute shown =~ "fixture activity"
-    refute shown =~ "fixture stream"
-    refute shown =~ "fixture guidance row"
-    refute shown =~ "fixture record"
-
-    # One key unfolds them: the stream's state, the activity, the earlier messages and
-    # the guidance list, whose row can then be selected.
-    {unfolded, []} = Model.operation(model, "sections_toggle")
-    shown = screen(unfolded)
     assert shown =~ "fixture activity"
     assert shown =~ "line 1"
     assert shown =~ "fixture guidance"
     assert shown =~ "fixture record"
-    assert [%{id: "g-1"}] = Model.rows(unfolded)
-
-    {folded, []} = Model.operation(unfolded, "sections_toggle")
-    refute screen(folded) =~ "fixture record"
-    assert Model.rows(folded) == []
+    assert [%{id: "g-1"}] = Model.rows(model)
+    {selected, []} = Model.operation(model, "select_last")
+    assert Enum.at(Model.rows(selected), selected.selected).id == "g-1"
   end
 
-  test "a details part with a multi-block disclosure has no enclosing card" do
+  test "a details part renders all blocks despite legacy collapsible markup" do
     model = layout_model("details")
 
     for width <- [90, 140] do
-      rendered = View.render(model, width, 60, 5)
-      text = View.plain(rendered)
-      assert text =~ "▸ fixture details"
-      refute text =~ "fixture stream"
-
-      refute Enum.any?(List.flatten(rendered), fn {style, text} ->
-               text =~ "fixture details" and match?({:card, _}, style)
-             end)
-
-      {open, []} = Model.operation(model, "sections_toggle")
-      text = open |> View.render(width, 60, 5) |> View.plain()
-      assert text =~ "▾ fixture details"
+      text = model |> View.render(width, 60, 5) |> View.plain()
+      assert text =~ "fixture details"
+      refute text =~ "▸ fixture details"
+      refute text =~ "▾ fixture details"
       assert text =~ "fixture stream"
       assert text =~ "fixture guidance"
       assert text =~ "fixture record"
-      assert [%{id: "g-1"}] = Model.rows(open)
-      {closed, []} = Model.operation(open, "sections_toggle")
-      assert Model.rows(closed) == []
+      assert [%{id: "g-1"}] = Model.rows(model)
     end
   end
 end

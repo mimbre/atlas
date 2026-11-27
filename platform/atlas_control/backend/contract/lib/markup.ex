@@ -25,7 +25,7 @@ defmodule AtlasBFFContract.Markup do
         field :role, :string, required: true
       end
 
-      # A titled stretch of the view; a client may let the user fold a collapsible one.
+      # A titled stretch of the view; legacy collapsible markup is shown expanded.
       defmarkup :section do
         field :title, :string, required: true
         field :collapsible, :boolean

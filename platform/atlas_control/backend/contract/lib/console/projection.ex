@@ -21,6 +21,7 @@ defmodule AtlasBFFContract.Console.Projection do
          true <- length(actions) in 1..256 and groups != [],
          true <- Enum.all?(actions, &action?(&1, native, page)),
          true <- groups?(groups, blocks, actions),
+         actions = Enum.map(actions, &disable_unknown/1),
          true <- unique_bindings?(actions) do
       {:ok,
        %__MODULE__{
@@ -110,11 +111,29 @@ defmodule AtlasBFFContract.Console.Projection do
       (p["reason"] == nil or text?(p["reason"], 512)) and
       is_list(keys) and length(keys) in 1..8 and Enum.uniq(keys) == keys and
       Enum.all?(keys, &Console.key?/1) and
-      Console.operation?(p["operation"]) and is_map(scope) and
+      valid_operation?(p["operation"]) and is_map(scope) and
       Map.keys(scope) -- ~w(page revision context on row) == [] and
       scope["page"] == page["path"] and scope["revision"] == page["actions_revision"] and
       scope["context"] in Console.contexts() and reference?(scope, native) and
       (p["operation"]["name"] != "worker_receipts" or scope["on"] == "guidance-history")
+  end
+
+  defp valid_operation?(%{"name" => name} = operation) do
+    if name in Console.operations(),
+      do: Console.operation?(operation),
+      else: text?(name, 128)
+  end
+
+  defp valid_operation?(_), do: false
+
+  defp disable_unknown(action) do
+    if action["props"]["operation"]["name"] in Console.operations() do
+      action
+    else
+      action
+      |> put_in(["props", "available"], false)
+      |> update_in(["props", "reason"], &(&1 || "Unsupported action"))
+    end
   end
 
   defp reference?(scope, native) do

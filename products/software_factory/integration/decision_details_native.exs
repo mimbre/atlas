@@ -102,14 +102,14 @@ try do
   assert {:ok, client} = AtlasAgent.Client.connect(AtlasBus.environment(), settings)
   assert {:ok, page} = AtlasAgent.Client.open(client, "/k/decision/D-private-details")
   blocks = Map.new(page["blocks"], &{&1["id"], &1["props"]})
-  assert blocks["decision-detail-0"]["title"] == "Authority and status"
-  assert blocks["decision-detail-1"]["title"] == "Scope and reversibility"
-  assert blocks["decision-detail-2"]["title"] == "Usage and enforcement"
+  assert blocks["page-detail-0"]["title"] == "Authority and status"
+  assert blocks["page-detail-1"]["title"] == "Scope and reversibility"
+  assert blocks["page-detail-2"]["title"] == "Usage and enforcement"
   assert hd(blocks["decision-raw-options"]["fields"])["value"] == definition
 
-  assert Enum.any?(page["markup"], fn mark ->
-           mark["kind"] == "section" and mark["props"]["title"] == "Technical details" and
-             mark["props"]["collapsible"] == true
+  refute Enum.any?(page["markup"], fn mark ->
+           get_in(mark, ["props", "collapsible"]) == true or
+             get_in(mark, ["props", "role"]) == "details"
          end)
 
   AtlasAgent.Client.close(client)
