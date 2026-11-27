@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.43.0"
+  version "0.44.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 

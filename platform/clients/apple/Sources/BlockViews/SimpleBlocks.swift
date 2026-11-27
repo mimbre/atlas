@@ -26,6 +26,15 @@ public enum TextLine {
     }
 }
 
+/// A header's state and its compact, current age.
+public enum HeaderState {
+    public static func line(_ block: HeaderBlock, now: Date) -> String? {
+        let parts = [block.detail, RowAge.text(since: block.since, now: now)]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
 /// An `instruction` block's lines as they are shown: a route as its parts with › between
 /// them, any other line as its text.
 public enum Instruction {

@@ -2301,6 +2301,7 @@ defmodule AtlasControl.PagesTest do
       page = render_run({:assigned, "K-1"}, @assigning, "open", answers)
 
     list = by_id(page)["list"]
+    refute Map.has_key?(list, "title")
 
     # Oldest waiting first, one that says no since last; a completed one is not there;
     # what is to be done in it.
@@ -2326,6 +2327,7 @@ defmodule AtlasControl.PagesTest do
       page = render_run(part, @assigning, "open", answers)
 
     assert [%{"to" => "/k/part/P-1"}] = by_id(page)["list"]["rows"]
+    refute Map.has_key?(by_id(page)["list"], "title")
 
     # Nothing kept: the groups and the empty list.
     page =
@@ -2334,6 +2336,7 @@ defmodule AtlasControl.PagesTest do
     assert Enum.map(page.blocks, & &1["id"]) == ["groups", "list"]
     assert page.markup == []
     empty = by_id(page)["list"]
+    refute Map.has_key?(empty, "title")
     assert empty["rows"] == [] and empty["empty"] == "Nothing is kept by you."
   end
 

@@ -77,16 +77,17 @@ gutter between them. Room left over is only at the **far right**, after the last
 
 | Column | Mac | TUI |
 |---|---|---|
-| Sidebar: the tabs, their counts and groups | fixed, about 240 pt | 24 cells, from 290 columns (else the tab bar) |
-| List: the tab's rows | fixed, about 360 pt | 60 cells |
+| Sidebar: top-level tabs and their counts | fixed, about 240 pt | 24 cells, from 290 columns (else the tab bar) |
+| List: the tab's filters and rows | fixed, about 360 pt | 60 cells |
 | Page: the item's main blocks | at most 720 pt (100 characters of the body font) | at most 100 cells |
 | Details: the page's details group | 280–720 pt (as wide as the page at most), growing with the room | 40–100 cells, growing with the room |
 
 What gives way as the room narrows, in this order:
 
-1. **The sidebar.** TUI: below 290 columns the tabs move to the tab bar (from 210 with a
-   row of the active tab's groups and counts under it). Mac: the sidebar stays until
-   step 3.
+1. **The sidebar.** TUI: below 290 columns the tabs move to the tab bar. Filters
+   stay on the list at every width: bracketed labels and counts, a coloured `•` on the
+   active filter, and `[` / `]` keys for previous / next.
+   Mac: the sidebar stays until step 3.
 2. **The details** go under the main blocks. Mac: beside while the page's column holds
    720 + 280 pt (a window of about 1600 pt), else as a recessed card under the page.
    TUI: beside from 210 columns (from 140 in one column), else as the page's last blocks.
@@ -146,10 +147,11 @@ blue planned or waiting, green done. An unknown tone uses the row's text colour.
 
 | Role | Prism typography (Mac) |
 |---|---|
-| Page title (`PageHeader`, a sheet's title) | `title6` (20) |
+| Page title (`PageHeader`) | `title5` |
 | Panel, option, list and item titles; a row card's title | `title7` (16) |
 | Running text (why, a step's text, an option's Rule and Consequences, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
-| Labels (a section's or the details' title, a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
+| Section and details headings | `title6` (20); aligned with their cards, and with the main content when alongside |
+| Labels (a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
 | Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name (in the sidebar's foot) | `labelsmall` (14) |
 | Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's foot: the assistant line under the person's name when Control sends one ("assistant: coordinator"), then on one line the environment (production as the plain word "Production", no tag; any other environment as a small Prism warning tag, its name capitalised: "Test") · the connection in plain words, the last notice in its popover) | `caption` (14) |
 | The sidebar's section headings (WORK, BROWSE: eyebrows as a card's top line, uppercase, spaced, muted, more space above) | `labelsmall` |

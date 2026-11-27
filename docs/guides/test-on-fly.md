@@ -60,9 +60,12 @@ an in-flight update. Pending jobs queue instead of replacing one another. After
 acquiring its slot, `platform/ops/deploy-test-current.sh` compares the checkout/build label
 with the current authenticated `origin/develop` head. A stale job exits successfully
 without any Fly operations; unresolved or inconsistent identities fail closed.
-If develop advances after admission, the admitted pair finishes normally, and a
-later eligible job deploys the newer head. CI readiness order alone never determines
-which source revision may deploy. Production delivery is unchanged.
+Every current tested develop head deploys, including a client-only change: an
+earlier Fly-changing job may have skipped itself as stale. This can redeploy an
+unchanged Fly tree. If develop advances after admission, the admitted pair
+finishes normally and the newer head deploys afterward. The CI slot does not
+serialize direct invocations of `deploy.sh`; do not run those concurrently with CI.
+Production is unchanged.
 
 A successful stale skip is not delivery evidence: confirm the intended paired
 image labels, manifest checks and positive smoke result in the deployment log.
