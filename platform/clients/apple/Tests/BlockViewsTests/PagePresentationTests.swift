@@ -158,6 +158,22 @@ final class PagePresentationTests: XCTestCase {
         XCTAssertEqual(presentation.entries.map(\.id), ["a", "b", "c", "d", "e"])
     }
 
+    func testDetailsPartKeepsMultipleDisclosureBlocksTogether() throws {
+        let part: JSONValue = .object([
+            "kind": .string("part"), "start": .string("b"), "end": .string("d"),
+            "props": .object(["title": .string("Details"), "role": .string("details")]),
+        ])
+        let presentation = PagePresentation(try page(lists(["a", "b", "c", "d"]), markup: [
+            part, section("c", "d", "Technical details", collapsible: true),
+        ]))
+        guard let details = presentation.details else { return XCTFail("no details") }
+        XCTAssertEqual(details.groups.count, 2)
+        guard case .section(let technical) = details.groups[1] else { return XCTFail("no disclosure") }
+        XCTAssertTrue(technical.collapsible)
+        XCTAssertEqual(technical.entries.map(\.id), ["c", "d"])
+        XCTAssertEqual(presentation.groups.count, 1)
+    }
+
     func testASectionWithoutCollapsibleOrWithFalseIsAHeading() throws {
         let presentation = PagePresentation(try page(lists(["a", "b"]), markup: [
             section("a", "a", "One"), section("b", "b", "Two", collapsible: false),

@@ -79,6 +79,22 @@ defmodule AtlasE2E.DeployOrderTest do
     assert lines(c) == ["rela develop-#{c.old}", "core develop-#{c.old}"]
   end
 
+  test "stale Fly change followed by a client-only head still deploys", c do
+    fly_change = advance(c)
+    File.mkdir_p!(Path.join(c.work, "platform/clients/apple"))
+    File.write!(Path.join(c.work, "platform/clients/apple/client"), "client")
+    git!(c.work, ["add", "."])
+    git!(c.work, ["commit", "-m", "client only"])
+    git!(c.work, ["push", "origin", "HEAD:develop"])
+    client_head = git!(c.work, ["rev-parse", "HEAD"])
+    git!(c.work, ["checkout", "--detach", fly_change])
+    assert {out, 0} = deliver(c, fly_change)
+    assert out =~ "skipping stale"
+    git!(c.work, ["checkout", "--detach", client_head])
+    assert {_, 0} = deliver(c, client_head)
+    assert lines(c) == ["rela develop-#{client_head}", "core develop-#{client_head}"]
+  end
+
   test "unavailable or missing remote head refuses before any deployment", c do
     for remote <- [Path.join(c.dir, "does-not-exist"), Path.join(c.dir, "empty.git")] do
       if String.ends_with?(remote, "empty.git"), do: git!(c.dir, ["init", "--bare", remote])
@@ -131,6 +147,7 @@ defmodule AtlasE2E.DeployOrderTest do
              "cancel-in-progress" => false,
              "queue" => "max"
            }
+    refute c.job["if"] =~ "outputs.deploy"
 
     assert Enum.any?(
              c.jobs["deploy-prod"]["steps"],
@@ -151,14 +168,18 @@ defmodule AtlasE2E.DeployOrderTest do
       cd: c.work,
       stderr_to_stdout: true,
       env:
-        [
-          {"GITHUB_SHA", sha},
-          {"DEPLOY_LOG", c.log},
-          {"PAIR_READY", nil},
-          {"PAIR_RELEASE", nil},
-          {"ATLAS_FLY_TOKEN_RELA", "unused-fixture"},
-          {"ATLAS_FLY_TOKEN_CORE", "unused-fixture"}
-        ] ++ extra
+        Map.merge(
+          %{
+            "GITHUB_SHA" => sha,
+            "DEPLOY_LOG" => c.log,
+            "PAIR_READY" => nil,
+            "PAIR_RELEASE" => nil,
+            "ATLAS_FLY_TOKEN_RELA" => "unused-fixture",
+            "ATLAS_FLY_TOKEN_CORE" => "unused-fixture"
+          },
+          Map.new(extra)
+        )
+        |> Map.to_list()
     )
   end
 

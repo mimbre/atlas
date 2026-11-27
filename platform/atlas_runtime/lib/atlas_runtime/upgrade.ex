@@ -21,8 +21,9 @@ defmodule AtlasRuntime.Upgrade do
   `step` and `reason`). After a restart the new puller has no order yet: `pending/1` names
   the upgrade `update.json` is of, so the first poll reports it.
 
-  `update.json` is the update command's; the puller only reads it, and removes it once a
-  source answers with no upgrade (the upgrade has ended) and no update is running.
+  `update.json` is the update command's. A failed, refused or running update is retained
+  and reported even when a source answers without an order: that answer can also mean
+  Facts was unavailable, before Flow recorded the outcome. A later upgrade replaces it.
   """
 
   require Logger
@@ -156,19 +157,19 @@ defmodule AtlasRuntime.Upgrade do
 
   def handle(_home, _order, _source, _opts), do: :ok
 
-  @doc "The upgrade has ended at the source: forget `update.json`, unless an update runs."
-  def ended(nil), do: :ok
+  @doc "Forget an ended update, but keep an unconfirmed outcome available to the source."
+  def ended(nil, _id), do: :ok
 
-  def ended(home) do
+  def ended(home, id) do
     case record(home) do
-      %{"state" => "running"} ->
-        :ok
+      %{"upgrade" => ^id, "state" => state} when state in ["running", "refused", "failed"] ->
+        :pending
 
-      nil ->
-        :ok
-
-      _ended ->
+      %{"upgrade" => ^id} ->
         _ = File.rm(path(home))
+        :ok
+
+      _ ->
         :ok
     end
   end

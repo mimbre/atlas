@@ -74,7 +74,7 @@ defmodule AtlasTui.PresentationTest do
           :selected,
           :cursor,
           :header,
-          :prod,
+          :env_test,
           :ok,
           :pending,
           :error,
@@ -110,16 +110,17 @@ defmodule AtlasTui.PresentationTest do
     end
   end
 
-  test "the header bar is primary in every environment and only prod badges its name" do
+  test "the header bar is primary in every environment and only a non-prod one is badged" do
     for env <- ["prod", "test"], count <- [nil, "3"], width <- [20, 60] do
       base = model()
       [bar | _] = AtlasTui.ConsoleView.header(%{base | env: env, count: count}, width)
-      {badged, rest} = Enum.split_with(bar, fn {style, _} -> style == :prod end)
+      {badged, rest} = Enum.split_with(bar, fn {style, _} -> style == :env_test end)
 
       assert Enum.all?(rest, fn {style, _} -> style == :header end), inspect(bar)
       cells = Enum.sum(Enum.map(bar, &String.length(elem(&1, 1))))
       assert if(count, do: cells >= width, else: cells == width)
-      assert badged == if(env == "prod", do: [{:prod, " #{env} "}], else: [])
+      # Production is plain bar text; test wears the warning badge.
+      assert badged == if(env == "prod", do: [], else: [{:env_test, " #{env} "}])
     end
 
     for theme <- [:light, :dark] do
@@ -127,11 +128,9 @@ defmodule AtlasTui.PresentationTest do
       assert white == {255, 255, 255}
       assert {r, g, b} = primary
       assert b > r and b > g
-      # The prod badge inverts the bar, so it stands out by lightness, not by an alarm colour.
-      assert {primary, white} == Palette.colors(:prod, theme)
-      [low, high] = Enum.sort([luminance(primary), luminance(white)])
-      assert (high + 0.05) / (low + 0.05) >= 4.5
-      assert Palette.ansi(:prod, theme) |> IO.iodata_to_binary() =~ "\e[0;1;"
+      # The test badge is orange, Prism's warning, under dark text.
+      assert {_, {242, 141, 21}} = Palette.colors(:env_test, theme)
+      assert Palette.ansi(:env_test, theme) |> IO.iodata_to_binary() =~ "\e[0;1;"
       assert Palette.ansi(:header, theme) |> IO.iodata_to_binary() =~ "\e[0;1;"
     end
   end
@@ -551,7 +550,7 @@ defmodule AtlasTui.PresentationTest do
     refute Enum.any?(lines["W-2"], &match?({:muted, _}, &1))
   end
 
-  test "a row keeps its dot and shows its kind's glyph before its key; an unknown kind, none" do
+  test "a known kind uses its icon for the status, retaining its colour when selected" do
     m = model()
 
     rows = [
@@ -581,9 +580,12 @@ defmodule AtlasTui.PresentationTest do
         {row.id, View.plain([Enum.find(lines, &(View.plain([&1]) =~ row.id))])}
       end)
 
-    assert text["D-1"] =~ ~r/● ◆ D-1/
-    assert text["TD-1"] =~ ~r/☐ TD-1/
-    refute text["X-1"] =~ ~r/[◆☐□◇•]/
+    assert text["D-1"] =~ ~r/◆ D-1/
+    refute text["D-1"] =~ "●"
+    assert text["TD-1"] =~ ~r/■ TD-1/
+    refute text["X-1"] =~ ~r/[◆■▰▲•]/
+    decision = Enum.find(lines, &(View.plain([&1]) =~ "D-1"))
+    assert {:tone_attention, "◆"} in decision
 
     # The keys stay in one column, a row without a known glyph keeping its blank cell.
     columns =

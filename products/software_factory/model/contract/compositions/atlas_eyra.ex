@@ -148,10 +148,40 @@ defmodule Model.AtlasEyra do
   # counts them, and Hand over… lists those that will stop.
   supervised_work(kind: :task, of: :task_of, for: :done_for, ended: :result_kind)
 
-  # The tabs in Melle's order (2026-11-24): first the work, most urgent first (Assigned to
-  # you, Supervised by you, Open for you), then what one browses (Scenes, Agents, To-Dos,
-  # What the agent did; the environment adds Workers), each with its own keys. The start
-  # page holds only what is assigned: no kind has a `start` key (Melle, 2026-11-24). A client cycles through the work tabs only.
+  # The machines a Runtime runs work on (the Machines tab): a machine with its
+  # configuration and the version it applied; its upgrades, each at a step until it is
+  # done or failed; and the attempts at a task on one of its slots, with when they ran and
+  # how they ended. A task is part of an issue (task_of), at the stage its kind says.
+  machines(
+    kind: :machinery,
+    configuration: :configuration,
+    policy_version: :applied_version,
+    upgrades: [
+      kind: :runtime_upgrade,
+      of: :upgrade_of,
+      build: :build,
+      step: :step,
+      ended: [:done, :failed],
+      failed_step: :failed_step,
+      reason: :reason
+    ],
+    attempts: [
+      kind: :task_attempt,
+      on: :ran_on,
+      of: :attempt_of,
+      slot: :slot,
+      machine: :machine,
+      started: :started_at,
+      ended: :ended_at,
+      result: :result_kind
+    ],
+    work: [of: :task_of, stage: :kind]
+  )
+
+  # The tabs in Melle's order: first the work, most urgent first (Assigned to you,
+  # Supervised by you, Open for you), then what one browses (Scenes, To-Dos, Machines),
+  # each with its own keys. The start page holds only what is assigned: no kind has a
+  # `start` key (Melle, 2026-11-24). A client cycles through the work tabs only.
   # Assigned to you is also the tab the Console opens on when no target is given; the shell
   # names it (default:), this name is the one place.
   @boot_tab :assigned
@@ -164,21 +194,22 @@ defmodule Model.AtlasEyra do
     [id: :supervised_by_you, label: "Supervised by you", to: "/_supervised", section: :work],
     [id: :open_for_you, label: "Open for you", to: "/_open", section: :work],
     [id: :scenes, label: "Scenes", to: "/k/scene", section: :browse, key: "g s"],
-    [id: :agents, label: "Agents", to: "/k/agent", section: :browse, key: "g a"],
     [id: :to_dos, label: "To-Dos", to: "/k/to_do", section: :browse, key: "g t"],
     [
-      id: :agent_requests,
-      label: "What the agent did",
-      to: "/k/agent_request",
+      id: :machines,
+      label: "Machines",
+      to: "/machines",
       section: :browse,
-      key: "g d"
+      key: "g m",
+      icon: "gears"
     ]
   ]
 
   shell(
     title: "Atlas Console",
     tabs: @tabs,
-    default: @boot_tab
+    default: @boot_tab,
+    assistant: :coordinator
   )
 
   read_first(

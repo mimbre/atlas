@@ -66,10 +66,10 @@ defmodule AtlasRuntime.Sources.Puller do
     every later poll as `configuration_refused` until a configuration is applied; the next
     poll after an applied one carries its version as `policy_version`.
   - `upgrade`, when the source ordered one (IS-Atlas-26): drain, update or resume,
-    carried out by `AtlasRuntime.Upgrade` once the rest of the answer is handled. Every
-    later poll reports it (`upgrade`: mode, busy slots, what the update command recorded)
-    until an answer comes without one. After a restart, the upgrade `update.json` names
-    is reported from the first poll on.
+    carried out by `AtlasRuntime.Upgrade` once the rest of the answer is handled. Later
+    polls report it; a running, refused or failed update is reported even after a no-order
+    answer because the source may be temporarily unable to read the outcome. After a
+    restart, the upgrade `update.json` names is reported from the first poll on.
   - Every holding it carried that is not in `lease_lost` is renewed **at the poll's send
     time** (`LeaseClock.stamp/1` read just before the poll left), never at the reply's.
   - `lease_lost`: the attempt is cancelled (never started when it had not), and nothing of
@@ -723,8 +723,7 @@ defmodule AtlasRuntime.Sources.Puller do
   end
 
   # IS-Atlas-26: an upgrade its supervisor started (`AtlasRuntime.Upgrade`): drain, update
-  # (the update command, once per upgrade) or resume. An answer without one ends the
-  # upgrade this puller reported.
+  # or resume. Keep reporting an outcome that a no-order answer may not have recorded.
   defp upgrade(state, %{} = order) do
     case Upgrade.order(order) do
       %{id: id} = order ->
@@ -739,8 +738,10 @@ defmodule AtlasRuntime.Sources.Puller do
   defp upgrade(%{upgrade: nil} = state, _none), do: state
 
   defp upgrade(state, _none) do
-    Upgrade.ended(runtime_home())
-    %{state | upgrade: nil}
+    case Upgrade.ended(runtime_home(), state.upgrade) do
+      :pending -> state
+      :ok -> %{state | upgrade: nil}
+    end
   end
 
   # IS-Atlas-27: the configuration its supervisor set through Control, when the source

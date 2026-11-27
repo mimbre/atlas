@@ -57,24 +57,7 @@ struct ShellView: View {
 
     var body: some View {
         let shell = ShellViewModel(session.state)
-        NavigationSplitView(columnVisibility: $visibility) {
-            Sidebar(shell: shell, connection: connection(shell), select: session.selectTab)
-        } content: {
-            Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
-                   act: session.act, filter: session.filter,
-                   selectedGroup: shell.activeGroup ?? shell.tabs.first(where: { $0.id == shell.activeTab })?.to)
-                .navigationSplitViewColumnWidth(WindowLayout.list)
-                // The list's own actions (Create to-do) above it, quiet icons.
-                .toolbar {
-                    ItemToolbar(actions: PageActions.listToolbar(shell.index), pending: shell.pending, act: session.act)
-                }
-        } detail: {
-            Column(page: shell.opened, header: true, selectedPath: shell.selectedPath, open: session.open,
-                   act: session.act)
-                .toolbar {
-                    ItemToolbar(actions: PageActions.toolbar(shell.opened), pending: shell.pending, act: session.act)
-                }
-        }
+        columns(shell)
         .onGeometryChange(for: Bool.self) { WindowLayout.showsSidebar(window: $0.size.width) } action: { shows in
             guard shows != sidebarShown else { return }
             sidebarShown = shows
@@ -112,6 +95,42 @@ struct ShellView: View {
         .environment(\.pendingAction, shell.pending)
         .environment(\.panelKeys, keys.panels)
     }
+
+    /// Sidebar, list and page; a tab's block page (`indexIsPage`) has no list: it is the
+    /// page, shown as an opened one is (a page opened from it takes its place).
+    @ViewBuilder
+    private func columns(_ shell: ShellViewModel) -> some View {
+        if shell.indexIsPage {
+            NavigationSplitView(columnVisibility: $visibility) {
+                Sidebar(shell: shell, connection: connection(shell), select: session.selectTab)
+            } detail: {
+                page(shell.opened ?? shell.index, shell)
+            }
+        } else {
+            NavigationSplitView(columnVisibility: $visibility) {
+                Sidebar(shell: shell, connection: connection(shell), select: session.selectTab)
+            } content: {
+                Column(page: shell.index, header: false, selectedPath: shell.selectedPath, open: session.open,
+                       act: session.act, filter: session.filter,
+                       selectedGroup: shell.activeGroup ?? shell.tabs.first(where: { $0.id == shell.activeTab })?.to)
+                    .navigationSplitViewColumnWidth(WindowLayout.list)
+                    // The list's own actions (Create to-do) above it, quiet icons.
+                    .toolbar {
+                        ItemToolbar(actions: PageActions.listToolbar(shell.index), pending: shell.pending, act: session.act)
+                    }
+            } detail: {
+                page(shell.opened, shell)
+            }
+        }
+    }
+
+    /// A page in the page column, what else can be done with it in the toolbar.
+    private func page(_ page: PageMessage?, _ shell: ShellViewModel) -> some View {
+        Column(page: page, header: true, selectedPath: shell.selectedPath, open: session.open, act: session.act)
+            .toolbar {
+                ItemToolbar(actions: PageActions.toolbar(page), pending: shell.pending, act: session.act)
+            }
+    }
 }
 
 /// The top-level tabs, in boot's order, with the person's connection in the foot.
@@ -125,7 +144,8 @@ struct Sidebar: View {
             work: SidebarItem.rows(shell, section: "work"),
             browse: SidebarItem.rows(shell, section: "browse"),
             selection: shell.activeTab.map(SidebarItem.ID.tab),
-            stale: shell.stale, name: shell.name, env: shell.env, production: shell.isProduction,
+            stale: shell.stale, name: shell.name, assistant: shell.assistant, env: shell.env,
+            production: shell.isProduction,
             connection: connection,
             select: { choice in
                 if case .tab(let id) = choice { select(id) }

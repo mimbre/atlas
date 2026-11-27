@@ -10,9 +10,9 @@ defmodule AtlasTui.Palette do
 
   `:muted` is a modifier, not a colour: a muted segment keeps the colours of `:dim`, or
   of the role it wraps (`{:selected, :muted}`), and is drawn faint and never bold.
-  `:header` is the title bar, the same in both themes; inside it `:prod` marks only the
-  environment name as an inverted badge (the bar's colours swapped), so production stays
-  recognisable.
+  `:header` is the title bar, the same in both themes; inside it `:env_test` marks the
+  environment name as an orange badge when it is not production, so a test Console is
+  never mistaken for the real one. Production stays plain.
   `:pending_selected` is `:pending` inside the selection: yellow text cannot reach 4.5:1 on
   the selection background, so there the yellow is the background, under dark text.
   `:active` (the group shown) looks like `:selected` but is not the selected row.
@@ -20,19 +20,18 @@ defmodule AtlasTui.Palette do
   keycap, grey1 on grey3 in both themes (9.9:1): a key carries no meaning of its own, so
   no colour. `:warning` warns (Prism's warning); in the light theme, where that colour is
   too faint as text on white, it is dark text on warninglight.
-  The `:tone_*` roles draw a list row's dot (where its work stands): red when it needs the
-  viewer, orange when under way, blue when planned or waiting, green when done. In dark the
-  dot is the colour on the surface (≥3:1, a dot is no text); in light, where those colours
-  are too faint on white, the cell is the colour and the dot is drawn on it in white or grey1.
+  The `:tone_*` roles draw a list row's kind icon (where its work stands): red when it needs
+  the viewer, orange when under way, blue when planned or waiting, green when done. In dark
+  the icon is the colour on the surface (≥3:1); in light, where those colours are too faint
+  on white, the cell is the colour and the icon is drawn on it in white or grey1.
   `:error_frame` frames what went wrong in Prism's error (a line, not text); its heading
   is `:error` text.
   `:route` is a part of a route in an instruction (where to click in an app): bold, in
   `:info`'s colours, primarylight on dark and grey1 on primarylight in light, where
   primary text on white is under 4.5:1.
   `:rest_frame` is the thin line between two columns: grey2 in dark; in light grey1, as
-  grey2 on white stays under 3:1 (2.85:1). `:lit` is the heading of the column with the
-  focus: bold, primarylight on dark, primaryshade on white (4.51:1; primary is under 4.5:1
-  on either surface).
+  grey2 on white stays under 3:1 (2.85:1). `:lit` is the focused column's heading:
+  white on primaryshade, with a visible focus marker.
   `:eyebrow` is a page's eyebrow ("◆ YOUR DECISION · D-0104"): bold light blue on the page,
   primarylight in dark, primaryshade in light (primary on white is under 4.5:1).
 
@@ -44,7 +43,7 @@ defmodule AtlasTui.Palette do
   role has the page's background, its own background (a key, a chip) where not. Where a
   role's colour would fall under 4.5:1 on a surface (the error colour on the selected one),
   it takes the theme's text colour; its words say what it is. `:card_edge` and
-  `:card_selected_edge` draw a card's rounded top and bottom rows: the surface colour as
+  `:card_selected_edge` draw a card's straight top and bottom rows: the surface colour as
   the foreground of half blocks on the page.
   """
   @tokens %{
@@ -113,13 +112,13 @@ defmodule AtlasTui.Palette do
         style when style in [:selected, :active] -> {:grey1, :primarylight}
         :cursor -> {:grey1, :tertiary}
         :header -> {:white, :primaryshade}
-        :prod -> {:primaryshade, :white}
+        :env_test -> {:grey1, :warning}
         :dim -> if dark, do: {:grey3, :grey1}, else: base
         :border -> if dark, do: {:grey2, :grey1}, else: {:grey2, :white}
         :frame -> if dark, do: {:primary, :grey1}, else: {:primary, :white}
         :error_frame -> if dark, do: {:error, :grey1}, else: {:error, :white}
         :rest_frame -> if dark, do: {:grey2, :grey1}, else: {:grey1, :white}
-        :lit -> if dark, do: {:primarylight, :grey1}, else: {:primaryshade, :white}
+        :lit -> {:white, :primaryshade}
         :key -> {:grey1, :grey3}
         :warning -> if dark, do: {:warning, :grey1}, else: {:grey1, :warninglight}
         :ok -> if dark, do: {:success, :grey1}, else: {:grey1, :successlight}
@@ -146,7 +145,7 @@ defmodule AtlasTui.Palette do
     weight =
       cond do
         muted?(role) -> "2;"
-        role in [:bold, :selected, :active, :header, :prod, :route, :lit, :eyebrow] -> "1;"
+        role in [:bold, :selected, :active, :header, :env_test, :route, :lit, :eyebrow] -> "1;"
         true -> ""
       end
 

@@ -1,6 +1,6 @@
 defmodule AtlasControl.HealthPage do
   @moduledoc """
-  The core's health (`/health`, IS-Atlas-117), reached from the Workers page and readable
+  The core's health (`/health`, IS-Atlas-117), reached from the Machines page and readable
   in any client, so a stall is seen without attaching to the prod machine. One row per
   check, each marked late once it passes its limit:
 
@@ -86,7 +86,7 @@ defmodule AtlasControl.HealthPage do
     all = rows.core ++ rows.syncs ++ rows.runtimes
     late = Enum.count(all, & &1.late)
 
-    summary = Pages.summary([{"Checks", length(all)}, {"Late", late}], [workers_action()])
+    summary = Pages.summary([{"Checks", length(all)}, {"Late", late}], [machines_action()])
 
     blocks =
       [{"summary", summary}] ++
@@ -105,7 +105,7 @@ defmodule AtlasControl.HealthPage do
           do: Blocks.highlight(id, id, tone: "error")
 
     Map.merge(
-      %{title: "Health", back: Pages.path({:worker_page, :workers, %{}})},
+      %{title: "Health", back: Pages.path({:machine_page, :machines, %{}})},
       Blocks.view_model(blocks, markup)
     )
   end
@@ -190,13 +190,13 @@ defmodule AtlasControl.HealthPage do
   defp iso(%DateTime{} = at), do: at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
   defp iso(_), do: nil
 
-  defp workers_action,
+  defp machines_action,
     do:
       Blocks.action(
-        label: "Workers",
-        key: "w",
-        to: Pages.path({:worker_page, :workers, %{}}),
-        help: "Show the workers and the turns they run"
+        label: "Machines",
+        key: "m",
+        to: Pages.path({:machine_page, :machines, %{}}),
+        help: "Show the machines and what they run"
       )
 
   defp value(%{late: true, text: text}), do: "late · " <> text
@@ -309,19 +309,19 @@ defmodule AtlasControl.HealthPage do
 
   defp seconds(from, to), do: max(DateTime.diff(to, from), 0)
 
-  # A stretch of time as a reader reads it: 45 s, 9 min 5 s, 2 min, 1 h 05 min.
-  defp span(s) when s < 60, do: "#{s} s"
+  @doc "A stretch of seconds as a reader reads it: 45 s, 9 min 5 s, 2 min, 1 h 05 min."
+  def span(s) when s < 60, do: "#{s} s"
 
-  defp span(s) when s < 3600 do
+  def span(s) when s < 3600 do
     case rem(s, 60) do
       0 -> "#{div(s, 60)} min"
       r -> "#{div(s, 60)} min #{r} s"
     end
   end
 
-  defp span(s),
+  def span(s),
     do: "#{div(s, 3600)} h #{String.pad_leading(to_string(div(rem(s, 3600), 60)), 2, "0")} min"
 
-  # A moment in UTC: 23 Nov 10:01:00 UTC.
-  defp moment(at), do: Calendar.strftime(DateTime.truncate(at, :second), "%-d %b %H:%M:%S UTC")
+  @doc "A moment in UTC: 23 Nov 10:01:00 UTC."
+  def moment(at), do: Calendar.strftime(DateTime.truncate(at, :second), "%-d %b %H:%M:%S UTC")
 end

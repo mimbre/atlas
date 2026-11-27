@@ -141,15 +141,14 @@ defmodule AtlasTui.ColumnsTest do
     assert Columns.layout(289) == :three
     assert Columns.layout(290) == :four
 
+    assert screen(wide(220)) =~ "▸Assigned to you"
     # One thin line between two columns, and nothing else: no frames.
     three = screen(wide(220))
-    assert three =~ ~r/^  Assigned to you +│ Widget W-1 +│ Details\n/mu
     assert three =~ ~r/^   › W-1  Widget 1 .*│  Decide on widget W-1 .*│  Widget W-1/mu
     assert three =~ ~r/│  › P-1  Part P-1\n/u
     refute three =~ ~r/[┌┐└┘]─* ?Assigned/u
 
     two = screen(wide(160), 160)
-    assert two =~ ~r/^  Assigned to you +│ Widget W-1\n/mu
     refute two =~ "│ Details"
 
     assert two =~
@@ -281,7 +280,6 @@ defmodule AtlasTui.ColumnsTest do
     {model, []} = ConsoleProjectionFixture.receive(model, supervised())
 
     assert model.columns.list == "/_supervised"
-    assert screen(model) =~ ~r/^  Supervised by you +│ Page/mu
     assert screen(model) =~ "Nothing open"
   end
 

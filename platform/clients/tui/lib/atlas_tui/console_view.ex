@@ -10,9 +10,10 @@ defmodule AtlasTui.ConsoleView do
     # The environment segment keeps a cell either side, so it reads as a badge.
     suffix = " · #{model.env} "
     title = String.slice(title, 0, max(width - String.length(suffix) - 1, 0))
-    # The shell's greeting (the viewer's name) follows the environment, before the count:
-    # "Atlas Console · prod · <name> · 3 assigned to you". It is cut to the room the rest
-    # of the bar leaves, and left out when there is none.
+    # The shell's greeting (the viewer's name) follows the environment, before the count,
+    # with the assistant line after it, faint:
+    # "Atlas Console · prod · <name> · assistant: coordinator · 3 assigned to you". Both
+    # are cut to the room the rest of the bar leaves, and left out when there is none.
     room = width - String.length(" #{title}" <> suffix <> "· " <> count) - 1
 
     greeting =
@@ -20,17 +21,30 @@ defmodule AtlasTui.ConsoleView do
         do: String.slice(shell["greeting"], 0, max(room, 0)),
         else: ""
 
-    count = if greeting == "", do: String.trim_leading(count), else: "· " <> greeting <> count
+    room = room - String.length(greeting) - 3
+
+    assistant =
+      if greeting != "" && shell["assistant"] && room > 0,
+        do: " · " <> String.slice(shell["assistant"], 0, room),
+        else: ""
+
+    {greeting, count} =
+      if greeting == "",
+        do: {"", String.trim_leading(count)},
+        else: {"· " <> greeting, count}
+
     # Keep environment and stale state readable even in a narrow viewport.
     {title, stale} =
       if stale != "" && width < String.length(title <> suffix <> stale) + 1,
         do: {"stale shell", ""},
         else: {title, stale}
 
-    # The bar spans the row; only production marks its environment name, as a badge.
+    # The bar spans the row; only a non-production environment is marked, as a badge.
     bar = [
       {:header, " #{title} ·"},
-      {if(model.env == "prod", do: :prod, else: :header), " #{model.env} "},
+      {if(model.env == "prod", do: :header, else: :env_test), " #{model.env} "},
+      {:header, greeting},
+      {{:header, :muted}, assistant},
       {:header, count},
       {:pending, stale}
     ]
@@ -54,8 +68,75 @@ defmodule AtlasTui.ConsoleView do
         [{:dim, "│"}] ++ tabs(shell, console.active, inner) ++ [{:dim, "│"}]
       ] ++
         Enum.map(groups, &([{:dim, "│"}] ++ &1 ++ [{:dim, "│"}])) ++
-        [[{:dim, "└" <> String.duplicate("─", inner) <> "┘"}]]
+        [[{:dim, "└" <> String.duplicate("─", inner) <> "┘"}]] ++
+        breadcrumb(model, width)
     end
+  end
+
+  defp breadcrumb(model, width) do
+    if AtlasTui.Columns.layout(width) == :one and model.console.history != [] do
+      tabs = (model.console.shell || %{})["tabs"] || []
+      paths = Enum.reverse(model.console.history)
+
+      labels =
+        Enum.flat_map(paths, fn entry ->
+          tab =
+            Enum.find_value(tabs, fn tab ->
+              if tab["to"] == entry.path do
+                tab["label"]
+              else
+                Enum.find_value(tab["groups"] || [], fn group ->
+                  if group["to"] == entry.path, do: group["label"]
+                end)
+              end
+            end)
+
+          cached = AtlasTui.PageCache.get(model.console.cache, entry.path)
+
+          case tab || entry[:title] || (cached && cached["title"]) do
+            label when is_binary(label) and label != "" -> [label]
+            _ -> []
+          end
+        end)
+
+      labels = Enum.dedup(labels ++ if(is_binary(model.title), do: [model.title], else: []))
+
+      if length(labels) > 1 do
+        text = "  " <> Enum.join(labels, " › ")
+
+        graphemes = String.graphemes(text)
+
+        if Enum.sum(Enum.map(graphemes, &cell_width/1)) <= width do
+          [[{:dim, text}]]
+        else
+          {suffix, _} =
+            graphemes
+            |> Enum.reverse()
+            |> Enum.reduce_while({[], max(width - 1, 0)}, fn grapheme, {acc, room} ->
+              cells = cell_width(grapheme)
+
+              if cells <= room,
+                do: {:cont, {[grapheme | acc], room - cells}},
+                else: {:halt, {acc, room}}
+            end)
+
+          [[{:dim, "…" <> Enum.join(suffix)}]]
+        end
+      else
+        []
+      end
+    else
+      []
+    end
+  end
+
+  defp cell_width(grapheme) do
+    {width, emoji} =
+      for <<cp::utf8 <- grapheme>>, reduce: {0, false} do
+        {width, emoji} -> {width + :prim_tty.npwcwidth(cp), emoji or cp in [0xFE0F, 0x20E3]}
+      end
+
+    if emoji, do: max(width, 2), else: width
   end
 
   @doc """

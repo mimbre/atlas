@@ -177,6 +177,105 @@ defmodule AtlasTui.ConsoleTransportTest do
     send_message(socket, content(target))
   end
 
+  test "native details disclosure opens and closes multiple blocks" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
+
+    {:ok, {_, port}} = :inet.sockname(listener)
+    server = Path.join(System.tmp_dir!(), "atlas-console-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      :gen_tcp.close(listener)
+      System.cmd("tmux", ["-S", server, "kill-server"], stderr_to_stdout: true)
+    end)
+
+    settings = %{"control" => %{"host" => "127.0.0.1", "port" => port}, "reconcile_seconds" => 60}
+    expression = "AtlasTui.App.run(\"test\", #{inspect(settings)})"
+
+    tmux(server, [
+      "new-session",
+      "-d",
+      "-s",
+      "console",
+      "-x",
+      "90",
+      "-y",
+      "35",
+      "env ELIXIR_ERL_OPTIONS='+S 2:2' mix run -e '#{expression}'"
+    ])
+
+    {:ok, socket} = :gen_tcp.accept(listener, 10_000)
+    handshake(socket, "/k/widget")
+
+    item = fn id, value ->
+      %{
+        "id" => id,
+        "type" => "item",
+        "props" => %{"title" => value, "fields" => [%{"label" => "", "value" => value}]}
+      }
+    end
+
+    toggle = action("toggle", "d", "sections_toggle")
+
+    toggle =
+      put_in(toggle, ["props", "scope"], %{
+        "page" => "/k/widget",
+        "revision" => "fixture",
+        "context" => "browse"
+      })
+
+    page = content("/k/widget")
+
+    page = %{
+      page
+      | "blocks" => [
+          item.("main", "Summary"),
+          item.("first", "First technical"),
+          item.("second", "Second technical"),
+          toggle
+        ],
+        "markup" => [
+          %{
+            "kind" => "part",
+            "start" => "main",
+            "end" => "main",
+            "props" => %{"title" => "Main", "role" => "main"}
+          },
+          %{
+            "kind" => "part",
+            "start" => "first",
+            "end" => "second",
+            "props" => %{"title" => "Details", "role" => "details"}
+          },
+          %{
+            "kind" => "section",
+            "start" => "first",
+            "end" => "second",
+            "props" => %{"title" => "Technical details", "collapsible" => true}
+          },
+          %{
+            "kind" => "legend",
+            "start" => "toggle",
+            "end" => "toggle",
+            "props" => %{"title" => "Navigation", "context" => "browse"}
+          }
+        ]
+    }
+
+    send_message(socket, page)
+    folded = see(server, "▸ Technical details")
+    refute folded =~ "First technical"
+    tmux(server, ["send-keys", "-t", "console", "d"])
+    open = see(server, "Second technical")
+    assert open =~ "First technical"
+    assert open =~ "▾ Technical details"
+    tmux(server, ["send-keys", "-t", "console", "d"])
+    folded = see(server, "▸ Technical details")
+    refute folded =~ "Second technical"
+    tmux(server, ["send-keys", "-t", "console", "C-c"])
+    :gen_tcp.close(socket)
+  end
+
   test "native app negotiates boot, draws tabs, cycles, resizes and reconnects a real edited draft" do
     {:ok, listener} =
       :gen_tcp.listen(0, [

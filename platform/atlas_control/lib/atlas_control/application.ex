@@ -22,6 +22,7 @@ defmodule AtlasControl.Application do
     children =
       [
         AtlasControl.Output,
+        AtlasControl.RuntimeRelease,
         {DynamicSupervisor, name: AtlasControl.Sessions, strategy: :one_for_one}
       ] ++ gateway
 

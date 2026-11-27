@@ -160,11 +160,12 @@ enum PrismDarkGap {
                                               icon: icon ? .start : nil))
     }
 
-    /// Prism's `Tag` in its tone at the height of a `labelsmall` line (Prism's Tag has one
-    /// size, 28pt, too tall for a line of meta text): its look with less padding.
+    /// Prism's `Tag` in its tone at about the height of a `labelsmall` line (Prism's Tag has
+    /// one size, 28pt, too tall for a line of meta text): its look with less padding, enough
+    /// above and below for the text to sit inside. Until Prism's Tag has `size: small`.
     @MainActor static func smallTag(_ text: String, tone: PrismTagTone) -> some View {
         var looks = PrismTagLooks(tone: tone)
-        looks.label.padding = .init(top: 1, leading: 6, bottom: 1, trailing: 6)
+        looks.label.padding = .init(top: 3, leading: 7, bottom: 3, trailing: 7)
         looks.label.typography = Prism.Typography.labelsmall
         return Text(text)
             .prismLook(looks.label)

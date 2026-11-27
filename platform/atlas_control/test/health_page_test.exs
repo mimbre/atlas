@@ -85,13 +85,13 @@ defmodule AtlasControl.HealthPageTest do
       )
 
     assert page.title == "Health"
-    assert page.back == "/workers"
+    assert page.back == "/machines"
     summary = Enum.find(page.blocks, &(&1["id"] == "summary"))["props"]
 
     assert [%{"label" => "Checks", "value" => "4"}, %{"label" => "Late", "value" => "1"}] =
              summary["fields"]
 
-    assert [%{"to" => "/workers", "page" => true}] = summary["actions"]
+    assert [%{"to" => "/machines", "page" => true}] = summary["actions"]
 
     core = Enum.find(page.blocks, &(&1["id"] == "health-core"))["props"]
     assert %{"label" => "Flow", "value" => "late · 9 min behind" <> _} = hd(core["fields"])

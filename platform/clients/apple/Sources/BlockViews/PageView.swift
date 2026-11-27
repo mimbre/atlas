@@ -155,20 +155,29 @@ public struct PageView: View {
         }
     }
 
-    /// The details, in one recessed card beside or under the page: their title as a label, then their
-    /// blocks, without cards of their own (no card inside a card).
-    private func detailsView(_ details: PagePresentation.Details) -> some View {
+    /// A disclosure is a sibling of its blocks, not a control inside the details card.
+    @ViewBuilder private func detailsView(_ details: PagePresentation.Details) -> some View {
+        if details.groups.contains(where: {
+            if case .section(let section) = $0 { return section.collapsible }
+            return false
+        }) {
+            detailsContent(details, inCard: false)
+        } else {
+            detailsContent(details, inCard: true).modifier(RecessedCard())
+        }
+    }
+
+    private func detailsContent(_ details: PagePresentation.Details, inCard: Bool) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             Text(details.title).prism(Prism.Typography.label)
                 .accessibilityAddTraits(.isHeader)
             ForEach(details.groups) { group in
                 switch group {
-                case .entry(let entry): entryView(entry, inDetails: true)
-                case .section(let section): sectionView(section, inDetails: true)
+                case .entry(let entry): entryView(entry, inDetails: inCard)
+                case .section(let section): sectionView(section, inDetails: inCard)
                 }
             }
         }
-        .modifier(RecessedCard())
     }
 
     /// The rows of `groups`, top down, each id made of its block's (the header's, which no
