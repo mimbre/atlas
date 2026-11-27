@@ -453,8 +453,8 @@ defmodule AtlasTui.PresentationTest do
     end
   end
 
-  defp toned(width, selected \\ 1) do
-    m = model()
+  defp toned(width, selected \\ 1, truecolor \\ true) do
+    m = put_in(model().console.truecolor, truecolor)
     now = ~U[2026-11-26 12:00:00Z]
     ago = &(now |> DateTime.add(-&1, :second) |> DateTime.to_iso8601())
 
@@ -504,6 +504,29 @@ defmodule AtlasTui.PresentationTest do
 
     lines = View.render(m, width, 40, 5)
     Map.new(rows, fn row -> {row.id, Enum.find(lines, &(View.plain([&1]) =~ row.id))} end)
+  end
+
+  test "monochrome output retains selection, focus and named states without RGB" do
+    assert Palette.truecolor?("truecolor", nil)
+    assert Palette.truecolor?("24bit", "")
+    refute Palette.truecolor?("truecolor", "1")
+    refute Palette.truecolor?(nil, nil)
+
+    for style <- [:selected, {:selected, :muted}, :active, :cursor] do
+      assert IO.iodata_to_binary(Palette.ansi(style, :dark, false)) == "\e[0;7m"
+    end
+
+    rows = toned(100, 1, false)
+
+    for {id, tone} <- [{"W-1", "attention"}, {"W-2", "active"}, {"W-3", "waiting"}, {"W-4", "done"}] do
+      assert View.plain([rows[id]]) =~ "[#{tone}]"
+    end
+
+    output = View.to_ansi(Map.values(rows), :dark, false) |> IO.iodata_to_binary()
+    refute output =~ "38;2;"
+    refute output =~ "48;2;"
+    assert output =~ "\e[0;7m"
+    assert View.to_ansi([[{:plain, "x"}]], :dark) |> IO.iodata_to_binary() =~ "38;2;"
   end
 
   test "a selected row's dot carries the same colours as on the row unselected" do

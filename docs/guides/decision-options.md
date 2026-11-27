@@ -83,8 +83,10 @@ what follows its click (no "…", no "· note"); the TUI's key line keeps "· no
 without a model, schema or Flow change. Keyboard shortcuts are projection data.
 The TUI invokes a generic declared call and does not recognize decision kinds or
 interpret option effects. It draws each option as a filled card (rounded with
-half blocks, no lines; without truecolor, a left bar ▌), the selected one on a
-primary-tinted surface and marked ▸; ↑/↓ select an option, starting on the
+half blocks, no lines; without truecolor or with a non-empty `NO_COLOR`, cards
+use bars ▌ and ▉ for unselected and selected). In that monochrome mode selection
+and focus are also reversed and list state tones are named. With truecolor the
+selected card has a primary-tinted surface and is marked ▸; ↑/↓ select an option, starting on the
 recommended one, and never answer; Enter answers the selected one exactly as its
 key does. The Mac shows each option as a card with its own button; Ask and Delegate
 are in the window's toolbar after Edit (Edit · Ask · Delegate), their tooltip their

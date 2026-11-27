@@ -130,14 +130,16 @@ defmodule AtlasTui.View do
       end)
 
   @doc "The screen as ANSI, ready to write from the top-left corner."
-  def to_ansi(lines, theme) do
-    base = AtlasTui.Palette.ansi(:plain, theme)
+  def to_ansi(lines, theme, truecolor \\ true) do
+    base = AtlasTui.Palette.ansi(:plain, theme, truecolor)
 
     rows =
       Enum.map(lines, fn line ->
         [
           base,
-          Enum.map(line, fn {style, text} -> [AtlasTui.Palette.ansi(style, theme), text] end),
+          Enum.map(line, fn {style, text} ->
+            [AtlasTui.Palette.ansi(style, theme, truecolor), text]
+          end),
           base,
           "\e[K"
         ]
@@ -752,7 +754,12 @@ defmodule AtlasTui.View do
 
     prepared =
       Enum.map(rows, fn row ->
-        {single_line(row.id), single_line(row.label), row_summary(row.detail)}
+        tone =
+          if not model.console.truecolor and Map.has_key?(@tone_styles, row.tone),
+            do: "[#{row.tone}] ",
+            else: ""
+
+        {single_line(row.id), tone <> single_line(row.label), row_summary(row.detail)}
       end)
 
     pending = Enum.map(rows, &(&1.pending == true))
@@ -1359,17 +1366,20 @@ defmodule AtlasTui.View do
   # `kind` is `:card`, `:card_selected` (the one selected: the
   # primary tinted surface) or `:card_error` (what went wrong: a card, its heading in the
   # error colour and saying so). Where the terminal reports no truecolor
-  # (`console.truecolor`), a surface could not be told from the page: a card is its lines
-  # behind a left bar ▌ instead, grey, in primary when selected, in the error colour for
-  # what went wrong. Too narrow for a card: its lines alone. Its lines fit `card_width/1`.
+  # (`console.truecolor`), a card is its lines behind a left bar ▌, or ▉ when selected.
+  # Too narrow for a card: its lines alone. Its lines fit `card_width/1`.
   defp card([], _width, _kind, _model), do: []
   defp card(lines, width, _kind, _model) when width < 6, do: lines
 
   defp card(lines, width, kind, %Model{console: %{truecolor: false}}) do
-    bar = %{card: :rest_frame, card_selected: :frame, card_error: :error_frame}[kind]
+    {bar, glyph} = %{
+      card: {:rest_frame, "▌"},
+      card_selected: {:frame, "▉"},
+      card_error: {:error_frame, "▌"}
+    }[kind]
 
     for line <- lines,
-        do: [{:plain, " "}, {bar, "▌"}, {:plain, " "} | fit(line, card_width(width))]
+        do: [{:plain, " "}, {bar, glyph}, {:plain, " "} | fit(line, card_width(width))]
   end
 
   defp card(lines, width, kind, _model) do
