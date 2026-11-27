@@ -1010,6 +1010,27 @@ defmodule AtlasTui.View do
         @kind_glyphs[header.icon] || "◆"
       )
 
+  defp block(%TextBlock{} = text, _at, model, width, _room)
+       when is_map_key(text, :format) and text.format == "markdown" do
+    label = single_line(text.label)
+    label_lines = if label == "", do: [], else: [[{if(text.role == "error", do: :error, else: :dim), label}]]
+    inner = if text.role == "error", do: card_width(width), else: max(width - 4, 1)
+    lines = AtlasTui.Markdown.render(text.text || "", inner, &display_width/1)
+
+    since =
+      case age(text.since, model.now || DateTime.utc_now()) do
+        "" -> []
+        "today" -> [[{:dim, "just now"}]]
+        value -> [[{:dim, value <> " ago"}]]
+      end
+
+    if text.role == "error" do
+      card(label_lines ++ lines ++ since, width, :card_error, model)
+    else
+      for line <- label_lines ++ lines ++ since, do: [{:plain, "   "} | line]
+    end
+  end
+
   # What went wrong (`role` error): a card, its label as a heading in the error colour over
   # its text (the label says what it is, not the colour alone).
   defp block(%TextBlock{role: "error"} = text, _at, model, width, _room) do
