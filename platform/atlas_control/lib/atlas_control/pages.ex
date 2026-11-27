@@ -947,33 +947,6 @@ defmodule AtlasControl.Pages do
 
   defp instant(_), do: nil
 
-  @doc """
-  A page's technical details (the worker pages'): `{content, markup}` to add to the page,
-  one pair per row in list order in an `item` `details` titled "Technical details" inside a
-  collapsible `section` titled "Details"; nothing when there are no pairs. A page with
-  them offers `details_action/0`.
-  """
-  def technical_details([]), do: {[], []}
-
-  def technical_details(pairs) do
-    {[{"details", Blocks.item(title: "Technical details", fields: pairs)}],
-     [Blocks.section("details", "details", title: "Details", collapsible: true)]}
-  end
-
-  @doc """
-  The console action that folds or unfolds a page's collapsible sections (`sections_toggle`,
-  key d): the one every page with a Details section offers.
-  """
-  def details_action,
-    do: %{
-      label: "Show or hide details",
-      keys: ["d"],
-      operation: %{"name" => "sections_toggle"},
-      on: nil,
-      row: nil,
-      available: true,
-      reason: nil
-    }
 
   # Open work's Overview: how many (`main`), and how many of those are late or blocked, and
   # any `more` counts (only when some are).
@@ -3108,11 +3081,7 @@ defmodule AtlasControl.Pages do
         block -> {block["type"], untitled(block, title)}
       end)
 
-    result = Map.merge(%{title: title, back: back}, Blocks.view_model(content, markup))
-
-    if Enum.any?(markup, &(get_in(&1, ["props", "collapsible"]) == true)),
-      do: Map.put(result, :console_actions, [details_action()]),
-      else: result
+    Map.merge(%{title: title, back: back}, Blocks.view_model(content, markup))
   end
 
   defp untitled(%{"type" => "list", "props" => %{"title" => title} = props} = block, title),
@@ -3729,8 +3698,7 @@ defmodule AtlasControl.Pages do
   defp technical_section(blocks) do
     [
       Blocks.section(elem(hd(blocks), 0), elem(List.last(blocks), 0),
-        title: "Technical details",
-        collapsible: true
+        title: "Technical details"
       )
     ]
   end

@@ -104,7 +104,7 @@ defmodule AtlasControl.WorkerPagesTest do
                "worker-record"
              ]
 
-    # The conversation leads with what the worker said; the rest is one folded section.
+    # The conversation leads with what the worker said; the rest follows in Details.
     assert Enum.map(page.markup, &{&1["kind"], &1["start"], &1["end"]}) == [
              {"part", "worker", "worker"},
              {"part", "worker-output", "worker-record"},
@@ -112,7 +112,7 @@ defmodule AtlasControl.WorkerPagesTest do
            ]
 
     assert Enum.map(page.markup, & &1["props"]["role"]) == ["main", "related", nil]
-    assert List.last(page.markup)["props"]["collapsible"] == true
+    assert List.last(page.markup)["props"] == %{"title" => "Details"}
     refute Enum.any?(page.console_actions, &(&1.operation["name"] == "worker_output_subscribe"))
     refute Enum.any?(page.console_actions, &(&1.operation["name"] == "worker_history"))
     assert {:ok, projected} = project(page, target)
@@ -481,7 +481,7 @@ defmodule AtlasControl.WorkerPagesTest do
     assert hd(page.markup)["end"] == "worker-newer"
   end
 
-  test "the details fold behind one key that projects with the page's actions" do
+  test "the details are shown with the page's actions" do
     {page, target} = fixture(@none, %{}, @finished)
     section = Enum.find(page.markup, &(&1["kind"] == "section"))
     ids = Enum.map(page.blocks, & &1["id"])
@@ -504,11 +504,10 @@ defmodule AtlasControl.WorkerPagesTest do
     refute "worker-output" in inside
     refute "worker" in inside
 
-    toggle = Enum.find(page.console_actions, &(&1.operation["name"] == "sections_toggle"))
-    assert [_key] = toggle.keys
+    refute Enum.any?(page.console_actions, &(&1.operation["name"] == "sections_toggle"))
     assert {:ok, projected} = project(page, target)
     assert {:ok, projection} = AtlasBFFContract.Console.compile(projected)
-    assert Enum.any?(projection.actions, &(&1["props"]["operation"] == toggle.operation))
+    refute Enum.any?(projection.actions, &(&1["props"]["operation"]["name"] == "sections_toggle"))
 
     # What the worker part says is not said again in the conversation or the details.
     worker_values = MapSet.new(values(block(page, "worker")))

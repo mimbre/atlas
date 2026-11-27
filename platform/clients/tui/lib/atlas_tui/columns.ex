@@ -498,7 +498,7 @@ defmodule AtlasTui.Columns do
   # Control's operations every page has; the rest are the open item's own.
   @generic ~w(tab_next tab_previous list_next list_previous open_selected back refresh
               legend_open agent_ask quit scroll_up scroll_down page_previous page_next
-              part_next part_previous sections_toggle)
+              part_next part_previous)
 
   defp item_keys(model) do
     tabs = for tab <- (model.console.shell || %{})["tabs"] || [], do: tab["to"]

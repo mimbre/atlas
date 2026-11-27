@@ -109,7 +109,7 @@ try do
 
   assert Enum.any?(page["markup"], fn mark ->
            mark["kind"] == "section" and mark["props"]["title"] == "Technical details" and
-             mark["props"]["collapsible"] == true
+             not Map.has_key?(mark["props"], "collapsible")
          end)
 
   AtlasAgent.Client.close(client)

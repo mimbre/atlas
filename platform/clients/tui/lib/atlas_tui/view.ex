@@ -253,18 +253,13 @@ defmodule AtlasTui.View do
     |> blocks_in(by_id)
   end
 
-  # A list inside a folded section is not drawn and holds no part of the selection.
   defp with_offsets(model) do
-    hidden = Model.folded(model)
-
     {placed, _} =
       model.ids
       |> Enum.zip(model.blocks)
       |> Enum.map_reduce(0, fn
         {id, %ListBlock{rows: rows} = block}, at ->
-          if MapSet.member?(hidden, id),
-            do: {{id, block, -1}, at},
-            else: {{id, block, at}, at + length(rows || [])}
+          {{id, block, at}, at + length(rows || [])}
 
         {id, block}, at ->
           {{id, block, at}, at}
@@ -649,26 +644,19 @@ defmodule AtlasTui.View do
 
   # Parts frame content; Console highlights retain the supplied semantic tone as
   # a text badge as well as a color, without inferring status from entity text.
-  # A collapsible section is folded until the page's sections are unfolded: its heading
-  # alone, marked ▸; unfolded, ▾ above its blocks. A section's heading has a rule after it,
-  # except on a card (`{:on_card, section}`), which draws no lines.
+  # A section's heading has a rule after it, except on a card.
   defp markup({:on_card, %Section{} = section}, children, model, width, room),
     do: section(section, children, model, width, room, false)
 
   defp markup(%Section{} = section, children, model, width, room),
     do: section(section, children, model, width, room, true)
 
-  # Details with a disclosure leave the heading outside a card, just as beside the page.
-  # Other details retain their compact card.
+  # Details retain their compact card.
   defp markup(%Part{role: "details", title: title}, children, model, width, room) do
     heading = if title, do: [[{:bold, single_line(title)}], []], else: []
 
-    if Enum.any?(children, &collapsible_section?/1) do
-      heading ++ nodes(children, model, width, room)
-    else
-      children = Enum.map(children, &on_card/1)
-      card(heading ++ nodes(children, model, card_width(width), room), width, :card, model)
-    end
+    children = Enum.map(children, &on_card/1)
+    card(heading ++ nodes(children, model, card_width(width), room), width, :card, model)
   end
 
   defp markup(%Part{title: title}, children, model, width, room) do
@@ -698,18 +686,6 @@ defmodule AtlasTui.View do
 
     badge = for line <- list_wrap("[#{label}]", width), do: [{style, line}]
     badge ++ nodes(children, model, width, max(room - length(badge), 1))
-  end
-
-  defp collapsible_section?({:markup, %{"value" => %Section{collapsible: true}}, _}), do: true
-  defp collapsible_section?(_node), do: false
-
-  defp section(%Section{title: title, collapsible: true}, children, model, width, room, rule?) do
-    mark = if model.unfolded, do: "▾ ", else: "▸ "
-    heading = [[{:bold, " " <> mark <> title} | rule(rule?, width - String.length(title) - 5)]]
-
-    if model.unfolded,
-      do: heading ++ [[]] ++ nodes(children, model, width, room),
-      else: heading
   end
 
   defp section(%Section{title: title}, children, model, width, room, rule?) do

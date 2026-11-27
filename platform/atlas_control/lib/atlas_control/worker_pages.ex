@@ -47,8 +47,7 @@ defmodule AtlasControl.WorkerPages do
   end
 
   # The page leads with what the worker is doing (Worker), and in Conversation with what
-  # it said; guidance, the execution record and the output stream's own state are in a
-  # collapsible Details section, behind one key. A field nothing says is left out.
+  # it said; guidance, the execution record and output state follow under Details.
   defp detail(view, about, execution, m, actor, read) do
     identity = execution["worker"]
     descriptor = view["descriptor"] || %{}
@@ -157,15 +156,12 @@ defmodule AtlasControl.WorkerPages do
       [
         Blocks.part("worker", main_end, title: "Worker", role: "main"),
         Blocks.part("worker-output", "worker-record", title: "Conversation", role: "related"),
-        Blocks.section("worker-output-details", "worker-record",
-          title: "Details",
-          collapsible: true
-        )
+        Blocks.section("worker-output-details", "worker-record", title: "Details")
       ]
     )
     |> Map.put(
       :console_actions,
-      [Pages.details_action()] ++ history_actions ++ output_actions
+      history_actions ++ output_actions
     )
   end
 

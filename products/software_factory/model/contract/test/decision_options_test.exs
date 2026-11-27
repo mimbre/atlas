@@ -520,12 +520,12 @@ defmodule Model.DecisionOptionsTest do
 
       assert Enum.any?(page.markup, fn mark ->
                mark["kind"] == "section" and
-                 mark["props"] == %{"title" => "Technical details", "collapsible" => true} and
+                 mark["props"] == %{"title" => "Technical details"} and
                  mark["start"] == "decision-raw-options" and
                  mark["end"] == "decision-raw-option_history"
              end)
 
-      assert Enum.any?(page.console_actions, &(&1.operation["name"] == "sections_toggle"))
+      refute Enum.any?(Map.get(page, :console_actions, []), &(&1.operation["name"] == "sections_toggle"))
     end
 
     legacy =

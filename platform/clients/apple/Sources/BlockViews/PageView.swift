@@ -155,29 +155,18 @@ public struct PageView: View {
         }
     }
 
-    /// A disclosure is a sibling of its blocks, not a control inside the details card.
-    @ViewBuilder private func detailsView(_ details: PagePresentation.Details) -> some View {
-        if details.groups.contains(where: {
-            if case .section(let section) = $0 { return section.collapsible }
-            return false
-        }) {
-            detailsContent(details, inCard: false)
-        } else {
-            detailsContent(details, inCard: true).modifier(RecessedCard())
-        }
-    }
-
-    private func detailsContent(_ details: PagePresentation.Details, inCard: Bool) -> some View {
+    private func detailsView(_ details: PagePresentation.Details) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             Text(details.title).prism(Prism.Typography.label)
                 .accessibilityAddTraits(.isHeader)
             ForEach(details.groups) { group in
                 switch group {
-                case .entry(let entry): entryView(entry, inDetails: inCard)
-                case .section(let section): sectionView(section, inDetails: inCard)
+                case .entry(let entry): entryView(entry, inDetails: true)
+                case .section(let section): sectionView(section, inDetails: true)
                 }
             }
         }
+        .modifier(RecessedCard())
     }
 
     /// The rows of `groups`, top down, each id made of its block's (the header's, which no
@@ -280,31 +269,13 @@ public struct PageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false) -> some View {
-        if section.collapsible {
-            DisclosureGroup(isExpanded: expansion(section)) {
-                blocks(section, inDetails: inDetails).padding(.top, Prism.Spacing.px10)
-            } label: {
-                Text(section.title).prism(Prism.Typography.label)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-                Text(section.title).prism(Prism.Typography.label)
-                    .accessibilityAddTraits(.isHeader)
-                Divider()
-                blocks(section, inDetails: inDetails)
-            }
+    private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
+            Text(section.title).prism(Prism.Typography.label)
+                .accessibilityAddTraits(.isHeader)
+            Divider()
+            blocks(section, inDetails: inDetails)
         }
-    }
-
-    /// Unfolded sections, keyed by page path and start block: another page's section,
-    /// or this one after the app restarts, starts folded.
-    @State private var expanded: Set<String> = []
-
-    private func expansion(_ section: PagePresentation.Section) -> Binding<Bool> {
-        let key = presentation.path + "\u{0}" + section.id
-        return Binding(get: { expanded.contains(key) },
-                       set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } })
     }
 }
 
