@@ -244,7 +244,7 @@ defmodule Model.Delivery do
     # Code pushes the task's result to a branch and opens a pull request from it onto the
     # base; Flow names the result by its ref only. Its CI is waited for (`checking`) before
     # anyone is asked to merge it.
-    state :publishing, label: "Opening its pull request" do
+    state :publishing, label: "Opening its PR" do
       set ci_fixes: :none, pr_updates: :none, ci_green: :none
 
       present(
@@ -323,7 +323,7 @@ defmodule Model.Delivery do
     # (Code's merge of develop into the pull request's head, with the conflicts marked),
     # keeping its intent, and Code pushes the result onto the same pull request
     # (`update_pushing`), whose CI is waited for again. One update per conflict.
-    state :updating, label: "Updating it with develop" do
+    state :updating, label: "Updating its branch" do
       set pr_updates: :one
 
       present(
@@ -384,7 +384,7 @@ defmodule Model.Delivery do
     # Its pull request still conflicts with develop after its update, or the update could
     # not be made or pushed: its supervisor decides. They update it by hand (green and
     # mergeable is theirs to merge) or close it; merged is done.
-    state :update_failing, label: "Conflicts with develop" do
+    state :update_failing, label: "Update conflicts" do
       owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
       set gate_result: :none
 
@@ -481,7 +481,7 @@ defmodule Model.Delivery do
 
     # Its CI turned red at Merge it, after it was green (a rerun, a push, develop moving): the
     # first fix of this round, as Fixing its CI, saying why its supervisor's to-do went.
-    state :ci_fixing_after_green, label: "Fixing its CI after it was green" do
+    state :ci_fixing_after_green, label: "Fixing CI after green" do
       set ci_fixes: :one, retry_step: :ci_fix, task_failure: :none
 
       present(
@@ -610,7 +610,7 @@ defmodule Model.Delivery do
     # develop, whose result Code opens a new pull request from (`gate_result: rebuild`);
     # Close it ends it (`gate_result: close`, so rela's GitHub sync leaves the pull request
     # closed). Reopened on GitHub, it waits for its CI again; merged meanwhile is done.
-    state :pr_closed, label: "Its pull request was closed" do
+    state :pr_closed, label: "PR closed" do
       owner via: :assignment, relation: :assigned_to, default: {:person, config: :decider}
       set gate_result: :none
 

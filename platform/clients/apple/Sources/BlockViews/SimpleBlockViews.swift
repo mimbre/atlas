@@ -46,7 +46,7 @@ struct TextBlockView: View {
                 PrismMessageBar(tone: .danger) {
                     VStack(spacing: Prism.Spacing.px6) {
                         if let label = block.label {
-                            Text(label).prism(Prism.Typography.labelsmall)
+                            Text(label).prism(Prism.Typography.label)
                                 .accessibilityAddTraits(.isHeader)
                         }
                         Text(TextLine.text(block, now: context.date))
@@ -58,7 +58,7 @@ struct TextBlockView: View {
                 .accessibilityElement(children: .contain)
             } else {
                 Text(TextLine.line(block, now: context.date))
-                    .prism(Prism.Typography.caption)
+                    .prism(Prism.Typography.bodysmall)
                     .foregroundStyle(PrismDarkGap.muted(scheme))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -106,7 +106,7 @@ struct InstructionView: View {
         case "route":
             RouteLine(parts: line.parts ?? [])
         default:
-            Text(Instruction.shown(line)).prism(Prism.Typography.caption).textSelection(.enabled)
+            Text(Instruction.shown(line)).prism(Prism.Typography.bodysmall).textSelection(.enabled)
         }
     }
 
@@ -190,12 +190,12 @@ struct OptionView: View {
                     Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.px13, verticalSpacing: Prism.Spacing.px6) {
                         ForEach(Array(fields.enumerated()), id: \.offset) { _, field in
                             GridRow {
-                                Text(field.label ?? "").foregroundStyle(PrismDarkGap.muted(scheme))
+                                Text(field.label ?? "").prism(Prism.Typography.label).foregroundStyle(PrismDarkGap.muted(scheme))
                                 Text(field.value ?? "—").frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
-                    .prism(Prism.Typography.caption)
+                    .prism(Prism.Typography.bodysmall)
                 }
                 if block.alone != true, let answer = block.answer, let action {
                     OptionButton(answer: answer, pending: PageActions.isPending(action, pending)) { act(action) }
@@ -362,9 +362,10 @@ struct RouteLine: View {
 }
 
 /// One command in a light inset that hugs it (grey5 with a thin grey4 edge in light, a
-/// step below the card in dark; no shadow), in Prism's `mono` typography in the system's
-/// monospaced face, selectable, wrapping at the card's width, with a copy icon right after
-/// it; for a moment after a copy the icon is a checkmark.
+/// step below the card in dark; no shadow), in the system's monospaced face at the running
+/// text's size (`bodysmall`: Prism's `mono` is larger and has no small variant), so no
+/// larger than the step's text; selectable, wrapping at the card's width, with a copy icon
+/// right after it; for a moment after a copy the icon is a checkmark.
 struct CommandBlock: View {
     let command: String
     let copied: Bool
@@ -384,7 +385,7 @@ struct CommandBlock: View {
             .help(copied ? "Copied" : "Copy")
             .accessibilityLabel(copied ? "Copied" : "Copy")
         }
-        .prism(Prism.Typography.mono)
+        .prism(Prism.Typography.bodysmall)
         .padding(.horizontal, Prism.Spacing.px10)
         .padding(.vertical, Prism.Spacing.px7)
         .background(PrismDarkGap.inset(scheme), in: RoundedRectangle(cornerRadius: Prism.radius))

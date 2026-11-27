@@ -68,7 +68,7 @@ struct StatusBar: View {
                     .truncationMode(.middle)
             }
         }
-        .prism(Prism.Typography.captionsmall)
+        .prism(Prism.Typography.caption)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
