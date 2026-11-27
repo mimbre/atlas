@@ -976,7 +976,7 @@ defmodule AtlasControl.Session do
   defp submit({:answer, kind, key, name} = route, raw, state) do
     answers = page_answers(route, state.model)
     item = Pages.answer_item(state.model, kind, answers)
-    viewer = %{key: state.by, kind: state.by_kind, assists: viewer(state).assists}
+    viewer = Pages.answer_viewer(state.model, viewer(state))
     state = %{state | route: route, form: Map.put(state.form, :values, raw)}
 
     case Pages.items_problem(state.model, kind, answers) do

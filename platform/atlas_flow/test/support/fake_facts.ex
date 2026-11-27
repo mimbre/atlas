@@ -106,6 +106,7 @@ defmodule AtlasFlow.FakeFacts do
        facts: %{},
        sent: [],
        ledger: %{},
+       legacy_identity_check: false,
        lose_ack: nil,
        reads: {0, 0},
        input_reads: %{},
@@ -133,6 +134,7 @@ defmodule AtlasFlow.FakeFacts do
   end
 
   def handle_call({:lose_ack, kind}, _from, s), do: {:reply, :ok, %{s | lose_ack: kind}}
+  def handle_call(:legacy_identity_check, _from, s), do: {:reply, :ok, %{s | legacy_identity_check: true}}
 
   def handle_call({:reserve, kind, key}, _from, s),
     do:
@@ -445,6 +447,12 @@ defmodule AtlasFlow.FakeFacts do
       flow?(e.sender) and MapSet.member?(s.refused_writes, {e.kind, key}) ->
         AtlasBus.send(Envelope.reply(e, "refused"), %{"reasons" => ["projection unavailable"]})
         {:noreply, s}
+
+      s.legacy_identity_check and e.kind == "item" and old != nil and c["op"] == "create" and
+          (c["values"] || %{})["proposal_id"] in [nil, ""] and
+          Enum.all?(c["values"] || %{}, fn {f, v} -> old["values"][f] == v end) and
+          Enum.all?(c["links"] || %{}, fn {r, v} -> old["links"][r] == v end) ->
+        {:noreply, refuse(e, c, s, "identity_unproven")}
 
       old != nil and c["op"] == "create" and
           Enum.all?(c["values"] || %{}, fn {f, v} -> old["values"][f] == v end) ->

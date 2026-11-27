@@ -207,11 +207,13 @@ defmodule Model.Scene do
   )
 
   # Suggestions stay with the producer's answers across clarification and Design rounds.
-  # They are not use cases: Design proposes those.
+  # They are not use cases: Design proposes those. An older scene's decider stands in
+  # only when no producer was recorded.
   @suggest [
     key: "s",
     label: "Suggest a use case",
     by: :produced_by,
+    fallback: :decider,
     note: true,
     prompt: "What should a person be able to do?",
     icon: :suggest,
@@ -317,7 +319,8 @@ defmodule Model.Scene do
               "Say you answered its questions, with a note of your answers: its agent tries again",
             note: true,
             change: %{values: %{verdict: :answered}, append: %{answers: "{note}"}}
-          ]
+          ],
+          @suggest_during_design
         ]
       )
 
@@ -351,7 +354,8 @@ defmodule Model.Scene do
             note: true,
             prompt: "What should Design propose instead?",
             change: %{values: %{verdict: :reject, note: "$note"}}
-          ]
+          ],
+          @suggest_during_design
         ]
       )
 

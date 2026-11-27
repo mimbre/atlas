@@ -519,8 +519,9 @@ defmodule RelaDSL.Schema do
   question its form asks (`prompt:`, "What is your alternative?"); it may add a line to a
   field instead of setting it (`change: %{append: %{field: "Suggested: {note}"}}`). An
   answer `by:` a relation is not the owner's: it is offered to the one the fact links
-  through it (its producer, `by: :produced_by`), whoever has the work, in that state. A
-  change with `hand_over: true` is a delegation: its form chooses between the change (to
+  through it (its producer, `by: :produced_by`), whoever has the work, in that state.
+  `fallback: :decider` offers it to the configured decider only when that relation is empty.
+  A change with `hand_over: true` is a delegation: its form chooses between the change (to
   whom the change leaves it) and handing it over to someone else, in its `choices:` words
   (`[change: [label:, help:], hand_over: [label:, help:]]`; `{relation}` in a label is the
   keys the fact links through it).
@@ -1555,7 +1556,7 @@ defmodule RelaDSL.Schema do
             "present's answer #{inspect(Map.to_list(a))} must be [key:, label:, " <>
               "and set: or remove: a relation, or change: %{values:, self:, append:}], " <>
               "or [key:, label:, hand_over: true], with weight: :main, :decline or :other or " <>
-              "none, icon: a name, help: a text, by: a relation, and for a change cause: a text, " <>
+              "none, icon: a name, help: a text, by: a relation, fallback: :decider, and for a change cause: a text, " <>
               "note: true with prompt: a text (append needs it), and with hand_over: true " <>
               "choices: [change: [label:, help:], hand_over: [label:, help:]]"
   end
@@ -1575,6 +1576,7 @@ defmodule RelaDSL.Schema do
       a[:note] in [nil, true] and (a[:prompt] == nil or (a[:note] == true and text?.(a[:prompt]))) and
       (a[:cause] == nil or text?.(a[:cause])) and look?(a, text?) and delegation?(a, text?) and
       (a[:by] == nil or (is_atom(a[:by]) and valid_name?(a[:by]))) and
+      (a[:fallback] == nil or (a[:fallback] == :decider and a[:by] != nil)) and
       Map.keys(a) --
         [
           :key,
@@ -1588,7 +1590,8 @@ defmodule RelaDSL.Schema do
           :help,
           :hand_over,
           :choices,
-          :by
+          :by,
+          :fallback
         ] ==
         []
   end

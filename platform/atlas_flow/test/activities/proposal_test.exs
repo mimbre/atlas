@@ -442,6 +442,56 @@ defmodule AtlasFlow.Activities.ProposalTest do
     assert Enum.count(FakeFacts.stored_from_flow(), &(&1["key"] == "IT-01")) == 1
   end
 
+  # Recreate the historical boundary: rela has the old create but its answer was not
+  # recorded, and the frozen outbox predates proposal identities.
+  defp legacy_collision(c, key) do
+    run = intended(c, key)
+    assert {:error, _} = finish(c, key, [{"items.json", ~s([{"title":"One"}])}], "first", "item")
+    cursor = FakeFacts.get(c.runner.config["kind"], run["key"])
+    pending = JSON.decode!(cursor["values"]["pending"])
+    write = Enum.find(pending["writes"], &(&1["kind"] == "item"))
+    legacy = update_in(write, ["content", "values"], &Map.delete(&1, "proposal_id"))
+    pending = update_in(pending, ["writes"], fn writes ->
+      Enum.map(writes, &if(&1["id"] == write["id"], do: legacy, else: &1))
+    end)
+    FakeFacts.put(c.runner.config["kind"], put_in(cursor, ["values", "pending"], JSON.encode!(pending)))
+    item = FakeFacts.get("item", legacy["content"]["key"])
+    FakeFacts.put("item", update_in(item, ["values"], &Map.delete(&1, "proposal_id")))
+    :ok = GenServer.call(FakeFacts, :legacy_identity_check)
+    :sys.replace_state(FakeFacts, &%{&1 | ledger: Map.delete(&1.ledger, legacy["id"])})
+    assert {:refused, _, "identity_unproven"} =
+             AtlasFlow.Talk.put("item", legacy["content"], legacy["id"], code: true)
+    {:ok, snapshot} = Store.decode(c.runner.config, FakeFacts.get(c.runner.config["kind"], run["key"]))
+    fact = FakeFacts.get("item", legacy["content"]["key"])
+    {snapshot, legacy, fact}
+  end
+
+  test "a legacy committed create stays pending after the ledger answer was lost", c do
+    {run, write, fact} = legacy_collision(c, "C-25")
+    {:ok, %{runs: known}} = Store.plan(c.runner.config, c.runner.flows)
+    assert {:error, {:pending, {:identity_unproven, details}}} =
+             Store.reconcile_subjects(c.runner.config, c.runner.flows, @epoch, known, [{"crate", "C-25"}])
+    assert details.run == run["key"] and details.write == write["id"]
+    assert details.key == write["content"]["key"] and details.kind == "item"
+    assert details.guidance =~ "Do not delete, adopt or renumber"
+    assert {:ok, ^run} = Store.decode(c.runner.config, FakeFacts.get(c.runner.config["kind"], run["key"]))
+    assert FakeFacts.get("item", write["content"]["key"]) == fact
+    assert FakeFacts.get("item", "IT-02") == nil
+  end
+
+  test "an indistinguishable foreign fact is not adopted or renumbered", c do
+    {run, write, fact} = legacy_collision(c, "C-26")
+    # Distinguish this fixture's independently created fact only by its provenance.
+    fact = put_in(fact, ["origins"], %{"in_crate" => %{"by" => "someone-else"}})
+    FakeFacts.put("item", fact)
+    {:ok, %{runs: known}} = Store.plan(c.runner.config, c.runner.flows)
+    assert {:error, {:pending, {:identity_unproven, _}}} =
+             Store.reconcile_subjects(c.runner.config, c.runner.flows, @epoch, known, [{"crate", "C-26"}])
+    assert {:ok, ^run} = Store.decode(c.runner.config, FakeFacts.get(c.runner.config["kind"], run["key"]))
+    assert FakeFacts.get("item", write["content"]["key"]) == fact
+    assert FakeFacts.get("item", "IT-02") == nil
+  end
+
   test "an identical stranger at a newly allocated key is not adopted", c do
     intended(c, "C-24", "first", "frozen")
     FakeFacts.hook("item", "IT-01", "flow", :before, fn _ ->

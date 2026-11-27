@@ -173,6 +173,32 @@ defmodule AtlasControl.SessionTest do
 
     next(tui, "page")
 
+    put(tui, %{"op" => "open", "to" => "/k/widget/W-1/answer/f"})
+    assert %{"blocks" => [%{"type" => "form"}]} = next(tui, "page")
+
+    FakeStore.fail_list_reads("part")
+    put(tui, %{
+      "op" => "submit",
+      "to" => "/k/widget/W-1/answer/f",
+      "values" => %{"note" => "Keep this note"}
+    })
+
+    assert %{"reason" => "refused", "blocks" => [%{"type" => "form", "props" => form}]} =
+             next(tui, "page")
+
+    assert "List unavailable" in form["errors"]
+    assert %{"value" => "Keep this note"} = Enum.find(form["inputs"], &(&1["name"] == "note"))
+    assert FakeStore.sent() == []
+
+    FakeStore.put("C-W-1", %{"of" => "W-1", "step" => "check"}, "card", %{"held_by" => ["bob"]})
+    reviewing("C-W-1", ["bob"])
+    put(tui, %{"op" => "open", "to" => "/k/widget/W-1/answer/f"})
+    assert %{"blocks" => [%{"props" => %{"text" => text}}]} = next(tui, "page")
+    assert text =~ "current owner"
+    assert FakeStore.sent() == []
+    FakeStore.put("C-W-1", %{"of" => "W-1", "step" => "check"}, "card", %{"held_by" => ["ada"]})
+    reviewing("C-W-1", ["ada"])
+
     FakeStore.fail_list_reads("part")
     put(tui, %{"op" => "open", "to" => "/k/widget/W-1"})
     page = next(tui, "page")

@@ -80,6 +80,59 @@ An activity has identity `(run, entry, activity name)` and a frozen fingerprint.
 
 A run continues by name (D-0102). Flow matches a run to its subflow by `flow` and continues it in `state` while that state is a state of the subflow, whatever else about the subflow changed; nothing pins or migrates a definition. A run in a state its subflow does not have is blocked with `blocked_reason` `state_removed: <state>`, its status kept in `pending.definition_block`, once; it is not rewritten on later rounds. A run with `pending.definition_block` whose state is a state of its subflow gets that status back, an empty `blocked_reason`, and continues; so do runs an earlier build blocked with `definition_changed`. Removing or renaming a flow or a state goes through only once no run is in it: a check before the update enforces that.
 
+### Ambiguous legacy proposal creates
+
+`identity_unproven` on a numbered proposal create is a terminal refusal, not an
+instruction to renumber. A matching record may be an unrelated person's record or
+the proposal committed before its original acknowledgement was recorded. Equal
+values, links, cause text, or the refusal alone cannot distinguish them. Ordinary
+replay retains the same pending write and receipt; it must not delete, adopt or
+duplicate the record.
+
+For an operator investigating a stuck scene, use the same environment on every
+command (`--env test` for test; omission means prod):
+
+1. Read `atlas facts flow_run --json` and select the run by its exact
+   `subject_kind`, `subject_key`, flow and generation. Preserve the whole raw run,
+   its version, the ordered `pending.writes`, the refused write's ID, numbered mark,
+   key and task, and the `pending.tasks` made list. The structured pending field is
+   JSON stored in the run's values. Read the target with
+   `atlas facts use_case <key> --json`; preserve its complete fact, version, links
+   and origins. Also preserve the subject and task/result evidence. Do not edit them.
+2. Review independent creation history, task result and available audit/ledger
+   evidence with the responsible operator. Record either **ours**, **foreign**, or
+   **unknown**, the evidence and reviewer. Neither the snapshot nor a legacy
+   receipt binds the complete historical create. If ownership cannot be established
+   independently, the answer is unknown; retain the pending work and escalate.
+3. **No supported apply exists for either choice.** Escalate the saved evidence,
+   including environment, run key/generation, write ID, fact key/version and the
+   decision or uncertainty, for a reviewed backend recovery. Do not use
+   `recover_refused_tally`, change the cursor, clear the ledger, delete the existing
+   fact or issue a replacement create. Those can silently adopt a stranger, delete
+   the wrong record later, or duplicate a committed proposal. A retry of the same
+   request ID cannot retire its immutable refusal.
+
+Rereading the record before a versioned cursor update is not a safe apply: another
+writer can move, delete or change that record between the two operations. Rela's
+Facts adapter exposes single-record versioned changes, not a transaction fencing
+both record and cursor; rela connectors can also write past Facts. The deployed
+release disables distribution, so a release `eval` is not a call into the running
+sole writer either. A safe apply requires an enforced cross-record fence or a
+verified quiesced maintenance procedure covering **all** writers, plus durable
+decision/audit and replay handling. A mere operator promise to stop writes is not
+that fence. Until then this remains blocked, even when ownership is known.
+
+For a separately authorized outage on Fly, the existing snapshot mechanism is
+`atlas-ops fetch-from-fly --env <test|prod> --to <empty-directory> --hold`. It
+holds the core then rela and copies both `beam/` and `rela/`; the two apps serve
+nothing while held. `atlas-ops move-to-fly --env <test|prod> --from <directory>
+--dry-run` inspects a stopped copy, and a real move with `--replace-live` replaces
+the live pair and releases the hold. These commands are not a repair: there is no
+reviewed offline legacy-create reconciler, and they do not by themselves prevent
+another administrator, deployment or unaccounted writer from releasing or bypassing
+the hold. Do not move an edited copy back as a workaround. Preserve the original
+pair and escalate the need for an exclusive, crash-safe repair procedure.
+
 ### One-time retirement of a terminal-refused tally
 
 Fixing admission does not change an immutable Facts answer. A pending write with a

@@ -139,6 +139,10 @@ A kind whose model declares its page (`page`: `state`, `intro`, `items`, `detail
 
 If its items read fails, the list shows the error and its answers are unavailable until the read succeeds; submit rechecks it.
 
+An owner's nonempty state section appears before the items on a declared page. Producer offers remain available beside the owner's answers when both apply. If an items read fails while an answer form is open, the form retains its values and shows the read error; submission remains refused until the read succeeds.
+
+An answer may add `fallback: :decider` alongside `by:`. Only when that relation has no links, the configured decider (or an agent assisting them) may see and submit the answer; without a configured decider nobody receives it. A linked producer always takes precedence.
+
 An answer the model gives `by:` a relation (`present(answers: [[..., by: :produced_by]])`) is not the owner's: the model's `offers/4` offers it to the one the fact links through it (or an agent that assists them, on their behalf), whoever owns the work, while the state is presented; `todo/4` leaves it out and `answer/4` takes it from them. Its change may add a line to a field instead of setting it (`change: %{append: %{field: "… {note}"}}`): Control's `AtlasControl.Answers` writes the field as it holds it with the line, its `{note}` filled in, on a line of its own after it. The write sends the version of the fact it read with `strict_version: true`: Facts visibly refuses any stale write, including an identical independent suggestion or one made stale by an unrelated change. Replaying the same recorded request id returns its original answer; without a version Control refuses to send it.
 
 When an answer also supplies a Flow choice, Facts captures it as an input; strict version checking applies before capture as well, without rebasing an unchanged field onto a newer fact.

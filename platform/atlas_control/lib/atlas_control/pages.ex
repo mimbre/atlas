@@ -2282,6 +2282,7 @@ defmodule AtlasControl.Pages do
           ],
           else: []
         ) ++
+        section_block(todo) ++
         items_block(
           m,
           kind,
@@ -2292,7 +2293,14 @@ defmodule AtlasControl.Pages do
         ) ++
         if(main == [],
           do: [],
-          else: [{"answers", answers_block(main, ((todo && todo.answers) || []) ++ offers)}]
+          else: [
+            {"answers",
+             answers_block(
+               main ++ if(own != [], do: suggested, else: []),
+               ((todo && todo.answers) || []) ++
+                 if(own != [], do: Enum.map(offers, &Map.put(&1, :weight, "other")), else: offers)
+             )}
+          ]
         ) ++
         others_block(more ++ rest_next ++ if(waits, do: [], else: picks)) ++
         [{"item", Blocks.item(title: "", fields: page_details(m, kind, fact, parts, spec, rest))}]
@@ -2653,8 +2661,9 @@ defmodule AtlasControl.Pages do
 
   defp page({:answer, kind, key, name} = route, kind, _k, m, answers, form) do
     back = path({:item, kind, key})
+    form = Map.update(form, :errors, items_read_errors(m, kind, answers), &(&1 ++ items_read_errors(m, kind, answers)))
 
-    case declared_answer(m, kind, name, answers, form) do
+    case renderable_answer(m, kind, name, answers, form) do
       nil ->
         missing(key, "This answer is only available to the current owner in this state.", back)
 
@@ -3210,6 +3219,26 @@ defmodule AtlasControl.Pages do
 
   def items_problem(_m, _kind, _answers), do: nil
 
+  defp items_read_errors(m, kind, [_fact | answers]) do
+    with %{page: %{"items" => %{"relation" => name}}} <- kind(m, kind),
+         i when is_integer(i) <-
+           Enum.find_index(child_relations(m, kind), &(elem(&1, 0) == name)),
+         %{"error" => error} when is_binary(error) <- Enum.at(answers, i) do
+      [error]
+    else
+      _ -> []
+    end
+  end
+
+  defp items_read_errors(_, _, _), do: []
+
+  defp section_block(%{section: %{heading: heading, text: text}})
+       when is_binary(text) and text != "" do
+    [{"section", Blocks.text(label: heading, text: text)}]
+  end
+
+  defp section_block(_), do: []
+
   # The details its page names, those that hold something: a field with its label; a
   # relation of its own with each fact it points at by key and title; one of a component
   # (its Assignment's) by keys; each relation with the fact that set it.
@@ -3547,7 +3576,7 @@ defmodule AtlasControl.Pages do
 
   # The answers the state of the work on the fact offers the viewer as whom it links.
   defp offers(m, kind, fact, parts, form),
-    do: m.module.offers(kind, fact, parts_by_kind(parts), viewer(form))
+    do: m.module.offers(kind, fact, parts_by_kind(parts), answer_viewer(m, form))
 
   # Everything a fact's page offers besides the flow's next step, below its answers and
   # quieter than they are; nothing when there is nothing.
@@ -4494,7 +4523,15 @@ defmodule AtlasControl.Pages do
     end
   end
 
-  def declared_answer(m, kind, name, [%{"fact" => fact} | rest], form) when is_map(fact) do
+  def declared_answer(m, kind, name, answers, form) do
+    if items_problem(m, kind, answers) == nil,
+      do: renderable_answer(m, kind, name, answers, form)
+  end
+
+  defp renderable_answer(m, kind, "_restart-" <> _run = name, answers, form),
+    do: declared_answer(m, kind, name, answers, form)
+
+  defp renderable_answer(m, kind, name, [%{"fact" => fact} | rest], form) when is_map(fact) do
     parts = parts_by_kind(item_parts(m, kind, rest))
 
     owners =
@@ -4503,15 +4540,16 @@ defmodule AtlasControl.Pages do
         _ -> []
       end
 
-    if items_problem(m, kind, [%{"fact" => fact} | rest]) == nil do
-      Enum.find(
-        owners ++ m.module.offers(kind, fact, parts, viewer(form)),
-        &((Map.get(&1, :name) || &1.key) == name and &1.change)
-      )
-    end
+    Enum.find(
+      owners ++ m.module.offers(kind, fact, parts, answer_viewer(m, form)),
+      &((Map.get(&1, :name) || &1.key) == name and &1.change)
+    )
   end
 
-  def declared_answer(_, _, _, _, _), do: nil
+  defp renderable_answer(_, _, _, _, _), do: nil
+
+  @doc "The viewer for relation-offered answers, including the configured decider fallback."
+  def answer_viewer(m, form), do: Map.put(viewer(form), :decider, decider(m))
 
   @doc """
   A delegation (D-0106: an owner's answer that writes a change and hands the work over

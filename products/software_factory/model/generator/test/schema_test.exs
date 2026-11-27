@@ -1156,6 +1156,28 @@ defmodule RelaDSL.SchemaTest do
                hd(flow.states).present.answers
     end
 
+    test "a relation answer may fall back to the configured decider" do
+      module =
+        compile!(
+          presented(
+            ~s|present expected: "Review", answers: [[key: "s", label: "Suggest", by: :produced_by, fallback: :decider, change: %{values: %{phase: :dropped}}]]|
+          )
+        )
+
+      [flow] = module.__flows__()
+      assert [%{by: :produced_by, fallback: :decider}] = hd(flow.states).present.answers
+
+      for options <- ["fallback: :decider", "by: :produced_by, fallback: :other"] do
+        refused(
+          presented(
+            ~s|present expected: "Review", answers: [[key: "s", label: "Suggest", #{options}, change: %{values: %{phase: :dropped}}]]|
+          ),
+          5,
+          "fallback: :decider"
+        )
+      end
+    end
+
     test "a change answer may link nobody, but always writes values or adds a line" do
       module =
         compile!(

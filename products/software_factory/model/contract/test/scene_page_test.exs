@@ -196,6 +196,39 @@ defmodule Model.ScenePageTest do
     assert labels(page) == [{"Accept", "main"}, {"Decline", "decline"}]
   end
 
+  test "while a proposal awaits acceptance its producer can suggest, including when supervising" do
+    fact = scene()
+    shown = work("break_down_scene", "accepting", fact["values"], %{
+      "owner" => ["bo"],
+      "supervisor" => ["bo"]
+    })
+    item = %{"fact" => fact, "parts" => %{"assignment" => assignment(shown, ["bo"])}}
+    {page, _, _} = page(fact, assignment(shown, ["bo"]), "melle")
+    assert labels(page) == [{"Suggest a use case", "main"}]
+    assert {:write, _} =
+             AtlasEyra.answer("scene", "s", item, %{key: "melle", kind: "person", assists: nil})
+    assert {:refuse, _} =
+             AtlasEyra.answer("scene", "s", item, %{key: "bo", kind: "person", assists: nil})
+
+    shown = %{shown | "owner" => ["melle"], "supervisor" => ["melle"]}
+    {page, _, _} = page(fact, assignment(shown, ["melle"]), "melle")
+    assert labels(page) == [
+             {"Accept", "main"},
+             {"Decline", "decline"},
+             {"Suggest a use case", "other"}
+           ]
+  end
+
+  test "clarification shows the agent's questions before the producer answers" do
+    fact = scene(%{"questions" => "Who is this for?\nWhat should they see?"})
+    shown = work("break_down_scene", "clarifying", fact["values"], %{"owner" => ["melle"]})
+    {page, _, _} = page(fact, assignment(shown, ["melle"]), "melle")
+
+    assert %{"label" => "Its agent's questions", "text" => "Who is this for?\nWhat should they see?"} =
+             block(page, "section")["props"]
+    assert labels(page) == [{"Answered", "main"}, {"Suggest a use case", "other"}]
+  end
+
   test "its use cases being built: its producer's Suggest a use case" do
     fact = scene(%{"phase" => "accept", "children" => 1, "open_children" => 1})
     shown = work("accept_scene", "building", fact["values"], %{})
@@ -275,6 +308,18 @@ defmodule Model.ScenePageTest do
     # Nobody else suggests for its producer.
     assert {:refuse, _} =
              AtlasEyra.answer("scene", "s", item, %{key: "bo", kind: "person", assists: nil})
+  end
+
+  test "the configured decider suggests for an older scene only when it has no producer" do
+    fact = scene(%{}, %{"produced_by" => []})
+    shown = work("break_down_scene", "accepting", fact["values"], %{"owner" => ["melle"]})
+    item = %{"fact" => fact, "parts" => %{"assignment" => assignment(shown, ["melle"])}}
+    decider = %{key: "bo", kind: "person", assists: nil, decider: "bo"}
+
+    assert {:write, _} = AtlasEyra.answer("scene", "s", item, decider)
+    assert {:refuse, _} = AtlasEyra.answer("scene", "s", item, %{decider | key: "other"})
+    assert {:refuse, _} = AtlasEyra.answer("scene", "s", item, %{decider | decider: nil})
+    assert {:refuse, _} = AtlasEyra.answer("scene", "s", put_in(item, ["fact", "links", "produced_by"], ["melle"]), decider)
   end
 
   test "answering Design's questions keeps suggestions made during its preceding task" do

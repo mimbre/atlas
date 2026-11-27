@@ -229,7 +229,8 @@ defmodule Model.PipelineRunsTest do
 
       assert todo["section"] == %{"field" => "questions", "label" => "Its agent's questions"}
 
-      assert [%{"label" => "Answered", "note" => true, "change" => change}] = todo["answers"]
+      assert [%{"label" => "Answered", "note" => true, "change" => change},
+              %{"label" => "Suggest a use case"}] = todo["answers"]
       assert change["values"] == %{"verdict" => "answered"}
       assert change["append"] == %{"answers" => "{note}"}
 

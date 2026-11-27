@@ -8,6 +8,14 @@ defmodule AtlasControl.PagesTest do
   @d AtlasControl.Model.catalog(Shop)
   defp shop(variant), do: AtlasControl.Model.catalog(Module.concat(Shop, variant))
 
+  test "answer viewers use the model's decider, never a caller-supplied fallback" do
+    model = Map.put(@d, :actors, %{"decider" => %{"key" => "ada"}})
+    form = %{by: "bob", by_kind: "member", assists: "ada", decider: "bob"}
+
+    assert Pages.answer_viewer(model, form) ==
+             %{key: "bob", kind: "member", assists: "ada", decider: "ada"}
+  end
+
   defp fact(key, values, version \\ "v1"),
     do: %{"key" => key, "values" => values, "version" => version}
 
@@ -1986,6 +1994,42 @@ defmodule AtlasControl.PagesTest do
 
   # What to do (IS-Atlas-54): a flow on widgets, on their card; its state is the card's step.
   @todo AtlasControl.Model.catalog(Shop.Todo)
+
+  defmodule SectionPage do
+    use Shop.Composition,
+      name: "shop-section-page",
+      concepts: Shop.Base.concepts() ++ [Shop.Card, Shop.Runs, Shop.Flows.Checked],
+      subflows: [Shop.Flows.Checked]
+
+    extend_entity(:widget, page: [items: [relation: :of_widget, empty: [check: "No parts."]]])
+  end
+
+  test "a declared page shows the owner's section before its items" do
+    model = AtlasControl.Model.catalog(SectionPage)
+    route = {:item, "widget", "W-1"}
+    widget = fact("W-1", %{"title" => "One", "notes" => "Check: Please clarify."})
+
+    card =
+      fact("C-W-1", %{"of" => "W-1", "todo" => "Check it", "step" => "check"})
+      |> Map.put("links", %{"held_by" => ["ada"]})
+
+    answers =
+      for {kind, _} <- Pages.reads(route, model) do
+        case kind do
+          "widget" -> %{"fact" => widget}
+          "card" -> %{"fact" => card}
+          _ -> %{"facts" => []}
+        end
+      end
+
+    page = render_run(route, model, "check", answers, %{by: "ada"})
+    ids = Enum.map(page.blocks, & &1["id"])
+    assert Enum.find_index(ids, &(&1 == "section")) < Enum.find_index(ids, &(&1 == "items"))
+    assert %{"label" => "Check", "text" => "Please clarify."} = by_id(page)["section"]
+
+    other = render_run(route, model, "check", answers, %{by: "bob"})
+    refute "section" in Enum.map(other.blocks, & &1["id"])
+  end
 
   test "a fact's owner who decides sees one line of what to do, what is judged, then the fact" do
     notes = "Some intro.\n\nCheck: the paint is even\nand dry.\n\n## Later\nnot this"

@@ -164,6 +164,62 @@ defmodule RelaDSL.Control.ModelTest do
     assert {:refuse, _} = Rules.answer(flow, "s", item, agent)
   end
 
+  test "relation answers fall back to the decider only when the producer is absent" do
+    flow = %{on: nil, on_kind: nil, owner_relation: "held_by", words: %{title: "Letter"}}
+    answer = %{
+      "key" => "s",
+      "label" => "Suggest",
+      "by" => "produced_by",
+      "fallback" => "decider",
+      "change" => %{"append" => %{"suggestions" => "{note}"}}
+    }
+
+    fact = %{
+      "key" => "LE-01",
+      "values" => %{},
+      "links" => %{"produced_by" => ["bea"]},
+      "presentation" => %{
+        "owner" => ["owner"],
+        "actionable" => true,
+        "todo" => %{"answers" => [answer]}
+      }
+    }
+
+    decider = %{key: "ada", decider: "ada"}
+    producer = %{key: "bea", decider: "ada"}
+    agent = %{key: "clerk", assists: "ada", decider: "ada"}
+    other = %{key: "bob", decider: "ada"}
+    check = fn fact, viewer, allowed, behalf ->
+      offers = Rules.offers(flow, fact, %{}, viewer)
+      result = Rules.answer(flow, "s", %{"fact" => fact, "parts" => %{}}, viewer)
+
+      if allowed do
+        assert Enum.map(offers, & &1.key) == ["s"]
+        assert {:write, %{"on_behalf" => ^behalf}} = result
+      else
+        assert offers == []
+        assert {:refuse, _} = result
+      end
+    end
+
+    check.(fact, producer, true, nil)
+    check.(fact, %{agent | assists: "bea"}, true, "bea")
+    for viewer <- [decider, agent, other], do: check.(fact, viewer, false, nil)
+
+    for links <- [%{}, %{"produced_by" => []}] do
+      legacy = %{fact | "links" => links}
+      check.(legacy, decider, true, nil)
+      check.(legacy, agent, true, "ada")
+      for viewer <- [producer, other, %{agent | assists: "bob"}, %{key: "ada"}],
+          do: check.(legacy, viewer, false, nil)
+
+      no_fallback =
+        put_in(legacy, ["presentation", "todo", "answers"], [Map.delete(answer, "fallback")])
+
+      check.(no_fallback, decider, false, nil)
+    end
+  end
+
   test "each answer weighs main, no or other: as the model says, else the first and the first other note" do
     flow = %{on: nil, on_kind: nil, owner_relation: "held_by", words: %{title: "Letter"}}
     change = %{"values" => %{"verdict" => "x"}}

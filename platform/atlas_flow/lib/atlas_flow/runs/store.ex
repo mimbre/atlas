@@ -1103,6 +1103,20 @@ defmodule AtlasFlow.Runs.Store do
         {:stored, _} ->
           {:cont, :ok}
 
+        {:refused, reasons, "identity_unproven"} ->
+          {:halt,
+           {:error,
+            {:pending,
+             {:identity_unproven,
+              %{
+                run: run["key"],
+                write: write["id"],
+                kind: write["kind"],
+                key: write["content"]["key"],
+                reasons: reasons,
+                guidance: "Preserve the run and fact; see docs/design/flow-runs-state-machines.md: Ambiguous legacy proposal creates. Do not delete, adopt or renumber."
+              }}}}}
+
         error ->
           case taken(config, write, refusal_code(error)) do
             :ours -> {:cont, :ok}

@@ -285,10 +285,23 @@ defmodule RelaDSL.Control.Rules do
   # answers).
   defp by_answers(todo, fact, viewer) do
     for %{"key" => _, "label" => _, "by" => relation} = a <- todo["answers"] || [],
-        on_behalf <- [answering_for(List.wrap(get_in(fact, ["links", relation])), viewer)],
+        on_behalf <- [answering_for(answer_recipients(a, fact, relation, viewer), viewer)],
         on_behalf != false,
         on_behalf == nil or not is_binary(get_in(a, ["change", "self"])),
         do: {a, on_behalf}
+  end
+
+  defp answer_recipients(answer, fact, relation, viewer) do
+    case List.wrap(get_in(fact, ["links", relation])) do
+      [] ->
+        case {answer["fallback"], viewer[:decider]} do
+          {"decider", key} when is_binary(key) and key != "" -> [key]
+          _ -> []
+        end
+
+      linked ->
+        linked
+    end
   end
 
   defp answering_for(linked, viewer) do
