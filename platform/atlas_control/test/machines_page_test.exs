@@ -45,7 +45,7 @@ defmodule AtlasControl.MachinesPageTest do
         if refits == :unavailable, do: %{"error" => "unavailable"}, else: %{"facts" => refits}
 
       "shift", %{"linked" => %{"shift_on" => _}} ->
-        %{"facts" => shifts}
+        if shifts == :unavailable, do: %{"error" => "unavailable"}, else: %{"facts" => shifts}
 
       "order", %{"key" => "O-" <> n = key} ->
         %{
@@ -197,6 +197,24 @@ defmodule AtlasControl.MachinesPageTest do
     end
 
     assert props(tab(), "slots")["empty"] == "Slot configuration and availability are unknown."
+  end
+
+  test "unavailable attempts make slot activity and recent work unknown, not empty" do
+    page =
+      tab(
+        benches: [bench("mini", "Mac mini", %{"setup" => ~s({"slots": ["dev1"]})})],
+        shifts: :unavailable
+      )
+
+    assert props(page, "slots")["rows"] == []
+    assert props(page, "slots")["empty"] == "Slot activity is unknown: Facts did not answer."
+    assert props(page, "finished")["rows"] == []
+
+    assert props(page, "finished")["empty"] ==
+             "Recently finished work is unknown: Facts did not answer."
+
+    known = tab(shifts: [])
+    assert props(known, "finished")["empty"] == "Nothing has finished here yet."
   end
 
   test "an attempt marked lost by boot repair is not shown as busy without an end time" do

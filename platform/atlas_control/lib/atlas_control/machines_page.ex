@@ -212,7 +212,11 @@ defmodule AtlasControl.MachinesPage do
        Blocks.list(
          title: "Slots",
          rows: slot_rows(fact, attempts, c),
-         empty: "Slot configuration and availability are unknown."
+         empty:
+           if(is_nil(attempts),
+             do: "Slot activity is unknown: Facts did not answer.",
+             else: "Slot configuration and availability are unknown."
+           )
        )},
       {"queue",
        Blocks.list(
@@ -228,7 +232,11 @@ defmodule AtlasControl.MachinesPage do
        Blocks.list(
          title: "Recently finished",
          rows: finished_rows(attempts, c),
-         empty: "Nothing has finished here yet."
+         empty:
+           if(is_nil(attempts),
+             do: "Recently finished work is unknown: Facts did not answer.",
+             else: "Nothing has finished here yet."
+           )
        )},
       {"upgrades",
        Blocks.list(
@@ -438,6 +446,8 @@ defmodule AtlasControl.MachinesPage do
   end
 
   # Desired slots may not be applied; only running attempts establish a busy slot.
+  defp slot_rows(_fact, nil, _c), do: []
+
   defp slot_rows(fact, attempts, c) do
     a = c.n["attempts"]
 
@@ -513,6 +523,8 @@ defmodule AtlasControl.MachinesPage do
       )
     end
   end
+
+  defp finished_rows(nil, _c), do: []
 
   defp finished_rows(attempts, c) do
     a = c.n["attempts"]
@@ -661,7 +673,7 @@ defmodule AtlasControl.MachinesPage do
 
     case c.read.(a["kind"], %{"linked" => %{a["on"] => key}, "plain" => true}) do
       %{"facts" => facts} when is_list(facts) -> facts
-      _ -> []
+      _ -> nil
     end
   end
 
@@ -748,6 +760,8 @@ defmodule AtlasControl.MachinesPage do
   defp configured_slots(_), do: []
 
   # The machine's name as the attempts that ran on it name it, the latest first.
+  defp machine_name(nil, _c), do: nil
+
   defp machine_name(attempts, c) do
     a = c.n["attempts"]
 
