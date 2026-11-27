@@ -691,7 +691,7 @@ defmodule AtlasTuiTest do
   end
 
   # A Delegate's form (D-0106): nothing chosen until the user chooses; whom only once
-  # "Another person" is chosen; nothing sent until each shown required input has a value.
+  # "Someone else" is chosen; nothing sent until each shown required input has a value.
   @delegate_form put_in(@form, ["blocks", Access.at(0), "props"], %{
                    "title" => "Delegate D-1 to…",
                    "submit_label" => "Delegate",
@@ -712,15 +712,15 @@ defmodule AtlasTuiTest do
                            "label" => "The proposer (melle) — decides on your behalf",
                            "help" => "The proposer decides, as you delegate"
                          },
-                         %{"value" => "person", "label" => "Another person"}
+                         %{"value" => "other", "label" => "Someone else"}
                        ]
                      },
                      %{
-                       "name" => "person",
-                       "label" => "Person",
+                       "name" => "whom",
+                       "label" => "Whom",
                        "kind" => "choice",
                        "required" => true,
-                       "shown_when" => %{"name" => "to", "value" => "person"},
+                       "shown_when" => %{"name" => "to", "value" => "other"},
                        "choices" => [
                          %{"value" => "bob", "label" => "bob: Bob"},
                          %{"value" => "zoe", "label" => "zoe: Zoe"}
@@ -735,7 +735,7 @@ defmodule AtlasTuiTest do
     assert [%{name: "to"}, :submit, :cancel] = Model.focusable(form, m.values)
     refute Model.ready?(form, m.values)
     assert screen(m) =~ "‹ choose ›"
-    refute screen(m) =~ "Person"
+    refute screen(m) =~ "Whom"
 
     # Nothing is sent while nothing is chosen.
     assert {_, []} = press(m, [:ctrl_s])
@@ -746,16 +746,16 @@ defmodule AtlasTuiTest do
     assert screen(m) =~ "The proposer decides, as you delegate"
 
     assert {_, [{:send, %{"values" => %{"to" => "proposer"} = values}}]} = press(m, [:ctrl_s])
-    refute Map.has_key?(values, "person")
+    refute Map.has_key?(values, "whom")
 
-    # Another person: then whom, required too.
+    # Someone else: then whom, required too.
     {m, _} = press(m, [:right])
-    assert m.values["to"] == "person"
-    assert [%{name: "to"}, %{name: "person"}, :submit, :cancel] = Model.focusable(form, m.values)
+    assert m.values["to"] == "other"
+    assert [%{name: "to"}, %{name: "whom"}, :submit, :cancel] = Model.focusable(form, m.values)
     assert {_, []} = press(m, [:ctrl_s])
     {m, _} = press(m, [:down, :right])
 
-    assert {_, [{:send, %{"values" => %{"to" => "person", "person" => "bob"}}}]} =
+    assert {_, [{:send, %{"values" => %{"to" => "other", "whom" => "bob"}}}]} =
              press(m, [:ctrl_s])
   end
 

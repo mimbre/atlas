@@ -566,7 +566,7 @@ defmodule AtlasControl.Pages do
   def reads({_, kind, key}, _), do: [{kind, %{"key" => key}}]
 
   # Setting a link that needs the facts under it completed reads them, as the page does.
-  # An answer reads too whom its decider may delegate it to (a Delegate's other person),
+  # An answer reads too whom its decider may delegate it to (a Delegate's other one),
   # last.
   def reads({:answer, kind, key, _}, m),
     do: reads({:item, kind, key}, m) ++ for(to <- delegate_kinds(m, kind), do: {to, %{}})
@@ -2888,13 +2888,13 @@ defmodule AtlasControl.Pages do
 
   # A delegation's form (D-0106): to whom, nothing chosen until the viewer chooses: its
   # proposer, who decides as the viewer delegates, or, when the page can hand it over,
-  # another person, then asked whom.
+  # someone else, then asked whom.
   defp delegate_form(m, route, title, d, form, back) do
     values = form[:values] || %{}
     words = d.answer.choices
-    person? = d.handing != nil and d.people != []
+    other? = d.handing != nil and d.delegates != []
     kinds = delegate_kinds(m, elem(route, 1))
-    person_k = (length(kinds) == 1 && kind(m, hd(kinds))) || nil
+    whom_k = (length(kinds) == 1 && kind(m, hd(kinds))) || nil
 
     to =
       Blocks.input(
@@ -2905,10 +2905,10 @@ defmodule AtlasControl.Pages do
         value: values["to"],
         choices:
           [Blocks.choice(value: "proposer", label: d.proposer, help: words.change.help)] ++
-            if(person?,
+            if(other?,
               do: [
                 Blocks.choice(
-                  value: "person",
+                  value: "other",
                   label: words.hand_over.label,
                   help: words.hand_over.help
                 )
@@ -2917,24 +2917,24 @@ defmodule AtlasControl.Pages do
             )
       )
 
-    person =
+    whom =
       Blocks.input(
-        name: "person",
-        label: (person_k && person_k.label) || "Person",
+        name: "whom",
+        label: (whom_k && whom_k.label) || "Whom",
         kind: "choice",
         required: true,
-        value: values["person"],
-        shown_when: Blocks.input_condition(name: "to", value: "person"),
+        value: values["whom"],
+        shown_when: Blocks.input_condition(name: "to", value: "other"),
         choices:
           for(
-            p <- Enum.sort_by(d.people, &key_order(&1["key"])),
-            do: Blocks.choice(value: p["key"], label: "#{p["key"]}: #{label(person_k, p)}")
+            p <- Enum.sort_by(d.delegates, &key_order(&1["key"])),
+            do: Blocks.choice(value: p["key"], label: "#{p["key"]}: #{label(whom_k, p)}")
           )
       )
 
     Blocks.form(
       title: title,
-      inputs: [to | if(person?, do: [person], else: [])],
+      inputs: [to | if(other?, do: [whom], else: [])],
       submit_label: d.answer.label,
       submit_to: call_to(route),
       cancel_to: back,
@@ -4177,16 +4177,16 @@ defmodule AtlasControl.Pages do
   @doc """
   A delegation (D-0106: an owner's answer that writes a change and hands the work over
   too, Delegate), as its form offers it, from fresh answer-page reads (`reads/2`):
-  `%{answer, proposer, people, handing}`. `proposer` is its change's choice, `{relation}`
+  `%{answer, proposer, delegates, handing}`. `proposer` is its change's choice, `{relation}`
   in it the keys the fact links through it (left out with its brackets when none);
-  `people` the facts its decider may delegate it to (the kind's `delegate_kinds`), the
-  viewer not among them; `handing` the page's own hand-over the other person is given
+  `delegates` the facts its decider may delegate it to (the kind's `delegate_kinds`), the
+  viewer not among them; `handing` the page's own hand-over the other one is given
   through, `{kind, key, relation}` of the component it changes, nil when the viewer may not.
   """
   def delegation(m, kind, answer, [%{"fact" => fact} | rest] = answers, form) do
     n = length(delegate_kinds(m, kind))
 
-    people =
+    delegates =
       for %{"facts" => facts} <- Enum.take(answers, -n),
           n > 0,
           p <- facts,
@@ -4204,15 +4204,15 @@ defmodule AtlasControl.Pages do
     %{
       answer: answer,
       proposer: fill_links(answer.choices.change.label, fact),
-      people: people,
+      delegates: delegates,
       handing: handing
     }
   end
 
   @doc """
-  What a delegation's form sends (`raw`: its `to`, and `person`), as `delegation/5`
+  What a delegation's form sends (`raw`: its `to`, and `whom`), as `delegation/5`
   offered it: `{:answer, name}` to the proposer (the answer's own change), `{:link, kind,
-  key, relation, person}` to another person (the page's own hand-over to them), or
+  key, relation, whom}` to someone else (the page's own hand-over to them), or
   `{:error, why}` without a choice the form offered.
   """
   def delegate_submit(d, raw) do
@@ -4220,17 +4220,17 @@ defmodule AtlasControl.Pages do
       {"proposer", _} ->
         {:answer, d.answer.key}
 
-      {"person", {kind, key, relation}} ->
-        if raw["person"] in Enum.map(d.people, & &1["key"]),
-          do: {:link, kind, key, relation, raw["person"]},
-          else: {:error, "Choose the person to delegate it to."}
+      {"other", {kind, key, relation}} ->
+        if raw["whom"] in Enum.map(d.delegates, & &1["key"]),
+          do: {:link, kind, key, relation, raw["whom"]},
+          else: {:error, "Choose whom to delegate it to."}
 
       _ ->
         {:error, "Choose to whom you delegate it."}
     end
   end
 
-  # The kinds a fact of `kind` may be delegated to (a Delegate's other person).
+  # The kinds a fact of `kind` may be delegated to (a Delegate's other one).
   defp delegate_kinds(m, kind), do: Map.get(kind(m, kind) || %{}, :delegate_kinds, [])
 
   # A text with each `{relation}` the keys the fact links through it; one it links none

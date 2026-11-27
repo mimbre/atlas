@@ -88,7 +88,7 @@ does not stay. `for_person_always` never times out and shows no deadline.
   `status` proposed.
 - **Control:** an answer is `/k/:kind/:key/answer/:answer`. It is a confirm, a
   note form when the answer needs a note, or Delegate's form (`to`: a required
-  choice without a value; `person`: required, `shown_when` `to` is `person`).
+  choice without a value; `whom`: required, `shown_when` `to` is `other`; its label the delegate kind's).
   Submitting it reads the fact again and checks that you are still its owner in that
   state.
 - **Facts:** a kind with `delete_error` (here `decision`, declared in

@@ -1140,18 +1140,18 @@ defmodule AtlasControl.Session do
   end
 
   # Delegate (D-0106), as its form chose (`Pages.delegate_submit/2`): to the proposer, the
-  # answer's own change; to another person, the page's own hand-over of the work to them,
+  # answer's own change; to someone else, the page's own hand-over of the work to them,
   # as Hand to… gives it. Nothing is sent without a choice the form offered.
   defp delegate(d, route, kind, key, item, viewer, raw, state) do
     case Pages.delegate_submit(d, raw) do
       {:answer, name} ->
         answer(route, kind, key, name, item, viewer, raw, state)
 
-      {:link, part_kind, part_key, relation, person} ->
+      {:link, part_kind, part_key, relation, whom} ->
         change = Pages.change_action(state.model, relation)
-        cause = Pages.change_cause(change || %{}, [person], state.by, "")
+        cause = Pages.change_cause(change || %{}, [whom], state.by, "")
         state = if cause, do: %{state | cause: cause}, else: state
-        put_fact(state, part_kind, link(part_key, relation, [person]), {:item, kind, key})
+        put_fact(state, part_kind, link(part_key, relation, [whom]), {:item, kind, key})
 
       {:error, why} ->
         not_sent(state, route, [why])

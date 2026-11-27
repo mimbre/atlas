@@ -94,7 +94,7 @@ defmodule AtlasBFFContract.Contract do
   # `panel_answer`, a client's tooltip; without it the label), a choice may too (`choice`'s
   # `help`); an input may be shown and asked only while another input holds a value
   # (`input`'s `shown_when`), and a required choice without a value has nothing chosen
-  # until the user chooses: a decision's Delegate (the proposer or another person) is such
+  # until the user chooses: a decision's Delegate (the proposer or someone else) is such
   # a form. A decision's Decline sends no `detail` any more.
   version "0.41.0"
 

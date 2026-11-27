@@ -867,17 +867,17 @@ defmodule Model.DecisionOptionsTest do
                "help" => "The proposer decides, as you delegate"
              },
              %{
-               "value" => "person",
+               "value" => "other",
                "label" => "Another person",
                "help" => "The person you choose decides instead of you"
              }
            ]
 
     assert %{
-             "name" => "person",
+             "name" => "whom",
              "kind" => "choice",
              "required" => true,
-             "shown_when" => %{"name" => "to", "value" => "person"}
+             "shown_when" => %{"name" => "to", "value" => "other"}
            } = person
 
     refute Map.has_key?(person, "value")
@@ -898,17 +898,17 @@ defmodule Model.DecisionOptionsTest do
                %{key: "ada", kind: "person"}
              )
 
-    # To another person: the page's own hand-over of its assignment to them.
+    # To someone else: the page's own hand-over of its assignment to them.
     assert {:link, "assignment", "AS-D-private", "assigned_to", "bob"} =
-             AtlasControl.Pages.delegate_submit(d, %{"to" => "person", "person" => "bob"})
+             AtlasControl.Pages.delegate_submit(d, %{"to" => "other", "whom" => "bob"})
 
     # Nothing without a choice the form offered.
     for raw <- [
           %{},
           %{"to" => ""},
-          %{"to" => "person"},
-          %{"to" => "person", "person" => "ada"},
-          %{"to" => "person", "person" => "zoe"}
+          %{"to" => "other"},
+          %{"to" => "other", "whom" => "ada"},
+          %{"to" => "other", "whom" => "zoe"}
         ] do
       assert {:error, _} = AtlasControl.Pages.delegate_submit(d, raw)
     end

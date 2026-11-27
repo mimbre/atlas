@@ -5,8 +5,8 @@ import XCTest
 /// A form as Control sends it since contract 0.41.0: an input with `shown_when` is shown,
 /// required and sent only while the input it names holds that value; Save waits until every
 /// shown required input has a value; a required choice without a value starts with none
-/// chosen (radio buttons). Delegate D-7 to… is one: `to` (the proposer or another person),
-/// and `person` only for another person.
+/// chosen (radio buttons). Delegate D-7 to… is one: `to` (the proposer or someone else,
+/// `other`), and `whom` only for someone else.
 @MainActor
 final class FormViewTests: XCTestCase {
     private static let delegate = FormBlock(
@@ -15,11 +15,11 @@ final class FormViewTests: XCTestCase {
             InputModel(name: "to", label: "To", kind: "choice", required: true, choices: [
                 ChoiceModel(value: "proposer", label: "The proposer (ada) — decides on your behalf",
                             help: "The proposer decides, as you delegate"),
-                ChoiceModel(value: "person", label: "Another person"),
+                ChoiceModel(value: "other", label: "Someone else"),
             ]),
-            InputModel(name: "person", label: "Person", kind: "choice", required: true,
+            InputModel(name: "whom", label: "Whom", kind: "choice", required: true,
                        choices: [ChoiceModel(value: "bob", label: "bob")],
-                       shownWhen: InputConditionModel(name: "to", value: "person")),
+                       shownWhen: InputConditionModel(name: "to", value: "other")),
             InputModel(name: "note", label: "Note", kind: "multiline"),
         ],
         submitLabel: "Delegate",
@@ -29,20 +29,20 @@ final class FormViewTests: XCTestCase {
         let none = FormView.shown(Self.delegate, [:]).map(\.name)
         XCTAssertEqual(none, ["to", "note"])
         XCTAssertEqual(FormView.shown(Self.delegate, ["to": "proposer"]).map(\.name), ["to", "note"])
-        XCTAssertEqual(FormView.shown(Self.delegate, ["to": "person"]).map(\.name), ["to", "person", "note"])
+        XCTAssertEqual(FormView.shown(Self.delegate, ["to": "other"]).map(\.name), ["to", "whom", "note"])
 
-        // A person chosen, then the proposer after all: the person is not sent.
-        XCTAssertEqual(FormView.values(Self.delegate, ["to": "proposer", "person": "bob"]),
+        // Someone chosen, then the proposer after all: whom is not sent.
+        XCTAssertEqual(FormView.values(Self.delegate, ["to": "proposer", "whom": "bob"]),
                        ["to": "proposer", "note": ""])
-        XCTAssertEqual(FormView.values(Self.delegate, ["to": "person", "person": "bob"]),
-                       ["to": "person", "person": "bob", "note": ""])
+        XCTAssertEqual(FormView.values(Self.delegate, ["to": "other", "whom": "bob"]),
+                       ["to": "other", "whom": "bob", "note": ""])
     }
 
     func testSaveWaitsUntilEveryShownRequiredInputHasAValue() {
         XCTAssertFalse(FormView.complete(Self.delegate, [:]), "nothing chosen yet")
-        XCTAssertTrue(FormView.complete(Self.delegate, ["to": "proposer"]), "the person is not shown, nor required")
-        XCTAssertFalse(FormView.complete(Self.delegate, ["to": "person"]), "another person, but who")
-        XCTAssertTrue(FormView.complete(Self.delegate, ["to": "person", "person": "bob"]))
+        XCTAssertTrue(FormView.complete(Self.delegate, ["to": "proposer"]), "whom is not shown, nor required")
+        XCTAssertFalse(FormView.complete(Self.delegate, ["to": "other"]), "someone else, but who")
+        XCTAssertTrue(FormView.complete(Self.delegate, ["to": "other", "whom": "bob"]))
         XCTAssertFalse(FormView.complete(Self.delegate, ["to": "  "]), "blank is no value")
     }
 
