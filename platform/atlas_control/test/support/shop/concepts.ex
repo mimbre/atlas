@@ -671,3 +671,72 @@ defmodule AtlasControl.Shop.InstructedWidget do
     imports: []
   )
 end
+
+defmodule AtlasControl.Shop.Benches do
+  @moduledoc """
+  The machines the shop's work runs on (the Machines page): benches, each a Runtime (its
+  key its id), with its setup; their refits (upgrades); the orders done on widgets; and the
+  shifts (attempts) a bench works an order in, in one of its slots. Made-up names.
+  """
+  use RelaDSL
+
+  type(:refit_step,
+    values: [:requested, :draining, :waiting, :updating, :verifying, :done, :failed]
+  )
+
+  entity :bench, label: "Bench", plural: "benches", id_type: :manual do
+    icon(:gears)
+    field(:name, :string, required: true)
+    field(:setup, :string, multiline: true)
+    field(:setup_version, :integer)
+    primary(:name)
+    top(false)
+    by_hand("update")
+  end
+
+  entity :refit, label: "Refit", plural: "refits", id_type: :manual, id_prefix: "RF-" do
+    field(:build, :string, required: true)
+    field(:step, :refit_step)
+    field(:failed_step, :string)
+    field(:reason, :string)
+    top(false)
+    create(ask: [:build], id: [prefix: "RF-", digits: 2])
+  end
+
+  entity :order, label: "Order", plural: "orders", id_type: :manual, id_prefix: "O-" do
+    field(:phase, :string)
+    top(false)
+    by_hand(false)
+  end
+
+  entity :shift, label: "Shift", plural: "shifts", id_type: :manual, id_prefix: "SH-" do
+    field(:slot, :string)
+    field(:host, :string)
+    field(:began, :string)
+    field(:finished, :string)
+    field(:result, :string)
+    top(false)
+    by_hand(false)
+  end
+
+  relation(:refit_of,
+    label: "refit of",
+    from: [:refit],
+    to: [:bench],
+    max_outgoing: 1,
+    parent: true,
+    inverse: {:refits, "refits"}
+  )
+
+  relation(:order_of, label: "order of", from: [:order], to: [:widget], max_outgoing: 1)
+
+  relation(:shift_of,
+    label: "shift of",
+    from: [:shift],
+    to: [:order],
+    max_outgoing: 1,
+    parent: true
+  )
+
+  relation(:shift_on, label: "shift on", from: [:shift], to: [:bench], max_outgoing: 1)
+end

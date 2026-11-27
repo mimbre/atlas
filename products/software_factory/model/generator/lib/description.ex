@@ -25,7 +25,7 @@ defmodule RelaDSL.Description do
   ## Anywhere (a concept, a module or a composition)
 
   `todo_words`, `runtime`, `guidance`, `start_page`, `progress_order`, `shell`,
-  `read_first`, `about`, `flow_runtime`, `supervised_work`, `producer`, `review relation,
+  `read_first`, `about`, `flow_runtime`, `supervised_work`, `producer`, `machines`, `review relation,
   field:, value:, label:`, and `extend_entity kind, rules` / `extend_relation name,
   rules`, which add rules to a kind or relation another file defines. Every leaf has
   one author: two declarations that say the same leaf are refused, even when equal.
@@ -53,7 +53,17 @@ defmodule RelaDSL.Description do
   `count:` has `{count}`); Control fills it in for a viewer the relation points at.
   `shell` takes `title:`, `tabs:` (each `id:`, `label:`, `to:`, `assigned:`, and `icon:`, a
   semantic name a client may draw the tab with) and `default:`, the id of the tab a client
-  opens on without a target (else the first).
+  opens on without a target (else the first), and `assistant:`, the key of the agent fact
+  whose line a client shows under the viewer's name.
+  `machines kind:, configuration:, policy_version:, upgrades:, attempts:, work:` names the
+  machines a Runtime runs work on (`atlas.json` `machines`): the machine's kind and its
+  configuration and applied version fields; `upgrades: [kind:, of:, build:, step:, ended:,
+  failed_step:, reason:]`, a machine's upgrades (`of` leads to the machine, `ended` the
+  steps it ends in); `attempts: [kind:, on:, of:, slot:, machine:, started:, ended:,
+  result:]`, the attempts at work (`on` leads to the machine, `of` to the work); and
+  `work: [of:, stage:]`, the relation from the work to what it is part of and the field of
+  the work that says its stage (optional). A shell tab may open
+  `/machines` only with it.
 
   Values are written as Elixir terms: atoms become strings (but `true`, `false` and
   `nil`), keyword lists become objects in the order written, other lists stay lists.
@@ -100,6 +110,7 @@ defmodule RelaDSL.Description do
     flow_runtime: 1,
     supervised_work: 1,
     producer: 1,
+    machines: 1,
     review: 2,
     extend_entity: 2,
     extend_relation: 2
@@ -116,7 +127,8 @@ defmodule RelaDSL.Description do
     start_page: "start",
     progress_order: "progress",
     shell: "shell",
-    read_first: "read_first"
+    read_first: "read_first",
+    machines: "machines"
   }
 
   @doc false

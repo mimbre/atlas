@@ -178,7 +178,7 @@ A merge to master deploys prod (CI job `deploy-prod`, `platform/ops/deploy.sh pr
 
 ### The core's health (IS-Atlas-117)
 
-Prod runs `RELEASE_DISTRIBUTION=none`, so nobody attaches to its node to see a stall (IS-Atlas-82). The health page shows it instead, in any client, through Control alone: `/health`, key `h` on the Workers page, for whoever the settings name as a reader of the Workers page (`"workers": {"read": …}`). It never reads Facts, so it shows while Facts or Flow is stuck. Its rows, each marked late past its limit:
+Prod runs `RELEASE_DISTRIBUTION=none`, so nobody attaches to its node to see a stall (IS-Atlas-82). The health page shows it instead, in any client, through Control alone: `/health`, the Health action (`h`) on a machine's page in the Machines tab, for whoever the settings name as a reader of worker pages (`"workers": {"read": …}`). It never reads Facts, so it shows while Facts or Flow is stuck. Its rows, each marked late past its limit:
 
 | Row | From | Late past |
 |---|---|---|
@@ -446,8 +446,8 @@ refuses to boot when it is missing or malformed. A machine's `token_file` holds 
 machine's entry. Agents' CLI calls use the ordinary client environment file, so they go
 through Fly Control.
 
-Prod's settings also add the Workers tab and its grants (`control.tabs`,
-`control.workers`): `melle` may read and submit.
+Prod's settings also add the worker grants (`control.workers`): `melle` may read and
+submit. The Machines tab is the model's.
 
 What the link does: for each turn of a listed worker, the service creates the Server turn
 `TU-<machine>-<local turn ID>`, registers that attempt's execution, renews its activity and

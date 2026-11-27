@@ -123,8 +123,15 @@ defmodule AtlasControl.Pages do
       {:ok, page, p} when page in [:pick_up, :hand_over, :retry, :remove_item] ->
         {page, p.kind, p.key, p.run}
 
-      {:ok, page, params} when page in [:workers, :health, :worker, :worker_guidance] ->
+      {:ok, page, params} when page in [:health, :worker, :worker_guidance] ->
         {:worker_page, page, params}
+
+      # The Workers board's path shows the Machines page (deprecated, 0.43.0).
+      {:ok, page, _} when page in [:machines, :workers] ->
+        {:machine_page, :machines, %{}}
+
+      {:ok, page, params} when page in [:machine, :machine_upgrade] ->
+        {:machine_page, page, params}
 
       {:ok, :kinds, _} ->
         :kinds
@@ -220,7 +227,8 @@ defmodule AtlasControl.Pages do
   """
   def unprefixed_kinds(m), do: for(k <- kinds(m), k.id.prefixes == [], do: k.name)
 
-  defp kind_of_key(m, key) do
+  @doc "The kind whose id prefix `key` has (the longest wins), or nil (`resolve/2`)."
+  def kind_of_key(m, key) do
     matches =
       for k <- kinds(m),
           prefix <- k.id.prefixes,
@@ -324,6 +332,12 @@ defmodule AtlasControl.Pages do
   def submit_route(:retry, p), do: {:retry, p.kind, p.key, p.run}
   def submit_route(:remove_item, p), do: {:remove_item, p.kind, p.key, p.run}
 
+  def submit_route(:upgrade_machine, p),
+    do: {:machine_page, :machine_upgrade, %{machine: p.machine}}
+
+  @doc "The names of the machines the Machines page shows (`AtlasControl.Model`), or nil."
+  def machines(m), do: Map.get(m, :machines)
+
   @doc """
   The `call` (the contract's `call` model) that submits the form or confirm of `route`:
   its submit endpoint by name and its parameters, as a form's `submit_to` holds it.
@@ -386,6 +400,7 @@ defmodule AtlasControl.Pages do
 
   def path({:hand_over, kind, key, run, _by}), do: path({:hand_over, kind, key, run})
   def path({:worker_page, page, params}), do: Blocks.path(page, params)
+  def path({:machine_page, page, params}), do: Blocks.path(page, params)
   def path(:kinds), do: Blocks.path(:kinds)
   def path({:list, kind}), do: Blocks.path(:list, kind: kind)
   def path({:new, kind}), do: Blocks.path(:new, kind: kind)
@@ -446,6 +461,7 @@ defmodule AtlasControl.Pages do
   def kind_of(:home), do: :all
   def kind_of(:unknown), do: nil
   def kind_of({:worker_page, _, _}), do: nil
+  def kind_of({:machine_page, _, _}), do: nil
   def kind_of({:unavailable, _path, _failed}), do: nil
   def kind_of(:kinds), do: nil
   def kind_of({screen, _by}) when screen in [:open_for_you, :supervised_by_you], do: nil
@@ -472,6 +488,7 @@ defmodule AtlasControl.Pages do
 
   @doc "The reads a route needs: `[{kind, content}]`."
   def reads({:worker_page, _, _}, _m), do: []
+  def reads({:machine_page, _, _}, _m), do: []
 
   def reads(:home, m) do
     case top_kinds(m) do

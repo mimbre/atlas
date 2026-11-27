@@ -10,9 +10,10 @@ defmodule AtlasTui.ConsoleView do
     # The environment segment keeps a cell either side, so it reads as a badge.
     suffix = " · #{model.env} "
     title = String.slice(title, 0, max(width - String.length(suffix) - 1, 0))
-    # The shell's greeting (the viewer's name) follows the environment, before the count:
-    # "Atlas Console · prod · <name> · 3 assigned to you". It is cut to the room the rest
-    # of the bar leaves, and left out when there is none.
+    # The shell's greeting (the viewer's name) follows the environment, before the count,
+    # with the assistant line after it, faint:
+    # "Atlas Console · prod · <name> · assistant: coordinator · 3 assigned to you". Both
+    # are cut to the room the rest of the bar leaves, and left out when there is none.
     room = width - String.length(" #{title}" <> suffix <> "· " <> count) - 1
 
     greeting =
@@ -20,17 +21,30 @@ defmodule AtlasTui.ConsoleView do
         do: String.slice(shell["greeting"], 0, max(room, 0)),
         else: ""
 
-    count = if greeting == "", do: String.trim_leading(count), else: "· " <> greeting <> count
+    room = room - String.length(greeting) - 3
+
+    assistant =
+      if greeting != "" && shell["assistant"] && room > 0,
+        do: " · " <> String.slice(shell["assistant"], 0, room),
+        else: ""
+
+    {greeting, count} =
+      if greeting == "",
+        do: {"", String.trim_leading(count)},
+        else: {"· " <> greeting, count}
+
     # Keep environment and stale state readable even in a narrow viewport.
     {title, stale} =
       if stale != "" && width < String.length(title <> suffix <> stale) + 1,
         do: {"stale shell", ""},
         else: {title, stale}
 
-    # The bar spans the row; only production marks its environment name, as a badge.
+    # The bar spans the row; only a non-production environment is marked, as a badge.
     bar = [
       {:header, " #{title} ·"},
-      {if(model.env == "prod", do: :prod, else: :header), " #{model.env} "},
+      {if(model.env == "prod", do: :header, else: :env_test), " #{model.env} "},
+      {:header, greeting},
+      {{:header, :muted}, assistant},
       {:header, count},
       {:pending, stale}
     ]

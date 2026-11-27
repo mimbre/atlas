@@ -114,11 +114,35 @@ defmodule AtlasRuntime.Sources.UpgradePollTest do
     assert :polled = Puller.poll_now(ctx.puller)
     assert Work.runtime().mode == :open
 
-    # The source ended it: update.json goes, and so does the report.
+    # No order may mean the source could not read Facts, not that it recorded failure.
     order(ctx.target, nil)
     assert :polled = Puller.poll_now(ctx.puller)
-    refute File.exists?(Upgrade.path(ctx.bench.dir))
+    assert File.exists?(Upgrade.path(ctx.bench.dir))
     assert :polled = Puller.poll_now(ctx.puller)
+    assert %{id: "RU-01", update: :refused} = last_poll(ctx.target).upgrade
+
+    # It is still reported from the first poll after the puller restarts.
+    stop_supervised!(:puller)
+    restarted = puller(ctx.target, ctx.spawn, :restarted_after_refusal)
+    assert :polled = Puller.poll_now(restarted)
+    assert %{id: "RU-01", update: :refused} = last_poll(ctx.target).upgrade
+
+    # A later upgrade takes over, and a successful record may be forgotten.
+    order(ctx.target, %{id: "RU-02", build: "b3", action: :update})
+    assert :polled = Puller.poll_now(restarted)
+
+    assert_received {:update, _,
+                     ["service", "update", "--build", "b3", "--upgrade", "RU-02", "--detach"]}
+
+    File.write!(
+      Upgrade.path(ctx.bench.dir),
+      JSON.encode!(%{"upgrade" => "RU-02", "state" => "installed"})
+    )
+
+    order(ctx.target, nil)
+    assert :polled = Puller.poll_now(restarted)
+    refute File.exists?(Upgrade.path(ctx.bench.dir))
+    assert :polled = Puller.poll_now(restarted)
     refute Map.has_key?(last_poll(ctx.target), :upgrade)
   end
 

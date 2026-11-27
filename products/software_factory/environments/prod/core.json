@@ -15,9 +15,6 @@
   "control": {
     "host": "::",
     "port": 7591,
-    "tabs": [
-      { "id": "workers", "label": "Workers", "to": "/workers", "section": "browse", "key": "g w", "icon": "workers" }
-    ],
     "workers": {
       "read": { "actors": ["melle"] },
       "submit": { "actors": ["melle"] }

@@ -561,18 +561,23 @@ defmodule AtlasTui.Console do
         is_list(tabs) and length(tabs) in 1..64 and Enum.all?(tabs, &valid_tab?/1) and
         distinct?(tabs, "id") and distinct?(tabs, "to") and path?(message["initial_to"]) and
         (is_nil(message["active_tab"]) or Enum.any?(tabs, &(&1["id"] == message["active_tab"]))) and
-        (is_nil(message["greeting"]) or text?(message["greeting"], 1_024))
+        (is_nil(message["greeting"]) or text?(message["greeting"], 1_024)) and
+        (is_nil(message["assistant"]) or text?(message["assistant"], 1_024))
 
     if valid,
       do:
-        {:ok, Map.take(message, ~w(title env spec revision tabs initial_to active_tab greeting))},
+        {:ok,
+         Map.take(
+           message,
+           ~w(title env spec revision tabs initial_to active_tab greeting assistant)
+         )},
       else: {:error, "Invalid Console boot response"}
   end
 
   # The index pages a tab may open: the ones Control's shell serves as tabs
-  # (`AtlasControl.Shell`): what is assigned, a kind's list, the workers and the
-  # supervision screens (Open for you, Supervised by you; M3b P4).
-  @tab_pages [:home, :list, :workers, :open_for_you, :supervised_by_you]
+  # (`AtlasControl.Shell`): what is assigned, a kind's list, the machines, the workers and
+  # the supervision screens (Open for you, Supervised by you; M3b P4).
+  @tab_pages [:home, :list, :machines, :workers, :open_for_you, :supervised_by_you]
 
   defp valid_tab?(%{"id" => id, "label" => label, "to" => to} = tab) do
     text?(id, 64) and text?(label, 128) and path?(to) and

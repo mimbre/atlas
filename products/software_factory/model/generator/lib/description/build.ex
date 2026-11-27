@@ -47,6 +47,7 @@ defmodule RelaDSL.Description.Build do
   @supervision_keys [:relation, :operation, :hand_to]
   @work_keys [:kind, :of, :for, :ended]
   @producer_keys [:relation]
+  @machines_keys [:kind, :configuration, :policy_version, :upgrades, :attempts, :work]
   @operations ["pickup", "hand_over", "retry"]
   @writer "atlas-flow"
 
@@ -111,71 +112,75 @@ defmodule RelaDSL.Description.Build do
 
   @doc "Shape problems of the schema items: keys that no construct holds."
   def shape_problems(items) do
-    Enum.flat_map(items, fn
-      %{kind: :type, value: {name, opts}} = i ->
-        unknown(i, {"type", name}, opts, @type_keys ++ [:format])
+    machines_twice(items) ++
+      Enum.flat_map(items, fn
+        %{kind: :type, value: {name, opts}} = i ->
+          unknown(i, {"type", name}, opts, @type_keys ++ [:format])
 
-      %{kind: :entity, value: e} = i ->
-        unknown(i, {"entity", e.name}, e.opts, @entity_keys) ++
-          Enum.flat_map(e.fields, fn f ->
-            unknown(
-              %{i | line: f.line},
-              {"field", e.name, f.name},
-              f.opts,
-              @field_keys ++ @field_notes
-            ) ++
-              if is_atom(f.type) and f.type != nil,
-                do: [],
-                else: [
-                  {i.file, f.line,
-                   problem(
-                     :field_type,
-                     [e.name, f.name],
-                     "field #{e.name}.#{f.name} needs a type"
-                   )}
+        %{kind: :entity, value: e} = i ->
+          unknown(i, {"entity", e.name}, e.opts, @entity_keys) ++
+            Enum.flat_map(e.fields, fn f ->
+              unknown(
+                %{i | line: f.line},
+                {"field", e.name, f.name},
+                f.opts,
+                @field_keys ++ @field_notes
+              ) ++
+                if is_atom(f.type) and f.type != nil,
+                  do: [],
+                  else: [
+                    {i.file, f.line,
+                     problem(
+                       :field_type,
+                       [e.name, f.name],
+                       "field #{e.name}.#{f.name} needs a type"
+                     )}
+                  ]
+            end) ++ note_problems(i, e)
+
+        %{kind: :relation, value: {name, opts}} = i ->
+          unknown(i, {"relation", name}, opts, @relation_keys ++ @relation_notes) ++
+            case opts[:inverse] do
+              {_, _} ->
+                []
+
+              nil ->
+                []
+
+              _ ->
+                [
+                  {i.file, i.line,
+                   problem(:relation_inverse, [name], "relation #{name}: inverse is {id, label}")}
                 ]
-          end) ++ note_problems(i, e)
+            end
 
-      %{kind: :relation, value: {name, opts}} = i ->
-        unknown(i, {"relation", name}, opts, @relation_keys ++ @relation_notes) ++
-          case opts[:inverse] do
-            {_, _} ->
-              []
+        %{kind: :select, value: {name, opts}} = i ->
+          unknown(i, {"select", name}, opts, @select_keys)
 
-            nil ->
-              []
-
-            _ ->
-              [
-                {i.file, i.line,
-                 problem(:relation_inverse, [name], "relation #{name}: inverse is {id, label}")}
-              ]
+        %{kind: :root, value: {:flow_runtime, opts}} = i ->
+          case unknown(i, {"flow_runtime"}, opts, @flow_runtime_keys) do
+            [] -> senders_problems(i, opts[:senders], items)
+            problems -> problems
           end
 
-      %{kind: :select, value: {name, opts}} = i ->
-        unknown(i, {"select", name}, opts, @select_keys)
+        %{kind: :root, value: {:supervised_work, opts}} = i ->
+          unknown(i, {"supervised_work"}, opts, @work_keys)
 
-      %{kind: :root, value: {:flow_runtime, opts}} = i ->
-        case unknown(i, {"flow_runtime"}, opts, @flow_runtime_keys) do
-          [] -> senders_problems(i, opts[:senders], items)
-          problems -> problems
-        end
+        %{kind: :root, value: {:producer, opts}} = i ->
+          unknown(i, {"producer"}, opts, @producer_keys)
 
-      %{kind: :root, value: {:supervised_work, opts}} = i ->
-        unknown(i, {"supervised_work"}, opts, @work_keys)
+        %{kind: :root, value: {:machines, opts}} = i ->
+          unknown(i, {"machines"}, opts, @machines_keys)
 
-      %{kind: :root, value: {:producer, opts}} = i ->
-        unknown(i, {"producer"}, opts, @producer_keys)
+        %{kind: :extend_entity, value: {name, rules}} = i ->
+          unknown(i, {"extend_entity", name}, rules, Enum.map(@entity_notes, &String.to_atom/1))
 
-      %{kind: :extend_entity, value: {name, rules}} = i ->
-        unknown(i, {"extend_entity", name}, rules, Enum.map(@entity_notes, &String.to_atom/1))
+        %{kind: :extend_relation, value: {name, rules}} = i ->
+          unknown(i, {"extend_relation", name}, rules, @relation_notes)
 
-      %{kind: :extend_relation, value: {name, rules}} = i ->
-        unknown(i, {"extend_relation", name}, rules, @relation_notes)
-
-      _ ->
-        []
-    end)
+        _ ->
+          []
+      end)
   end
 
   defp note_problems(i, e) do
@@ -230,6 +235,20 @@ defmodule RelaDSL.Description.Build do
         ]
 
       true ->
+        []
+    end
+  end
+
+  # The machines (`machines`) are given once.
+  defp machines_twice(items) do
+    case for(%{kind: :root, value: {:machines, _}} = i <- items, do: i) do
+      [_, i | _] ->
+        [
+          {i.file, i.line,
+           problem(:given_twice, ["machines"], "machines is given more than once")}
+        ]
+
+      _ ->
         []
     end
   end
