@@ -7,6 +7,10 @@ import AppKit
 /// A `text` block in one line: its label before it, when it has one, and how long ago `since` was
 /// after it ("· 3h ago"), when Control sends them.
 public enum TextLine {
+    public static func isMarkdown(_ block: TextBlock) -> Bool {
+        MarkdownDocument.isMarkdown(block.format)
+    }
+
     public static func line(_ block: TextBlock, now: Date) -> String {
         let shown = text(block, now: now)
         guard let label = block.label else { return shown }
@@ -23,6 +27,15 @@ public enum TextLine {
     /// How long ago `since` (ISO 8601) was: "just now", "5m ago", "3h ago", "2d ago".
     static func age(since: String, now: Date) -> String? {
         Panel.age(since: since, now: now).map { $0 == "now" ? "just now" : "\($0) ago" }
+    }
+}
+
+/// A header's state and its compact, current age.
+public enum HeaderState {
+    public static func line(_ block: HeaderBlock, now: Date) -> String? {
+        let parts = [block.detail, RowAge.text(since: block.since, now: now)]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 

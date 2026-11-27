@@ -8,12 +8,13 @@ defmodule AtlasBFFContract.Blocks do
 
   defmacro __using__(_opts) do
     quote do
-      # A list inside a section may leave its title to the section.
+      # A list may leave its title to its section, or show progress beside its own title.
       defblock :list do
         field :title, :string
         field :rows, {:list, :row}, required: true
         field :empty, :string
         field :actions, {:list, :action}
+        field :aside, :string
       end
 
       # The groups a page's items fall into, each a filter of the page: opening a group's
@@ -30,22 +31,25 @@ defmodule AtlasBFFContract.Blocks do
         field :links, {:list, :link}
       end
 
-      # A page's own heading, the first of a stack of simple blocks: what is asked of
-      # the viewer (`eyebrow`: "TO DO FOR YOU"), the fact's `key` and the `title`; `icon`,
-      # the icon of the fact's kind (as on its rows), shown with the eyebrow.
+      # A page's heading: its eyebrow, key, icon and title, with an optional state
+      # detail and its ISO 8601 UTC timestamp for a current age beneath the title.
       defblock :header do
         field :title, :string, required: true
         field :eyebrow, :string
         field :key, :string
         field :icon, :string
+        field :detail, :string
+        field :since, :string
       end
 
       # A paragraph: its `text`, after its `label` when it has one (an intro paragraph has none), and with `since` (ISO 8601,
       # UTC) how long ago that was, which a client shows after the text ("· 3h ago") and
       # keeps current. `role` error: something went wrong (what a client shows in Prism's
       # error, a tinted card or a red frame).
+      # `format` markdown opts into Markdown; absent or unknown formats are plain text.
       defblock :text do
         field :text, :string, required: true
+        field :format, :string
         field :label, :string
         field :since, :string
         field :role, :string

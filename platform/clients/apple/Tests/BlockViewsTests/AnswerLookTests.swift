@@ -82,6 +82,7 @@ final class AnswerLookTests: XCTestCase {
     func testAnActionsIconNameMapsToItsSymbolAndAnUnknownOrMissingOneToNone() throws {
         XCTAssertEqual(ActionIcon.symbol("edit"), "pencil")
         XCTAssertEqual(ActionIcon.symbol("delete"), "trash")
+        XCTAssertEqual(ActionIcon.symbol("remove"), "trash")
         XCTAssertEqual(ActionIcon.symbol("hand_over"), "person.and.arrow.left.and.arrow.right")
         XCTAssertEqual(ActionIcon.symbol("question"), "questionmark.bubble")
         XCTAssertEqual(ActionIcon.symbol("delegate"), "arrow.uturn.backward")
@@ -93,7 +94,7 @@ final class AnswerLookTests: XCTestCase {
         XCTAssertNil(ActionIcon.symbol(nil))
 
         // Every symbol is one the system has: one it lacks would show no icon at all.
-        for name in ["edit", "delete", "hand_over", "question", "delegate", "decline", "create", "open", "faults"] {
+        for name in ["edit", "delete", "remove", "hand_over", "question", "delegate", "decline", "create", "open", "faults"] {
             let symbol = try XCTUnwrap(ActionIcon.symbol(name))
             XCTAssertNotNil(NSImage(systemSymbolName: symbol, accessibilityDescription: nil), symbol)
         }

@@ -51,7 +51,12 @@ defmodule Model.Issue do
     """ do
     icon(:ticket)
     field(:title, :string, required: true, description: "Without the code (Flux: name)")
-    field(:description, :string, description: "The text (Flux: description)", multiline: true)
+
+    field(:description, :string,
+      description: "The text (Flux: description)",
+      multiline: true,
+      format: "markdown"
+    )
 
     field(:flux_id, :string,
       unique: true,
@@ -238,6 +243,40 @@ defmodule Model.Issue do
       merging: [
         heading: "TO MERGE",
         title: "\#{pr_url|number} {title}",
+        detail_groups: [
+          [title: "Issue", fields: [:description, :stage, :order, :flux_ref, :flux_id]],
+          [
+            title: "Pull request",
+            fields: [
+              :pr_url,
+              :pr_state,
+              :pr_outcome,
+              :pr_mergeable,
+              :pr_head,
+              :pr_checks,
+              :pr_checks_head,
+              :pr_checks_failure
+            ]
+          ],
+          [
+            title: "Build and checks",
+            fields: [
+              :pass_result,
+              :gate_result,
+              :effect_result,
+              :task_result,
+              :publication,
+              :ci_fixes,
+              :ci_green,
+              :ci_push,
+              :pr_updates,
+              :pr_update,
+              :retry_step,
+              :task_failure,
+              :pr_close_failure
+            ]
+          ]
+        ],
         records: [
           review: [relation: :task_of, where: [kind: :review]],
           author: [relation: :task_of, where: [kind: :author]]

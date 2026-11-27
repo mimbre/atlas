@@ -289,6 +289,7 @@ defmodule RelaDSL.Control.Model do
           end,
         agent: spec["agent"],
         delete_error: if(is_binary(spec["delete_error"]), do: spec["delete_error"]),
+        page: if(is_map(spec["page"]), do: spec["page"]),
         hidden: state_fields(presenters, kind),
         decision_options: spec["decision_options"],
         presented: Enum.any?(presenters, &(&1["kind"] == kind)),
@@ -330,6 +331,7 @@ defmodule RelaDSL.Control.Model do
         settable: not Map.has_key?(prop, "set_by"),
         set_by: prop["set_by"],
         multiline: prop["multiline"] == true,
+        format: prop["format"],
         url: prop["format"] == "url" or get_in(types, [prop["type"], "format"]) == "url",
         cause:
           case prop["cause"] do

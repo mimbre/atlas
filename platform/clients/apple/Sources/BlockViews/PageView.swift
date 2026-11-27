@@ -26,13 +26,16 @@ public struct PageView: View {
     let selectedPath: String?
     let open: (String) -> Void
     let act: (ActionModel) -> Void
+    let filter: (String) -> Void
+    let selectedGroup: String?
     @Environment(\.colorScheme) private var scheme
     /// Whether the list has the keys: its selected card shows Prism's tint, else calm grey.
     @FocusState private var listFocused: Bool
 
     public init(page: PageMessage, header: Bool = false, selectedPath: String? = nil,
                 open: @escaping (String) -> Void,
-                act: @escaping (ActionModel) -> Void = { _ in }) {
+                act: @escaping (ActionModel) -> Void = { _ in },
+                filter: ((String) -> Void)? = nil, selectedGroup: String? = nil) {
         presentation = PagePresentation(page)
         pageActions = PageActions.ofPage(page)
         itemActions = header ? PageActions.toolbar(page) : []
@@ -40,6 +43,8 @@ public struct PageView: View {
         self.selectedPath = selectedPath
         self.open = open
         self.act = act
+        self.filter = filter ?? open
+        self.selectedGroup = selectedGroup
     }
 
     /// The page from the left of its column (`WindowLayout.columns`): its main blocks at most
@@ -60,7 +65,9 @@ public struct PageView: View {
             HStack(alignment: .top, spacing: 0) {
                 list(main).frame(width: columns.page)
                 ScrollView {
-                    detailsView(details).padding(.vertical, Prism.Spacing.px10)
+                    detailsView(details)
+                        .padding(.top, Prism.Spacing.px22)
+                        .padding(.bottom, Prism.Spacing.px10)
                 }
                 .contentMargins(.bottom, Prism.Spacing.px30, for: .scrollContent)
                 .frame(width: width)
@@ -90,13 +97,23 @@ public struct PageView: View {
                     still(PageHeader(title: presentation.title, actions: pageActions, act: act))
                 case .title(let title):
                     still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.px10))
+                case .heading(let title, let aside):
+                    still(HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
+                        Text(title).prism(Prism.Typography.label).accessibilityAddTraits(.isHeader)
+                        if let aside {
+                            Text(aside).prism(Prism.Typography.caption).foregroundStyle(PrismDarkGap.muted(scheme))
+                        }
+                    }
+                    .padding(.horizontal, Prism.Spacing.px15)
+                    .padding(.top, Prism.Spacing.px10))
                 case .empty(let empty):
-                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary))
+                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, header ? Prism.Spacing.px15 : 0))
                 case .row(let row):
-                    RowCard(row: row, selected: line.to == selectedPath, focused: listFocused)
+                    RowCard(row: row, selected: line.to == selectedPath, focused: listFocused, raised: !listPage)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
-                        .listRowBackground(PrismDarkGap.listGround(scheme))
+                        .listRowBackground(listPage ? PrismDarkGap.listGround(scheme) : PrismDarkGap.card(scheme))
                 case .actions(let actions):
                     still(ActionsView(actions: actions, act: act))
                 case .entry(let entry):
@@ -120,14 +137,14 @@ public struct PageView: View {
         // view at any window height.
         .contentMargins(.bottom, Prism.Spacing.px30, for: .scrollContent)
         .focused($listFocused)
-        // A page of lists (no panel, no details) lies on the list's ground, so its row
-        // cards stand out from it; another keeps the system's.
+        // Only the overview list has its own ground; rows embedded in an opened page
+        // share that page's background.
         .scrollContentBackground(listPage ? .hidden : .automatic)
         .background(listPage ? PrismDarkGap.listGround(scheme) : .clear)
     }
 
-    private var listPage: Bool {
-        presentation.details == nil && !presentation.hasPanel
+    var listPage: Bool {
+        !header && !presentation.hasHeader && presentation.details == nil && !presentation.hasPanel
     }
 
     /// A row of the page's list: the page's header, a list block's title, its empty text,
@@ -137,6 +154,7 @@ public struct PageView: View {
         enum Content {
             case header
             case title(String)
+            case heading(String, aside: String?)
             case empty(String)
             case row(RowModel)
             case actions([ActionModel])
@@ -169,12 +187,13 @@ public struct PageView: View {
 
     private func detailsContent(_ details: PagePresentation.Details, inCard: Bool) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-            Text(details.title).prism(Prism.Typography.label)
+            Text(details.title).prism(Prism.Typography.title6)
                 .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, inCard ? 0 : Prism.Spacing.px15)
             ForEach(details.groups) { group in
                 switch group {
-                case .entry(let entry): entryView(entry, inDetails: inCard)
-                case .section(let section): sectionView(section, inDetails: inCard)
+                case .entry(let entry): entryView(entry, inDetails: inCard, detailHeading: true)
+                case .section(let section): sectionView(section, inDetails: inCard, detailHeading: true)
                 }
             }
         }
@@ -197,7 +216,12 @@ public struct PageView: View {
             case .entry(let entry):
                 switch entry.item {
                 case .list(let list):
-                    if let title = list.title { blocks.append(Line(id: group.id + "/title", content: .title(title))) }
+                    if (header && list.title != nil) || list.aside != nil {
+                        blocks.append(Line(id: group.id + "/title",
+                                           content: .heading(list.title ?? "", aside: list.aside)))
+                    } else if let title = list.title {
+                        blocks.append(Line(id: group.id + "/title", content: .title(title)))
+                    }
                     let rows = list.rows ?? []
                     if rows.isEmpty, let empty = list.empty {
                         blocks.append(Line(id: group.id + "/empty", content: .empty(empty)))
@@ -241,14 +265,17 @@ public struct PageView: View {
     }
 
     @ViewBuilder private func entryView(_ entry: PagePresentation.Entry, inDetails: Bool = false,
-                                        followsCardsBeforeDetails: Bool = false) -> some View {
+                                        detailHeading: Bool = false, followsCardsBeforeDetails: Bool = false) -> some View {
         switch entry.item {
-        case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
-        case .item(let item): ItemBlockView(item: item, inDetails: inDetails, act: act)
-        case .option(let option): OptionView(block: option, act: act)
+        case .list(let list):
+            ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act,
+                          raised: !listPage && !inDetails)
+        case .groups(let groups): GroupFilters(groups: groups, selected: selectedGroup, filter: filter)
+        case .item(let item): ItemBlockView(item: item, inDetails: inDetails, detailHeading: detailHeading, act: act)
+        case .option(let option): OptionView(block: option, detailHeading: detailHeading, act: act)
         case .panel(let panel):
             // A view of its own per page: a selection never stays for another page.
-            PanelView(block: panel, others: panelActions, open: open, act: act).id(presentation.path)
+            PanelView(block: panel, others: panelActions, detailHeading: detailHeading, open: open, act: act).id(presentation.path)
         case .header(let block):
             HeaderBlockView(block: block, actions: headerActions, act: act)
         case .text(let text): TextBlockView(block: text)
@@ -273,26 +300,29 @@ public struct PageView: View {
         }
     }
 
-    private func blocks(_ section: PagePresentation.Section, inDetails: Bool) -> some View {
+    private func blocks(_ section: PagePresentation.Section, inDetails: Bool, detailHeading: Bool) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
-            ForEach(section.entries) { entryView($0, inDetails: inDetails) }
+            ForEach(section.entries) { entryView($0, inDetails: inDetails, detailHeading: detailHeading) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false) -> some View {
+    @ViewBuilder private func sectionView(_ section: PagePresentation.Section, inDetails: Bool = false,
+                                          detailHeading: Bool = false) -> some View {
         if section.collapsible {
             DisclosureGroup(isExpanded: expansion(section)) {
-                blocks(section, inDetails: inDetails).padding(.top, Prism.Spacing.px10)
+                blocks(section, inDetails: inDetails, detailHeading: detailHeading).padding(.top, Prism.Spacing.px10)
             } label: {
-                Text(section.title).prism(Prism.Typography.label)
+                Text(section.title).prism(Prism.Typography.title6)
+                    .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
             }
         } else {
             VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-                Text(section.title).prism(Prism.Typography.label)
+                Text(section.title).prism(Prism.Typography.title6)
                     .accessibilityAddTraits(.isHeader)
+                    .padding(.leading, inDetails ? 0 : Prism.Spacing.px10)
                 Divider()
-                blocks(section, inDetails: inDetails)
+                blocks(section, inDetails: inDetails, detailHeading: detailHeading)
             }
         }
     }
@@ -314,18 +344,26 @@ struct ListBlockView: View {
     let selectedPath: String?
     let open: (String) -> Void
     let act: (ActionModel) -> Void
+    var raised = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
-            if let title = list.title {
-                Text(title).prism(Prism.Typography.title7)
-                    .padding(.bottom, Prism.Spacing.px5)
+            if list.title != nil || list.aside != nil {
+                HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
+                    if let title = list.title {
+                        Text(title).prism(Prism.Typography.title7)
+                    }
+                    if let aside = list.aside {
+                        Text(aside).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.bottom, Prism.Spacing.px5)
             }
             if (list.rows ?? []).isEmpty, let empty = list.empty {
                 Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
             }
             ForEach(Array((list.rows ?? []).enumerated()), id: \.offset) { _, row in
-                ListRowView(row: row, selected: row.to == selectedPath, open: open)
+                ListRowView(row: row, selected: row.to == selectedPath, open: open, raised: raised)
             }
             ActionsView(actions: PageActions.ofBlock(list.actions), act: act)
         }
@@ -337,12 +375,13 @@ struct ListRowView: View {
     let row: RowModel
     let selected: Bool
     let open: (String) -> Void
+    var raised = true
 
     var body: some View {
         // The button owns its card. Future nested controls must be siblings of this
         // button, with no overlay or parent tap gesture.
         Button { if let to = row.to { open(to) } } label: {
-            RowCard(row: row, selected: selected, focused: true)
+            RowCard(row: row, selected: selected, focused: true, raised: raised)
         }
         .buttonStyle(.plain)
         .disabled(row.to == nil)
@@ -355,16 +394,16 @@ struct ListRowView: View {
 /// two, the whole of it in a tooltip); under that, muted, its state when Control sends one
 /// (`Decide it · Deadline 2026-12-01 17:00`, on a line of its own so the kind and key never
 /// crowd it out), and whether a write to it is being processed. No status dot: the state
-/// says where it stands in words. The card follows its title's height; it is a little
-/// lighter than the list's ground, rounded, without a shadow (list cards are an overview).
+/// says where it stands in words. The card follows its title's height. Overview rows and
+/// rows inside a recessed details card have no shadow; other page rows cast Prism's card shadow.
 /// Selected: Prism's light primary tint with a thin primary border, and the kind's icon in
-/// primary, while the list has the focus (`focused`), calm grey without it. The card covers
-/// its whole row with the list's ground around it, so the system's own selection never shows.
+/// primary, while the list has the focus (`focused`), calm grey without it.
 struct RowCard: View {
     let row: RowModel
     let selected: Bool
     /// Whether the list the card is in has the keys.
     let focused: Bool
+    var raised = false
     @State private var hovering = false
     @Environment(\.colorScheme) private var scheme
 
@@ -376,16 +415,22 @@ struct RowCard: View {
             .padding(.horizontal, Prism.Spacing.px13)
             .padding(.vertical, Prism.Spacing.px10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PrismDarkGap.listCard(scheme, selected: selected, focused: focused, hovering: hovering),
-                        in: shape)
+            .background {
+                let fill = PrismDarkGap.listCard(scheme, selected: selected, focused: focused, hovering: hovering)
+                if raised {
+                    shape.fill(fill).prismShadow(Prism.Shadows.prismCard)
+                } else {
+                    shape.fill(fill)
+                }
+            }
             .overlay {
                 if selected { shape.strokeBorder(PrismDarkGap.listCardEdge(scheme, focused: focused), lineWidth: 1) }
             }
             .contentShape(shape)
             .onHover { hovering = $0 }
-            .padding(.vertical, Prism.Spacing.px3)
-            .padding(.horizontal, Prism.Spacing.px10)
-            .background(PrismDarkGap.listGround(scheme))
+            .padding(.horizontal, raised ? Prism.Spacing.px13 : Prism.Spacing.px10)
+            .padding(.top, raised ? Prism.Spacing.px10 : Prism.Spacing.px3)
+            .padding(.bottom, raised ? Prism.Spacing.px19 : Prism.Spacing.px3)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
@@ -461,13 +506,15 @@ struct KindIcon: View {
 struct ItemBlockView: View {
     let item: ItemBlock
     var inDetails = false
+    var detailHeading = false
     let act: (ActionModel) -> Void
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let content = VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             if let title = item.title, !title.isEmpty {
-                Text(title).prism(inDetails ? Prism.Typography.label : Prism.Typography.title7)
+                Text(title).prism(inDetails ? Prism.Typography.label
+                                  : detailHeading ? Prism.Typography.title6 : Prism.Typography.title5)
             }
             // The actions first: the next step is in reach without scrolling.
             ActionsView(actions: PageActions.ofBlock(item.actions), act: act)
@@ -477,7 +524,7 @@ struct ItemBlockView: View {
                         Text(label).prism(Prism.Typography.label)
                             .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
-                    Text(field.value ?? "—").prism(Prism.Typography.bodysmall)
+                    FormattedText(text: field.value ?? "—", format: field.format).prism(Prism.Typography.bodysmall)
                         .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.primary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -537,3 +584,34 @@ struct FallbackView: View {
         }
     }
 }
+
+#if DEBUG
+struct NestedListPreview: PreviewProvider {
+    static var previews: some View {
+        let blocks: [JSONValue] = [
+            .object(["id": .string("card"), "type": .string("item"), "props": .object([
+                "title": .string("Decision"), "fields": .array([
+                    .object(["label": .string("Status"), "value": .string("Accepted")])
+                ])
+            ])]),
+            .object(["id": .string("verdicts"), "type": .string("list"), "props": .object([
+                "rows": .array([
+                    .object(["label": .string("accept_decision"), "kind": .string("Gate verdict"),
+                             "key": .string("GV-0178"), "to": .string("/verdict/1")]),
+                    .object(["label": .string("accept_decision"), "kind": .string("Gate verdict"),
+                             "key": .string("GV-0177"), "to": .string("/verdict/2")])
+                ])
+            ])])
+        ]
+        let markup: [JSONValue] = [
+            .object(["kind": .string("section"), "start": .string("verdicts"), "end": .string("verdicts"),
+                     "props": .object(["title": .string("Gate verdicts")])])
+        ]
+        return PageView(page: PageMessage(blocks: blocks.map(Block.init(raw:)),
+                                          markup: markup.map(MarkupEntry.init(raw:)),
+                                          path: "/preview", title: "Decision"),
+                        header: true, open: { _ in })
+            .frame(width: 700, height: 500)
+    }
+}
+#endif

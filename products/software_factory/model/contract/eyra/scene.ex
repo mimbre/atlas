@@ -79,7 +79,12 @@ defmodule Model.Scene do
     """ do
     icon(:frame)
     field(:title, :string, required: true, description: "Without the code (Flux: name)")
-    field(:description, :string, description: "The text (Flux: description)", multiline: true)
+
+    field(:description, :string,
+      description: "The text (Flux: description)",
+      multiline: true,
+      format: "markdown"
+    )
 
     field(:flux_id, :string,
       unique: true,
@@ -169,6 +174,41 @@ defmodule Model.Scene do
             record: :proposal
           ]
         ]
+      ]
+    )
+
+    page(
+      state: [:phase, :status],
+      intro: [field: :description],
+      sections: [:questions, :answers, :note],
+      items: [
+        relation: :in_scene,
+        empty: [
+          pick_up: "Once someone picks up its Design, its agent proposes the use cases here.",
+          break_down:
+            "Design's agent is working out the use cases; they show here once it proposes them.",
+          clarifying:
+            "Design's agent asked its producer questions first; once they are answered, it proposes the use cases.",
+          accepting: "Design proposed no use cases: decline it with a note to try again.",
+          building: "Design starts again to propose its use cases."
+        ]
+      ],
+      details: [
+        [title: "Design", fields: [:questions, :answers, :note]],
+        [title: "People", relations: [:produced_by, :assigned_to, :accepted_by]],
+        [
+          title: "Progress",
+          fields: [
+            :phase,
+            :status,
+            :children,
+            :open_children,
+            :verdict,
+            :task_result,
+            :pass_result
+          ]
+        ],
+        [title: "Scene", fields: [:title, :description, :flux_id]]
       ]
     )
   end

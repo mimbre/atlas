@@ -91,6 +91,24 @@ defmodule RelaDSL.Description.ChecksTest do
     assert selects(c) == []
   end
 
+  test "panel detail groups validate their fields and relations" do
+    panel = fn groups ->
+      concept(
+        entity: ~s(panel open: [heading: "Review", title: "Review", detail_groups: #{groups}])
+      )
+    end
+
+    assert checked(panel.("[[title: \"Details\", fields: [:title], relations: [:kept_by]]]")) ==
+             []
+
+    assert {:unknown_field, ["thing", "missing"]} in checked(
+             panel.("[[title: \"Details\", fields: [:missing]]]")
+           )
+
+    assert checked(panel.("[[title: \"Details\", relations: [:missing]]]")) != []
+    assert checked(panel.("[[fields: [:title]]]")) != []
+  end
+
   # IS-Atlas-70: a create links who puts the fact in through a relation from its kind, to
   # one fact at most, that nobody sets by hand; anything else is refused where it is said.
   test "a create's producer is a relation from the kind, to one, that nobody sets by hand" do
@@ -143,6 +161,55 @@ defmodule RelaDSL.Description.ChecksTest do
     assert Enum.find(kinds, &(&1.name == "thing")).icon == "thing"
     assert Enum.find(kinds, &(&1.name == "keeper")).icon == nil
     assert checked(concept(entity: "icon 3")) == [{:icon, ["thing"]}]
+  end
+
+  test "a page declares its fields, incoming items and empty labels" do
+    c =
+      concept(
+        entity:
+          ~s(page state: [:state], intro: [field: :title], sections: [:title], items: [relation: :contains, empty: [open: "Nothing yet"]], details: [[title: "Information", fields: [:title], relations: [:contains]]]),
+        concept: ~s(relation :contains, label: "contains", from: [:keeper], to: [:thing])
+      )
+
+    assert shape(c) == []
+    assert checked(c) == []
+    kinds = RelaDSL.Control.Model.kinds(RelaDSL.Control.Model.merge(c.schema, c.extension))
+
+    assert Enum.find(kinds, &(&1.name == "thing")).page == %{
+             "state" => ["state"],
+             "intro" => %{"field" => "title"},
+             "sections" => ["title"],
+             "items" => %{"relation" => "contains", "empty" => %{"open" => "Nothing yet"}},
+             "details" => [
+               %{"title" => "Information", "fields" => ["title"], "relations" => ["contains"]}
+             ]
+           }
+
+    assert Enum.find(kinds, &(&1.name == "keeper")).page == nil
+
+    assert checked(concept(entity: "page state: [:colour]")) ==
+             [{:unknown_field, ["thing", "colour"]}]
+
+    assert checked(concept(entity: "page sections: [:colour]")) ==
+             [{:unknown_field, ["thing", "colour"]}]
+
+    assert checked(concept(entity: "page items: [relation: :kept_by]")) ==
+             [{:relation_end, ["kept_by", "to", "thing"]}]
+
+    assert checked(concept(entity: "page details: [[title: \"Bad\", fields: [:colour]]]")) ==
+             [{:unknown_field, ["thing", "colour"]}]
+
+    assert checked(concept(entity: "page shape: 3")) == [{:unknown_keys, ["shape"]}]
+
+    for declaration <- [
+          "page state: :state",
+          "page sections: :title",
+          "page intro: 3",
+          "page items: 3",
+          "page items: [relation: :kept_by, empty: 3]"
+        ] do
+      assert Enum.any?(checked(concept(entity: declaration)), &(elem(&1, 0) == :page))
+    end
   end
 
   test "each leaf has one author, and each rule is given once" do

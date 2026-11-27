@@ -7,9 +7,7 @@ import Prism
 import SwiftUI
 import XCTest
 
-/// The sidebar in Next's style: a count's badge by what it means (none at 0), a tab's icon
-/// from the name Control sends (none for a name the app does not know), and groups
-/// indented under their tab, one size smaller.
+/// The sidebar's top-level tabs and their counts.
 final class SidebarTests: XCTestCase {
     private static func line(_ object: [String: Any]) -> Data {
         try! JSONSerialization.data(withJSONObject: object) + Data("\n".utf8)
@@ -38,10 +36,7 @@ final class SidebarTests: XCTestCase {
     private static var tabs: [[String: Any]] {
         [
             ["id": "assigned", "label": "Assigned to you", "to": "/", "section": "work", "icon": "assigned",
-             "count": 3, "for_you": true,
-             "groups": [["label": "Decisions", "to": "/_g/assigned/decision", "count": 2, "for_you": true,
-                         "icon": "scales"],
-                        ["label": "To-Dos", "to": "/_g/assigned/to_do", "count": 0, "for_you": true]]],
+             "count": 3, "for_you": true],
             ["id": "open", "label": "Open for you", "to": "/_open", "section": "work", "icon": "open", "count": 4,
              "for_you": false],
             ["id": "scenes", "label": "Scenes", "to": "/k/scene", "section": "browse", "icon": "something-new"],
@@ -55,14 +50,13 @@ final class SidebarTests: XCTestCase {
         XCTAssertNil(SidebarLook.badge(count: 0, forYou: false))
         XCTAssertNil(SidebarLook.badge(count: nil, forYou: true))
 
-        // What boot says reaches the rows: Assigned to you's count and its groups' wait for
-        // you; Open for you's is plain.
+        // Boot's tab counts retain their meaning.
         let shell = Self.shell(Self.tabs)
         XCTAssertEqual(shell.name, "Ada")
-        let badges = SidebarItem.rows(shell, section: "work", folded: []).map {
+        let badges = SidebarItem.rows(shell, section: "work").map {
             SidebarLook.badge(count: $0.count, forYou: $0.forYou)
         }
-        XCTAssertEqual(badges, [.forYou(3), .forYou(2), nil, .plain(4)])
+        XCTAssertEqual(badges, [.forYou(3), .plain(4)])
     }
 
     func testAnIconNameMapsToASymbolAndAnUnknownOneToNone() {
@@ -78,11 +72,10 @@ final class SidebarTests: XCTestCase {
         XCTAssertNil(SidebarLook.symbol("something-new"))
         XCTAssertNil(SidebarLook.symbol(nil))
 
-        // A group of one kind carries its kind's icon, as its rows and its page's header.
-        let work = SidebarItem.rows(Self.shell(Self.tabs), section: "work", folded: [])
-        XCTAssertEqual(work.map(\.icon), ["assigned", "scales", nil, "open"])
+        let work = SidebarItem.rows(Self.shell(Self.tabs), section: "work")
+        XCTAssertEqual(work.map(\.icon), ["assigned", "open"])
 
-        let browse = SidebarItem.rows(Self.shell(Self.tabs), section: "browse", folded: [])
+        let browse = SidebarItem.rows(Self.shell(Self.tabs), section: "browse")
         XCTAssertEqual(browse.map(\.label), ["Scenes"])
         XCTAssertNil(SidebarLook.symbol(browse[0].icon))
     }
@@ -109,8 +102,8 @@ final class SidebarTests: XCTestCase {
     @MainActor
     func testATabWithoutAnIconKeepsTheIconColumn() {
         func width(_ icon: String?) -> CGFloat {
-            let item = SidebarItem(id: .tab("t"), label: "Workers", icon: icon, count: nil, forYou: false, open: nil)
-            return NSHostingView(rootView: SidebarRow(item: item, selected: false, stale: false, select: {}, fold: {}))
+            let item = SidebarItem(id: .tab("t"), label: "Workers", icon: icon, count: nil, forYou: false)
+            return NSHostingView(rootView: SidebarRow(item: item, selected: false, stale: false, select: {}))
                 .fittingSize.width
         }
         XCTAssertEqual(width(nil), width("workers"))
@@ -118,22 +111,27 @@ final class SidebarTests: XCTestCase {
     }
     #endif
 
-    func testGroupsAreIndentedUnderTheirTabOneSizeSmallerAndFoldAway() {
-        let shell = Self.shell(Self.tabs)
-        let rows = SidebarItem.rows(shell, section: "work", folded: [])
-        XCTAssertEqual(rows.map(\.id), [.tab("assigned"), .group("/_g/assigned/decision"),
-                                        .group("/_g/assigned/to_do"), .tab("open")])
-        XCTAssertEqual(rows.map(\.isGroup), [false, true, true, false])
-        XCTAssertEqual(rows[0].open, true)
+    func testSidebarContainsOnlyTopLevelTabs() {
+        let rows = SidebarItem.rows(Self.shell(Self.tabs), section: "work")
+        XCTAssertEqual(rows.map(\.id), [.tab("assigned"), .tab("open")])
+    }
 
-        XCTAssertEqual(SidebarLook.indent(group: false), 0)
-        XCTAssertGreaterThan(SidebarLook.indent(group: true), 0)
-        XCTAssertLessThan(SidebarLook.typography(group: true).size, SidebarLook.typography(group: false).size)
-        XCTAssertEqual(SidebarLook.typography(group: false).emphasis, .strong)
-
-        let folded = SidebarItem.rows(shell, section: "work", folded: ["assigned"])
-        XCTAssertEqual(folded.map(\.id), [.tab("assigned"), .tab("open")])
-        XCTAssertEqual(folded[0].open, false)
+    @MainActor
+    func testPageGroupsKeepControlDestinationsCountsAndActiveState() {
+        let raw: JSONValue = .object(["type": .string("groups"), "props": .object([
+            "groups": .array([
+                .object(["label": .string("All"), "to": .string("/"), "count": .number(3), "active": .bool(true)]),
+                .object(["label": .string("Decisions"), "to": .string("/_g/assigned/decision"), "count": .number(2)])
+            ])
+        ])])
+        let page = PageMessage(blocks: [Block(raw: raw)], path: "/", title: "Assigned")
+        guard case .groups(let block) = page.blocks?.first?.content else { return XCTFail("groups missing") }
+        let filters = GroupFilters(groups: block, selected: "/", filter: { _ in })
+        XCTAssertEqual(PagePresentation(page).entries.count, 1)
+        XCTAssertEqual(filters.groups.map(\.to), ["/", "/_g/assigned/decision"])
+        XCTAssertEqual(filters.groups.map(\.count), [3, 2])
+        XCTAssertEqual(filters.groups.first?.active, true)
+        XCTAssertEqual(filters.selected, "/")
     }
 
     /// The foot marks only an environment that is not production: production is the plain

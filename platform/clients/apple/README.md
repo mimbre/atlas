@@ -21,12 +21,21 @@ Xcode app target and signing (S8). The macOS app is built as a SwiftPM executabl
 the small local development bundle helper below provides Finder/Dock launch before S8.
 Command copy icons use a semibold SF Symbol for visibility.
 
+The Mac sidebar contains only top-level destinations. The current index page's Control
+`groups` are selectable Prism-styled pills above its list, with their counts and a
+horizontally scrollable layout when they do not fit.
+
 Toolbar actions are icon-only with descriptive tooltips and accessibility labels. On the
 page, explicitly main answers precede secondary answers and have no icon; unweighted
 actions are not promoted merely because they are first. When a row of answers sits between
 a stack of cards and details below, its lower spacing matches the cards' shadow room above.
 When a details part contains a collapsible section, its disclosure sits outside a surrounding
 details card and its revealed blocks keep their own presentation.
+Item pages show a header's optional state and current age beneath its title and a list's
+optional progress aside alongside its heading.
+Overview lists keep their own ground; list rows on opened pages, including under section
+headings, sit on the page background as individually shadowed cards with room for their
+shadows. Rows inside a recessed details card stay unshadowed.
 
 ## Build, test, run
 

@@ -240,9 +240,7 @@ public struct SessionState: Sendable, Equatable {
     public private(set) var notice: NoticeMessage?
     public private(set) var lastUpdate: Update?
     public private(set) var lastHint: Update?
-    /// The last count of each tab and group, by its `to`, as boot or a page's `groups` said
-    /// it, whichever came last: what the sidebar shows under every tab, also before it is
-    /// opened.
+    /// The last count by destination, from boot's tabs or a page's groups.
     public private(set) var groupCounts: [String: Int] = [:]
     /// A submit is sent and Control has not replied to it (a page stored or refused, one
     /// opened since, or a notice that answers it); another waits until it has.
@@ -689,9 +687,6 @@ public struct SessionState: Sendable, Equatable {
             bootFailure = nil
             for tab in shell.tabs ?? [] {
                 if let to = tab.to, let count = tab.count { groupCounts[to] = count }
-                for group in tab.groups ?? [] {
-                    if let to = group.to, let count = group.count { groupCounts[to] = count }
-                }
             }
             if phase == .boot { return start(shell) }
             return keepTab(shell)
@@ -725,7 +720,7 @@ public struct SessionState: Sendable, Equatable {
         guard let activeTab, (shell.tabs ?? []).contains(where: { $0.id == activeTab }) else {
             self.activeTab = shell.activeTab
             guard !isEditing, expected == nil else { return [] }
-            if let index, Self.tab(showing: index.path, in: shell) != nil { return [] }
+            if let index, Self.tab(showing: index, in: shell) != nil { return [] }
             opened = nil
             draft = [:]
             index = nil
@@ -774,7 +769,11 @@ public struct SessionState: Sendable, Equatable {
             guard reason == .open else { return [] }
             if let effects = newerWish() { return effects }
             // The page asked for (Control may answer another path: a redirect).
-            show(page, reason, in: expectedColumn)
+            let isGroupPage = shell.map { Self.tab(showing: page, in: $0) != nil } == true
+                && (page.blocks ?? []).contains { if case .groups = $0.content { true } else { false } }
+            let column: Column = isGroupPage ? .index : expectedColumn
+            if column == .index { opened = nil }
+            show(page, reason, in: column)
             expected = nil
             inFlight = nil
             // An open after a submit: Control shows the page opened, not the submit's.
@@ -857,13 +856,17 @@ public struct SessionState: Sendable, Equatable {
     /// The tab whose index page is in the middle column: its own page or one of its groups.
     private mutating func syncActiveTab() {
         guard let shell, let index else { return }
-        if let tab = Self.tab(showing: index.path, in: shell) { activeTab = tab.id }
+        if let tab = Self.tab(showing: index, in: shell) { activeTab = tab.id }
     }
 
-    /// The tab that shows `path` in the middle column: the tab's page, or one of its groups.
+    /// A direct tab destination wins; a filtered page names its parent tab in `back`.
+    static func tab(showing page: PageMessage, in shell: Shell) -> ShellTabModel? {
+        tab(showing: page.path, in: shell) ?? tab(showing: page.back, in: shell)
+    }
+
     static func tab(showing path: String?, in shell: Shell) -> ShellTabModel? {
         guard let path else { return nil }
-        return (shell.tabs ?? []).first { $0.to == path || ($0.groups ?? []).contains { $0.to == path } }
+        return (shell.tabs ?? []).first { $0.to == path }
     }
 
     // MARK: What the user does
@@ -879,15 +882,10 @@ public struct SessionState: Sendable, Equatable {
         return navigate(to, column: .index)
     }
 
-    /// Show one group of a tab's page in the middle column, on that tab (any tab's group
-    /// may be chosen, from anywhere).
+    /// Show a page's group in the middle column.
     private mutating func filter(_ to: String) -> [Effect] {
         guard connection == .connected, phase == .ready || phase == .content else { return [] }
         guard !isEditing else { return [] }
-        if let shell, let tab = Self.tab(showing: to, in: shell), tab.id != activeTab {
-            activeTab = tab.id
-            index = nil
-        }
         opened = nil
         draft = [:]
         return navigate(to, column: .index)

@@ -162,6 +162,91 @@ defmodule RelaDSL.Description.Check do
 
   defp text?(v), do: is_binary(v) and String.trim(v) != ""
 
+  defp page_rule(_ctx, _kind, nil, _path), do: []
+
+  defp page_rule(ctx, kind, page, path) when is_map(page) do
+    keys(page, ~w(state intro sections items details), path) ++
+      page_names(ctx, kind, page["state"], path ++ ["state"]) ++
+      page_intro(ctx, kind, page["intro"], path ++ ["intro"]) ++
+      page_names(ctx, kind, page["sections"], path ++ ["sections"]) ++
+      page_items(ctx, kind, page["items"], path ++ ["items"]) ++
+      page_detail_groups(ctx, kind, page["details"], path ++ ["details"])
+  end
+
+  defp page_rule(_ctx, kind, _page, path),
+    do: p(path, :page, [kind], "#{kind}.page: expected a map")
+
+  defp page_names(_ctx, _kind, nil, _path), do: []
+
+  defp page_names(ctx, kind, names, path) when is_list(names),
+    do: Enum.flat_map(names, &field(ctx, kind, &1, path))
+
+  defp page_names(_ctx, kind, _names, path),
+    do: p(path, :page, [kind], "#{Enum.join(path, ".")}: expected a list")
+
+  defp page_detail_groups(_ctx, _kind, nil, _path), do: []
+
+  defp page_detail_groups(ctx, kind, groups, path) when is_list(groups) do
+    Enum.flat_map(groups, fn group ->
+      if is_map(group) do
+        keys(group, ~w(title fields relations), path) ++
+          if(text?(group["title"]), do: [], else: p(path, :page, [kind], "details need a title")) ++
+          page_names(ctx, kind, group["fields"], path ++ ["fields"]) ++
+          page_detail_relations(ctx, kind, group["relations"], path ++ ["relations"])
+      else
+        p(path, :page, [kind], "details must be a list of groups")
+      end
+    end)
+  end
+
+  defp page_detail_groups(_ctx, kind, _groups, path),
+    do: p(path, :page, [kind], "details must be a list of groups")
+
+  defp page_detail_relations(_ctx, _kind, nil, _path), do: []
+
+  defp page_detail_relations(ctx, kind, names, path) when is_list(names) do
+    Enum.flat_map(names, fn name ->
+      if rel(ctx, name), do: [], else: p(path, :page, [kind, name], "unknown relation")
+    end)
+  end
+
+  defp page_detail_relations(_ctx, kind, _names, path),
+    do: p(path, :page, [kind], "details relations must be a list")
+
+  defp page_intro(_ctx, _kind, nil, _path), do: []
+
+  defp page_intro(ctx, kind, intro, path) when is_map(intro) do
+    keys(intro, ~w(field), path) ++
+      field(ctx, kind, intro["field"], path ++ ["field"])
+  end
+
+  defp page_intro(_ctx, kind, _intro, path),
+    do: p(path, :page, [kind], "page intro must be a map")
+
+  defp page_items(_ctx, _kind, nil, _path), do: []
+
+  defp page_items(ctx, kind, items, path) when is_map(items) do
+    keys(items, ~w(relation empty), path) ++
+      relation(ctx, items["relation"], kind, "to", path ++ ["relation"]) ++
+      page_empty(kind, items["empty"], path ++ ["empty"])
+  end
+
+  defp page_items(_ctx, kind, _items, path),
+    do: p(path, :page, [kind], "page items must be a map")
+
+  defp page_empty(_kind, nil, _path), do: []
+
+  defp page_empty(kind, empty, path) when is_map(empty) do
+    Enum.flat_map(empty, fn {state, label} ->
+      if text?(state) and text?(label),
+        do: [],
+        else: p(path, :page, [kind], "page empty states and labels must be text")
+    end)
+  end
+
+  defp page_empty(kind, _empty, path),
+    do: p(path, :page, [kind], "page empty must be a map")
+
   # -- Root constructs -----------------------------------------------------------------
 
   defp guidance(%{x: %{"guidance" => g}} = ctx) do
@@ -451,7 +536,7 @@ defmodule RelaDSL.Description.Check do
 
     keys(
       spec,
-      ~w(top primary plural_label icon start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options panel),
+      ~w(top primary plural_label icon start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options panel page),
       path
     ) ++
       navigation(spec["start"], at.("start")) ++
@@ -485,7 +570,7 @@ defmodule RelaDSL.Description.Check do
       create(ctx, kind, spec["create"], at.("create")) ++
       Enum.flat_map(spec["properties"] || %{}, fn {name, note} ->
         field(ctx, kind, name, at.("properties")) ++
-          keys(note, ~w(set_by multiline label cause), at.("properties") ++ [name])
+          keys(note, ~w(set_by multiline label cause format), at.("properties") ++ [name])
       end) ++
       late(ctx, kind, spec["late"], at.("late")) ++
       Enum.flat_map(List.wrap(spec["counts"]), fn c ->
@@ -512,6 +597,7 @@ defmodule RelaDSL.Description.Check do
       end) ++
       decision_options(ctx, kind, spec["decision_options"], at.("decision_options")) ++
       panels(ctx, kind, spec["panel"], at.("panel")) ++
+      page_rule(ctx, kind, spec["page"], at.("page")) ++
       authority(ctx, kind, spec["authority"], at.("authority")) ++
       layering(ctx, kind, spec["layering"], at.("layering")) ++
       frozen(ctx, kind, spec["frozen"], at.("frozen")) ++
@@ -529,13 +615,14 @@ defmodule RelaDSL.Description.Check do
 
       keys(
         panel,
-        ~w(heading title records byline items checks box choose details actions links),
+        ~w(heading title records byline items checks box choose details detail_groups actions links),
         at
       ) ++
         if(text?(panel["heading"]) and text?(panel["title"]),
           do: [],
           else: p(at, :panel, [kind], "#{kind}.panel.#{state}: expected its heading and title")
         ) ++
+        page_detail_groups(ctx, kind, panel["detail_groups"], at ++ ["detail_groups"]) ++
         Enum.flat_map(
           panel["records"] || %{},
           &keys(elem(&1, 1), ~w(relation where), at ++ ["records"])

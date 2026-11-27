@@ -56,6 +56,14 @@ final class WindowLayoutTests: XCTestCase {
         XCTAssertFalse(WindowLayout.showsSidebar(window: 800))
     }
 
+    func testLongRoutePartWrapsInsideNarrowColumn() {
+        let part = "Open the very long developer certificate settings in the system configuration"
+        func height(_ width: CGFloat) -> CGFloat {
+            NSHostingView(rootView: RouteLine(parts: [part]).frame(width: width)).fittingSize.height
+        }
+        XCTAssertGreaterThan(height(140), height(350) + 20)
+    }
+
     private static let row: JSONValue = .object(["id": .string("W-01"), "label": .string("One")])
     private static let list: JSONValue = .object(["id": .string("list"), "type": .string("list"),
                                                   "props": .object(["title": .string("Widgets"), "rows": .array([row])])])
@@ -64,6 +72,31 @@ final class WindowLayoutTests: XCTestCase {
     private static let details: JSONValue = .object([
         "kind": .string("part"), "start": .string("item"), "end": .string("item"),
         "props": .object(["title": .string("Details"), "role": .string("details")])])
+
+    func testOnlyAnOverviewUsesListGround() {
+        let list = PageMessage(blocks: [Block(raw: Self.list)], markup: [], path: "/k/widget", title: "Widgets")
+        let details = PageMessage(blocks: [Block(raw: Self.list), Block(raw: Self.item)],
+                                  markup: [MarkupEntry(raw: Self.details)], path: "/k/widget/W-01", title: "W-01")
+        let header = JSONValue.object(["id": .string("header"), "type": .string("header"),
+                                       "props": .object(["title": .string("Widget")])])
+        let headed = PageMessage(blocks: [Block(raw: header), Block(raw: Self.list)], markup: [],
+                                 path: "/k/widget/W-01", title: "Widget")
+
+        XCTAssertTrue(PageView(page: list, open: { _ in }).listPage)
+        XCTAssertFalse(PageView(page: list, header: true, open: { _ in }).listPage)
+        XCTAssertFalse(PageView(page: details, open: { _ in }).listPage)
+        XCTAssertFalse(PageView(page: headed, open: { _ in }).listPage)
+    }
+
+    func testPageRowHoverAndSelectionKeepTheirOwnColors() {
+        for scheme in [ColorScheme.light, .dark] {
+            let normal = PrismDarkGap.listCard(scheme, selected: false, focused: true, hovering: false)
+            let hover = PrismDarkGap.listCard(scheme, selected: false, focused: true, hovering: true)
+            let selected = PrismDarkGap.listCard(scheme, selected: true, focused: true, hovering: false)
+            XCTAssertNotEqual(normal, hover)
+            XCTAssertNotEqual(normal, selected)
+        }
+    }
 
     func testAPageStartsAtTheLeftAtMostAPageWide() {
         let page = PageMessage(blocks: [Block(raw: Self.list)], markup: [], path: "/k/widget", title: "Widgets")

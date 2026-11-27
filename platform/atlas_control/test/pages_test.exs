@@ -788,6 +788,28 @@ defmodule AtlasControl.PagesTest do
            }
   end
 
+  test "formatted fields remain in the item for older clients" do
+    notes = "# Heading\n\n- one\n- two"
+    answer = %{"fact" => fact("W-01", %{"title" => "One", "notes" => notes})}
+
+    catalog = fn format ->
+      update_in(@d, [:kinds, "widget", :fields], fn fields ->
+        Enum.map(fields, fn field ->
+          if field.name == "notes", do: Map.put(field, :format, format), else: field
+        end)
+      end)
+    end
+
+    for format <- ["markdown", nil, "future-format"] do
+      %{blocks: blocks} = render({:item, "widget", "W-01"}, catalog.(format), [answer])
+      item = Enum.find(blocks, &(&1["id"] == "item"))
+      pair = Enum.find(item["props"]["fields"], &(&1["label"] == "Notes"))
+      assert pair["value"] == notes
+      assert pair["format"] == format
+      if is_nil(format), do: refute(Map.has_key?(pair, "format"))
+    end
+  end
+
   test "a field only a connector fills shows on the page only when it has a value" do
     labels = fn values ->
       %{blocks: [%{"props" => item} | _]} =
@@ -2301,6 +2323,7 @@ defmodule AtlasControl.PagesTest do
       page = render_run({:assigned, "K-1"}, @assigning, "open", answers)
 
     list = by_id(page)["list"]
+    refute Map.has_key?(list, "title")
 
     # Oldest waiting first, one that says no since last; a completed one is not there;
     # what is to be done in it.
@@ -2326,14 +2349,17 @@ defmodule AtlasControl.PagesTest do
       page = render_run(part, @assigning, "open", answers)
 
     assert [%{"to" => "/k/part/P-1"}] = by_id(page)["list"]["rows"]
+    refute Map.has_key?(by_id(page)["list"], "title")
 
-    # Nothing kept: the groups and the empty list.
+    # Nothing kept: show the empty list without a filter that has no alternative.
     page =
       render_run({:assigned, "K-1"}, @assigning, "open", [%{"facts" => []}, %{"facts" => []}])
 
-    assert Enum.map(page.blocks, & &1["id"]) == ["groups", "list"]
+    refute by_id(page)["groups"]
+    assert page.console_actions == []
     assert page.markup == []
     empty = by_id(page)["list"]
+    refute Map.has_key?(empty, "title")
     assert empty["rows"] == [] and empty["empty"] == "Nothing is kept by you."
   end
 

@@ -54,7 +54,12 @@ defmodule Model.UseCase do
     """ do
     icon(:route)
     field(:title, :string, required: true, description: "Without the code (Flux: name)")
-    field(:description, :string, description: "The text (Flux: description)", multiline: true)
+
+    field(:description, :string,
+      description: "The text (Flux: description)",
+      multiline: true,
+      format: "markdown"
+    )
 
     field(:flux_id, :string,
       unique: true,
@@ -156,6 +161,24 @@ defmodule Model.UseCase do
             [label: "What", field: :description, before: "Done when:"],
             [label: "Done", field: :description, after: "Done when:"],
             [label: "Needs", earlier: true]
+          ]
+        ],
+        detail_groups: [
+          [title: "Use case", fields: [:description, :design, :note]],
+          [title: "Plan discussion", fields: [:supervisor_note, :questions, :answers]],
+          [title: "People", relations: [:produced_by, :assigned_to, :accepted_by]],
+          [
+            title: "Progress",
+            fields: [
+              :phase,
+              :status,
+              :children,
+              :open_children,
+              :verdict,
+              :task_result,
+              :pass_result,
+              :gate_result
+            ]
           ]
         ],
         actions: [

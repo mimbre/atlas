@@ -889,7 +889,6 @@ defmodule AtlasControl.Pages do
 
     list =
       Blocks.list(
-        title: rule.title || "",
         rows:
           work_order(
             for {from, fact, link} = item <- items do
@@ -1268,8 +1267,8 @@ defmodule AtlasControl.Pages do
   The groups of a screen, from the model alone, each a filter of it: `[{key, label}]`.
   What is assigned (`:assigned`) per kind of the facts the assignments are components of
   (else per kind they start at); Open for you and Supervised by you per supervised span,
-  keyed `{subflow, span}`. A group's page is `{:group, screen, key, by}`; the shell offers
-  the same groups under the page's tab (`AtlasControl.Shell`).
+  keyed `{subflow, span}`. A group's page is `{:group, screen, key, by}`; list pages
+  expose these destinations in their `groups` blocks.
   """
   def groups(m, :assigned) do
     case assigned_rule(m) do
@@ -1780,6 +1779,7 @@ defmodule AtlasControl.Pages do
     Blocks.action(
       label: label,
       key: key,
+      icon: if(verb == :remove_item, do: "remove"),
       to: path(route),
       button: button(label),
       help: @supervision_help[verb]
@@ -1890,9 +1890,16 @@ defmodule AtlasControl.Pages do
         nil -> {title, nil}
       end
 
+    {blocks, actions} =
+      case groups do
+        [_] -> {blocks, []}
+        _ -> {[{"groups", Blocks.groups(groups: groups)} | blocks], group_actions(groups)}
+      end
+
     title
-    |> page(back, [{"groups", Blocks.groups(groups: groups)} | blocks])
-    |> Map.put(:console_actions, group_actions(groups))
+    |> page(back, blocks)
+    |> Map.put(:console_actions, actions)
+    |> Map.put(:group_total, Enum.sum(Map.values(counts)))
   end
 
   # The Console's way through a page's groups: `[` opens the previous, `]` the next.
@@ -2337,6 +2344,155 @@ defmodule AtlasControl.Pages do
           ] ++ sections
 
         cond do
+          is_map(Map.get(k, :page)) and Map.drop(k.page, ["details"]) != %{} ->
+            spec = k.page
+
+            {_tone, since} =
+              status(fact, for({_, _, part, _} <- parts, do: part) ++ [fact], form[:by])
+
+            state =
+              for name <- List.wrap(spec["state"]),
+                  f = field(k, name),
+                  f != nil,
+                  value = fact["values"][name],
+                  value not in [nil, ""],
+                  do: show(f, value)
+
+            intro = get_in(spec, ["intro", "field"])
+            text = if intro, do: to_text(fact["values"][intro]), else: ""
+            related = Enum.zip(relations, child_answers)
+            item_relation = get_in(spec, ["items", "relation"])
+
+            item_state =
+              if in_span?(m, kind, work) and supervisor(work) == [] and
+                   work["waiting_for"] == nil,
+                 do: "pick_up",
+                 else: work["state"]
+
+            {primary, remaining} =
+              related
+              |> Enum.map(fn {{relation, from, r} = rel, child_answer} ->
+                {title, list} = child_list(m, rel, child_answer, false, form[:by])
+                id = list_id(relation, from, r)
+                rows = list["props"]["rows"]
+                list = put_in(list, ["props", "title"], title)
+
+                list =
+                  if relation == item_relation do
+                    empty =
+                      if match?(%{"facts" => facts} when is_list(facts), child_answer),
+                        do:
+                          get_in(spec, ["items", "empty", item_state]) || list["props"]["empty"],
+                        else: list["props"]["empty"]
+
+                    list
+                    |> put_in(["props", "empty"], empty)
+                    |> put_in(
+                      ["props", "aside"],
+                      if(rows == [],
+                        do: nil,
+                        else:
+                          "#{Enum.count(rows, &(&1["tone"] == "done"))} of #{length(rows)} done"
+                      )
+                    )
+                  else
+                    list
+                  end
+
+                {relation == item_relation, {id, {title, list}}}
+              end)
+              |> Enum.split_with(&elem(&1, 0))
+
+            primary = Enum.map(primary, &elem(&1, 1))
+
+            remaining =
+              Enum.map(remaining, &elem(&1, 1)) ++
+                cause_lists(m, key, cause_answers, form[:by]) ++
+                parent_lists(m, kind, fact) ++
+                Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
+                  parent_lists(m, part_kind, part)
+                end)
+
+            header =
+              Blocks.header(
+                eyebrow: String.upcase(k.label),
+                key: key,
+                title: label(k, fact),
+                icon: kind_icon(m, kind),
+                detail: if(state == [], do: nil, else: Enum.join(state, " · ")),
+                since: since
+              )
+
+            # Keep the existing proposal panel and its navigation, including its answer actions.
+            panel_blocks =
+              if panel do
+                {block, _listed} = panel_block(m, kind, key, fact, todo, panel, related)
+                [{"panel", block}]
+              else
+                []
+              end
+
+            todo_blocks = if todo && !panel, do: [{"todo", todo_item(todo)}], else: []
+
+            panel_keys =
+              for {"panel", block} <- panel_blocks,
+                  answer <- block["props"]["answers"] || [],
+                  do: answer["key"]
+
+            remaining_next = Enum.reject(next, &(&1["key"] in panel_keys))
+
+            answer_blocks =
+              if remaining_next == [],
+                do: [],
+                else: [{"answers", answers_block(remaining_next, (todo && todo.answers) || [])}]
+
+            detail_blocks = page_detail_blocks(m, k, spec, item)
+
+            content =
+              [{"header", header}] ++
+                if(text == "",
+                  do: [],
+                  else: [
+                    {"intro",
+                     Blocks.text(text: text, format: Map.get(field(k, intro) || %{}, :format))}
+                  ]
+                ) ++
+                for(
+                  name <- List.wrap(spec["sections"]),
+                  f = field(k, name),
+                  f != nil,
+                  value = fact["values"][name],
+                  value not in [nil, ""],
+                  do:
+                    {"section-" <> name,
+                     Blocks.text(
+                       label: f.label,
+                       text: to_text(value),
+                       format: Map.get(f, :format)
+                     )}
+                ) ++
+                todo_blocks ++
+                for({id, {_title, list}} <- primary, do: {id, list}) ++
+                panel_blocks ++
+                answer_blocks ++
+                others_block(more) ++
+                detail_blocks ++
+                for({id, {_title, list}} <- remaining, do: {id, list})
+
+            markup =
+              if(spec["details"],
+                do: [],
+                else: [
+                  Blocks.part("item", List.last(["item" | Enum.map(remaining, &elem(&1, 0))]),
+                    title: "Details",
+                    role: "details"
+                  )
+                ]
+              ) ++
+                for({id, {title, _list}} <- remaining, do: Blocks.section(id, id, title: title))
+
+            page("#{k.label} #{key}", back, content, markup)
+
           deciding and todo.section[:steps] != nil ->
             # A to-do with steps, as a stack of simple blocks: its header, why, each step,
             # its answers and the page's next steps; what is judged; then the details,
@@ -2354,15 +2510,22 @@ defmodule AtlasControl.Pages do
               end)
               |> put_in(["props", "actions"], [])
 
+            {detail_blocks, detail_markup} =
+              if is_list(get_in(k, [:page, "details"])) do
+                {page_detail_blocks(m, k, k.page, item), sections}
+              else
+                {[{"item", item}], details_markup}
+              end
+
             content =
               head ++
                 others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
-                [{"item", item}] ++ lists
+                detail_blocks ++ lists
 
             markup =
               for({id, {title, _list}} <- judged, do: Blocks.section(id, id, title: title)) ++
-                details_markup
+                detail_markup
 
             page("#{k.label} #{key}", back, content, markup)
 
@@ -2402,17 +2565,32 @@ defmodule AtlasControl.Pages do
               end
 
             detail_item = details.(item, head)
-            {detail_item, detail_blocks, technical} = decision_details(k, fact, detail_item)
+            {detail_item, detail_blocks, technical} = decision_details(m, k, fact, detail_item)
+
+            groups = panel && panel["detail_groups"]
+
+            {detail_content, detail_markup} =
+              cond do
+                is_list(groups) ->
+                  {panel_detail_blocks(m, k, groups, detail_item) ++
+                     detail_blocks ++ lists ++ technical, sections}
+
+                is_list(get_in(k, [:decision_options, "details"])) ->
+                  {[{"item", detail_item}] ++ detail_blocks ++ lists ++ technical, sections}
+
+                true ->
+                  {[{"item", detail_item}] ++ detail_blocks ++ lists ++ technical, details_markup}
+              end
 
             content =
               iconed(head, kind_icon(m, kind)) ++
                 others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
-                [{"item", detail_item}] ++ detail_blocks ++ lists ++ technical
+                detail_content
 
             markup =
               for({id, {title, _list}} <- judged, do: Blocks.section(id, id, title: title)) ++
-                decision_details_markup(details_markup, detail_blocks, technical)
+                detail_markup
 
             page("#{k.label} #{key}", back, content, markup)
 
@@ -2436,20 +2614,8 @@ defmodule AtlasControl.Pages do
                     sections
               end
 
-            {item, detail_blocks, technical} = decision_details(k, fact, item)
+            {item, detail_blocks, technical} = decision_details(m, k, fact, item)
             content = [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
-
-            markup =
-              if detail_blocks != [] or technical != [] do
-                first = elem(hd(detail_blocks ++ technical), 0)
-                last = elem(List.last(detail_blocks ++ technical), 0)
-
-                markup ++
-                  [Blocks.part(first, last, title: "Details", role: "details")] ++
-                  technical_section(technical)
-              else
-                markup
-              end
 
             # Its owner's part first: what to do (IS-Atlas-54).
             {content, markup} =
@@ -3540,41 +3706,110 @@ defmodule AtlasControl.Pages do
     parent || {:list, kind}
   end
 
-  # The model names the groups and the exact offer records; raw records share one section.
-  defp decision_details(k, fact, item) do
+  # A declared page may group its existing pairs; anything not named stays in the item.
+  defp page_detail_blocks(m, k, %{"details" => groups}, item) when is_list(groups) do
+    {blocks, rest} =
+      groups
+      |> Enum.with_index()
+      |> Enum.map_reduce(item["props"]["fields"] || [], fn {group, index}, fields ->
+        labels =
+          for name <- List.wrap(group["fields"]),
+              f = field(k, name),
+              f != nil,
+              do: f.label
+
+        labels =
+          labels ++
+            for name <- List.wrap(group["relations"]),
+                r = rel(m, name),
+                r != nil,
+                do: String.capitalize(r.label)
+
+        {selected, remaining} = Enum.split_with(fields, &(&1["label"] in labels))
+
+        block =
+          if selected == [],
+            do: [],
+            else: [
+              {"page-detail-#{index}", Blocks.item(title: group["title"], fields: selected)}
+            ]
+
+        {block, remaining}
+      end)
+
+    other =
+      item
+      |> put_in(["props", "title"], "Other details")
+      |> put_in(["props", "fields"], rest)
+      |> put_in(["props", "actions"], [])
+
+    remaining =
+      if rest == [] and item["props"]["links"] in [nil, []], do: [], else: [{"item", other}]
+
+    List.flatten(blocks) ++ remaining
+  end
+
+  defp page_detail_blocks(_m, _k, _spec, item),
+    do: [{"item", item |> put_in(["props", "title"], "") |> put_in(["props", "actions"], [])}]
+
+  defp panel_detail_blocks(m, k, groups, item) do
+    blocks = page_detail_blocks(m, k, %{"details" => groups}, item)
+    actions = item["props"]["actions"] || []
+
+    case Enum.find_index(blocks, &(elem(&1, 0) == "item")) do
+      nil ->
+        other =
+          item
+          |> put_in(["props", "title"], "Other details")
+          |> put_in(["props", "fields"], [])
+
+        blocks ++ [{"item", other}]
+
+      index ->
+        List.update_at(blocks, index, fn {id, block} ->
+          {id, put_in(block, ["props", "actions"], actions)}
+        end)
+    end
+  end
+
+  # The model names the groups and the exact offer records.
+  defp decision_details(m, k, fact, item) do
     case Map.get(k, :decision_options) do
       %{"details" => groups} = rule when is_list(groups) ->
-        fields = item["props"]["fields"] || []
         raw_names = Enum.map(~w(definition snapshot revision history), &rule[&1])
         raw_labels = for f <- k.fields, f.name in raw_names, do: f.label
-        fields = Enum.reject(fields, &(&1["label"] in raw_labels))
+        grouped_names = Enum.flat_map(groups, & &1["fields"]) ++ [rule["selected"]]
 
-        {blocks, remaining} =
+        absent_labels =
+          for f <- k.fields,
+              f.name in grouped_names,
+              fact["values"][f.name] in [nil, ""],
+              do: f.label
+
+        fields =
+          Enum.reject(
+            item["props"]["fields"] || [],
+            &(&1["label"] in (raw_labels ++ absent_labels))
+          )
+
+        groups =
           groups
           |> Enum.with_index()
-          |> Enum.map_reduce(fields, fn {group, index}, remaining ->
-            names = group["fields"] ++ if(index == 0, do: [rule["selected"]], else: [])
-            labels = for f <- k.fields, f.name in names, do: f.label
-            {selected, rest} = Enum.split_with(remaining, &(&1["label"] in labels))
-
-            present =
-              for f <- k.fields,
-                  f.name in names,
-                  fact["values"][f.name] not in [nil, ""],
-                  do: f.label
-
-            selected = Enum.filter(selected, &(&1["label"] in present))
-
-            block =
-              if selected == [],
-                do: [],
-                else: [
-                  {"decision-detail-#{index}",
-                   Blocks.item(title: group["title"], fields: selected)}
-                ]
-
-            {block, rest}
+          |> Enum.map(fn
+            {first, 0} -> Map.update!(first, "fields", &(&1 ++ [rule["selected"]]))
+            {group, _} -> group
           end)
+
+        grouped_item = put_in(item, ["props", "fields"], fields)
+        grouped = page_detail_blocks(m, k, %{"details" => groups}, grouped_item)
+
+        remaining =
+          case List.keyfind(grouped, "item", 0) do
+            nil -> []
+            {_, block} -> block["props"]["fields"]
+          end
+
+        blocks = Enum.reject(grouped, &(elem(&1, 0) == "item"))
 
         history_blocks = decision_history(k, rule, fact)
 
@@ -3591,8 +3826,7 @@ defmodule AtlasControl.Pages do
              )}
           end
 
-        {put_in(item, ["props", "fields"], remaining), List.flatten(blocks) ++ history_blocks,
-         technical}
+        {put_in(item, ["props", "fields"], remaining), blocks ++ history_blocks, technical}
 
       _ ->
         {item, [], []}
@@ -3711,30 +3945,6 @@ defmodule AtlasControl.Pages do
         do: Blocks.pair(label: label, value: value)
       )
 
-  defp decision_details_markup(markup, [], []), do: markup
-
-  defp decision_details_markup([part | sections], blocks, technical) do
-    last =
-      cond do
-        technical != [] -> elem(List.last(technical), 0)
-        sections != [] -> part["end"]
-        true -> elem(List.last(blocks), 0)
-      end
-
-    [%{part | "end" => last} | sections] ++ technical_section(technical)
-  end
-
-  defp technical_section([]), do: []
-
-  defp technical_section(blocks) do
-    [
-      Blocks.section(elem(hd(blocks), 0), elem(List.last(blocks), 0),
-        title: "Technical details",
-        collapsible: true
-      )
-    ]
-  end
-
   # The facts this one belongs under: `[{label, keys}]`.
   defp parents(m, kind, fact) do
     for r <- relations(m),
@@ -3754,7 +3964,13 @@ defmodule AtlasControl.Pages do
 
       # A field only a connector or the system fills shows only once it has a value.
       if f.name not in made and (f.settable or value not in [nil, ""]),
-        do: [Blocks.pair(label: f.label, value: show(f, value) <> late(k, fact, f.name))],
+        do: [
+          Blocks.pair(
+            label: f.label,
+            value: show(f, value) <> late(k, fact, f.name),
+            format: Map.get(f, :format)
+          )
+        ],
         else: []
     end)
   end

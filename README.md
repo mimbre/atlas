@@ -52,6 +52,32 @@ Generated targets (the model's Rela project and diagrams, Control's `blocks.json
 
 `bin/check` runs every Linux job of CI here, in about 7 minutes on the Mac mini, offline: run it before handing work over (`bin/check beam` for one job, `bin/check --fast` for the static checks only). It needs what an agent's sandbox cannot install: the pinned rela in `~/.cache/atlas`, `rg`, and the Python packages of `platform/atlas_facts/rela/scripts/requirements.txt`; it says which is missing.
 
+Credo's locked dependencies are isolated from the applications. From the repository root:
+
+```sh
+(cd tools/credo && mix deps.get)
+python3 tools/credo/check.py all
+python3 tools/credo/check.py staged
+```
+
+`all` reports all Credo findings in the **index**, including the existing baseline; it
+exits 1 if there are any. `staged` is the Git-agent commit check: it compares the complete
+indexed snapshot with HEAD and exits 1 for newly reported findings, 0 if none, and 2 on
+tool or source parsing errors. It ignores unstaged changes. Both use Credo's default
+checks at all priorities, on tracked `.ex` and `.exs` files under `platform/` and
+`products/`, excluding `tmp`, `deps`, `_build`, `generated` and hidden directories.
+Untracked files and generated/dependency output are not analyzed. No hook is installed
+by this tooling; Git-agent hook setup must invoke the `staged` command separately.
+
+The baseline is HEAD, not a list of suppressed rules. For unchanged source lines the
+gate maps staged line numbers back to HEAD before comparing all reported fields and
+preserving duplicate counts. A changed line, or a finding without a line in a changed
+file, is treated as new. Repeated identical lines can map ambiguously, and a genuinely
+new finding indistinguishable from a baseline finding at the mapped location cannot be
+distinguished. Both snapshots are analyzed in full so cross-file checks have context;
+this costs more than checking changed files alone. Test the integration with
+`python3 -m unittest tools/credo/test_check.py` after fetching dependencies.
+
 ```sh
 bin/generate                                               # every generated target
 cd products/software_factory && mix test                   # the BEAM layers

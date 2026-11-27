@@ -178,7 +178,7 @@ A merge to master deploys prod (CI job `deploy-prod`, `platform/ops/deploy.sh pr
 
 ### The core's health (IS-Atlas-117)
 
-Prod runs `RELEASE_DISTRIBUTION=none`, so nobody attaches to its node to see a stall (IS-Atlas-82). The health page shows it instead, in any client, through Control alone: `/health`, the Health action (`h`) on a machine's page in the Machines tab, for whoever the settings name as a reader of worker pages (`"workers": {"read": …}`). It never reads Facts, so it shows while Facts or Flow is stuck. Its rows, each marked late past its limit:
+Prod runs `RELEASE_DISTRIBUTION=none`, so nobody attaches to its node to see a stall (IS-Atlas-82). The health page shows it instead, in any client, through Control alone: `/health`, the Overall health action (`h`) on a machine's page in the Machines tab, for whoever the settings name as a reader of worker pages (`"workers": {"read": …}`). It never reads Facts, so it shows while Facts or Flow is stuck. Its rows, each marked late past its limit:
 
 | Row | From | Late past |
 |---|---|---|

@@ -61,7 +61,7 @@ defmodule AtlasControl.Model do
   semantic icon name, or nil). `id` is `%{prefix,
   digits, first, from, template, prefixes}`; `fields` are in the order pages show them, each
   `%{name, label, type, values, labels, required, hint, settable, set_by, multiline,
-  url, cause}`; `relations` are those that start at the kind, sorted by name, each
+  format, url, cause}`; `relations` are those that start at the kind, sorted by name, each
   `%{name, label, description, from, to, one, parent, inverse_label, component, set_by,
   only_target, set, remove, change, requires_completed_children, closes_parent, limit,
   add}`.

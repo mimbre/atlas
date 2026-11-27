@@ -25,6 +25,14 @@ struct HeaderBlockView: View {
                 }
             }
             PageHeader(title: block.title ?? "", actions: actions, act: act)
+            if block.detail?.isEmpty == false || block.since?.isEmpty == false {
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(HeaderState.line(block, now: context.date) ?? "")
+                        .prism(Prism.Typography.caption)
+                        .foregroundStyle(PrismDarkGap.muted(scheme))
+                        .textSelection(.enabled)
+                }
+            }
         }
         .accessibilityElement(children: .contain)
         .padding(.horizontal, Prism.Spacing.px15)
@@ -54,15 +62,34 @@ struct TextBlockView: View {
                             Text(label).prism(Prism.Typography.label)
                                 .accessibilityAddTraits(.isHeader)
                         }
-                        Text(TextLine.text(block, now: context.date))
-                            .fixedSize(horizontal: false, vertical: true)
+                        if TextLine.isMarkdown(block) {
+                            MarkdownText(source: block.text ?? "")
+                            if let age = block.since.flatMap({ TextLine.age(since: $0, now: context.date) }) {
+                                Text(age)
+                            }
+                        } else {
+                            Text(TextLine.text(block, now: context.date))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
                 .textSelection(.enabled)
                 .padding(.horizontal, Prism.Spacing.px15)
                 .accessibilityElement(children: .contain)
             } else {
-                Text(TextLine.line(block, now: context.date))
+                Group {
+                    if TextLine.isMarkdown(block) {
+                        VStack(alignment: .leading, spacing: Prism.Spacing.px6) {
+                            if let label = block.label { Text(label) }
+                            MarkdownText(source: block.text ?? "")
+                            if let age = block.since.flatMap({ TextLine.age(since: $0, now: context.date) }) {
+                                Text(age)
+                            }
+                        }
+                    } else {
+                        Text(TextLine.line(block, now: context.date))
+                    }
+                }
                     .prism(Prism.Typography.bodysmall)
                     .foregroundStyle(PrismDarkGap.muted(scheme))
                     .textSelection(.enabled)
@@ -176,6 +203,7 @@ struct CardStack: View {
 struct OptionView: View {
     let block: OptionBlock
     var room = true
+    var detailHeading = false
     let act: (ActionModel) -> Void
     @Environment(\.colorScheme) private var scheme
     @Environment(\.pendingAction) private var pending
@@ -185,7 +213,7 @@ struct OptionView: View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
                 if let n = Option.number(block) { StepNumber(n: n) }
-                Text(block.text ?? "").prism(Prism.Typography.title7)
+                Text(block.text ?? "").prism(detailHeading ? Prism.Typography.title6 : Prism.Typography.title5)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let badge = block.badge, !badge.isEmpty {
@@ -195,7 +223,7 @@ struct OptionView: View {
             ForEach(Array(Option.fields(block).enumerated()), id: \.offset) { _, field in
                 VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
                     Text(field.label ?? "").prism(Prism.Typography.label).foregroundStyle(PrismDarkGap.muted(scheme))
-                    Text(field.value ?? "—").prism(Prism.Typography.bodysmall)
+                    FormattedText(text: field.value ?? "—", format: field.format).prism(Prism.Typography.bodysmall)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -262,7 +290,8 @@ struct PrismActionButton: View {
                 HStack(alignment: .center, spacing: Prism.Spacing.px6) {
                     Image(systemName: icon).resizable().scaledToFit()
                         .frame(width: 13, height: 13)
-                        .foregroundStyle(PrismDarkGap.icon(scheme))
+                        .foregroundStyle(variant == .primary ? AnyShapeStyle(.foreground)
+                                                             : AnyShapeStyle(PrismDarkGap.icon(scheme)))
                     Text(label)
                 }
             } else {
@@ -356,7 +385,7 @@ struct OtherActionsView: View {
                 } else {
                     Image(systemName: ActionIcon.symbol(action.icon) ?? "ellipsis.circle")
                         .resizable().scaledToFit()
-                        .foregroundStyle(action.icon == "delete" ? Prism.Colors.error : PrismDarkGap.icon(scheme))
+                        .foregroundStyle(action.icon == "delete" || action.icon == "remove" ? Prism.Colors.error : PrismDarkGap.icon(scheme))
                 }
             }
             .frame(width: 16, height: 16)
@@ -370,7 +399,7 @@ struct OtherActionsView: View {
 }
 
 /// Quiet icon-only toolbar actions with descriptive tooltips and accessibility labels.
-/// Delete uses the danger colour and opens Control's confirm first.
+/// Delete and remove use the danger colour and open Control's confirm first.
 public struct ItemToolbar: ToolbarContent {
     let actions: [ActionModel]
     let pending: SessionState.Pending?
@@ -406,14 +435,14 @@ public struct ItemToolbar: ToolbarContent {
 }
 
 /// A toolbar action's icon: in the primary colour (its dark-appearance text colour in
-/// dark), Delete's in the danger colour.
+/// dark), delete and remove in the danger colour.
 private struct ToolbarIcon: View {
     let icon: String?
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Image(systemName: ActionIcon.symbol(icon) ?? "ellipsis.circle")
-            .foregroundStyle(icon == "delete" ? Prism.Colors.error : PrismDarkGap.icon(scheme))
+            .foregroundStyle(icon == "delete" || icon == "remove" ? Prism.Colors.error : PrismDarkGap.icon(scheme))
     }
 }
 
@@ -446,7 +475,7 @@ struct RouteLine: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        FlowLayout(spacing: Prism.Spacing.px6) {
+        FlowLayout(spacing: Prism.Spacing.px6, wrapOversized: true) {
             Text("⌘").foregroundStyle(PrismDarkGap.muted(scheme))
             ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                 HStack(spacing: Prism.Spacing.px6) {
@@ -462,6 +491,7 @@ struct RouteLine: View {
 
     private func label(_ part: String) -> some View {
         Text(part).textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
             .foregroundStyle(PrismDarkGap.routeText(scheme))
             .padding(.horizontal, Prism.Spacing.px6)
             .padding(.vertical, 3)

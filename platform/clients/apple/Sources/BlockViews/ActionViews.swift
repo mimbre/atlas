@@ -269,13 +269,14 @@ struct PageHeader: View {
     }
 
     private var heading: some View {
-        Text(title).prism(Prism.Typography.title6).accessibilityAddTraits(.isHeader)
+        Text(title).prism(Prism.Typography.title3).accessibilityAddTraits(.isHeader)
     }
 }
 
 /// Lays its views out in rows, wrapping to the next row when one is full.
 struct FlowLayout: Layout {
     var spacing: CGFloat
+    var wrapOversized = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = rows(subviews, width: proposal.width ?? .infinity)
@@ -289,7 +290,7 @@ struct FlowLayout: Layout {
         for row in rows(subviews, width: bounds.width) {
             var x = bounds.minX
             for index in row.indices {
-                let size = subviews[index].sizeThatFits(.unspecified)
+                let size = size(of: subviews[index], width: bounds.width)
                 subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
                 x += size.width + spacing
             }
@@ -303,11 +304,17 @@ struct FlowLayout: Layout {
         var height: CGFloat = 0
     }
 
+    private func size(of subview: LayoutSubview, width: CGFloat) -> CGSize {
+        let ideal = subview.sizeThatFits(.unspecified)
+        guard wrapOversized, ideal.width > width else { return ideal }
+        return subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
+
     private func rows(_ subviews: Subviews, width: CGFloat) -> [Row] {
         var rows: [Row] = []
         var row = Row()
         for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
+            let size = size(of: subviews[index], width: width)
             if !row.indices.isEmpty, row.width + spacing + size.width > width {
                 rows.append(row)
                 row = Row()
@@ -332,13 +339,14 @@ public struct ActionPageView: View {
     let submitting: Bool
     let answer: NoticeMessage?
     let act: (ActionModel) -> Void
+    let open: (String) -> Void
     let submit: (CallModel, [String: String]) -> Void
     let edit: (String, String) -> Void
     let leave: () -> Void
     @Environment(\.pendingAction) private var pending
 
     public init(page: PageMessage, draft: [String: String], submitting: Bool, answer: NoticeMessage? = nil,
-                act: @escaping (ActionModel) -> Void,
+                act: @escaping (ActionModel) -> Void, open: @escaping (String) -> Void,
                 submit: @escaping (CallModel, [String: String]) -> Void,
                 edit: @escaping (String, String) -> Void, leave: @escaping () -> Void) {
         self.page = page
@@ -346,6 +354,7 @@ public struct ActionPageView: View {
         self.submitting = submitting
         self.answer = answer
         self.act = act
+        self.open = open
         self.submit = submit
         self.edit = edit
         self.leave = leave
@@ -413,6 +422,8 @@ public struct ActionPageView: View {
             ItemBlockView(item: item, act: act)
         case .list(let list):
             ListBlockView(list: list, selectedPath: nil, open: { _ in }, act: act)
+        case .groups(let groups):
+            GroupFilters(groups: groups, selected: page.path, filter: open)
         case .option(let option):
             OptionView(block: option, act: act)
         case .panel(let panel):

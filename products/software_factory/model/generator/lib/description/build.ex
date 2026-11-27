@@ -13,7 +13,7 @@ defmodule RelaDSL.Description.Build do
   @type_keys [:values, :labels, :descriptions, :description, :validations]
   @entity_keys [:label, :plural, :aliases, :id_type, :id_prefix, :description]
   @field_keys [:required, :unique, :default, :description]
-  @field_notes [:set_by, :multiline, :label, :cause]
+  @field_notes [:set_by, :multiline, :label, :cause, :format]
   @relation_keys [:label, :description, :from, :to, :max_outgoing, :inverse]
   @relation_notes [
     :parent,
@@ -29,7 +29,7 @@ defmodule RelaDSL.Description.Build do
   ]
   @entity_notes ~w(top primary plural_label icon start create properties completion progress connector agent order
                    by_hand late actions counts requires authority frozen replaces layering sealed
-                   delete_error decision_options panel)
+                   delete_error decision_options panel page)
   @listed %{action: "actions", counts: "counts", requires: "requires"}
   @select_keys [
     :choices,

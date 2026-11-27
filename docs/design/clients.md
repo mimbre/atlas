@@ -44,8 +44,8 @@ remains readable. An absent or unknown format retains the existing plain-text pr
 
 The **Machines** tab (contract 0.43.0; Runtimes in the code) is such a stack when there is
 one machine: its page is the tab's page (`header` MACHINE · its key, the state line,
-Health, Slots, Queue, Recently finished, Upgrades, Edit configuration in the toolbar and
-Details). Desired but unverified slots and an unavailable queue are marked unknown. If
+Health, Slots, Queue, Recently finished, Upgrades, Edit configuration in the toolbar, and
+standalone Identity and Versions blocks when those details are known). Desired but unverified slots and an unavailable queue are marked unknown. If
 attempts cannot be read, slot activity and recently finished work are unknown, not empty.
 Recently finished includes lost attempts even when boot repair could not establish an end time;
 these sort after dated attempts and have no invented timestamp or duration. A recent poll is
@@ -82,16 +82,17 @@ gutter between them. Room left over is only at the **far right**, after the last
 
 | Column | Mac | TUI |
 |---|---|---|
-| Sidebar: the tabs, their counts and groups | fixed, about 240 pt | 24 cells, from 290 columns (else the tab bar) |
-| List: the tab's rows | fixed, about 360 pt | 60 cells |
+| Sidebar: top-level tabs and their counts | fixed, about 240 pt | 24 cells, from 290 columns (else the tab bar) |
+| List: the tab's filters and rows | fixed, about 360 pt | 60 cells |
 | Page: the item's main blocks | at most 720 pt (100 characters of the body font) | at most 100 cells |
 | Details: the page's details group | 280–720 pt (as wide as the page at most), growing with the room | 40–100 cells, growing with the room |
 
 What gives way as the room narrows, in this order:
 
-1. **The sidebar.** TUI: below 290 columns the tabs move to the tab bar (from 210 with a
-   row of the active tab's groups and counts under it). Mac: the sidebar stays until
-   step 3.
+1. **The sidebar.** TUI: below 290 columns the tabs move to the tab bar. Filters
+   stay on the list at every width: bracketed labels and counts, a coloured `•` on the
+   active filter, and `[` / `]` keys for previous / next.
+   Mac: the sidebar stays until step 3.
 2. **The details** go under the main blocks. Mac: beside while the page's column holds
    720 + 280 pt (a window of about 1600 pt), else as a recessed card under the page.
    TUI: beside from 210 columns (from 140 in one column), else as the page's last blocks.
@@ -120,7 +121,7 @@ Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 | Option (`option`) | A calm card: number as Prism's `StepIndicator`, text, badge in its tone (★ Recommended success; `melle's alternative` neutral), Rule/Then rows (a field without a text shows no section: an alternative not worked out yet has only its title), its own Choose as a Prism button (recommended `primary`, others `secondary`); none when `alone` (Accept answers it) | A filled card (selected one on the selected surface, marked ▸): number, text, badge, fields, then its answer on its key |
 | Step (`instruction`) | A calm card per step, number in a badge, lines in order | A filled card per step, numbers aligned, lines in order; text bold |
 | Command (in a step) | A light inset with a copy icon right after the command, in the primary colour at the action icons' 16pt; after a copy a brief ✓, also primary | Plain behind a bar; the selected one highlighted (`c` copies, `y`) |
-| Route (in a step) | Muted ⌘, parts as small labels with › between | Muted ⌘, parts bold in the route colour |
+| Route (in a step) | Muted ⌘, parts as small labels with › between; wrap long parts within the available width | Muted ⌘, parts bold in the route colour |
 | Answers (`answers`) | A Prism button per answer in Control's order by its weight: `main` `primary`, `decline` `secondary`; labels say nothing of what follows (no `…`, no `· note`); a `detail` small under the buttons. On the opened item the page's bottom keeps only these (a Choose per card and Decline all, Accept and Decline, Done and Won't do): its `other` answers are in the window's toolbar (below); in a sheet they stay `plain` buttons with their icon | The key line: each answer on its key, the main one and the decline in the primary colour, without a `· note` suffix; a `detail` dim under it |
 | Other actions (`actions`) | The opened item's in the window's toolbar at the right, never on the page, in this order at the same spacing: its actions (Update first), then its `other` answers in Control's order (each taken as its key takes it: its call, else its page or note form), then Delete last; each its SF Symbol (edit `pencil`, question `questionmark.bubble`, hand_over `person.and.arrow.left.and.arrow.right`, delegate `arrow.uturn.backward`, faults `exclamationmark.triangle`, …) in the primary colour, Delete's red; Update and Delete their icon alone, every other its short label too (Ask, Delegate, Hand to, Failures), whatever the toolbar's display setting; its tooltip Control's `help`, else its label. The same in the page's context menu and the Actions menu; none when nothing is open. Elsewhere (a sheet) one row of quiet icon buttons. A dangerous one opens Control's confirm | In the answers' key line, muted, after the answers (else a key line of its own) |
 | What went wrong (`text` role `error`) | Prism's `MessageBar` in danger: label as heading, text under it | A card, label as a heading in the error colour over its text |
@@ -151,11 +152,13 @@ blue planned or waiting, green done. An unknown tone uses the row's text colour.
 
 | Role | Prism typography (Mac) |
 |---|---|
-| Page title (`PageHeader`, a sheet's title) | `title6` (20) |
-| Panel, option, list and item titles; a row card's title | `title7` (16) |
+| Page title (`PageHeader`) | `title3` |
+| Main panel, option and item card titles | `title5`; details card titles use `title6`, and details labels remain `label` |
+| List-row card titles | `title7` (16) |
 | Running text (why, a step's text, an option's Rule and Consequences, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
-| Labels (a section's or the details' title, a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
-| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name (in the sidebar's foot) | `labelsmall` (14) |
+| Section and details headings | `title6` (20); aligned with their cards, and with the main content when alongside |
+| Labels (a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
+| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; the person's name (in the sidebar's foot) | `labelsmall` (14) |
 | Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's foot: the assistant line under the person's name when Control sends one ("assistant: coordinator"), then on one line the environment (production as the plain word "Production", no tag; any other environment as a small Prism warning tag, its name capitalised: "Test") · the connection in plain words, the last notice in its popover) | `caption` (14) |
 | The sidebar's section headings (WORK, BROWSE: eyebrows as a card's top line, uppercase, spaced, muted, more space above) | `labelsmall` |
 | A count's badge in the sidebar | `captionsmall` (12), strong |
@@ -189,7 +192,7 @@ nothing about an action, only how it is triggered.
 | Main answer | the first of `answers` (or an option's Choose): the next step | `primary` button (success) | key in green |
 | Decline | weight `decline` (`no`, deprecated): Won't do, Decline, Decline all | `secondary` button; Decline all under several alternatives (icon `decline`) a quiet `plain` button with a blue `xmark.circle`; one with `note` opens the note form on click, its label unchanged | key in the primary colour; its label stays unchanged when a note is needed |
 | Other answer | weight `other`: Ask, Delegate (a decision, D-0106: its form chooses the proposer or another person), Pick up | the opened item's in the window's toolbar after its actions, its icon and short label; in a sheet a `plain` button with its icon | in the key line, in order |
-| Other action | the `actions` block: change, hand over, delete, create under, Failures… (test only) | the opened item's in the window's toolbar, never a button on the page; its icon in the primary colour (dark: PrismDarkGap's readable primary), Delete red and last | muted in the key line |
+| Other action | the `actions` block: change, hand over, delete, create under, Failures… (test only) | the opened item's in the window's toolbar, never a button on the page; its icon in the primary colour (dark: PrismDarkGap's readable primary), Delete red and last, Remove red with a trash icon | muted in the key line |
 
 - **Mac**: the main answer and the decline as buttons at the page's bottom; everything
   else for the opened item (its actions and `other` answers) in the window's toolbar at the
