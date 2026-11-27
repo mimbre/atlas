@@ -525,10 +525,8 @@ defmodule Model.DecisionOptionsTest do
              |> hd()
              |> Map.fetch!("value") == history
 
-      refute Enum.any?(page.markup, fn mark ->
-               get_in(mark, ["props", "collapsible"]) == true or
-                 get_in(mark, ["props", "role"]) == "details"
-             end)
+      assert Enum.any?(page.markup, &(get_in(&1, ["props", "role"]) == "details"))
+      refute Enum.any?(page.markup, &(get_in(&1, ["props", "collapsible"]) == true))
 
       refute Enum.any?(
                Map.get(page, :console_actions, []),
@@ -642,10 +640,8 @@ defmodule Model.DecisionOptionsTest do
     form = %{by: "ada", by_kind: "person"}
     page = AtlasControl.Pages.render(route, m, answers, form)
 
-    refute Enum.any?(page.markup, fn mark ->
-             get_in(mark, ["props", "collapsible"]) == true or
-               get_in(mark, ["props", "role"]) == "details"
-           end)
+    assert Enum.any?(page.markup, &(get_in(&1, ["props", "role"]) == "details"))
+    refute Enum.any?(page.markup, &(get_in(&1, ["props", "collapsible"]) == true))
 
     message = %{
       "path" => "/k/decision/D-private",
