@@ -19,6 +19,7 @@ Slice S1 of the design. Later slices add pages, history and the cache (S2), mark
 forms (S4), `ConsoleKit` (S5), `WorkerViews` (S6), the agent (S7), and the launcher with an
 Xcode app target and signing (S8). The macOS app is built as a SwiftPM executable;
 the small local development bundle helper below provides Finder/Dock launch before S8.
+Command copy icons use a semibold SF Symbol for visibility.
 
 ## Build, test, run
 

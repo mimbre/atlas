@@ -503,7 +503,7 @@ struct CommandBlock: View {
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: copy) {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .resizable().scaledToFit()
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(PrismDarkGap.icon(scheme))
                     .frame(width: 16, height: 16)
                     .contentShape(Rectangle())
