@@ -299,11 +299,14 @@ defmodule AtlasFacts.Server do
           else: :ordinary
 
       case capture do
+        # A choice (an answer to what a run waits for): its subject is written when the
+        # input is, and the links it sets keep who set them and why (the answer's cause).
         {:capture, input} ->
           flow_input(
             %{envelope | kind: state.model.run_mapping()["inputs"]["kind"]},
             input,
-            state
+            state,
+            content["cause"]
           )
 
         {:error, reason} ->
@@ -408,7 +411,7 @@ defmodule AtlasFacts.Server do
     })
   end
 
-  defp flow_input(envelope, content, state) do
+  defp flow_input(envelope, content, state, cause \\ nil) do
     rela = state.rela
 
     write = fn kind, content, request_id ->
@@ -429,7 +432,13 @@ defmodule AtlasFacts.Server do
 
           case result do
             :stored ->
-              Ledger.stored(state.ledger, id, proof)
+              position = Ledger.stored(state.ledger, id, proof)
+              about = if is_binary(cause), do: %{"cause" => cause}, else: %{}
+
+              about =
+                if is_binary(content["by"]), do: Map.put(about, "by", content["by"]), else: about
+
+              remember_links(state, kind, content, about, position)
               :ok
 
             other ->
