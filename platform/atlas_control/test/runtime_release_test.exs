@@ -65,10 +65,10 @@ defmodule AtlasControl.RuntimeReleaseTest do
     assert RuntimeRelease.cached_newer?(@old, @new, cache)
     assert RuntimeRelease.cached_newer?(@old, @new, cache)
     assert_receive {:verified, @old, @new}
-    refute_receive {:verified, @old, @new}
+    refute_received {:verified, @old, @new}
     refute RuntimeRelease.newer?(@old, @new, fn _ -> :error end)
     refute RuntimeRelease.cached_newer?("develop-cccccccccccc", @new, cache)
-    refute_receive {:verified, "develop-cccccccccccc", @new}
+    refute_received {:verified, "develop-cccccccccccc", @new}
     :sys.replace_state(cache, fn {verify, entries, _} -> {verify, entries, nil} end)
     assert RuntimeRelease.cached_newer?("develop-cccccccccccc", @new, cache)
     assert_receive {:verified, "develop-cccccccccccc", @new}
@@ -97,7 +97,7 @@ defmodule AtlasControl.RuntimeReleaseTest do
     end)
 
     refute RuntimeRelease.cached_newer?(@old, @new, cache)
-    refute_receive :verified
+    refute_received :verified
     :sys.replace_state(cache, fn {verify, entries, _} -> {verify, entries, nil} end)
     assert RuntimeRelease.cached_newer?(@old, @new, cache)
     assert_receive :verified
