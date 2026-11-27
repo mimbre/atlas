@@ -9,12 +9,25 @@ defmodule AtlasTui.ItemPageBlocksTest do
       "title" => "Widget",
       "reason" => "open",
       "blocks" => [
-        %{"id" => "header", "type" => "header", "props" => %{
-          "title" => "Widget", "detail" => detail, "since" => "2026-11-24T09:00:00Z"
-        }},
-        %{"id" => "parts", "type" => "list", "props" => %{
-          "title" => "Parts", "aside" => aside, "empty" => "No parts yet", "rows" => rows
-        }}
+        %{
+          "id" => "header",
+          "type" => "header",
+          "props" => %{
+            "title" => "Widget",
+            "detail" => detail,
+            "since" => "2026-11-24T09:00:00Z"
+          }
+        },
+        %{
+          "id" => "parts",
+          "type" => "list",
+          "props" => %{
+            "title" => "Parts",
+            "aside" => aside,
+            "empty" => "No parts yet",
+            "rows" => rows
+          }
+        }
       ]
     }
   end

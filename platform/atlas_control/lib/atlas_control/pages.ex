@@ -2339,7 +2339,10 @@ defmodule AtlasControl.Pages do
         cond do
           is_map(Map.get(k, :page)) ->
             spec = k.page
-            {_tone, since} = status(fact, for({_, _, part, _} <- parts, do: part) ++ [fact], form[:by])
+
+            {_tone, since} =
+              status(fact, for({_, _, part, _} <- parts, do: part) ++ [fact], form[:by])
+
             state =
               for name <- List.wrap(spec["state"]),
                   f = field(k, name),
@@ -2352,10 +2355,12 @@ defmodule AtlasControl.Pages do
             text = if intro, do: to_text(fact["values"][intro]), else: ""
             related = Enum.zip(relations, child_answers)
             item_relation = get_in(spec, ["items", "relation"])
+
             item_state =
-              if in_span?(m, kind, work) and supervisor(work) == [] and work["waiting_for"] == nil,
-                do: "pick_up",
-                else: work["state"]
+              if in_span?(m, kind, work) and supervisor(work) == [] and
+                   work["waiting_for"] == nil,
+                 do: "pick_up",
+                 else: work["state"]
 
             {primary, remaining} =
               related
@@ -2369,12 +2374,20 @@ defmodule AtlasControl.Pages do
                   if relation == item_relation do
                     empty =
                       if match?(%{"facts" => facts} when is_list(facts), child_answer),
-                        do: get_in(spec, ["items", "empty", item_state]) || list["props"]["empty"],
+                        do:
+                          get_in(spec, ["items", "empty", item_state]) || list["props"]["empty"],
                         else: list["props"]["empty"]
 
                     list
                     |> put_in(["props", "empty"], empty)
-                    |> put_in(["props", "aside"], if(rows == [], do: nil, else: "#{Enum.count(rows, &(&1["tone"] == "done"))} of #{length(rows)} done"))
+                    |> put_in(
+                      ["props", "aside"],
+                      if(rows == [],
+                        do: nil,
+                        else:
+                          "#{Enum.count(rows, &(&1["tone"] == "done"))} of #{length(rows)} done"
+                      )
+                    )
                   else
                     list
                   end
@@ -2384,9 +2397,14 @@ defmodule AtlasControl.Pages do
               |> Enum.split_with(&elem(&1, 0))
 
             primary = Enum.map(primary, &elem(&1, 1))
-            remaining = Enum.map(remaining, &elem(&1, 1)) ++ cause_lists(m, key, cause_answers, form[:by]) ++
-              parent_lists(m, kind, fact) ++
-              Enum.flat_map(parts, fn {part_kind, _k, part, _made} -> parent_lists(m, part_kind, part) end)
+
+            remaining =
+              Enum.map(remaining, &elem(&1, 1)) ++
+                cause_lists(m, key, cause_answers, form[:by]) ++
+                parent_lists(m, kind, fact) ++
+                Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
+                  parent_lists(m, part_kind, part)
+                end)
 
             header =
               Blocks.header(
@@ -2408,12 +2426,14 @@ defmodule AtlasControl.Pages do
               end
 
             todo_blocks = if todo && !panel, do: [{"todo", todo_item(todo)}], else: []
+
             panel_keys =
               for {"panel", block} <- panel_blocks,
                   answer <- block["props"]["answers"] || [],
                   do: answer["key"]
 
             remaining_next = Enum.reject(next, &(&1["key"] in panel_keys))
+
             answer_blocks =
               if remaining_next == [],
                 do: [],
@@ -2422,21 +2442,32 @@ defmodule AtlasControl.Pages do
             content =
               [{"header", header}] ++
                 if(text == "", do: [], else: [{"intro", Blocks.text(text: text)}]) ++
-                for(name <- List.wrap(spec["sections"]),
-                    f = field(k, name),
-                    f != nil,
-                    value = fact["values"][name],
-                    value not in [nil, ""],
-                    do: {"section-" <> name, Blocks.text(label: f.label, text: to_text(value))}) ++
+                for(
+                  name <- List.wrap(spec["sections"]),
+                  f = field(k, name),
+                  f != nil,
+                  value = fact["values"][name],
+                  value not in [nil, ""],
+                  do: {"section-" <> name, Blocks.text(label: f.label, text: to_text(value))}
+                ) ++
                 todo_blocks ++
                 for({id, {_title, list}} <- primary, do: {id, list}) ++
-                panel_blocks ++ answer_blocks ++ others_block(more) ++
-                [{"item", item |> put_in(["props", "title"], "") |> put_in(["props", "actions"], [])}] ++
+                panel_blocks ++
+                answer_blocks ++
+                others_block(more) ++
+                [
+                  {"item",
+                   item |> put_in(["props", "title"], "") |> put_in(["props", "actions"], [])}
+                ] ++
                 for({id, {_title, list}} <- remaining, do: {id, list})
 
             markup =
-              [Blocks.part("item", List.last(["item" | Enum.map(remaining, &elem(&1, 0))]),
-                 title: "Details", role: "details")] ++
+              [
+                Blocks.part("item", List.last(["item" | Enum.map(remaining, &elem(&1, 0))]),
+                  title: "Details",
+                  role: "details"
+                )
+              ] ++
                 for({id, {title, _list}} <- remaining, do: Blocks.section(id, id, title: title))
 
             page("#{k.label} #{key}", back, content, markup)

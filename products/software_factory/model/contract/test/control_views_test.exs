@@ -142,6 +142,7 @@ defmodule Model.ControlViewsTest do
   test "a scene's block page keeps its description, questions and other fields" do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     route = {:item, "scene", "SC-Atlas-01"}
+
     scene = %{
       "key" => "SC-Atlas-01",
       "values" => %{
@@ -152,11 +153,22 @@ defmodule Model.ControlViewsTest do
         "flux_id" => "123"
       }
     }
-    answers = [%{"fact" => scene} | for(_ <- tl(AtlasControl.Pages.reads(route, m)), do: %{"facts" => []})]
+
+    answers = [
+      %{"fact" => scene} | for(_ <- tl(AtlasControl.Pages.reads(route, m)), do: %{"facts" => []})
+    ]
+
     page = AtlasControl.Pages.render(route, m, answers)
-    assert Enum.find(page.blocks, &(&1["id"] == "intro"))["props"]["text"] == scene["values"]["description"]
-    assert Enum.find(page.blocks, &(&1["id"] == "section-questions"))["props"]["text"] == "What happens next?"
-    assert Enum.find(page.blocks, &(&1["id"] == "section-answers"))["props"]["text"] == "The producer answered."
+
+    assert Enum.find(page.blocks, &(&1["id"] == "intro"))["props"]["text"] ==
+             scene["values"]["description"]
+
+    assert Enum.find(page.blocks, &(&1["id"] == "section-questions"))["props"]["text"] ==
+             "What happens next?"
+
+    assert Enum.find(page.blocks, &(&1["id"] == "section-answers"))["props"]["text"] ==
+             "The producer answered."
+
     fields = Enum.find(page.blocks, &(&1["id"] == "item"))["props"]["fields"]
     assert Enum.any?(fields, &(&1["value"] == "What happens next?"))
     assert Enum.any?(fields, &(&1["value"] == "The producer answered."))
@@ -167,6 +179,7 @@ defmodule Model.ControlViewsTest do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     route = {:item, "scene", "SC-Atlas-01"}
     scene = %{"key" => "SC-Atlas-01", "values" => %{"title" => "A scene"}}
+
     answers =
       for {{kind, _}, i} <- Enum.with_index(AtlasControl.Pages.reads(route, m)) do
         cond do
@@ -177,6 +190,7 @@ defmodule Model.ControlViewsTest do
       end
 
     page = AtlasControl.Pages.render(route, m, answers)
+
     assert Enum.any?(page.blocks, fn block ->
              block["type"] == "list" and
                get_in(block, ["props", "empty"]) == "Use cases unavailable."
