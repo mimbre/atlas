@@ -29,9 +29,9 @@ public enum TextLine {
 /// A header's state and its compact, current age.
 public enum HeaderState {
     public static func line(_ block: HeaderBlock, now: Date) -> String? {
-        guard let detail = block.detail, !detail.isEmpty else { return nil }
-        guard let age = RowAge.text(since: block.since, now: now) else { return detail }
-        return "\(detail) · \(age)"
+        let parts = [block.detail, RowAge.text(since: block.since, now: now)]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 

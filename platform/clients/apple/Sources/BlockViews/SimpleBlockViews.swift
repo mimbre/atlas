@@ -25,7 +25,7 @@ struct HeaderBlockView: View {
                 }
             }
             PageHeader(title: block.title ?? "", actions: actions, act: act)
-            if block.detail?.isEmpty == false {
+            if block.detail?.isEmpty == false || block.since?.isEmpty == false {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
                     Text(HeaderState.line(block, now: context.date) ?? "")
                         .prism(Prism.Typography.caption)

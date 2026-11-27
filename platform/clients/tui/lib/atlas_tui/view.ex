@@ -748,7 +748,8 @@ defmodule AtlasTui.View do
 
         [[] | lines]
       else
-        []
+        for line <- list_wrap(single_line(list.aside), width), list.aside not in [nil, ""],
+          do: [{:dim, line}]
       end
 
     now = model.now || DateTime.utc_now()
@@ -1323,19 +1324,14 @@ defmodule AtlasTui.View do
   end
 
   defp state_line(header, model, width) do
-    case single_line(header.detail) do
-      "" ->
-        []
+    text =
+      [single_line(header.detail), age(header.since, model.now || DateTime.utc_now())]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join(" · ")
 
-      detail ->
-        text =
-          case age(header.since, model.now || DateTime.utc_now()) do
-            "" -> detail
-            age -> detail <> " · " <> age
-          end
-
-        for line <- detail_wrap(text, max(width - 1, 1)), do: [{:plain, " "}, {:dim, line}]
-    end
+    if text == "",
+      do: [],
+      else: for(line <- detail_wrap(text, max(width - 1, 1)), do: [{:plain, " "}, {:dim, line}])
   end
 
   # A page's or a decision's heading: its eyebrow (what is asked of its owner, with the

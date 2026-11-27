@@ -143,7 +143,8 @@ final class TodoPageTests: XCTestCase {
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-27T12:00:00Z"))
         XCTAssertEqual(HeaderState.line(header, now: now), "Refine · 3d")
         XCTAssertEqual(HeaderState.line(HeaderBlock(detail: "Refine"), now: now), "Refine")
-        XCTAssertNil(HeaderState.line(HeaderBlock(since: "2026-11-24T09:00:00Z"), now: now))
+        XCTAssertEqual(HeaderState.line(HeaderBlock(since: "2026-11-24T09:00:00Z"), now: now), "3d")
+        XCTAssertNil(HeaderState.line(HeaderBlock(since: "not a time"), now: now))
         XCTAssertEqual(list.aside, "2 of 3 done")
     }
 

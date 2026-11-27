@@ -36,7 +36,7 @@ defmodule AtlasTui.ItemPageBlocksTest do
     %{PanelFixture.projected(page(rows, aside, detail)) | now: ~U[2026-11-27 12:00:00Z]}
   end
 
-  defp rendered(model, width \\ 90), do: View.render(model, width, 60, 30)
+  defp rendered(model, width), do: View.render(model, width, 60, 30)
   defp plain(model, width \\ 90), do: model |> rendered(width) |> View.plain()
 
   test "header state and list aside are presented" do
@@ -47,7 +47,17 @@ defmodule AtlasTui.ItemPageBlocksTest do
     assert text =~ "No parts yet"
 
     refute plain(model([], nil, nil)) =~ "· 3d"
+    assert plain(model([], nil, nil)) =~ "3d"
     assert plain(model([], nil)) =~ "Parts · 0"
+  end
+
+  test "a list aside without a title remains visible" do
+    page =
+      page([])
+      |> put_in(["blocks", Access.at(1), "props", "title"], nil)
+
+    model = %{PanelFixture.projected(page) | now: ~U[2026-11-27 12:00:00Z]}
+    assert plain(model) =~ "2 of 3 done"
   end
 
   test "list rows remain selectable and pages fit narrow widths" do
