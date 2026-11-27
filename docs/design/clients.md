@@ -147,7 +147,7 @@ blue planned or waiting, green done. An unknown tone uses the row's text colour.
 | Role | Prism typography (Mac) |
 |---|---|
 | Page title (`PageHeader`, a sheet's title) | `title6` (20) |
-| Panel, option, list and item titles; a row card's title | `title7` (16) |
+| Panel, option, item and row-card titles | `title6` (20); details labels remain `label` |
 | Running text (why, a step's text, an option's Rule and Consequences, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
 | Labels (a section's or the details' title, a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
 | Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name (in the sidebar's foot) | `labelsmall` (14) |

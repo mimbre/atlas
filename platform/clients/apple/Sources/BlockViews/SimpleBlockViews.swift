@@ -185,7 +185,7 @@ struct OptionView: View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
                 if let n = Option.number(block) { StepNumber(n: n) }
-                Text(block.text ?? "").prism(Prism.Typography.title7)
+                Text(block.text ?? "").prism(Prism.Typography.title6)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let badge = block.badge, !badge.isEmpty {
