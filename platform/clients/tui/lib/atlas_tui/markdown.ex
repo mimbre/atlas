@@ -16,11 +16,11 @@ defmodule AtlasTui.Markdown do
 
         case {fence, marker} do
           {nil, [_, marks, _]} ->
-            {[], {String.first(marks), String.length(marks)}}
+            {wrap([{:dim, line}], width, cell_width), {String.first(marks), String.length(marks)}}
 
           {{char, size}, [_, marks, rest]} ->
             if String.first(marks) == char and String.length(marks) >= size and String.trim(rest) == "" do
-              {[], nil}
+              {wrap([{:dim, line}], width, cell_width), nil}
             else
               {wrap([{:plain, line}], width, cell_width), fence}
             end

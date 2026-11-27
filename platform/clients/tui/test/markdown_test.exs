@@ -31,8 +31,8 @@ defmodule AtlasTui.MarkdownTest do
     assert output =~ "echo **literal**"
     assert output =~ "<script>alert(1)</script>"
     assert output =~ "![image](x)"
+    assert output =~ "```sh"
     assert Enum.any?(List.flatten(lines), &match?({:bold, "bold"}, &1))
-    refute output =~ "```"
   end
 
   test "wraps long text and strips terminal controls" do
