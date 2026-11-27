@@ -241,6 +241,20 @@ defmodule AtlasTui.ColumnsTest do
     assert model.path == "/k/widget/W-1"
   end
 
+  test "the focused details retain a heading when they move under the page" do
+    for width <- [144, 160, 209, 210, 290] do
+      model = wide(width)
+      assert lit(model, width) == ["Assigned to you"]
+      {page, []} = press(model, [:right])
+      assert lit(page, width) == ["Widget W-1"]
+      {details, []} = press(page, [:right])
+      assert lit(details, width) == ["Details"]
+      assert screen(details, width) =~ "▸Details"
+      {page, []} = press(details, [:left])
+      assert lit(page, width) == ["Widget W-1"]
+    end
+  end
+
   test "the details take the focus only when they have related items" do
     model = wide(220, widget("W-1", []))
     {model, []} = press(model, [:right, :right])
