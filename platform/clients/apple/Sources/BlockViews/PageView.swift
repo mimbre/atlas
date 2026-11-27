@@ -358,8 +358,8 @@ struct ListRowView: View {
 /// says where it stands in words. The card follows its title's height; it is a little
 /// lighter than the list's ground, rounded, without a shadow (list cards are an overview).
 /// Selected: Prism's light primary tint with a thin primary border, and the kind's icon in
-/// primary, while the list has the focus (`focused`), calm grey without it. The card covers
-/// its whole row with the list's ground around it, so the system's own selection never shows.
+/// primary, while the list has the focus (`focused`), calm grey without it. The outer
+/// List supplies its row ground; nested lists leave the surrounding page visible.
 struct RowCard: View {
     let row: RowModel
     let selected: Bool
@@ -385,7 +385,6 @@ struct RowCard: View {
             .onHover { hovering = $0 }
             .padding(.vertical, Prism.Spacing.px3)
             .padding(.horizontal, Prism.Spacing.px10)
-            .background(PrismDarkGap.listGround(scheme))
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
@@ -537,3 +536,34 @@ struct FallbackView: View {
         }
     }
 }
+
+#if DEBUG
+struct NestedListPreview: PreviewProvider {
+    static var previews: some View {
+        let blocks: [JSONValue] = [
+            .object(["id": .string("card"), "type": .string("item"), "props": .object([
+                "title": .string("Decision"), "fields": .array([
+                    .object(["label": .string("Status"), "value": .string("Accepted")])
+                ])
+            ])]),
+            .object(["id": .string("verdicts"), "type": .string("list"), "props": .object([
+                "rows": .array([
+                    .object(["label": .string("accept_decision"), "kind": .string("Gate verdict"),
+                             "key": .string("GV-0178"), "to": .string("/verdict/1")]),
+                    .object(["label": .string("accept_decision"), "kind": .string("Gate verdict"),
+                             "key": .string("GV-0177"), "to": .string("/verdict/2")])
+                ])
+            ])])
+        ]
+        let markup: [JSONValue] = [
+            .object(["kind": .string("section"), "start": .string("verdicts"), "end": .string("verdicts"),
+                     "props": .object(["title": .string("Gate verdicts")])])
+        ]
+        return PageView(page: PageMessage(blocks: blocks.map(Block.init(raw:)),
+                                          markup: markup.map(MarkupEntry.init(raw:)),
+                                          path: "/preview", title: "Decision"),
+                        header: true, open: { _ in })
+            .frame(width: 700, height: 500)
+    }
+}
+#endif
