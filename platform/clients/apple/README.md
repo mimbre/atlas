@@ -99,21 +99,26 @@ development package, with no distribution identity or release claim.
 
 `tools/update_local_app.py` is the replacement for the existing
 `~/.local/bin/atlas-console-update` invoked by `local.atlas.console-update` every ten
-minutes. It does not install or start a service. After this change is reviewed and
-integrated, the coordinator must replace that executable **atomically**, when the old
-updater is not executing, without changing the existing launch agent. Until then the
-old updater remains active and can forcibly quit Console; this source change alone
-does not make the installed service safe.
+minutes. It does not install or start a service. The old updater does not share a lock
+with this one, so an idle check followed by replacement cannot rule out a launchd
+start between those operations. Safe migration requires the coordinator to prevent
+new old-updater launches, wait for an existing invocation to exit normally, then
+atomically replace the executable and restore the existing schedule. This change
+does not perform that service operation. Until migration the old updater remains
+active and can forcibly quit Console.
 
 The updater requires the existing signed local bundle and its recorded commit and
 endpoint, fetches master into a disposable clone, refuses non-descendant revisions,
-and requires the exact revision's successful CI production-deployment gate. That gate
-is a release signal, not proof of an independent review. It generates the model, runs
-Swift tests, builds the release binary, signs and verifies a staged copy, and checks
+and requires both overall CI success and the production-deployment gate for that exact
+revision. Those gates are release signals, not proof of an independent review. It
+generates the model, runs Swift tests, builds the release binary, signs and verifies a staged copy, and checks
 master and the installed bundle again before an atomic exchange. It preserves the
 bundle identifier, launcher, endpoint and other contents. The previous bundle remains
 in a uniquely named hidden folder in Applications as `previous-bundle` (without an
-`.app` extension); it is not automatically deleted. No credentials are bundled.
+`.app` extension); it is not automatically deleted. On an interrupted or failed
+exchange, staging is retained as `uninstalled-or-previous-bundle` (or, if its rename
+failed, `Atlas Console.app`) because it may contain the original. No credentials are
+bundled.
 
 It never quits or reopens Console: while it is running, the updater defers until the
 user quits normally, so an open form or confirmation is not interrupted. A concurrent

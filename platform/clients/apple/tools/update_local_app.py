@@ -45,12 +45,13 @@ def tested_revision(revision):
             return json.load(response)
     runs = get(API)["workflow_runs"]
     for item in runs:
-        if item["head_sha"] != revision or item["name"] != "CI" or item["status"] != "completed":
+        if (item["head_sha"] != revision or item["name"] != "CI"
+                or item["status"] != "completed" or item.get("conclusion") != "success"):
             continue
         jobs = get(item["jobs_url"] + "?per_page=100")["jobs"]
         if any(job["name"] == "Deploy prod on Fly, and a smoke check" and job["conclusion"] == "success" for job in jobs):
             return
-    raise RuntimeError("no completed CI run with successful tested-tree/prod gate for master " + revision)
+    raise RuntimeError("no successful completed CI run with successful prod gate for master " + revision)
 
 
 def metadata(app):
@@ -164,7 +165,15 @@ def update(app):
                 raise RuntimeError("Console started during staging; retry")
             swap(app, candidate)
         except BaseException:
-            shutil.rmtree(stage)
+            # The exchange may already have succeeded, even if interrupted; never
+            # delete this directory because it could now contain the original app.
+            previous = stage / "uninstalled-or-previous-bundle"
+            try:
+                if candidate.exists():
+                    candidate.rename(previous)
+            except OSError:
+                previous = candidate
+            print(f"Update interrupted or failed; retained staging at {previous}", file=sys.stderr)
             raise
         previous = stage / "previous-bundle"
         try:
@@ -176,7 +185,10 @@ def update(app):
 
 
 def main():
-    os.environ["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
+    os.environ["PATH"] = os.pathsep.join([
+        str(Path.home() / ".asdf/shims"), "/opt/homebrew/bin",
+        os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
+    ])
     os.environ.setdefault("DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer")
     # The lock is separate from the app, and never removes or modifies existing services.
     lock_dir = Path.home() / "Library/Caches"

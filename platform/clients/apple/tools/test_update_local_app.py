@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import plistlib
 import shutil
@@ -90,7 +91,7 @@ class UpdateTest(unittest.TestCase):
     def test_release_gate_requires_exact_revision_and_success(self):
         rev = "b" * 40
         runs = {"workflow_runs": [{"head_sha": rev, "name": "CI", "status": "completed",
-                                   "jobs_url": "https://example.invalid/jobs"}]}
+                                   "conclusion": "success", "jobs_url": "https://example.invalid/jobs"}]}
         jobs = {"jobs": [{"name": "Deploy prod on Fly, and a smoke check", "conclusion": "success"}]}
         def response(data):
             return io.BytesIO(json.dumps(data).encode())
@@ -98,13 +99,40 @@ class UpdateTest(unittest.TestCase):
                           side_effect=[response(runs), response(jobs)]):
             updater.tested_revision(rev)
         with patch.object(updater.urllib.request, "urlopen", return_value=response(runs)):
-            with self.assertRaisesRegex(RuntimeError, "no completed CI"):
+            with self.assertRaisesRegex(RuntimeError, "no successful completed CI"):
                 updater.tested_revision("c" * 40)
         jobs["jobs"][0]["conclusion"] = "failure"
         with patch.object(updater.urllib.request, "urlopen",
                           side_effect=[response(runs), response(jobs)]):
-            with self.assertRaisesRegex(RuntimeError, "no completed CI"):
+            with self.assertRaisesRegex(RuntimeError, "no successful completed CI"):
                 updater.tested_revision(rev)
+        runs["workflow_runs"][0]["conclusion"] = "failure"
+        with patch.object(updater.urllib.request, "urlopen", return_value=response(runs)):
+            with self.assertRaisesRegex(RuntimeError, "no successful completed CI"):
+                updater.tested_revision(rev)
+
+    def test_interruption_after_exchange_retains_original(self):
+        exchange = updater.swap
+        def interrupted(app, candidate):
+            exchange(app, candidate)
+            raise KeyboardInterrupt()
+        with patch.object(updater, "swap", side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                self.invoke()
+        backups = list(self.app.parent.glob(".atlas-console-update-*/uninstalled-or-previous-bundle"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(updater.metadata(backups[0])[0]["AtlasGitCommit"], "a" * 40)
+        self.assertEqual((backups[0] / "Contents/Resources/user-file").read_text(), "preserve")
+
+    def test_launch_environment_retains_asdf_and_existing_path(self):
+        with patch.dict(os.environ, {"PATH": "/custom/bin"}, clear=True), \
+             patch.object(Path, "home", return_value=self.app.parent), \
+             patch.object(updater, "update") as update:
+            self.assertEqual(updater.main(), 0)
+            self.assertEqual(os.environ["PATH"].split(os.pathsep)[0],
+                             str(self.app.parent / ".asdf/shims"))
+            self.assertIn("/custom/bin", os.environ["PATH"].split(os.pathsep))
+            update.assert_called_once()
 
 
 if __name__ == "__main__":
