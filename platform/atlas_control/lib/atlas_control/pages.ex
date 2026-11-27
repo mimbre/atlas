@@ -1890,9 +1890,16 @@ defmodule AtlasControl.Pages do
         nil -> {title, nil}
       end
 
+    {blocks, actions} =
+      case groups do
+        [_] -> {blocks, []}
+        _ -> {[{"groups", Blocks.groups(groups: groups)} | blocks], group_actions(groups)}
+      end
+
     title
-    |> page(back, [{"groups", Blocks.groups(groups: groups)} | blocks])
-    |> Map.put(:console_actions, group_actions(groups))
+    |> page(back, blocks)
+    |> Map.put(:console_actions, actions)
+    |> Map.put(:group_total, Enum.sum(Map.values(counts)))
   end
 
   # The Console's way through a page's groups: `[` opens the previous, `]` the next.
