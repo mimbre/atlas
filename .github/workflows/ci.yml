@@ -36,7 +36,7 @@ jobs:
       run_id: ${{ steps.find.outputs.run_id }}
       # The macOS jobs (swift, apple) run only when this change touches what they test.
       apple: ${{ steps.apple.outputs.apple }}
-      # The Fly deploys run only when something that ends up on Fly changed.
+      # The production Fly deploy runs only when something that ends up on Fly changed.
       deploy: ${{ steps.apple.outputs.deploy }}
     steps:
       - uses: actions/checkout@v4
@@ -731,7 +731,6 @@ jobs:
     if: >-
       ${{ !cancelled()
       && github.event_name == 'push' && github.ref == 'refs/heads/develop'
-      && needs.tested-tree.outputs.deploy != 'false'
       && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
       && (needs.tested-tree.outputs.tested == 'true' || !contains(needs.*.result, 'skipped')) }}
     runs-on: ubuntu-latest
