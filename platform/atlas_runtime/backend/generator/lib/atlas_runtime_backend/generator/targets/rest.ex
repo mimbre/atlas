@@ -221,18 +221,37 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
     errors = Map.drop(hd(prepared).errors, @upload_errors)
 
+    resource? = Enum.any?(items, fn {{_, kind, _}, _} -> kind == :resource end)
+    stream? = Enum.any?(items, fn {{_, kind, _}, _} -> kind == :stream end)
+
+    upload? =
+      Enum.any?(items, fn {{_, kind, item}, _} ->
+        kind == :resource and Map.get(item, :upload) != nil
+      end)
+
+    json? =
+      stream? or
+        Enum.any?(items, fn {{_, kind, item}, _} ->
+          kind == :resource and Map.get(item, :upload) == nil
+        end)
+
+    stream_response? =
+      Enum.any?(prepared, fn c ->
+        Enum.any?(c.target.resources, fn item ->
+          Enum.any?(c.capabilities[item.capability].outcomes, fn outcome ->
+            Map.get(c.statuses[outcome.name], :stream) != nil
+          end)
+        end)
+      end)
+
     quote do
       unquote_splicing(for c <- prepared, do: quote(do: require(unquote(c.contract))))
       unquote_splicing(for c <- prepared, do: quote(do: require(unquote(c.facade))))
       @behaviour Plug
-      @compile {:nowarn_unused_function,
-                read_json: 2,
-                header: 3,
-                read_headers: 2,
-                with_conn: 2,
-                refused: 2,
-                send_stream: 2,
-                close: 1}
+      if unquote(stream?) do
+        defp with_conn({:ok, value}, _conn), do: {:ok, value}
+        defp with_conn({:error, reasons}, conn), do: {:error, conn, reasons}
+      end
 
       @routes unquote(Macro.escape(Enum.map(routes, &Map.drop(&1, [:contract, :path]))))
       @errors unquote(Macro.escape(errors))
@@ -293,41 +312,44 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
       unquote_splicing(List.flatten(openings))
       unquote_splicing(responders)
 
-      defp with_conn({:ok, value}, _conn), do: {:ok, value}
-      defp with_conn({:error, reasons}, conn), do: {:error, conn, reasons}
+      if unquote(json?) do
+        defp read_json(conn, fields) do
+          case Plug.Conn.read_body(conn, length: unquote(@max_body)) do
+            {:ok, binary, conn} ->
+              case Runtime.body(fields, binary) do
+                {:ok, map} -> {:ok, conn, map}
+                {:error, reasons} -> {:error, conn, reasons}
+              end
 
-      defp read_json(conn, fields) do
-        case Plug.Conn.read_body(conn, length: unquote(@max_body)) do
-          {:ok, binary, conn} ->
-            case Runtime.body(fields, binary) do
-              {:ok, map} -> {:ok, conn, map}
-              {:error, reasons} -> {:error, conn, reasons}
-            end
+            {:more, _partial, conn} ->
+              {:error, conn, ["the body is larger than #{unquote(@max_body)} bytes"]}
 
-          {:more, _partial, conn} ->
-            {:error, conn, ["the body is larger than #{unquote(@max_body)} bytes"]}
-
-          {:error, _reason} ->
-            {:error, conn, ["the body could not be read"]}
+            {:error, _reason} ->
+              {:error, conn, ["the body could not be read"]}
+          end
         end
       end
 
-      defp header(conn, name, type) do
-        case Plug.Conn.get_req_header(conn, name) do
-          [] -> {:ok, nil}
-          [text] -> {:ok, Runtime.coerce(type, text)}
-          _ -> {:error, ["header #{name} is given twice"]}
+      if unquote(resource? or stream?) do
+        defp header(conn, name, type) do
+          case Plug.Conn.get_req_header(conn, name) do
+            [] -> {:ok, nil}
+            [text] -> {:ok, Runtime.coerce(type, text)}
+            _ -> {:error, ["header #{name} is given twice"]}
+          end
         end
       end
 
       # The bound headers as {field, value}; a header given twice is an error.
-      defp read_headers(conn, reads) do
-        Enum.reduce_while(reads, {:ok, []}, fn {field, name, type}, {:ok, acc} ->
-          case header(conn, name, type) do
-            {:ok, value} -> {:cont, {:ok, [{field, value} | acc]}}
-            {:error, reasons} -> {:halt, {:error, conn, reasons}}
-          end
-        end)
+      if unquote(resource?) do
+        defp read_headers(conn, reads) do
+          Enum.reduce_while(reads, {:ok, []}, fn {field, name, type}, {:ok, acc} ->
+            case header(conn, name, type) do
+              {:ok, value} -> {:cont, {:ok, [{field, value} | acc]}}
+              {:error, reasons} -> {:halt, {:error, conn, reasons}}
+            end
+          end)
+        end
       end
 
       # A facade's answer that is no outcome: one of its refusals, the same for every
@@ -362,7 +384,9 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
       # An answer given before a streamed body was read to its end: the connection is
       # closed after it, so nothing more of the body is read.
-      defp close(conn), do: Plug.Conn.put_resp_header(conn, "connection", "close")
+      if unquote(upload?) do
+        defp close(conn), do: Plug.Conn.put_resp_header(conn, "connection", "close")
+      end
 
       defp send_json(conn, status, content_type, body) do
         conn
@@ -372,13 +396,15 @@ defmodule AtlasRuntimeBackend.Generator.Targets.Rest do
 
       # A stream outcome's body on a chunked conn: one chunk per element, as it is read.
       # A chunk that cannot be sent halts the enumeration, so its clean-up runs.
-      defp send_stream(conn, content) do
-        Enum.reduce_while(content, conn, fn piece, conn ->
-          case Plug.Conn.chunk(conn, piece) do
-            {:ok, conn} -> {:cont, conn}
-            {:error, _closed} -> {:halt, conn}
-          end
-        end)
+      if unquote(stream_response?) do
+        defp send_stream(conn, content) do
+          Enum.reduce_while(content, conn, fn piece, conn ->
+            case Plug.Conn.chunk(conn, piece) do
+              {:ok, conn} -> {:cont, conn}
+              {:error, _closed} -> {:halt, conn}
+            end
+          end)
+        end
       end
     end
   end
