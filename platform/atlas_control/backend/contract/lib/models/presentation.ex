@@ -112,7 +112,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # entered the state it is in, so a client can say how long it has been there. `kind` is
   # the kind of the item the row opens, in plain words (its label, "Decision"), so a client
   # can say what the row is; `icon` is that kind's icon, a semantic name the model gives the
-  # kind (`decision`, `to_do`), the same on its page's header and its tab, which a client
+  # kind (`scales`, `checklist`), the same on its page's header and its tab, which a client
   # draws as it likes and leaves out when it does not know it.
   defmodel :row do
     field :id, :string

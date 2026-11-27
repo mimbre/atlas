@@ -244,7 +244,7 @@ defmodule AtlasControl.Pages do
   def kind?(m, kind), do: is_map(kind(m, kind))
 
   @doc """
-  The icon the model names for `kind`, a semantic name (`decision`, `to_do`) a client draws
+  The icon the model names for `kind`, a semantic name (`scales`, `checklist`) a client draws
   as it likes; nil when the model names none, or has no such kind. One kind has one icon
   everywhere: on its rows, on its page's header and on its tab or group.
   """

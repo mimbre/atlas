@@ -81,7 +81,7 @@ defmodule Model.Decision do
     from it. An accepted decision is never edited; a newer decision supersedes it. The id
     is D- and a number, e.g. D-0024.
     """ do
-    icon(:decision)
+    icon(:scales)
     field(:title, :string, required: true, description: "The decision in a few words")
 
     field(:decision, :string,

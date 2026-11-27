@@ -70,7 +70,7 @@ defmodule Model.PullRequest do
     fills title and state later. The id is derived from the URL,
     PR-<owner>-<repo>-<number>, so linking the same URL twice is one record.
     """ do
-    icon(:pull_request)
+    icon(:merge)
     field(:url, :github_pull_url, required: true, unique: true, description: "GitHub: url")
     field(:title, :string, description: "GitHub: title", set_by: :connector)
     field(:state, :pull_request_state, description: "GitHub: state", set_by: :connector)

@@ -51,10 +51,10 @@ final class RowCardTextTests: XCTestCase {
     }
 
     func testTheTopLineLeadsWithTheKindsIconNeverADot() {
-        let decision = RowModel(id: "D-1", label: "Pick", tone: "attention", kind: "Decision", icon: "decision")
-        XCTAssertEqual(RowCardText.top(decision), .init(symbol: SidebarLook.symbol("decision"), text: "DECISION · D-1"))
+        let decision = RowModel(id: "D-1", label: "Pick", tone: "attention", kind: "Decision", icon: "scales")
+        XCTAssertEqual(RowCardText.top(decision), .init(symbol: SidebarLook.symbol("scales"), text: "DECISION · D-1"))
         XCTAssertNotNil(RowCardText.top(decision).symbol)
-        XCTAssertNotEqual(RowCardText.top(RowModel(id: "TD-1", kind: "To-Do", icon: "to_do")).symbol,
+        XCTAssertNotEqual(RowCardText.top(RowModel(id: "TD-1", kind: "To-Do", icon: "checklist")).symbol,
                           RowCardText.top(decision).symbol)
 
         // Where it stands is not on it: every tone, or none, gives the same top line.

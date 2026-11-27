@@ -52,7 +52,7 @@ defmodule Model.UseCase do
     The technical contract for part of a scene (Flux's meaning). The id is
     its code, e.g. UC-Atlas-01.
     """ do
-    icon(:use_case)
+    icon(:route)
     field(:title, :string, required: true, description: "Without the code (Flux: name)")
     field(:description, :string, description: "The text (Flux: description)", multiline: true)
 

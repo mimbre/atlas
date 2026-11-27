@@ -560,9 +560,9 @@ defmodule AtlasTui.PresentationTest do
         label: "Pick a store",
         to: "/k/decision/D-1",
         tone: "attention",
-        icon: "decision"
+        icon: "scales"
       },
-      %AtlasTui.Blocks.Row{id: "TD-1", label: "Rotate", to: "/k/to_do/TD-1", icon: "to_do"},
+      %AtlasTui.Blocks.Row{id: "TD-1", label: "Rotate", to: "/k/to_do/TD-1", icon: "checklist"},
       %AtlasTui.Blocks.Row{id: "X-1", label: "Odd", to: "/k/odd/X-1", icon: "nonsense"}
     ]
 

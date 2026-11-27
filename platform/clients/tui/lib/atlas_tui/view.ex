@@ -47,20 +47,20 @@ defmodule AtlasTui.View do
   # kind): one monochrome character before the key, in the row's own colour; none for a
   # name the TUI does not know. A page's header leads with it in place of ◆.
   @kind_glyphs %{
-    "decision" => "◆",
-    "to_do" => "☐",
-    "scene" => "□",
-    "use_case" => "◇",
-    "issue" => "•",
-    "agent" => "◉",
-    "machinery" => "▣",
-    "person" => "○",
-    "task" => "▪",
-    "pull_request" => "⇄",
-    "pr_review" => "◎",
-    "pr_test" => "▷",
-    "runtime_upgrade" => "↑",
-    "agent_request" => "▹"
+    "scales" => "◆",
+    "checklist" => "☐",
+    "frame" => "□",
+    "route" => "◇",
+    "ticket" => "•",
+    "sparkles" => "◉",
+    "gears" => "▣",
+    "figure" => "○",
+    "hammer" => "▪",
+    "merge" => "⇄",
+    "magnifier" => "◎",
+    "flask" => "▷",
+    "upgrade" => "↑",
+    "history" => "▹"
   }
   # A title keeps at least this many cells (or all of its own) before the age column goes.
   @title_floor 40

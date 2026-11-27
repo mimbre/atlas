@@ -10,7 +10,7 @@ defmodule Model.Person do
     Someone who works with Atlas. The id is short and lower case, made from
     the name, e.g. melle.
     """ do
-    icon(:person)
+    icon(:figure)
     field(:name, :string, required: true, description: "As it is shown")
     top(false)
     primary(:name)
