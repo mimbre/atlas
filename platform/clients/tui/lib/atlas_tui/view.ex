@@ -52,7 +52,7 @@ defmodule AtlasTui.View do
     "ticket" => "•",
     "sparkles" => "✦",
     "gears" => "✹",
-    "figure" => "●",
+    "figure" => "♟",
     "hammer" => "▪",
     "merge" => "⇄",
     "magnifier" => "◉",
@@ -63,7 +63,7 @@ defmodule AtlasTui.View do
   # A title keeps at least this many cells (or all of its own) before the age column goes.
   @title_floor 40
   @column_title_floor 20
-  # Narrower than this, a list's rows keep only their dot, key and title.
+  # Narrower than this, a list's rows keep only their icon, key and title.
   @narrow 80
   # A multi-line input that does not have the focus shows at most this many rows.
   @resting_rows 8
@@ -1347,8 +1347,8 @@ defmodule AtlasTui.View do
 
   # A card: `lines` on a surface of their own (`AtlasTui.Palette`, cards), a column in from
   # the page's edge, a column of padding left and right, each row filled edge to edge; its
-  # top and bottom rows half blocks in the surface's colour on the page (▗▄▄▖, ▝▀▀▘), which
-  # round its corners; no lines. `kind` is `:card`, `:card_selected` (the one selected: the
+  # top and bottom rows are straight half blocks in the surface's colour; no lines.
+  # `kind` is `:card`, `:card_selected` (the one selected: the
   # primary tinted surface) or `:card_error` (what went wrong: a card, its heading in the
   # error colour and saying so). Where the terminal reports no truecolor
   # (`console.truecolor`), a surface could not be told from the page: a card is its lines
@@ -1371,7 +1371,7 @@ defmodule AtlasTui.View do
         else: {:card, :card_edge}
 
     inner = card_width(width)
-    fill = width - 3
+    fill = width - 1
     pad = {{surface, :plain}, " "}
 
     rows =
@@ -1382,8 +1382,8 @@ defmodule AtlasTui.View do
         [{:plain, " "}, pad | content] ++ [pad]
       end
 
-    [[{:plain, " "}, {edge, "▗" <> String.duplicate("▄", fill) <> "▖"}]] ++
-      rows ++ [[{:plain, " "}, {edge, "▝" <> String.duplicate("▀", fill) <> "▘"}]]
+    [[{:plain, " "}, {edge, String.duplicate("▄", fill)}]] ++
+      rows ++ [[{:plain, " "}, {edge, String.duplicate("▀", fill)}]]
   end
 
   # The width of a card's lines in a card `width` wide (its margin, padding or bar).

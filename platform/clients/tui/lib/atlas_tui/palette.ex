@@ -43,7 +43,7 @@ defmodule AtlasTui.Palette do
   role has the page's background, its own background (a key, a chip) where not. Where a
   role's colour would fall under 4.5:1 on a surface (the error colour on the selected one),
   it takes the theme's text colour; its words say what it is. `:card_edge` and
-  `:card_selected_edge` draw a card's rounded top and bottom rows: the surface colour as
+  `:card_selected_edge` draw a card's straight top and bottom rows: the surface colour as
   the foreground of half blocks on the page.
   """
   @tokens %{
