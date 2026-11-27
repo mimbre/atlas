@@ -15,6 +15,7 @@ import SwiftUI
 struct PanelView: View {
     let block: PanelBlock
     let others: [ActionModel]
+    let detailHeading: Bool
     let open: (String) -> Void
     let act: (ActionModel) -> Void
 
@@ -25,10 +26,11 @@ struct PanelView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.panelKeys) private var panelKeys
 
-    init(block: PanelBlock, others: [ActionModel] = [], open: @escaping (String) -> Void,
+    init(block: PanelBlock, others: [ActionModel] = [], detailHeading: Bool = false, open: @escaping (String) -> Void,
          act: @escaping (ActionModel) -> Void) {
         self.block = block
         self.others = others
+        self.detailHeading = detailHeading
         self.open = open
         self.act = act
         _panel = State(initialValue: Panel(block))
@@ -37,7 +39,7 @@ struct PanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
             PanelHeading(eyebrow: block.heading ?? "", title: block.title ?? "", key: block.key, trailing: block.aside,
-                         icon: block.icon)
+                         icon: block.icon, detailHeading: detailHeading)
             if let byline = block.byline, !byline.isEmpty {
                 // The ages keep current.
                 TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -144,6 +146,7 @@ struct PanelHeading: View {
     let key: String?
     let trailing: String?
     var icon: String? = nil
+    var detailHeading = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -156,7 +159,7 @@ struct PanelHeading: View {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
                 (Text(title) + Text(key.map { "   " + $0 } ?? "").font(Prism.Typography.label.emphasis(.data).font)
                     .foregroundColor(PrismDarkGap.muted(scheme)))
-                    .prism(Prism.Typography.title6)
+                    .prism(detailHeading ? Prism.Typography.title6 : Prism.Typography.title5)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let trailing, !trailing.isEmpty {
                     Text(trailing).prism(Prism.Typography.caption).foregroundStyle(PrismDarkGap.muted(scheme))

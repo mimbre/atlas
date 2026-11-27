@@ -184,6 +184,7 @@ struct CardStack: View {
 struct OptionView: View {
     let block: OptionBlock
     var room = true
+    var detailHeading = false
     let act: (ActionModel) -> Void
     @Environment(\.colorScheme) private var scheme
     @Environment(\.pendingAction) private var pending
@@ -193,7 +194,7 @@ struct OptionView: View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
             HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
                 if let n = Option.number(block) { StepNumber(n: n) }
-                Text(block.text ?? "").prism(Prism.Typography.title6)
+                Text(block.text ?? "").prism(detailHeading ? Prism.Typography.title6 : Prism.Typography.title5)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let badge = block.badge, !badge.isEmpty {
