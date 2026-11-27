@@ -15,6 +15,9 @@ import SwiftUI
 public struct PageView: View {
     let presentation: PagePresentation
     let pageActions: [ActionModel]
+    /// What else can be done with the page's subject (its `actions` blocks): beside its
+    /// title when the page has one on screen (`othersOnTop`), else where Control put them.
+    let otherActions: [ActionModel]
     let header: Bool
     let selectedPath: String?
     let open: (String) -> Void
@@ -28,6 +31,10 @@ public struct PageView: View {
                 act: @escaping (ActionModel) -> Void = { _ in }) {
         presentation = PagePresentation(page)
         pageActions = PageActions.ofPage(page)
+        otherActions = (page.blocks ?? []).flatMap { block -> [ActionModel] in
+            if case .actions(let actions) = block.content { return actions.actions ?? [] }
+            return []
+        }
         self.header = header
         self.selectedPath = selectedPath
         self.open = open
@@ -78,7 +85,8 @@ public struct PageView: View {
             ForEach(lines) { line in
                 switch line.content {
                 case .header:
-                    still(PageHeader(title: presentation.title, actions: pageActions, act: act))
+                    still(PageHeader(title: presentation.title, actions: pageActions,
+                                     others: othersOnTop ? otherActions : [], act: act))
                 case .title(let title):
                     still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.px10))
                 case .empty(let empty):
@@ -183,6 +191,8 @@ public struct PageView: View {
                     if !actions.isEmpty {
                         blocks.append(Line(id: group.id + "/actions", content: .actions(actions)))
                     }
+                case .actions where othersOnTop:
+                    break
                 default:
                     blocks.append(Line(id: group.id, content: .entry(entry)))
                 }
@@ -190,6 +200,12 @@ public struct PageView: View {
         }
         let own = header && !presentation.hasPanel && !presentation.hasHeader
         return own ? [Line(id: "\u{0}header", content: .header)] + blocks : blocks
+    }
+
+    /// Whether the page's title is on screen (its own header, or a `header` block), so the
+    /// other actions go beside it rather than where their block is.
+    private var othersOnTop: Bool {
+        header && (presentation.hasHeader || !presentation.hasPanel)
     }
 
     /// The page's actions a panel shows at its bottom: on a page with a header, which a
@@ -220,11 +236,16 @@ public struct PageView: View {
         case .panel(let panel):
             // A view of its own per page: a selection never stays for another page.
             PanelView(block: panel, others: panelActions, open: open, act: act).id(presentation.path)
-        case .header(let block): HeaderBlockView(block: block, actions: headerActions, act: act)
+        case .header(let block):
+            HeaderBlockView(block: block, actions: headerActions, others: othersOnTop ? otherActions : [], act: act)
         case .text(let text): TextBlockView(block: text)
         case .instruction(let instruction): InstructionView(block: instruction)
         case .answers(let answers): AnswersView(block: answers, act: act)
-        case .actions(let actions): OtherActionsView(block: actions, act: act)
+        case .actions(let actions):
+            OtherActionsView(actions: actions.actions ?? [], act: act)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Prism.Spacing.px15)
+                .padding(.bottom, Prism.Spacing.px10)
         // A page that asks is shown over the window (ActionPageView), not in a column.
         case .form: FallbackView(type: "form", reason: nil)
         case .confirm: FallbackView(type: "confirm", reason: nil)
@@ -420,7 +441,7 @@ struct ItemBlockView: View {
 
     var body: some View {
         let content = VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-            if let title = item.title {
+            if let title = item.title, !title.isEmpty {
                 Text(title).prism(inDetails ? Prism.Typography.label : Prism.Typography.title7)
             }
             // The actions first: the next step is in reach without scrolling.

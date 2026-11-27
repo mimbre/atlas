@@ -1299,6 +1299,10 @@ defmodule AtlasControl.PagesTest do
     assert Enum.map(more({:item, "widget", "W-1"}, @d, answers), &{&1["key"], &1["label"]}) ==
              [{"u", "Update widget"}, {"d", "Delete widget"}, {"c", "Create part"}]
 
+    # On its own page the buttons say only the verb; the labels (menus, tools) keep the kind.
+    assert Enum.map(more({:item, "widget", "W-1"}, @d, answers), & &1["button"]) ==
+             ["Update", "Delete", nil]
+
     %{title: create} = render({:new, "widget"}, @d, [])
     %{title: update} = render({:edit, "widget", "W-1"}, @d, [widget])
     assert {create, update} == {"Create widget", "Update W-1"}
@@ -2016,7 +2020,8 @@ defmodule AtlasControl.PagesTest do
     # owner or how (those are `atlas get`'s), nor its card as a list; for whom, from whom
     # and since when, they do.
     details = by_id(page)["item"]
-    assert details["title"] == "Widget W-1"
+    # No title of its own: the page's header has the key and title.
+    assert details["title"] == ""
     labels = Enum.map(details["fields"], & &1["label"])
     refute "Title" in labels or "Because" in labels or "How" in labels
 

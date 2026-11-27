@@ -128,7 +128,7 @@ defmodule AtlasAgent.CLITest do
           "tone" => "success",
           "fields" => [
             %{"label" => "Rule", "value" => "One job per block."},
-            %{"label" => "Then", "value" => "Clients stack them."}
+            %{"label" => "Consequences", "value" => "Clients stack them."}
           ],
           "answer" => answer.("1", "Choose"),
           "weight" => %{"unknown" => ["field"]}
@@ -159,7 +159,7 @@ defmodule AtlasAgent.CLITest do
       Why: Clients stay small.
       1 Stacked blocks (★ Recommended)
           Rule: One job per block.
-          Then: Clients stack them.
+          Consequences: Clients stack them.
       2 Compound blocks (Decline · note)
           Details: Each page its own.
       v Hand over…

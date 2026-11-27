@@ -44,6 +44,12 @@ public enum Option {
         block.answer.map(Panel.action)
     }
 
+    /// The number its card shows: none on the only proposal (`alone`), which has nothing
+    /// to be told from.
+    public static func number(_ block: OptionBlock) -> Int? {
+        block.alone == true ? nil : block.n
+    }
+
     /// Its answer as the page's actions: on its key, and on `0` for the recommended one.
     /// The only proposal's (`alone`) only on `0`: its key is the page's Accept.
     public static func actions(_ block: OptionBlock) -> [ActionModel] {

@@ -321,7 +321,7 @@ defmodule AtlasControl.PanelTest do
              "text" => "Retry",
              "badge" => "★ Recommended",
              "tone" => "success",
-             "fields" => [%{"label" => "Then", "value" => "Inspects it again."}],
+             "fields" => [%{"label" => "Consequences", "value" => "Inspects it again."}],
              "answer" => %{
                "label" => "Choose",
                "key" => "r",
@@ -333,7 +333,7 @@ defmodule AtlasControl.PanelTest do
     assert %{
              "n" => 2,
              "text" => "Close it",
-             "fields" => [%{"label" => "Then", "value" => "Ends it."}],
+             "fields" => [%{"label" => "Consequences", "value" => "Ends it."}],
              "answer" => %{
                "label" => "Choose",
                "key" => "c",

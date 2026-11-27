@@ -220,12 +220,15 @@ struct SidebarRow: View {
             if item.isGroup {
                 Color.clear.frame(width: SidebarLook.indent(group: true), height: 1)
             } else {
-                Group {
+                // Without a known icon the column stays (a blank), so the labels line up:
+                // an empty Group takes no room at all, its frame with it.
+                ZStack {
                     if let symbol = SidebarLook.symbol(item.icon) {
                         Image(systemName: symbol)
                             .prism(Prism.Typography.label)
                             .foregroundStyle(PrismDarkGap.sidebarIcon(scheme, selected: selected))
                     }
+                    Color.clear.frame(width: SidebarLook.icon, height: 1)
                 }
                 .frame(width: SidebarLook.icon)
                 .padding(.trailing, SidebarLook.iconSpace)
@@ -291,8 +294,12 @@ struct SidebarFoot: View {
                     .truncationMode(.tail)
             }
             HStack(spacing: 6) {
-                Text(env)
-                    .prism(production ? Prism.Typography.caption.emphasis(.strong) : Prism.Typography.caption)
+                // Production stands out as Prism's danger tag; another environment plain.
+                if production {
+                    PrismTag(tone: .danger) { Text(env).prism(Prism.Typography.caption.emphasis(.strong)) }.fixedSize()
+                } else {
+                    Text(env)
+                }
                 Text("·")
                 Circle().fill(dot).frame(width: 7, height: 7)
                 Text(SidebarLook.connection(connection))

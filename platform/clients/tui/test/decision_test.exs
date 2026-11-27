@@ -9,7 +9,7 @@ defmodule AtlasTui.DecisionTest do
 
   defp rows(model, width \\ 90), do: View.render(model, width, 60, 30)
   defp lines(model, width \\ 90), do: model |> rows(width) |> View.plain() |> String.split("\n")
-  defp screen(model, width \\ 90), do: model |> lines(width) |> Enum.join("\n")
+  defp screen(model, width), do: model |> lines(width) |> Enum.join("\n")
   defp at(lines, text), do: Enum.find_index(lines, &(&1 =~ text))
   defp line(model, text), do: model |> lines() |> Enum.find(&(&1 =~ text))
 
@@ -58,13 +58,19 @@ defmodule AtlasTui.DecisionTest do
     assert at(lines, "Status") < at(lines, "1. Use files")
   end
 
-  test "every alternative shows its rule and what then follows" do
-    screen = screen(PanelFixture.model(:choice))
+  test "every alternative shows its Rule and Consequences, each a heading with its text under it" do
+    model = PanelFixture.model(:choice)
+    lines = lines(model)
+    bare = Enum.map(lines, &(&1 |> String.replace(~r/[│|▸]/u, " ") |> String.trim()))
 
     for id <- ["files", "memory"] do
-      assert screen =~ "Rule: Store examples in #{id}."
-      assert screen =~ "Then: Use #{id} holds them."
+      rule = Enum.find_index(bare, &(&1 == "Store examples in #{id}."))
+      then = Enum.find_index(bare, &(&1 == "Use #{id} holds them."))
+      assert Enum.at(bare, rule - 1) == "Rule"
+      assert Enum.at(bare, then - 1) == "Consequences"
     end
+
+    refute Enum.any?(lines, &(&1 =~ ~r/Rule:|Then:|Consequences:/))
   end
 
   test "each alternative has its badge and its own Choose; Decline all with the answers" do
@@ -92,7 +98,13 @@ defmodule AtlasTui.DecisionTest do
     model = PanelFixture.model(:proposal)
     lines = lines(model)
 
-    assert line(model, "1. Use files") =~ "★ Recommended"
+    # The only proposal: no number, no badge, its Rule in full.
+    assert line(model, "Use files") =~ "▸ Use files"
+    refute at(lines, "1. Use files")
+    refute Enum.any?(lines, &(&1 =~ "★"))
+    flat = lines |> Enum.join(" ") |> String.replace(~r/[│|]/u, " ") |> String.split()
+    rule = String.split("Rule " <> PanelFixture.long_rule())
+    assert Enum.join(flat, " ") =~ Enum.join(rule, " ")
     refute at(lines, "1 Choose")
     assert line(model, "1 Accept") =~ "2 Decline · note"
     assert line(model, "Decline: None of these fits; say why.")
@@ -165,8 +177,9 @@ defmodule AtlasTui.DecisionTest do
           "inspect · attempt 2 failed · stuck · 1d ago",
           "What went wrong",
           "the tests could not reach the database.",
-          "1. Retry",
-          "Then: Runs the work again from where it stopped.",
+          "Retry",
+          "Consequences",
+          "Runs the work again from where it stopped.",
           "t Accept",
           "Decline: Close it"
         ],
@@ -178,7 +191,7 @@ defmodule AtlasTui.DecisionTest do
 
     assert {:card, :error} in styles(model, "What went wrong")
     assert {:card, :plain} in styles(model, "could not reach the database")
-    assert line(model, "1. Retry") =~ "★ Recommended"
+    refute line(model, "Retry") =~ "★"
     assert line(model, "t Accept") =~ "c Decline · note"
   end
 

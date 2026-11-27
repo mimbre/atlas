@@ -17,9 +17,9 @@ public enum WindowLayout {
     public static let page: CGFloat = 100 * Prism.characterWidth
     /// The least room the opened page gets beside the sidebar and list before the sidebar folds away.
     public static let pageMin: CGFloat = 480
-    /// The details' own column, growing with the room between these.
+    /// The details' own column, growing with the room from its least to the main blocks' most.
     public static let detailsMin: CGFloat = 280
-    public static let detailsMax: CGFloat = 480
+    public static let detailsMax: CGFloat = page
 
     /// The opened page's columns in its column `width` wide: the main blocks' width and,
     /// when the details fit beside them, the details' width (else they go under the main blocks).
