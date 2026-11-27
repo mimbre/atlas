@@ -52,6 +52,18 @@ Generated targets (the model's Rela project and diagrams, Control's `blocks.json
 
 `bin/check` runs every Linux job of CI here, in about 7 minutes on the Mac mini, offline: run it before handing work over (`bin/check beam` for one job, `bin/check --fast` for the static checks only). It needs what an agent's sandbox cannot install: the pinned rela in `~/.cache/atlas`, `rg`, and the Python packages of `platform/atlas_facts/rela/scripts/requirements.txt`; it says which is missing.
 
+Credo is isolated from the application dependencies in `tools/credo`. After fetching its
+locked dependencies with `cd tools/credo && mix deps.get`, run it from that directory:
+
+```sh
+mix credo suggest --working-dir ../.. --files-included platform --files-included products
+```
+
+This reports existing findings as well as new ones; it is not yet a clean pre-commit
+gate. Credo's built-in `diff` can match distinct findings as the same issue, and compares
+the working tree rather than the staged snapshot. Do not use it as a staged-change
+gate without addressing those limitations.
+
 ```sh
 bin/generate                                               # every generated target
 cd products/software_factory && mix test                   # the BEAM layers
