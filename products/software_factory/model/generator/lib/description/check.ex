@@ -162,6 +162,61 @@ defmodule RelaDSL.Description.Check do
 
   defp text?(v), do: is_binary(v) and String.trim(v) != ""
 
+  defp page_rule(_ctx, _kind, nil, _path), do: []
+
+  defp page_rule(ctx, kind, page, path) when is_map(page) do
+    keys(page, ~w(state intro sections items), path) ++
+      page_names(ctx, kind, page["state"], path ++ ["state"]) ++
+      page_intro(ctx, kind, page["intro"], path ++ ["intro"]) ++
+      page_names(ctx, kind, page["sections"], path ++ ["sections"]) ++
+      page_items(ctx, kind, page["items"], path ++ ["items"])
+  end
+
+  defp page_rule(_ctx, kind, _page, path),
+    do: p(path, :page, [kind], "#{kind}.page: expected a map")
+
+  defp page_names(_ctx, _kind, nil, _path), do: []
+
+  defp page_names(ctx, kind, names, path) when is_list(names),
+    do: Enum.flat_map(names, &field(ctx, kind, &1, path))
+
+  defp page_names(_ctx, kind, _names, path),
+    do: p(path, :page, [kind], "#{Enum.join(path, ".")}: expected a list")
+
+  defp page_intro(_ctx, _kind, nil, _path), do: []
+
+  defp page_intro(ctx, kind, intro, path) when is_map(intro) do
+    keys(intro, ~w(field), path) ++
+      field(ctx, kind, intro["field"], path ++ ["field"])
+  end
+
+  defp page_intro(_ctx, kind, _intro, path),
+    do: p(path, :page, [kind], "page intro must be a map")
+
+  defp page_items(_ctx, _kind, nil, _path), do: []
+
+  defp page_items(ctx, kind, items, path) when is_map(items) do
+    keys(items, ~w(relation empty), path) ++
+      relation(ctx, items["relation"], kind, "to", path ++ ["relation"]) ++
+      page_empty(kind, items["empty"], path ++ ["empty"])
+  end
+
+  defp page_items(_ctx, kind, _items, path),
+    do: p(path, :page, [kind], "page items must be a map")
+
+  defp page_empty(_kind, nil, _path), do: []
+
+  defp page_empty(kind, empty, path) when is_map(empty) do
+    Enum.flat_map(empty, fn {state, label} ->
+      if text?(state) and text?(label),
+        do: [],
+        else: p(path, :page, [kind], "page empty states and labels must be text")
+    end)
+  end
+
+  defp page_empty(kind, _empty, path),
+    do: p(path, :page, [kind], "page empty must be a map")
+
   # -- Root constructs -----------------------------------------------------------------
 
   defp guidance(%{x: %{"guidance" => g}} = ctx) do
@@ -451,7 +506,7 @@ defmodule RelaDSL.Description.Check do
 
     keys(
       spec,
-      ~w(top primary plural_label icon start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options panel),
+      ~w(top primary plural_label icon start create properties completion progress connector agent order by_hand late actions counts requires authority frozen replaces layering sealed delete_error decision_options panel page),
       path
     ) ++
       navigation(spec["start"], at.("start")) ++
@@ -512,6 +567,7 @@ defmodule RelaDSL.Description.Check do
       end) ++
       decision_options(ctx, kind, spec["decision_options"], at.("decision_options")) ++
       panels(ctx, kind, spec["panel"], at.("panel")) ++
+      page_rule(ctx, kind, spec["page"], at.("page")) ++
       authority(ctx, kind, spec["authority"], at.("authority")) ++
       layering(ctx, kind, spec["layering"], at.("layering")) ++
       frozen(ctx, kind, spec["frozen"], at.("frozen")) ++
