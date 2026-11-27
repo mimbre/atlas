@@ -12,11 +12,7 @@ defmodule AtlasTui.ColumnsSidebarTest do
       "id" => "supervised",
       "label" => "Supervised by you",
       "to" => "/_supervised",
-      "count" => 5,
-      "groups" => [
-        %{"label" => "Decisions", "to" => "/_supervised/decide/open", "count" => 2},
-        %{"label" => "To-Dos", "to" => "/_supervised/todo/open", "count" => 3}
-      ]
+      "count" => 5
     },
     %{"id" => "kinds", "label" => "Widgets", "to" => "/k/widget", "section" => "browse"}
   ]
@@ -206,6 +202,59 @@ defmodule AtlasTui.ColumnsSidebarTest do
 
     for {key, to} <- [{"]", "/_supervised/decide/open"}, {"[", "/_supervised/todo/open"}] do
       assert {_, [{:send, %{"op" => "open", "to" => ^to}}]} = Model.key(model, {:char, key})
+    end
+  end
+
+  test "direct group pages track their tab and list without boot group destinations" do
+    for width <- [80, 160, 300] do
+      model = wide(max(width, 160))
+      model = put_in(model.console.viewport, {width, 40})
+      model = %{model | console: %{model.console | cache: AtlasTui.PageCache.new(), history: []}}
+      {model, [{:send, %{"op" => "open"}}]} = AtlasTui.Console.to_tab(model, "/_open/build")
+
+      page =
+        list("/_open/build", "Build", ["W-3", "W-4"])
+        |> Map.put("back", "/_supervised")
+        |> Map.update!("blocks", fn blocks ->
+          [
+            %{
+              "id" => "groups",
+              "type" => "groups",
+              "props" => %{
+                "groups" => [
+                  %{"label" => "Build", "to" => "/_open/build", "count" => 2, "active" => true}
+                ]
+              }
+            }
+            | blocks
+          ]
+        end)
+
+      {model, effects} = ConsoleProjectionFixture.receive(model, page)
+      assert model.console.active == "supervised"
+      assert model.columns.list == "/_open/build"
+      assert screen(model, width) =~ "Build"
+
+      if width >= 160 do
+        assert [{:send, %{"op" => "open", "to" => "/k/widget/W-3"}}] = effects
+        {model, []} = ConsoleProjectionFixture.receive(model, widget("W-3"))
+        assert model.console.active == "supervised"
+        assert model.columns.list == "/_open/build"
+        {model, [{:send, %{"op" => "open", "to" => "/k/widget/W-4"}}]} = Model.key(model, :down)
+        assert model.columns.list == "/_open/build"
+      else
+        assert effects == []
+        {model, []} = Model.key(model, :down)
+        assert model.selected == 1
+        {model, [{:send, %{"op" => "open", "to" => "/k/widget/W-4"}}]} =
+          AtlasTui.Console.open(model, "/k/widget/W-4")
+
+        {model, []} = ConsoleProjectionFixture.receive(model, widget("W-4"))
+        assert model.console.active == "supervised"
+        assert screen(model, width) =~ "Build › Widget W-4"
+        {model, [_]} = AtlasTui.Console.back(model)
+        assert model.selected == 1
+      end
     end
   end
 

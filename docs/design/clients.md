@@ -151,7 +151,7 @@ blue planned or waiting, green done. An unknown tone uses the row's text colour.
 | Panel, option, list and item titles; a row card's title | `title7` (16) |
 | Running text (why, a step's text, an option's Rule and Consequences, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
 | Labels (a section's or the details' title, a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
-| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name (in the sidebar's foot) | `labelsmall` (14) |
+| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; the person's name (in the sidebar's foot) | `labelsmall` (14) |
 | Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's foot: the assistant line under the person's name when Control sends one ("assistant: coordinator"), then on one line the environment (production as the plain word "Production", no tag; any other environment as a small Prism warning tag, its name capitalised: "Test") · the connection in plain words, the last notice in its popover) | `caption` (14) |
 | The sidebar's section headings (WORK, BROWSE: eyebrows as a card's top line, uppercase, spaced, muted, more space above) | `labelsmall` |
 | A count's badge in the sidebar | `captionsmall` (12), strong |

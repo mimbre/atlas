@@ -409,7 +409,14 @@ defmodule AtlasTui.Console do
     entry =
       if model.path == list,
         do: entry(model),
-        else: %{path: list, selection: selection, scroll: nil, scrolls: %{}, part: nil}
+        else: %{
+          path: list,
+          title: (PageCache.get(model.console.cache, list) || %{})["title"],
+          selection: selection,
+          scroll: nil,
+          scrolls: %{},
+          part: nil
+        }
 
     {model, effects} =
       navigate(%{model | console: %{model.console | history: [entry], returning: nil}}, target)
@@ -503,27 +510,44 @@ defmodule AtlasTui.Console do
     %{model | selected: selected, scroll: entry.scroll, scrolls: entry.scrolls, part: entry.part}
   end
 
+  # Resolve a page through its own group destinations or parent, then the pages visited.
+  def tab_for_path(model, path) do
+    tabs = (model.console.shell || %{})["tabs"] || []
+    page = PageCache.get(model.console.cache, path)
+
+    Enum.find(tabs, &(&1["to"] == path)) ||
+      Enum.find(tabs, fn tab ->
+        page && group_page?(page, path) &&
+          (tab["to"] == page["back"] || group_page?(page, tab["to"]))
+      end) ||
+      Enum.find_value(PageCache.paths(model.console.cache), fn cached_path ->
+        cached = PageCache.get(model.console.cache, cached_path)
+        tab = Enum.find(tabs, &(&1["to"] == cached_path))
+        if tab && group_page?(cached, path), do: tab
+      end)
+  end
+
+  defp group_page?(page, path) do
+    Enum.any?(page["blocks"] || [], fn
+      %{"type" => "groups", "props" => %{"groups" => groups}} when is_list(groups) ->
+        Enum.any?(groups, &(&1["to"] == path))
+
+      _ ->
+        false
+    end)
+  end
+
   defp sync_active(%{console: %{shell: nil}} = model), do: model
   defp sync_active(%{console: %{expected: target}} = model) when target != nil, do: model
 
-  # The tab whose page, a page under it, or one of its groups (boot's `groups`) is shown;
-  # beside the list of a tab (`AtlasTui.Columns`), that tab.
+  # Beside a list, its tab takes precedence over the page selected from it.
   defp sync_active(model) do
-    tabs = model.console.shell["tabs"]
     list = AtlasTui.Columns.shown?(model) && model.columns.list
 
     active =
-      Enum.find(tabs, &(&1["to"] == model.path)) || (list && Enum.find(tabs, &(&1["to"] == list))) ||
-        Enum.find(tabs, fn tab ->
-          (tab["to"] != "/" and is_binary(model.path) and
-             String.starts_with?(model.path, tab["to"] <> "/")) or
-            Enum.any?(tab["groups"] || [], &(&1["to"] == model.path))
-        end) ||
-        Enum.find_value(model.console.history, fn entry ->
-          Enum.find(tabs, fn tab ->
-            tab["to"] == entry.path or Enum.any?(tab["groups"] || [], &(&1["to"] == entry.path))
-          end)
-        end)
+      tab_for_path(model, model.path) || (list && tab_for_path(model, list)) ||
+        Enum.find_value(model.console.history, &tab_for_path(model, &1.path)) ||
+        tab_for_path(model, model.back)
 
     %{model | console: %{model.console | active: active && active["id"]}}
   end
@@ -531,12 +555,12 @@ defmodule AtlasTui.Console do
   defp remember_selection(model) do
     tabs = if model.console.shell, do: model.console.shell["tabs"], else: []
 
-    if Enum.any?(tabs, &(&1["to"] == model.path)) do
+    if tab_for_path(model, model.path) do
       selected = Selection.of(Model.rows(model), model.selected)
 
       selections =
         model.console.selections
-        |> Map.take(Enum.map(tabs, & &1["to"]))
+        |> Map.take(Enum.map(tabs, & &1["to"]) ++ PageCache.paths(model.console.cache))
         |> Map.put(model.path, selected)
 
       %{model | console: %{model.console | selections: selections}}

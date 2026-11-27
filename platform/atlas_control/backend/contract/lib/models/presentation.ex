@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.43.0"
+  version "0.44.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -237,9 +237,8 @@ defmodule AtlasBFFContract.Models.Presentation do
   # `section` is
   # what the tab is for: "work" (what needs someone; the tabs a client cycles through) or
   # "browse" (reference, after them); `key`, a browse tab's own key sequence (as "g s"),
-  # which the console projection binds to opening it; `groups` are the groups the tab's
-  # page declares (`groups` block), so a client can offer them while another tab is shown;
-  # `count` is the page's All, as its `groups` block says it; `for_you`, whether that
+  # which the console projection binds to opening it; `count` is the page's All, as its
+  # `groups` block says it; `for_you`, whether that
   # count is what waits for the viewer (what is assigned to them), not a plain count.
   defmodel :shell_tab do
     field :id, :string, required: true
@@ -248,20 +247,8 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :section, :string, required: true
     field :key, :string
     field :icon, :string
-    field :groups, {:list, :shell_group}
     field :count, :integer
     field :for_you, :boolean
-  end
-
-  # One group of a shell tab: its name, the page that shows only its items, and how many
-  # it has, as the tab's page says (none while it cannot be read); `for_you` as its tab's;
-  # `icon`, for a group of one kind (what is assigned of it), that kind's icon.
-  defmodel :shell_group do
-    field :label, :string, required: true
-    field :to, :string, required: true
-    field :count, :integer
-    field :for_you, :boolean
-    field :icon, :string
   end
 
   defmodel :boot_request do

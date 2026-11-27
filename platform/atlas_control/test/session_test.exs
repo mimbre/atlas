@@ -2708,7 +2708,7 @@ defmodule AtlasControl.SessionTest do
                Enum.find(page["blocks"], &(&1["id"] == "list"))["props"]["rows"]
     end
 
-    test "boot's tabs carry their counts, only groups known to have items, from the next boot on, read again when stale" do
+    test "boot's tabs carry their All counts from the next boot on, read again when stale" do
       port = supervised_shop([])
       tui = hello_as(port, "tui")
       put(tui, %{"op" => "open", "to" => "/_supervised"})
@@ -2717,17 +2717,16 @@ defmodule AtlasControl.SessionTest do
       counts = fn ->
         put(tui, %{"op" => "boot"})
 
-        for tab <- next(tui, "boot")["tabs"],
-            tab["to"] in ["/_open", "/_supervised"],
-            into: %{},
-            do: {tab["to"], {tab["count"], Enum.map(tab["groups"] || [], & &1["count"])}}
+        tabs = next(tui, "boot")["tabs"]
+        assert Enum.all?(tabs, &(not Map.has_key?(&1, "groups")))
+
+        for tab <- tabs, tab["to"] in ["/_open", "/_supervised"], into: %{},
+          do: {tab["to"], tab["count"]}
       end
 
-      # Boot never waits for the counts: the first has none, and no groups (a client shows
-      # what boot sends, so none flashes); they are read just after it. A group without
-      # items is left out.
-      assert %{"/_open" => {nil, []}, "/_supervised" => {nil, []}} = counts.()
-      assert %{"/_open" => {1, [1]}, "/_supervised" => {0, []}} = counts.()
+      # Boot never waits for the counts; they are read just after it.
+      assert %{"/_open" => nil, "/_supervised" => nil} = counts.()
+      assert %{"/_open" => 1, "/_supervised" => 0} = counts.()
 
       # Flow sets the run's supervisor: the work moves from Open for you to Supervised by you.
       present_run(["ada"])
@@ -2740,8 +2739,8 @@ defmodule AtlasControl.SessionTest do
       )
 
       assert %{"path" => "/_supervised", "reason" => "hint"} = next(tui, "page", @arrives)
-      assert %{"/_open" => {nil, []}, "/_supervised" => {nil, []}} = counts.()
-      assert %{"/_open" => {0, []}, "/_supervised" => {1, [1]}} = counts.()
+      assert %{"/_open" => nil, "/_supervised" => nil} = counts.()
+      assert %{"/_open" => 0, "/_supervised" => 1} = counts.()
     end
   end
 
@@ -2765,6 +2764,18 @@ defmodule AtlasControl.SessionTest do
     defp booted(socket) do
       put(socket, %{"op" => "boot"})
       next(socket, "boot")
+    end
+
+    test "assigned tab retains its All count without group destinations" do
+      tui = hello_as(greeted_shop(Shop.ShelledGreeted), "tui")
+      first = booted(tui)
+      tab = Enum.find(first["tabs"], &(&1["to"] == "/"))
+      refute Map.has_key?(tab, "count")
+      refute Map.has_key?(tab, "groups")
+
+      tab = Enum.find(booted(tui)["tabs"], &(&1["to"] == "/"))
+      assert tab["count"] == 1
+      refute Map.has_key?(tab, "groups")
     end
 
     test "a TUI member's boot carries the greeting with its name; an agent's does not" do
