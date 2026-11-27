@@ -84,7 +84,7 @@ public struct PageView: View {
             // One flat run of rows, each with an id of its own: the list keeps a row's view
             // by its id, so two lists' rows must never share one (a second list showed the
             // first one's rows).
-            ForEach(lines) { line in
+            ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
                 switch line.content {
                 case .header:
                     still(PageHeader(title: presentation.title, actions: pageActions, act: act))
@@ -100,7 +100,11 @@ public struct PageView: View {
                 case .actions(let actions):
                     still(ActionsView(actions: actions, act: act))
                 case .entry(let entry):
-                    still(entryView(entry))
+                    let betweenCardsAndDetails = index > 0 && index + 1 < lines.count
+                        && { if case .cards = lines[index - 1].content,
+                                case .details = lines[index + 1].content { return true }
+                             return false }()
+                    still(entryView(entry, followsCardsBeforeDetails: betweenCardsAndDetails))
                 case .section(let section):
                     still(sectionView(section))
                 case .cards(let items):
@@ -227,7 +231,8 @@ public struct PageView: View {
             .listRowSeparator(.hidden)
     }
 
-    @ViewBuilder private func entryView(_ entry: PagePresentation.Entry, inDetails: Bool = false) -> some View {
+    @ViewBuilder private func entryView(_ entry: PagePresentation.Entry, inDetails: Bool = false,
+                                        followsCardsBeforeDetails: Bool = false) -> some View {
         switch entry.item {
         case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
         case .item(let item): ItemBlockView(item: item, inDetails: inDetails, act: act)
@@ -239,7 +244,8 @@ public struct PageView: View {
             HeaderBlockView(block: block, actions: headerActions, act: act)
         case .text(let text): TextBlockView(block: text)
         case .instruction(let instruction): InstructionView(block: instruction)
-        case .answers(let answers): AnswersView(block: answers, toolbar: header, act: act)
+        case .answers(let answers):
+            AnswersView(block: answers, toolbar: header, followsCardsBeforeDetails: followsCardsBeforeDetails, act: act)
         // The opened item's are in the window's toolbar.
         case .actions where header:
             EmptyView()

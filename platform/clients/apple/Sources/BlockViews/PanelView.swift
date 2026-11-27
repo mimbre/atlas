@@ -102,7 +102,7 @@ struct PanelView: View {
     /// page's other actions, each with its key.
     private var buttons: some View {
         FlowLayout(spacing: Prism.Spacing.px10) {
-            ForEach(panel.answers, id: \.key) { answer in
+            ForEach(AnswerLook.ordered(panel.answers), id: \.key) { answer in
                 AnswerButton(answer: answer, pending: PageActions.isPending(Panel.action(answer), pending)) {
                     apply(panel.answer(answer))
                 }
@@ -292,10 +292,8 @@ struct Framed: ViewModifier {
     }
 }
 
-/// An answer as Prism's button (`AnswerLabelButton`), styled by the weight Control gives
-/// it (`AnswerLook`), never by whether it asks a note, with the icon Control names
-/// (`ActionIcon`: Ask, Delegate) in the primary colour, as other plain buttons. Its
-/// tooltip says what it does in full (`AnswerLook.tooltip`).
+/// An answer as Prism's button, styled by Control's weight. Only non-primary
+/// answers show their icon. Its tooltip says what it does in full.
 struct AnswerButton: View {
     let answer: PanelAnswerModel
     let pending: Bool
@@ -304,7 +302,8 @@ struct AnswerButton: View {
     var body: some View {
         let look = AnswerLook.of(answer)
         PrismActionButton(label: AnswerLook.label(answer), help: AnswerLook.tooltip(answer), pending: pending,
-                          variant: look.variant, tone: look.tone, icon: ActionIcon.symbol(answer.icon), take: take)
+                          variant: look.variant, tone: look.tone,
+                          icon: answer.weight == "main" ? nil : ActionIcon.symbol(answer.icon), take: take)
     }
 }
 
@@ -315,6 +314,11 @@ struct AnswerButton: View {
 /// stays `secondary` next to Accept. Its label is what Control says a button shows (`button`,
 /// else `label`): nothing of what follows its click; one asking a note opens the note form.
 public enum AnswerLook {
+    /// Primary answers precede the rest, preserving Control's order within each group.
+    public static func ordered(_ answers: [PanelAnswerModel]) -> [PanelAnswerModel] {
+        answers.filter { $0.weight == "main" } + answers.filter { $0.weight != "main" }
+    }
+
     public static func of(_ answer: PanelAnswerModel) -> (variant: PrismButtonVariant, tone: PrismButtonTone) {
         switch answer.weight {
         case "main": (.primary, .accent)
