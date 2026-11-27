@@ -360,6 +360,17 @@ defmodule AtlasControl.SupervisionTest do
         assert offered(m, item_answers(m, item, members), viewer) == expected,
                "#{span(m).written_on}: case #{at}"
       end
+
+      page = Pages.render({:item, "widget", "W-1"}, m, item_answers(m, mine, ada_bob), @tui_ada)
+      actions = block(page, "actions")["props"]["actions"]
+
+      assert %{
+               "label" => "Remove",
+               "key" => "m",
+               "to" => ^remove,
+               "icon" => "remove",
+               "help" => "Remove it from its flow: its run ends"
+             } = Enum.find(actions, &(&1["to"] == remove))
     end
   end
 

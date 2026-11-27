@@ -1779,6 +1779,7 @@ defmodule AtlasControl.Pages do
     Blocks.action(
       label: label,
       key: key,
+      icon: if(verb == :remove_item, do: "remove"),
       to: path(route),
       button: button(label),
       help: @supervision_help[verb]
