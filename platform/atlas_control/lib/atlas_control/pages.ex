@@ -2396,22 +2396,10 @@ defmodule AtlasControl.Pages do
               )
 
             # Keep the existing proposal panel and its navigation, including its answer actions.
-            panel_blocks =
-              if panel do
-                {block, _listed} = panel_block(m, kind, key, fact, todo, panel, related)
-                [{"panel", block}]
-              else
-                []
-              end
+            {panel_blocks, remaining_next} =
+              page_panel_blocks(m, kind, key, fact, todo, panel, related, next)
 
             todo_blocks = if todo && !panel, do: [{"todo", todo_item(todo)}], else: []
-
-            panel_keys =
-              for {"panel", block} <- panel_blocks,
-                  answer <- block["props"]["answers"] || [],
-                  do: answer["key"]
-
-            remaining_next = Enum.reject(next, &(&1["key"] in panel_keys))
 
             answer_blocks =
               if remaining_next == [],
@@ -4066,6 +4054,25 @@ defmodule AtlasControl.Pages do
       todo
     )
   end
+
+  defp page_panel_blocks(m, kind, key, fact, todo, %{"choose" => true} = panel, related, next) do
+    blocks =
+      stuck_blocks(m, kind, key, fact, todo, panel, related, next)
+      |> Enum.map(fn
+        {"header", block} -> {"decision-header", block}
+        other -> other
+      end)
+
+    {blocks, []}
+  end
+
+  defp page_panel_blocks(m, kind, key, fact, todo, %{} = panel, related, next) do
+    {block, _listed} = panel_block(m, kind, key, fact, todo, panel, related)
+    keys = for answer <- block["props"]["answers"] || [], do: answer["key"]
+    {[{"panel", block}], Enum.reject(next, &(&1["key"] in keys))}
+  end
+
+  defp page_panel_blocks(_m, _kind, _key, _fact, _todo, nil, _related, next), do: {[], next}
 
   # Stuck work, as the model's `panel` with `choose` declares it: its title as the
   # question, its byline, what went wrong (its `box`), then each answer as an option, the

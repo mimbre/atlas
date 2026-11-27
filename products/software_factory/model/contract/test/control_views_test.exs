@@ -457,7 +457,7 @@ defmodule Model.ControlViewsTest do
     refute Enum.any?(other.blocks, &(&1["id"] == "page-detail-1"))
   end
 
-  test "an issue's merge page groups its details without changing the panel or references" do
+  test "issue pages show their description, work and grouped details to every viewer" do
     values = %{
       "title" => "Build the feature",
       "description" => "The requested behavior",
@@ -465,79 +465,74 @@ defmodule Model.ControlViewsTest do
       "order" => 4,
       "flux_ref" => "NEXT-42",
       "pr_url" => "https://github.com/mimbre/atlas/pull/42",
-      "pr_state" => "open",
-      "pr_checks" => "success",
       "pr_checks_head" => "checked-revision",
-      "pr_head" => "published-revision",
-      "pr_mergeable" => "clean",
-      "ci_fixes" => "one",
       "pass_result" => "delivered"
     }
 
-    page = merge_issue_page(values, "ada")
-    ids = Enum.map(page.blocks, & &1["id"])
-    assert Enum.find_index(ids, &(&1 == "panel")) < Enum.find_index(ids, &(&1 == "page-detail-0"))
+    for viewer <- ["ada", "other"], state <- ["merging", "working"] do
+      page = issue_page(values, viewer, state)
+      blocks = Map.new(page.blocks, &{&1["id"], &1["props"]})
+      assert blocks["header"]["title"] == "Build the feature"
+      assert blocks["intro"]["text"] == "The requested behavior"
+      assert blocks["page-detail-0"]["title"] == "Issue"
+      assert blocks["page-detail-1"]["title"] == "Pull request"
+      assert blocks["page-detail-2"]["title"] == "Build and checks"
+      assert Enum.any?(blocks["page-detail-1"]["fields"], &(&1["value"] == "checked-revision"))
+      assert Enum.any?(blocks["page-detail-2"]["fields"], &(&1["value"] == "delivered"))
 
-    assert Enum.filter(ids, &(&1 in ~w(page-detail-0 page-detail-1 page-detail-2 item))) ==
-             ~w(page-detail-0 page-detail-1 page-detail-2 item)
+      assert Enum.any?(page.blocks, fn b ->
+               b["type"] == "list" and Enum.any?(b["props"]["rows"], &(&1["id"] == "PR-1"))
+             end)
 
-    groups = Map.new(page.blocks, &{&1["id"], &1["props"]})
-    assert groups["page-detail-0"]["title"] == "Issue"
-    assert groups["page-detail-1"]["title"] == "Pull request"
-    assert groups["page-detail-2"]["title"] == "Build and checks"
-
-    assert Enum.any?(
-             groups["page-detail-0"]["fields"],
-             &(&1["value"] == "The requested behavior")
-           )
-
-    assert Enum.any?(groups["page-detail-1"]["fields"], &(&1["value"] == "checked-revision"))
-    assert Enum.any?(groups["page-detail-2"]["fields"], &(&1["value"] == "delivered"))
-
-    panel = groups["panel"]
-    assert panel["heading"] == "TO MERGE"
-    assert Enum.any?(panel["links"], &(&1["key"] == "o"))
-    assert Enum.any?(panel["actions"], &(&1["key"] == "r"))
-    assert Enum.map(panel["checks"], & &1["label"]) == ~w(CI Review GitHub)
-    assert Enum.any?(page.blocks, &(&1["type"] == "list"))
-    refute Enum.any?(page.markup, &(get_in(&1, ["props", "collapsible"]) == true))
-
-    pairs =
-      for id <- ~w(page-detail-0 page-detail-1 page-detail-2 item),
-          pair <- groups[id]["fields"],
-          do: pair
-
-    for value <- [
-          "The requested behavior",
-          "NEXT-42",
-          "checked-revision",
-          "published-revision",
-          "delivered",
-          "one"
-        ] do
-      assert Enum.count(pairs, &(&1["value"] == value)) == 1
+      assert Map.has_key?(blocks, "panel") == (viewer == "ada" and state == "merging")
+      if blocks["panel"], do: assert(Enum.any?(blocks["panel"]["links"], &(&1["key"] == "o")))
     end
   end
 
-  test "sparse merge details and another viewer keep their existing behavior" do
-    values = %{"title" => "Sparse"}
-    owner = merge_issue_page(values, "ada")
-    assert Enum.any?(owner.blocks, &(&1["id"] == "panel"))
-    refute Enum.any?(owner.blocks, &(&1["id"] in ~w(page-detail-0 page-detail-1 page-detail-2)))
-    assert Enum.any?(owner.blocks, &(&1["id"] == "item"))
+  test "issue pages preserve stuck choices and failure for the owner only" do
+    values = %{"title" => "Build", "task_failure" => "The agent failed"}
 
-    other = merge_issue_page(values, "other")
-    refute Enum.any?(other.blocks, &(&1["id"] == "panel"))
-    refute Enum.any?(other.blocks, &(&1["id"] in ~w(page-detail-0 page-detail-1 page-detail-2)))
+    for {state, count} <- [{"stuck", 2}, {"review_stuck", 3}] do
+      owner = issue_page(values, "ada", state)
+      blocks = Map.new(owner.blocks, &{&1["id"], &1["props"]})
+      assert blocks["failure"]["text"] == "The agent failed"
+      assert length(Enum.filter(owner.blocks, &(&1["type"] == "option"))) == count
+      assert Enum.any?(blocks["answers"]["answers"], &(&1["key"] == "l"))
+
+      other = issue_page(values, "other", state)
+      refute Enum.any?(other.blocks, &(&1["type"] == "option"))
+      refute Enum.any?(other.blocks, &(&1["id"] == "failure"))
+
+      assert Enum.any?(other.blocks, fn b ->
+               Enum.any?(b["props"]["fields"] || [], &(&1["value"] == "The agent failed"))
+             end)
+    end
   end
 
-  defp merge_issue_page(values, viewer) do
+  test "sparse issue pages and failed work reads remain distinguishable" do
+    for viewer <- ["ada", "other"] do
+      page = issue_page(%{"title" => "Sparse"}, viewer, "working", %{"facts" => []})
+      refute Enum.any?(page.blocks, &(&1["id"] == "intro"))
+
+      assert Enum.any?(page.blocks, fn b ->
+               b["id"] == "list:in_issue" and b["props"]["rows"] == []
+             end)
+
+      failed = issue_page(%{"title" => "Sparse"}, viewer, "working", %{"error" => "Unavailable"})
+
+      assert Enum.any?(failed.blocks, fn b ->
+               b["type"] == "list" and b["props"]["empty"] == "Unavailable."
+             end)
+    end
+  end
+
+  defp issue_page(values, viewer, state, pulls \\ nil) do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     flow = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "issue"))
 
     presentation =
-      flow.present("merging", values)
-      |> Map.merge(%{"state" => "merging", "owner" => ["ada"], "actionable" => true})
+      flow.present(state, values)
+      |> Map.merge(%{"state" => state, "owner" => ["ada"], "actionable" => true})
 
     issue = %{"key" => "IS-Atlas-01", "values" => values, "links" => %{}}
     assignment = %{"key" => "AS-IS-Atlas-01", "values" => %{}, "presentation" => presentation}
@@ -548,6 +543,8 @@ defmodule Model.ControlViewsTest do
       "links" => %{}
     }
 
+    pull = %{"key" => "PR-1", "values" => %{"title" => "Feature"}, "links" => %{}}
+
     route = {:item, "issue", issue["key"]}
 
     answers =
@@ -556,6 +553,7 @@ defmodule Model.ControlViewsTest do
           i == 0 -> %{"fact" => issue}
           kind == "assignment" -> %{"fact" => assignment}
           kind == "task" -> %{"facts" => [review]}
+          kind == "pull_request" -> pulls || %{"facts" => [pull]}
           true -> %{"facts" => []}
         end
       end
