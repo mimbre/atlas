@@ -37,7 +37,8 @@ Dir.chdir(root) do
     Mix.Task.run("compile")
     :code.add_paths(paths)
     Code.prepend_paths(System.argv())
-    config = Keyword.put(Mix.Project.config()[:dialyzer] || [], :no_umbrella, true)
+    config = Mix.Project.config()[:dialyzer] || []
+    config = config |> Keyword.put(:no_umbrella, true) |> Keyword.update(:plt_add_apps, [:mix], &Enum.uniq([:mix | &1]))
     Mix.ProjectStack.merge_config(dialyzer: config)
     Mix.Task.run("dialyzer", ["--force-check"])
   ELIXIR
