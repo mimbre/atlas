@@ -45,9 +45,11 @@ defmodule Model.LegacyDecisionFactsTest do
         %{}
       )
 
-    start_supervised!({AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, model: @model})
+    server =
+      start_supervised!({AtlasFacts.Server, rela: {FakeRela, rela}, data_dir: dir, model: @model})
+
     :ok = AtlasBus.attach("control/session-legacy-#{System.unique_integer([:positive])}")
-    %{rela: rela}
+    %{rela: rela, server: server}
   end
 
   defp restore(key, nil), do: Application.delete_env(:atlas_bus, key)
@@ -106,5 +108,27 @@ defmodule Model.LegacyDecisionFactsTest do
     assert {stored, _} = FakeRela.facts(rela)["D-0105"]
     assert stored["options"] == values["options"]
     assert stored["option_history"] == values["option_history"]
+  end
+
+  test "Facts refuses a derived alternative when the old history is malformed", %{
+    rela: rela,
+    server: server
+  } do
+    FakeRela.poke(rela, "D-0105", %{"option_history" => "not JSON"})
+    :ok = AtlasFacts.Server.reload(server)
+    {before, _} = FakeRela.facts(rela)["D-0105"]
+
+    assert {"refused", %{"reasons" => reasons}} =
+             request("fact", %{
+               "op" => "change",
+               "key" => "D-0105",
+               "by" => "ada",
+               "values" => %{"status" => "revising", "alternative" => "Another approach"},
+               "links" => %{"decided_by" => ["ada"]}
+             })
+
+    assert Enum.any?(reasons, &String.contains?(&1, "stored offered option history is malformed"))
+    assert {^before, _} = FakeRela.facts(rela)["D-0105"]
+    assert FakeRela.links(rela)["D-0105"] in [nil, %{}]
   end
 end

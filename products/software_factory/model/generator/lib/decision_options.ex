@@ -287,8 +287,13 @@ defmodule RelaDSL.DecisionOptions do
       Map.has_key?(values, rule["history"]) and values[rule["history"]] != old[rule["history"]] ->
         ["offered option history is maintained by Facts and never rewritten"]
 
-      current != nil and records_offer?(rule, current, values, links) and
-          history(old[rule["history"]]) == :error ->
+      current != nil and history(old[rule["history"]]) == :error and
+          records_offer?(
+            rule,
+            current,
+            with_alternative(rule, %{"values" => values}, current)["values"],
+            links
+          ) ->
         [
           "the stored offered option history is malformed; it must be repaired before this offer is changed or answered"
         ]

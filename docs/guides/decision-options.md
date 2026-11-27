@@ -53,8 +53,10 @@ maintenance without changing what was offered or chosen.
 No option entities, parallel database or new event stream are introduced. Facts'
 existing retry ledger retains acknowledgements rather than complete old values.
 `option_history` therefore retains prior complete offer revisions on the decision,
-derived in the same Facts write; callers cannot replace this history. The selected
-snapshot is also present on the decision itself and survives reload.
+derived in the same Facts write; callers cannot replace this history. If stored history
+is malformed, Facts refuses any write that would replace an offer, including a decline
+that adds an alternative, until the history is repaired. The selected snapshot is also
+present on the decision itself and survives reload.
 Options are optional. A decision created without them, and every historical
 decision, keeps its existing rule and status without invented alternatives or
 selections; its decider has the same answers (Accept instead of Choose), and an
