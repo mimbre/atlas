@@ -2548,15 +2548,31 @@ defmodule AtlasControl.Pages do
             detail_item = details.(item, head)
             {detail_item, detail_blocks, technical} = decision_details(k, fact, detail_item)
 
+            groups = panel && panel["detail_groups"]
+
+            {detail_content, detail_markup} =
+              if is_list(groups) do
+                {
+                  panel_detail_blocks(m, k, groups, detail_item) ++
+                    detail_blocks ++
+                    lists ++
+                    technical,
+                  sections ++ technical_section(technical)
+                }
+              else
+                {[{"item", detail_item}] ++ detail_blocks ++ lists ++ technical,
+                 decision_details_markup(details_markup, detail_blocks, technical)}
+              end
+
             content =
               iconed(head, kind_icon(m, kind)) ++
                 others_block(more) ++
                 for({id, {_title, list}} <- judged, do: {id, list}) ++
-                [{"item", detail_item}] ++ detail_blocks ++ lists ++ technical
+                detail_content
 
             markup =
               for({id, {title, _list}} <- judged, do: Blocks.section(id, id, title: title)) ++
-                decision_details_markup(details_markup, detail_blocks, technical)
+                detail_markup
 
             page("#{k.label} #{key}", back, content, markup)
 
@@ -3729,6 +3745,26 @@ defmodule AtlasControl.Pages do
 
   defp page_detail_blocks(_m, _k, _spec, item),
     do: [{"item", item |> put_in(["props", "title"], "") |> put_in(["props", "actions"], [])}]
+
+  defp panel_detail_blocks(m, k, groups, item) do
+    blocks = page_detail_blocks(m, k, %{"details" => groups}, item)
+    actions = item["props"]["actions"] || []
+
+    case Enum.find_index(blocks, &(elem(&1, 0) == "item")) do
+      nil ->
+        other =
+          item
+          |> put_in(["props", "title"], "Other details")
+          |> put_in(["props", "fields"], [])
+
+        blocks ++ [{"item", other}]
+
+      index ->
+        List.update_at(blocks, index, fn {id, block} ->
+          {id, put_in(block, ["props", "actions"], actions)}
+        end)
+    end
+  end
 
   # The model names the groups and the exact offer records; raw records share one section.
   defp decision_details(k, fact, item) do
