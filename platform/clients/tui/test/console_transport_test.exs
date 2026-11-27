@@ -177,6 +177,81 @@ defmodule AtlasTui.ConsoleTransportTest do
     send_message(socket, content(target))
   end
 
+  test "group filters render and navigate in a real terminal" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
+
+    {:ok, {_, port}} = :inet.sockname(listener)
+    server = Path.join(System.tmp_dir!(), "atlas-filters-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      :gen_tcp.close(listener)
+      System.cmd("tmux", ["-S", server, "kill-server"], stderr_to_stdout: true)
+    end)
+
+    settings = %{"control" => %{"host" => "127.0.0.1", "port" => port}, "reconcile_seconds" => 60}
+    expression = "AtlasTui.App.run(\"test\", #{inspect(settings)})"
+
+    tmux(server, [
+      "new-session",
+      "-d",
+      "-s",
+      "console",
+      "-x",
+      "90",
+      "-y",
+      "24",
+      "env ELIXIR_ERL_OPTIONS='+S 2:2' mix run -e '#{expression}'"
+    ])
+
+    {:ok, socket} = :gen_tcp.accept(listener, 10_000)
+    handshake(socket, "/k/widget")
+    see(server, "First widget")
+
+    page = content("/k/widget")
+
+    groups = %{
+      "id" => "groups",
+      "type" => "groups",
+      "props" => %{
+        "groups" => [
+          %{"label" => "All", "count" => 2, "to" => "/k/widget", "active" => true},
+          %{"label" => "Ready", "count" => 1, "to" => "/k/widget/ready", "active" => false}
+        ]
+      }
+    }
+
+    next =
+      action("next-group", "]", "open", %{"to" => "/k/widget/ready"})
+      |> put_in(["props", "scope"], %{
+        "page" => "/k/widget",
+        "revision" => "fixture",
+        "context" => "browse"
+      })
+
+    page = %{
+      page
+      | "blocks" => [groups | page["blocks"]] ++ [next],
+        "markup" =>
+          page["markup"] ++
+            [
+              %{
+                "kind" => "legend",
+                "start" => "next-group",
+                "end" => "next-group",
+                "props" => %{"title" => "Filters", "context" => "browse"}
+              }
+            ]
+    }
+
+    send_message(socket, page)
+    screen = see(server, "[All 2] [Ready 1]")
+    assert length(Regex.scan(~r/\[Ready 1\]/, screen)) == 1
+    tmux(server, ["send-keys", "-t", "console", "-l", "]"])
+    assert %{"op" => "open", "to" => "/k/widget/ready"} = read(socket)
+    :gen_tcp.close(socket)
+  end
+
   test "native app negotiates boot, draws tabs, cycles, resizes and reconnects a real edited draft" do
     {:ok, listener} =
       :gen_tcp.listen(0, [

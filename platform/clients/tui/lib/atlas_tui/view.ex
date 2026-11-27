@@ -513,9 +513,7 @@ defmodule AtlasTui.View do
     {lines, Map.new(drawn, fn {column, _, _, viewport} -> {column, viewport} end)}
   end
 
-  # The sidebar: the tabs one under the other under their section's heading (Work,
-  # Browse), each with its count and its groups indented under it; the one shown marked
-  # and selected.
+  # The top-level tabs under their section headings, with counts and selection.
   defp sidebar_lines(model, width) do
     at = Columns.sidebar_at(model)
 
@@ -531,8 +529,8 @@ defmodule AtlasTui.View do
               if(section, do: [[]], else: []) ++
                 [[{:dim, if(row.section == "work", do: "Work", else: "Browse")}]]
 
-        style = if i == at, do: :selected, else: if(row.group?, do: :dim, else: :plain)
-        lead = if(i == at, do: "› ", else: "  ") <> if(row.group?, do: "  ", else: "")
+        style = if i == at, do: :selected, else: :plain
+        lead = if(i == at, do: "› ", else: "  ")
         count = if row.count, do: " #{row.count}", else: ""
         label = cell_cut(single_line(row.label), max(width - String.length(lead <> count), 1))
         line = lead <> label
@@ -618,12 +616,7 @@ defmodule AtlasTui.View do
   # needs is missing) is drawn plainly, and markup that cannot be drawn leaves its blocks
   # as they are; never a crash.
   defp nodes(tree, model, width, room) do
-    {terminal, _height} = model.console.viewport
-    # The header's group row stands in for a list's own groups line (`group_row?/2`).
-    row? = AtlasTui.ConsoleView.group_row?(model, terminal)
-
     tree
-    |> Enum.reject(&(row? and match?({:block, %AtlasTui.Blocks.Groups{}, _}, &1)))
     |> Enum.map(fn
       {:block, block, at} ->
         try do
@@ -882,7 +875,9 @@ defmodule AtlasTui.View do
   defp block(%AtlasTui.Blocks.Groups{groups: groups}, _at, _model, width, _room) do
     groups
     |> Enum.map(fn group ->
-      {if(group.active, do: :active, else: :dim), " #{single_line(group.label)} #{group.count} "}
+      count = if is_nil(group.count), do: "", else: " #{group.count}"
+      text = "[#{single_line(group.label)}#{count}]"
+      {if(group.active, do: :active, else: :dim), cell_cut(text, width)}
     end)
     |> Enum.reduce([], fn {_, text} = segment, lines ->
       case lines do
@@ -890,7 +885,7 @@ defmodule AtlasTui.View do
           used = Enum.reduce(line, 0, fn {_, t}, used -> used + display_width(t) end)
 
           if used + 1 + display_width(text) <= width,
-            do: [line ++ [{:dim, "·"}, segment] | done],
+            do: [line ++ [{:dim, " "}, segment] | done],
             else: [[segment], line | done]
 
         [] ->
