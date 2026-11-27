@@ -36,10 +36,7 @@ final class SidebarTests: XCTestCase {
     private static var tabs: [[String: Any]] {
         [
             ["id": "assigned", "label": "Assigned to you", "to": "/", "section": "work", "icon": "assigned",
-             "count": 3, "for_you": true,
-             "groups": [["label": "Decisions", "to": "/_g/assigned/decision", "count": 2, "for_you": true,
-                         "icon": "scales"],
-                        ["label": "To-Dos", "to": "/_g/assigned/to_do", "count": 0, "for_you": true]]],
+             "count": 3, "for_you": true],
             ["id": "open", "label": "Open for you", "to": "/_open", "section": "work", "icon": "open", "count": 4,
              "for_you": false],
             ["id": "scenes", "label": "Scenes", "to": "/k/scene", "section": "browse", "icon": "something-new"],
@@ -128,7 +125,9 @@ final class SidebarTests: XCTestCase {
             ])
         ])])
         let page = PageMessage(blocks: [Block(raw: raw)], path: "/", title: "Assigned")
-        let filters = GroupFilters(page: page, selected: "/", filter: { _ in })
+        guard case .groups(let block) = page.blocks?.first?.content else { return XCTFail("groups missing") }
+        let filters = GroupFilters(groups: block, selected: "/", filter: { _ in })
+        XCTAssertEqual(PagePresentation(page).entries.count, 1)
         XCTAssertEqual(filters.groups.map(\.to), ["/", "/_g/assigned/decision"])
         XCTAssertEqual(filters.groups.map(\.count), [3, 2])
         XCTAssertEqual(filters.groups.first?.active, true)

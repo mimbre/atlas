@@ -52,7 +52,6 @@ defmodule AtlasControl.Shell do
             section: tab["section"] || "work",
             key: tab["key"],
             icon: tab["icon"] || icon(m, route),
-            groups: groups(m, route),
             for_you: for_you?(route)
           )
         end)
@@ -61,12 +60,15 @@ defmodule AtlasControl.Shell do
         {:error, "Shell has no eligible configured tabs"}
       else
         with {:ok, initial} <- initial_target(target, m, tabs, default, resolve) do
-          # The tab whose page or one of its groups the client opens on.
-          active =
-            Enum.find(tabs, fn tab ->
-              within?(initial, tab["to"]) or
-                Enum.any?(tab["groups"] || [], &(&1["to"] == initial))
-            end)
+          # A group belongs to its list's tab, not a separate shell destination.
+          parent =
+            case Pages.route(initial) do
+              {:group, :assigned, _, _} -> "/"
+              {:group, screen, _, _} -> Pages.path({screen, nil})
+              _ -> nil
+            end
+
+          active = Enum.find(tabs, &(within?(initial, &1["to"]) or &1["to"] == parent))
 
           env = AtlasBus.environment()
           spec = Blocks.version()
@@ -91,8 +93,7 @@ defmodule AtlasControl.Shell do
                   &1["section"],
                   &1["key"],
                   &1["icon"],
-                  &1["for_you"],
-                  &1["groups"]
+                  &1["for_you"]
                 ]
               )
             ]
@@ -303,33 +304,6 @@ defmodule AtlasControl.Shell do
 
   # Whether a tab's count is what waits for the viewer: what is assigned to them.
   defp for_you?(route), do: route == :home
-
-  # The groups of the page a tab opens (`Pages.groups/2`), each with the page that shows
-  # only its items and, for a group of one kind (what is assigned), that kind's icon; nil
-  # when it has none.
-  defp groups(m, route) do
-    screen =
-      case route do
-        :home -> :assigned
-        {screen, _} when screen in @screens -> screen
-        _ -> nil
-      end
-
-    case Pages.groups(m, screen) do
-      [] ->
-        nil
-
-      groups ->
-        for {key, label} <- groups,
-            do:
-              Blocks.shell_group(
-                label: label,
-                to: Pages.path({:group, screen, key, nil}),
-                for_you: for_you?(route),
-                icon: if(screen == :assigned, do: Pages.kind_icon(m, key))
-              )
-    end
-  end
 
   defp screen?({screen, _}) when screen in @screens, do: true
   defp screen?(_route), do: false
