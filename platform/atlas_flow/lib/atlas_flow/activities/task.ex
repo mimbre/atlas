@@ -853,7 +853,7 @@ defmodule AtlasFlow.Activities.Task do
     kind = String.replace(kind, "_", " ")
     more = Enum.map_join(creates["fields"] || [], "", &", its `#{&1}` (as the instructions say)")
 
-    "\n\n## Your proposal\n\nWrite the #{kind}s you propose to the file `#{file}` at the top of the repository: a JSON list with one object per #{kind}, in order, each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done)#{more}. Atlas makes them from that file; write nothing into Atlas yourself."
+    "\n\n## Your proposal\n\nWrite the #{kind}s you propose to the file `#{file}` at the top of the repository: a JSON list with one object per #{kind}, in order, each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done)#{more}. For Scene, use case and issue descriptions, use Markdown to structure longer text; keep concise descriptions plain. Atlas makes them from that file; write nothing into Atlas yourself."
   end
 
   defp proposal_format(%{"writes" => %{"field" => field, "file" => file}}) do
@@ -874,7 +874,7 @@ defmodule AtlasFlow.Activities.Task do
   # What a review with follow-ups (`follow_ups`) asks its agent: to split what it found.
   defp follow_ups_format(%{"follow_ups" => kind}),
     do:
-      "\n\n## Follow-ups\n\nSplit what you find. Your `findings` are only what blocks: what must change for the result to do what the #{kind} asks, within its scope; they go to one fix, and only they decide your verdict. Anything outside its scope (a nice-to-have, hardening, an edge case, a neighbouring improvement) is a follow-up: add it to your JSON block as \"follow_ups\": [{\"title\": \"…\", \"description\": \"…\"}], each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done). Atlas makes each a new #{kind} beside this one; it is not fixed now, and a result with only follow-ups is approved."
+      "\n\n## Follow-ups\n\nSplit what you find. Your `findings` are only what blocks: what must change for the result to do what the #{kind} asks, within its scope; they go to one fix, and only they decide your verdict. Anything outside its scope (a nice-to-have, hardening, an edge case, a neighbouring improvement) is a follow-up: add it to your JSON block as \"follow_ups\": [{\"title\": \"…\", \"description\": \"…\"}], each with its `title` (one line, without a code) and its `description` (what it asks, and how to tell it is done). For Scene, use case and issue descriptions, use Markdown to structure longer text; keep concise descriptions plain. Atlas makes each a new #{kind} beside this one; it is not fixed now, and a result with only follow-ups is approved."
 
   defp follow_ups_format(_spec), do: ""
 
