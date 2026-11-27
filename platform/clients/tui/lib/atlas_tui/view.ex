@@ -877,7 +877,8 @@ defmodule AtlasTui.View do
     options = Model.options(model)
     selected = Enum.at(options, Model.chosen(options, model.choice)) == option
     content = card_width(width)
-    lead = "#{option.n}. "
+    # The only proposal (`alone`) has nothing to be told from: no number.
+    lead = if option.alone == true, do: "", else: "#{option.n}. "
     indent = String.duplicate(" ", 2 + display_width(lead))
     room = max(content - display_width(indent), 1)
     badge = single_line(option.badge)
@@ -903,10 +904,15 @@ defmodule AtlasTui.View do
       [[mark, {:bold, lead} | first]] ++
         Enum.map(rest, &[{:plain, indent}, {:bold, &1}]) ++ badge_line
 
+    # Each field a section: its label as a heading line, its text in full under it.
     fields =
-      for pair <- option.fields,
-          line <- hanging(single_line(pair.label) <> ": ", pair.value || "—", room, :dim, :plain),
-          do: [{:plain, indent} | line]
+      Enum.flat_map(option.fields, fn pair ->
+        [[{:plain, indent}, {:dim, single_line(pair.label)}]] ++
+          for(
+            line <- detail_wrap(pair.value || "—", room),
+            do: [{:plain, indent}, {:plain, line}]
+          )
+      end)
 
     # The only proposal's answer is the answers' Accept below (`alone`): none on its card.
     answer =
@@ -1118,7 +1124,8 @@ defmodule AtlasTui.View do
         heading ++ Enum.map(rest, &[{:plain, indent}, text_row(&1)]) ++ origin
       end)
 
-    title(item.title, width) ++ [[]] ++ fields
+    # An item without a title (the details of a page whose header has it): its fields only.
+    if(item.title in [nil, ""], do: [], else: title(item.title, width) ++ [[]]) ++ fields
   end
 
   # A form that does not fit gives its focused multi-line input fewer rows, down to a few.

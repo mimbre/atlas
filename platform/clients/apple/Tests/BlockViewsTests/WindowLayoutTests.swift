@@ -43,6 +43,9 @@ final class WindowLayoutTests: XCTestCase {
         let wider = WindowLayout.columns(width: WindowLayout.page + 400).details!
         XCTAssertLessThan(narrow, wider)
         XCTAssertEqual(WindowLayout.columns(width: 3000).details, WindowLayout.detailsMax)
+        // The details grow as wide as the main blocks may be, no wider.
+        XCTAssertEqual(WindowLayout.detailsMax, WindowLayout.page)
+        XCTAssertEqual(WindowLayout.columns(width: WindowLayout.page + 600).details, 600)
         XCTAssertEqual(WindowLayout.columns(width: 500), .init(page: 500, details: nil))
     }
 

@@ -182,12 +182,14 @@ public struct ActionButtons: View {
     }
 }
 
-/// A page's title with the page's actions (`PageActions.ofPage`) beside it, at the top of
-/// the page, above its blocks; in a column too narrow for both on one line, the actions
-/// go under the title, wrapping as they need.
+/// A page's title with the page's actions (`PageActions.ofPage`) beside it, and at the far
+/// right what else can be done with its subject (`others`, `OtherActionsView`), at the top
+/// of the page, above its blocks; in a column too narrow for all on one line, the page's
+/// actions go under the title, wrapping as they need, the others staying at the right.
 struct PageHeader: View {
     let title: String
     let actions: [ActionModel]
+    var others: [ActionModel] = []
     let act: (ActionModel) -> Void
 
     var body: some View {
@@ -199,9 +201,13 @@ struct PageHeader: View {
                     ActionButtons(actions: actions, act: act)
                 }
                 .fixedSize()
+                otherActions
             }
             VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-                heading.lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
+                    heading.lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    otherActions
+                }
                 FlowLayout(spacing: Prism.Spacing.px10) {
                     ActionButtons(actions: actions, act: act)
                 }
@@ -209,6 +215,12 @@ struct PageHeader: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .textSelection(.disabled)
+    }
+
+    @ViewBuilder private var otherActions: some View {
+        if !PageActions.buttons(others).isEmpty {
+            OtherActionsView(actions: others, act: act).fixedSize()
+        }
     }
 
     private var heading: some View {
@@ -369,7 +381,7 @@ public struct ActionPageView: View {
         case .answers(let answers):
             AnswersView(block: answers, act: act)
         case .actions(let actions):
-            OtherActionsView(block: actions, act: act)
+            OtherActionsView(actions: actions.actions ?? [], act: act)
         case .notShown(let type): FallbackView(type: type, reason: nil)
         case .fallback(let fallback): FallbackView(type: fallback.type, reason: fallback.reason)
         }

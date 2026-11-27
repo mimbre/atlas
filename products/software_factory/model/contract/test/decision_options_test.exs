@@ -388,10 +388,15 @@ defmodule Model.DecisionOptionsTest do
 
   # The page a TUI opens from Assigned to you, as Control serves it to a Console client:
   # its blocks besides console actions, and how a key resolves on it.
-  defp served(text) do
+  defp served(text, values \\ %{}) do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     decide = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "decide"))
-    fact = Map.put(current(text), "key", "D-private")
+
+    fact =
+      text
+      |> current()
+      |> Map.put("key", "D-private")
+      |> update_in(["values"], &Map.merge(&1, values))
 
     presentation =
       decide.present("for_person", fact["values"])
@@ -464,6 +469,40 @@ defmodule Model.DecisionOptionsTest do
            ] = note.(to)
   end
 
+  test "the details show no field a main block already shows, and no title of their own" do
+    definition = JSON.decode!(@text)
+    [files | _] = definition["options"]
+
+    {blocks, _resolve, _note} =
+      served(@text, %{
+        "decision" => files["rule"],
+        "consequences" => files["consequences"],
+        "context" => definition["rationale"],
+        "category" => "interface"
+      })
+
+    {[item], main} = Enum.split_with(blocks, &(&1["id"] == "item"))
+    labels = Enum.map(item["props"]["fields"], & &1["label"])
+    values = Enum.map(item["props"]["fields"], & &1["value"])
+
+    shown =
+      for b <- main,
+          {k, v} <- b["props"] || %{},
+          text <-
+            if(k in ["text", "title"], do: [v], else: []) ++
+              for(%{"value" => fv} <- List.wrap(if(k == "fields", do: v)), do: fv),
+          do: text
+
+    for text <- [files["rule"], files["consequences"], definition["rationale"]] do
+      assert text in shown
+      refute text in values
+    end
+
+    # What only the details show stays there.
+    assert "interface" in values or "Interface" in values, inspect(labels)
+    assert item["props"]["title"] == ""
+  end
+
   test "alternatives: a card each with its own Choose, then Decline all with an alternative" do
     {blocks, resolve, note} = served(@text)
 
@@ -488,7 +527,7 @@ defmodule Model.DecisionOptionsTest do
 
     # Every card shows what it means: its rule and what follows.
     for o <- [files, memory] do
-      assert [%{"label" => "Rule", "value" => r}, %{"label" => "Then", "value" => c}] =
+      assert [%{"label" => "Rule", "value" => r}, %{"label" => "Consequences", "value" => c}] =
                o["fields"]
 
       assert r != "" and c != ""
@@ -541,7 +580,18 @@ defmodule Model.DecisionOptionsTest do
       {blocks, resolve, note} = served(JSON.encode!(Map.put(definition, "options", options)))
 
       assert [%{"props" => card}] = Enum.filter(blocks, &(&1["type"] == "option"))
-      assert %{"n" => 1, "alone" => true, "badge" => "★ Recommended"} = card
+      # The only proposal: no badge (nothing to tell it from; clients show no number for
+      # `alone`), its Rule and Consequences in full.
+      assert %{"n" => 1, "alone" => true} = card
+      refute Map.has_key?(card, "badge")
+      refute Map.has_key?(card, "tone")
+
+      assert [
+               %{"label" => "Rule", "value" => rule},
+               %{"label" => "Consequences", "value" => consequences}
+             ] = card["fields"]
+
+      assert rule == files["rule"] and consequences == files["consequences"]
 
       assert [
                %{"label" => "Accept", "key" => "1", "weight" => "main"} = accept,

@@ -5,10 +5,12 @@ import SwiftUI
 
 /// A `header` block, on the page itself (no card): the eyebrow and the key in small caps in
 /// the accent's text colour ("TO DO FOR YOU · TD-12"), then the title as the page's title;
-/// `actions`, the page's own (`PageActions.ofPage`), beside it as `PageHeader` has them.
+/// `actions`, the page's own (`PageActions.ofPage`), beside it as `PageHeader` has them,
+/// and `others` (what else can be done with its subject) at the far right.
 struct HeaderBlockView: View {
     let block: HeaderBlock
     var actions: [ActionModel] = []
+    var others: [ActionModel] = []
     let act: (ActionModel) -> Void
     @Environment(\.colorScheme) private var scheme
 
@@ -19,7 +21,7 @@ struct HeaderBlockView: View {
                     .foregroundStyle(PrismDarkGap.accentText(scheme))
                     .textSelection(.enabled)
             }
-            PageHeader(title: block.title ?? "", actions: actions, act: act)
+            PageHeader(title: block.title ?? "", actions: actions, others: others, act: act)
         }
         .accessibilityElement(children: .contain)
         .padding(.horizontal, Prism.Spacing.px15)
@@ -162,9 +164,10 @@ struct CardStack: View {
 }
 
 /// An `option` block, one option of a decision, in a calm card of its own (`PanelCard`,
-/// without the keys' focus), as a step's: its number as a step's, its text, its badge in
-/// its tone (★ Recommended in success), what it means as label and value rows (its Rule and
-/// what follows Then), and its own answer as Prism's button (`OptionButton`), except on the
+/// without the keys' focus): its number as a step's (none on the only proposal), its text,
+/// its badge in its tone (★ Recommended in success); then what it means at the card's full
+/// width, each field a section (its label as a subtitle, its text in full under it: Rule,
+/// Consequences); and its own answer as Prism's button (`OptionButton`), except on the
 /// only proposal (`alone`), which the page's Accept answers. The button is the page's
 /// action of the answer's key (`Panel.action`): exactly what the key does.
 struct OptionView: View {
@@ -176,35 +179,31 @@ struct OptionView: View {
 
     var body: some View {
         let action = Option.action(block)
-        HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
-            if let n = block.n { StepNumber(n: n) }
-            VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
-                HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
-                    Text(block.text ?? "").prism(Prism.Typography.title7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if let badge = block.badge, !badge.isEmpty {
-                        PrismTag(tone: Self.tone(block.tone)) { Text(badge) }.fixedSize()
-                    }
-                }
-                if let fields = block.fields, !fields.isEmpty {
-                    Grid(alignment: .topLeading, horizontalSpacing: Prism.Spacing.px13, verticalSpacing: Prism.Spacing.px6) {
-                        ForEach(Array(fields.enumerated()), id: \.offset) { _, field in
-                            GridRow {
-                                Text(field.label ?? "").prism(Prism.Typography.label).foregroundStyle(PrismDarkGap.muted(scheme))
-                                Text(field.value ?? "—").frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-                    .prism(Prism.Typography.bodysmall)
-                }
-                if block.alone != true, let answer = block.answer, let action {
-                    OptionButton(answer: answer, pending: PageActions.isPending(action, pending)) { act(action) }
-                        .padding(.top, Prism.Spacing.px3)
+        VStack(alignment: .leading, spacing: Prism.Spacing.px10) {
+            HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px13) {
+                if let n = Option.number(block) { StepNumber(n: n) }
+                Text(block.text ?? "").prism(Prism.Typography.title7)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let badge = block.badge, !badge.isEmpty {
+                    PrismTag(tone: Self.tone(block.tone)) { Text(badge) }.fixedSize()
                 }
             }
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(Array((block.fields ?? []).enumerated()), id: \.offset) { _, field in
+                VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
+                    Text(field.label ?? "").prism(Prism.Typography.label).foregroundStyle(PrismDarkGap.muted(scheme))
+                    Text(field.value ?? "—").prism(Prism.Typography.bodysmall)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            if block.alone != true, let answer = block.answer, let action {
+                OptionButton(answer: answer, pending: PageActions.isPending(action, pending)) { act(action) }
+                    .padding(.top, Prism.Spacing.px3)
+            }
         }
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .lineLimit(nil)
         .fixedSize(horizontal: false, vertical: true)
         .modifier(PanelCard(focusable: false, room: room))
@@ -252,9 +251,16 @@ struct PrismActionButton: View {
 
     var body: some View {
         Button(action: take) {
-            // Its icon in the primary colour; its label as Prism's button text.
+            // Its icon in the primary colour, every symbol fitted in one square (one size
+            // for all, whatever the symbol's own) and centred on the label's line; its
+            // label as Prism's button text.
             if let icon {
-                Label { Text(label) } icon: { Image(systemName: icon).foregroundStyle(PrismDarkGap.icon(scheme)) }
+                HStack(alignment: .center, spacing: Prism.Spacing.px6) {
+                    Image(systemName: icon).resizable().scaledToFit()
+                        .frame(width: 13, height: 13)
+                        .foregroundStyle(PrismDarkGap.icon(scheme))
+                    Text(label)
+                }
             } else {
                 Text(label)
             }
@@ -305,26 +311,56 @@ struct AnswersView: View {
     }
 }
 
-/// An `actions` block: what else can be done with the page's subject, below its answers
-/// and quieter than they are, in one row of Prism's `plain` buttons (unpadded), each with
-/// the icon Control names (`ActionIcon`), in Control's order. One that is dangerous opens
-/// Control's confirm first.
+/// An `actions` block: what else can be done with the page's subject (Update, Hand to,
+/// Delete), as quiet icon-only buttons beside the page's title (`PageHeader`), in
+/// Control's order: each the icon Control names (`ActionIcon`) in the primary colour, one
+/// size for all; its short label (`button`) as its tooltip and accessibility label. Delete
+/// comes last, a little apart, in the danger colour; it opens Control's confirm first.
 struct OtherActionsView: View {
-    let block: ActionsBlock
+    let actions: [ActionModel]
     let act: (ActionModel) -> Void
     @Environment(\.pendingAction) private var pending
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        FlowLayout(spacing: Prism.Spacing.px22) {
-            ForEach(Array(PageActions.buttons(block.actions ?? []).enumerated()), id: \.offset) { _, action in
-                PrismActionButton(label: AnswerLook.label(action), key: action.key,
-                                  pending: PageActions.isPending(action, pending), variant: .plain,
-                                  padded: false, icon: ActionIcon.symbol(action.icon)) { act(action) }
+        let (rest, dangerous) = Self.split(actions)
+        HStack(spacing: Prism.Spacing.px15) {
+            ForEach(Array(rest.enumerated()), id: \.offset) { _, action in button(action) }
+            if let dangerous {
+                button(dangerous).padding(.leading, Prism.Spacing.px10)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Prism.Spacing.px15)
-        .padding(.bottom, Prism.Spacing.px10)
+        .textSelection(.disabled)
+    }
+
+    /// The buttons (`PageActions.buttons`) in Control's order, but a Delete, which goes
+    /// last, apart.
+    static func split(_ actions: [ActionModel]) -> ([ActionModel], ActionModel?) {
+        let buttons = PageActions.buttons(actions)
+        let dangerous = buttons.last { $0.icon == "delete" }
+        return (buttons.filter { $0.icon != "delete" }, dangerous)
+    }
+
+    private func button(_ action: ActionModel) -> some View {
+        let label = AnswerLook.label(action)
+        let busy = PageActions.isPending(action, pending)
+        return Button { act(action) } label: {
+            Group {
+                if busy {
+                    ProgressView().progressViewStyle(.prism(.accent, size: .size16))
+                } else {
+                    Image(systemName: ActionIcon.symbol(action.icon) ?? "ellipsis.circle")
+                        .resizable().scaledToFit()
+                        .foregroundStyle(action.icon == "delete" ? Prism.Colors.error : PrismDarkGap.icon(scheme))
+                }
+            }
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .help([label, KeyGlyph.glyph(action.key).map { "(\($0))" }].compactMap { $0 }.joined(separator: " "))
+        .accessibilityLabel(label)
     }
 }
 

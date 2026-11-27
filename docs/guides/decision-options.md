@@ -63,10 +63,10 @@ The native model's semantic answer IDs include the displayed revision and stable
 option ID. Control shows the offer as a stack of simple blocks (D-0104): a
 `header` (YOUR DECISION, the key, the question), a `text` (Why: the rationale),
 then the options to adopt (contract 0.39.0). One proposal is one `option` card
-(`alone`: no answer on it) and below it an `answers` block: Accept (`main`, the
+(`alone`: no answer, badge or number on it, its Rule and Consequences in full) and below it an `answers` block: Accept (`main`, the
 proposal's answer) and Decline (`decline`). Several alternatives are a card each, the
 recommended one first: its number, its text, a badge (`★ Recommended`, or
-`melle's alternative` on one a decider added when declining), its Rule and Then and
+`melle's alternative` on one a decider added when declining), its Rule and Consequences and
 its own Choose (the recommended `main`, the rest `other`); below them Decline all
 (`decline`). Decline is always offered and asks "What is your alternative?"; a
 decline option of the definition is no card: its text is the Decline answer's

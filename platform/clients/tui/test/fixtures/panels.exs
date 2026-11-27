@@ -10,6 +10,9 @@ defmodule AtlasTui.PanelFixture do
 
   @decision "/k/decision/D-7"
   @stuck "/k/widget/K-1"
+  # A Rule longer than one line, which a card shows in full.
+  @long_rule "Store the private example in files next to the work, one per environment, so every client reads the same examples as cards below the question without a server to run."
+  def long_rule, do: @long_rule
 
   def call(kind, key, answer),
     do: %{
@@ -30,7 +33,7 @@ defmodule AtlasTui.PanelFixture do
       option(
         n,
         text,
-        [{"Rule", "Store examples in #{id}."}, {"Then", "#{text} holds them."}],
+        [{"Rule", "Store examples in #{id}."}, {"Consequences", "#{text} holds them."}],
         Map.merge(
           %{
             "label" => "Choose",
@@ -79,7 +82,7 @@ defmodule AtlasTui.PanelFixture do
           "id" => "item",
           "type" => "item",
           "props" => %{
-            "title" => "D-7",
+            "title" => "",
             "fields" => [%{"label" => "Status", "value" => "Open"}],
             "actions" => []
           }
@@ -106,7 +109,13 @@ defmodule AtlasTui.PanelFixture do
   def page(:proposal, _props) do
     page = page(:choice)
     [header, why, files, _memory, _answers | rest] = page["blocks"]
-    files = put_in(files, ["props", "alone"], true)
+    # The only proposal, as Control sends it: no number, no badge, its Rule in full.
+    files =
+      files
+      |> put_in(["props", "alone"], true)
+      |> update_in(["props"], &Map.drop(&1, ["badge", "tone"]))
+      |> put_in(["props", "fields", Access.at(0), "value"], @long_rule)
+
     accept = Map.put(files["props"]["answer"], "label", "Accept")
 
     decline = %{
@@ -130,14 +139,12 @@ defmodule AtlasTui.PanelFixture do
         "text" => "The worker stopped: the tests could not reach the database.",
         "role" => "error"
       }),
-      option(1, "Retry", [{"Then", "Runs the work again from where it stopped."}], %{
+      option(1, "Retry", [{"Consequences", "Runs the work again from where it stopped."}], %{
         "label" => "Choose",
         "weight" => "main",
         "key" => "t",
         "to" => @stuck <> "/answer/retry",
         "submit_to" => call("widget", "K-1", "retry"),
-        "badge" => "★ Recommended",
-        "tone" => "success",
         "alone" => true
       }),
       answers([
