@@ -52,17 +52,31 @@ Generated targets (the model's Rela project and diagrams, Control's `blocks.json
 
 `bin/check` runs every Linux job of CI here, in about 7 minutes on the Mac mini, offline: run it before handing work over (`bin/check beam` for one job, `bin/check --fast` for the static checks only). It needs what an agent's sandbox cannot install: the pinned rela in `~/.cache/atlas`, `rg`, and the Python packages of `platform/atlas_facts/rela/scripts/requirements.txt`; it says which is missing.
 
-Credo is isolated from the application dependencies in `tools/credo`. After fetching its
-locked dependencies with `cd tools/credo && mix deps.get`, run it from that directory:
+Credo's locked dependencies are isolated from the applications. From the repository root:
 
 ```sh
-mix credo suggest --working-dir ../.. --files-included platform --files-included products
+(cd tools/credo && mix deps.get)
+python3 tools/credo/check.py all
+python3 tools/credo/check.py staged
 ```
 
-This reports existing findings as well as new ones; it is not yet a clean pre-commit
-gate. Credo's built-in `diff` can match distinct findings as the same issue, and compares
-the working tree rather than the staged snapshot. Do not use it as a staged-change
-gate without addressing those limitations.
+`all` reports all Credo findings in the **index**, including the existing baseline; it
+exits 1 if there are any. `staged` is the Git-agent commit check: it compares the complete
+indexed snapshot with HEAD and exits 1 for newly reported findings, 0 if none, and 2 on
+tool or source parsing errors. It ignores unstaged changes. Both use Credo's default
+checks at all priorities, on tracked `.ex` and `.exs` files under `platform/` and
+`products/`, excluding `tmp`, `deps`, `_build`, `generated` and hidden directories.
+Untracked files and generated/dependency output are not analyzed. No hook is installed
+by this tooling; Git-agent hook setup must invoke the `staged` command separately.
+
+The baseline is HEAD, not a list of suppressed rules. Findings match only when every
+reported field, including file and line, is identical, with duplicate counts preserved.
+Moving an existing finding or inserting lines above it can therefore block a commit;
+fix it or review the resulting finding rather than treating the gate as a clean baseline.
+Conversely, a new finding indistinguishable from an old one at the same location cannot
+be distinguished. Both snapshots are analyzed in full so cross-file checks have context;
+this costs more than checking changed files alone. Test the integration with
+`python3 -m unittest tools/credo/test_check.py` after fetching dependencies.
 
 ```sh
 bin/generate                                               # every generated target
