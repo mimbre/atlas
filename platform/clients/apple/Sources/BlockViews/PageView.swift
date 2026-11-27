@@ -26,13 +26,16 @@ public struct PageView: View {
     let selectedPath: String?
     let open: (String) -> Void
     let act: (ActionModel) -> Void
+    let filter: (String) -> Void
+    let selectedGroup: String?
     @Environment(\.colorScheme) private var scheme
     /// Whether the list has the keys: its selected card shows Prism's tint, else calm grey.
     @FocusState private var listFocused: Bool
 
     public init(page: PageMessage, header: Bool = false, selectedPath: String? = nil,
                 open: @escaping (String) -> Void,
-                act: @escaping (ActionModel) -> Void = { _ in }) {
+                act: @escaping (ActionModel) -> Void = { _ in },
+                filter: ((String) -> Void)? = nil, selectedGroup: String? = nil) {
         presentation = PagePresentation(page)
         pageActions = PageActions.ofPage(page)
         itemActions = header ? PageActions.toolbar(page) : []
@@ -40,6 +43,8 @@ public struct PageView: View {
         self.selectedPath = selectedPath
         self.open = open
         self.act = act
+        self.filter = filter ?? open
+        self.selectedGroup = selectedGroup
     }
 
     /// The page from the left of its column (`WindowLayout.columns`): its main blocks at most
@@ -92,8 +97,18 @@ public struct PageView: View {
                     still(PageHeader(title: presentation.title, actions: pageActions, act: act))
                 case .title(let title):
                     still(Text(title).prism(Prism.Typography.title7).padding(.top, Prism.Spacing.px10))
+                case .heading(let title, let aside):
+                    still(HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
+                        Text(title).prism(Prism.Typography.label).accessibilityAddTraits(.isHeader)
+                        if let aside {
+                            Text(aside).prism(Prism.Typography.caption).foregroundStyle(PrismDarkGap.muted(scheme))
+                        }
+                    }
+                    .padding(.horizontal, Prism.Spacing.px15)
+                    .padding(.top, Prism.Spacing.px10))
                 case .empty(let empty):
-                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary))
+                    still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, header ? Prism.Spacing.px15 : 0))
                 case .row(let row):
                     RowCard(row: row, selected: line.to == selectedPath, focused: listFocused)
                         .listRowInsets(EdgeInsets())
@@ -139,6 +154,7 @@ public struct PageView: View {
         enum Content {
             case header
             case title(String)
+            case heading(String, aside: String?)
             case empty(String)
             case row(RowModel)
             case actions([ActionModel])
@@ -200,7 +216,12 @@ public struct PageView: View {
             case .entry(let entry):
                 switch entry.item {
                 case .list(let list):
-                    if let title = list.title { blocks.append(Line(id: group.id + "/title", content: .title(title))) }
+                    if (header && list.title != nil) || list.aside != nil {
+                        blocks.append(Line(id: group.id + "/title",
+                                           content: .heading(list.title ?? "", aside: list.aside)))
+                    } else if let title = list.title {
+                        blocks.append(Line(id: group.id + "/title", content: .title(title)))
+                    }
                     let rows = list.rows ?? []
                     if rows.isEmpty, let empty = list.empty {
                         blocks.append(Line(id: group.id + "/empty", content: .empty(empty)))
@@ -247,6 +268,7 @@ public struct PageView: View {
                                         detailHeading: Bool = false, followsCardsBeforeDetails: Bool = false) -> some View {
         switch entry.item {
         case .list(let list): ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
+        case .groups(let groups): GroupFilters(groups: groups, selected: selectedGroup, filter: filter)
         case .item(let item): ItemBlockView(item: item, inDetails: inDetails, detailHeading: detailHeading, act: act)
         case .option(let option): OptionView(block: option, detailHeading: detailHeading, act: act)
         case .panel(let panel):
@@ -323,9 +345,16 @@ struct ListBlockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
-            if let title = list.title {
-                Text(title).prism(Prism.Typography.title7)
-                    .padding(.bottom, Prism.Spacing.px5)
+            if list.title != nil || list.aside != nil {
+                HStack(alignment: .firstTextBaseline, spacing: Prism.Spacing.px10) {
+                    if let title = list.title {
+                        Text(title).prism(Prism.Typography.title7)
+                    }
+                    if let aside = list.aside {
+                        Text(aside).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.bottom, Prism.Spacing.px5)
             }
             if (list.rows ?? []).isEmpty, let empty = list.empty {
                 Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
@@ -364,8 +393,8 @@ struct ListRowView: View {
 /// says where it stands in words. The card follows its title's height; it is a little
 /// lighter than the list's ground, rounded, without a shadow (list cards are an overview).
 /// Selected: Prism's light primary tint with a thin primary border, and the kind's icon in
-/// primary, while the list has the focus (`focused`), calm grey without it. The card covers
-/// its whole row with the list's ground around it, so the system's own selection never shows.
+/// primary, while the list has the focus (`focused`), calm grey without it. The outer
+/// List supplies its row ground; nested lists leave the surrounding page visible.
 struct RowCard: View {
     let row: RowModel
     let selected: Bool
@@ -391,7 +420,6 @@ struct RowCard: View {
             .onHover { hovering = $0 }
             .padding(.vertical, Prism.Spacing.px3)
             .padding(.horizontal, Prism.Spacing.px10)
-            .background(PrismDarkGap.listGround(scheme))
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
@@ -545,3 +573,34 @@ struct FallbackView: View {
         }
     }
 }
+
+#if DEBUG
+struct NestedListPreview: PreviewProvider {
+    static var previews: some View {
+        let blocks: [JSONValue] = [
+            .object(["id": .string("card"), "type": .string("item"), "props": .object([
+                "title": .string("Decision"), "fields": .array([
+                    .object(["label": .string("Status"), "value": .string("Accepted")])
+                ])
+            ])]),
+            .object(["id": .string("verdicts"), "type": .string("list"), "props": .object([
+                "rows": .array([
+                    .object(["label": .string("accept_decision"), "kind": .string("Gate verdict"),
+                             "key": .string("GV-0178"), "to": .string("/verdict/1")]),
+                    .object(["label": .string("accept_decision"), "kind": .string("Gate verdict"),
+                             "key": .string("GV-0177"), "to": .string("/verdict/2")])
+                ])
+            ])])
+        ]
+        let markup: [JSONValue] = [
+            .object(["kind": .string("section"), "start": .string("verdicts"), "end": .string("verdicts"),
+                     "props": .object(["title": .string("Gate verdicts")])])
+        ]
+        return PageView(page: PageMessage(blocks: blocks.map(Block.init(raw:)),
+                                          markup: markup.map(MarkupEntry.init(raw:)),
+                                          path: "/preview", title: "Decision"),
+                        header: true, open: { _ in })
+            .frame(width: 700, height: 500)
+    }
+}
+#endif

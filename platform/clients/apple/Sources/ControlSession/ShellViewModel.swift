@@ -18,21 +18,6 @@ public struct ShellViewModel: Sendable, Equatable {
         /// Whether its count is what waits for the user (what is assigned to them), not a
         /// plain count.
         public var forYou: Bool
-        /// The destinations of its page's groups, from boot.
-        public var groups: [Group]
-    }
-
-    /// A group of a tab's page, from boot: choosing one shows only its items in the
-    /// middle column, on its tab. Its count is the last one boot or a page gave.
-    public struct Group: Sendable, Equatable, Identifiable {
-        public var id: String { to }
-        public var label: String
-        public var count: Int?
-        /// Whether its count is what waits for the user, as its tab's.
-        public var forYou: Bool
-        public var to: String
-        /// Its kind's icon, a semantic name, for a group of one kind; nil otherwise.
-        public var icon: String? = nil
     }
 
     /// The shell's title; nil before the first boot.
@@ -101,13 +86,7 @@ public struct ShellViewModel: Sendable, Equatable {
             let to = tab.to ?? ""
             return Tab(id: tab.id ?? to, label: tab.label ?? to, to: to, section: tab.section ?? "browse",
                        icon: tab.icon, shortcut: offset < 9 ? offset + 1 : nil, count: state.groupCounts[to],
-                       forYou: tab.forYou ?? false,
-                       groups: (tab.groups ?? []).compactMap { group in
-                           group.to.map {
-                               Group(label: group.label ?? $0, count: state.groupCounts[$0],
-                                     forYou: group.forYou ?? false, to: $0, icon: group.icon)
-                           }
-                       })
+                       forYou: tab.forYou ?? false)
         }
         activeTab = state.activeTab
         stale = state.shellStale && shell != nil
@@ -134,8 +113,7 @@ public struct ShellViewModel: Sendable, Equatable {
         droppedSteps = state.droppedSteps
         let asked = state.expectedColumn == .opened ? state.expected : nil
         selectedPath = asked ?? (opened ?? index)?.path
-        let middle = state.expectedColumn == .index ? state.expected ?? index?.path : index?.path
-        activeGroup = middle.flatMap { path in tabs.lazy.flatMap(\.groups).first { $0.to == path }?.to }
+        activeGroup = state.expectedColumn == .index ? state.expected ?? index?.path : index?.path
     }
 
     /// The tab `⌘<number>` switches to.

@@ -9,6 +9,7 @@ defmodule Model.SupervisionTest do
   """
   use ExUnit.Case, async: true
 
+  alias AtlasControl.Pages
   alias Model.AtlasEyra
 
   defp description, do: AtlasEyra.__rela__(:description)
@@ -385,21 +386,24 @@ defmodule Model.SupervisionTest do
                AtlasControl.Shell.boot(m, person, to)
     end
 
-    # Every tab has its icon; the screens carry their groups, each a boot target that
-    # keeps its tab: Build is a group of Open for you.
-    tabs = Map.new(booted["tabs"], &{&1["id"], &1})
+    # Tabs carry icons, while groups belong to the screens rather than boot metadata.
     assert Enum.all?(booted["tabs"], &is_binary(&1["icon"]))
+    refute Enum.any?(booted["tabs"], &Map.has_key?(&1, "groups"))
 
-    for id <- ~w(open_for_you supervised_by_you assigned) do
-      assert [_ | _] = groups = tabs[id]["groups"]
-      to = hd(groups)["to"]
+    for screen <- [:open_for_you, :supervised_by_you, :assigned] do
+      assert [_ | _] = groups = Pages.groups(m, screen)
 
-      assert {:ok, %{"initial_to" => ^to, "active_tab" => ^id}} =
-               AtlasControl.Shell.boot(m, person, to)
+      for {key, _label} <- groups do
+        to = Pages.path({:group, screen, key, person})
+        id = Atom.to_string(screen)
+
+        assert {:ok, %{"initial_to" => ^to, "active_tab" => ^id}} =
+                 AtlasControl.Shell.boot(m, person, to)
+      end
     end
 
     # Open for you groups by flow, each labelled by its name.
-    assert Enum.map(tabs["open_for_you"]["groups"], & &1["label"]) == ["Design", "Plan", "Build"]
+    assert Enum.map(Pages.groups(m, :open_for_you), &elem(&1, 1)) == ["Design", "Plan", "Build"]
   end
 
   defp start_page_assigned?, do: match?(%{relation: _}, AtlasEyra.start_page().assigned)

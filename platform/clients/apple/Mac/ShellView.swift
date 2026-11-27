@@ -84,7 +84,7 @@ struct ShellView: View {
                              toggle: session.togglePlanStep, stop: session.stopPlan, close: session.closePlan)
                 } else if let page = shell.sheet {
                     ActionPageView(page: page, draft: shell.draft, submitting: shell.submitting, answer: shell.answer,
-                                   act: session.act, submit: submit, edit: session.edit, leave: session.leave)
+                                   act: session.act, open: session.open, submit: submit, edit: session.edit, leave: session.leave)
                 }
             }
             .environment(\.pendingAction, shell.pending)
@@ -167,12 +167,8 @@ struct Column: View {
 
     var body: some View {
         if let page {
-            VStack(spacing: 0) {
-                if let filter {
-                    GroupFilters(page: page, selected: selectedGroup, filter: filter)
-                }
-                PageView(page: page, header: header, selectedPath: selectedPath, open: open, act: act)
-            }
+            PageView(page: page, header: header, selectedPath: selectedPath, open: open, act: act,
+                     filter: filter, selectedGroup: selectedGroup)
         } else {
             Color.clear
         }
