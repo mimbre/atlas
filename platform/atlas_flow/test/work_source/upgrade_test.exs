@@ -114,29 +114,225 @@ defmodule AtlasFlow.WorkSource.UpgradeTest do
     assert values()["step"] == "verifying"
   end
 
-  test "a refused update ends it failed, with the step and the Runtime's reason" do
-    upgrade("RU-01", %{"step" => "updating", "from_incarnation" => "inc-1"})
+  test "a refused update resumes the old Runtime before ending failed" do
+    upgrade("RU-01", %{
+      "step" => "updating",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1"
+    })
 
-    assert nil ==
-             poll(
-               report: %{
-                 mode: :draining,
-                 update: :refused,
-                 step: :update,
-                 reason: "slot busy: dev2"
-               }
-             )
+    report = %{mode: :draining, update: :refused, step: :update, reason: "slot busy: dev2"}
+    assert %{action: :resume} = poll(report: report)
+
+    assert %{"step" => "updating", "failed_step" => "update", "reason" => "slot busy: dev2"} =
+             values()
+
+    assert %{action: :resume} = poll(report: report)
+    assert nil == poll(report: %{mode: :open, update: :refused})
 
     assert %{"step" => "failed", "failed_step" => "update", "reason" => "slot busy: dev2"} =
              values()
   end
 
-  test "back on another build ends it failed at restart" do
-    upgrade("RU-01", %{"step" => "updating", "from_incarnation" => "inc-1"})
+  test "a wrong restart stays pending until the old build returns and opens" do
+    upgrade("RU-01", %{
+      "step" => "updating",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1"
+    })
 
-    assert nil == poll(build: "b1", incarnation: "inc-2", report: %{mode: :draining})
-    assert %{"step" => "failed", "failed_step" => "restart", "reason" => reason} = values()
-    assert reason =~ "came back on build b1, not b2"
+    assert nil == poll(build: "b3", incarnation: "inc-2", report: %{mode: :draining})
+    assert %{"step" => "updating", "failed_step" => "restart", "reason" => reason} = values()
+    assert reason =~ "came back on build b3, not b2"
+    assert nil == poll(build: "b1", incarnation: "inc-1", report: %{mode: :draining})
+
+    assert %{action: :resume} =
+             poll(build: "b1", incarnation: "inc-3", report: %{mode: :draining})
+
+    assert nil == poll(build: "b1", incarnation: "inc-3", report: %{mode: :open})
+    assert values()["step"] == "failed"
+  end
+
+  test "failure intent must be stored before resume and is retried" do
+    upgrade("RU-01", %{
+      "step" => "updating",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1"
+    })
+
+    report = %{mode: :draining, update: :failed, step: :update, reason: "download"}
+    :ok = GenServer.call(FakeFacts, {:refuse_write, Upgrade.kind(), "RU-01"})
+    assert %{action: :drain} = poll(report: report)
+    refute values()["failed_step"]
+    :ok = GenServer.call(FakeFacts, {:allow_write, Upgrade.kind(), "RU-01"})
+    assert %{action: :resume} = poll(report: report)
+    assert values()["failed_step"] == "update"
+  end
+
+  test "a lost failure write acknowledgement cannot resume before durable intent" do
+    upgrade("RU-01", %{
+      "step" => "updating",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1"
+    })
+
+    FakeFacts.lose_ack(Upgrade.kind())
+    report = %{mode: :draining, update: :failed, step: :update, reason: "download"}
+    assert %{action: :drain} = poll(report: report)
+    assert values()["failed_step"] == "update"
+    assert %{action: :resume} = poll(report: report)
+  end
+
+  test "unreadable Facts keeps an old draining Runtime's failure report alive" do
+    upgrade("RU-01", %{
+      "step" => "updating",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1"
+    })
+
+    query = %{"linked" => %{Upgrade.relation() => "mini"}, "plain" => true}
+    :ok = GenServer.call(FakeFacts, {:block_read, Upgrade.kind(), query})
+    report = %{mode: :draining, update: :failed, step: :update, reason: "download"}
+    assert %{id: "RU-01", build: "b1", action: :drain} = poll(report: report)
+    refute values()["failed_step"]
+    assert nil == poll(report: %{mode: :open, update: :failed})
+    assert nil == poll(report: %{mode: :draining, update: :running})
+    assert nil == poll(build: "", report: report)
+    :ok = GenServer.call(FakeFacts, {:allow_read, Upgrade.kind(), query})
+    assert %{action: :resume} = poll(report: report)
+    assert values()["failed_step"] == "update"
+  end
+
+  test "an updating run with no report cannot blindly reissue the update" do
+    upgrade("RU-01", %{
+      "step" => "updating",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1"
+    })
+
+    assert nil == poll()
+    assert values()["step"] == "updating"
+  end
+
+  test "a lost terminal acknowledgement cannot leave a recovered Runtime drained" do
+    upgrade("RU-01", %{
+      "step" => "updating",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1",
+      "failed_step" => "update",
+      "reason" => "download"
+    })
+
+    FakeFacts.lose_ack(Upgrade.kind())
+    assert %{action: :resume} = poll(report: %{mode: :open, update: :failed})
+    assert values()["step"] == "failed"
+    assert nil == poll(report: %{mode: :open})
+  end
+
+  test "an already open old Runtime records failure before ending" do
+    upgrade("RU-01", %{
+      "step" => "updating",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1"
+    })
+
+    assert %{action: :resume} = poll(report: %{mode: :open, update: :failed, step: :update})
+    assert %{"step" => "updating", "failed_step" => "update"} = values()
+    assert nil == poll(report: %{mode: :open, update: :failed})
+    assert values()["step"] == "failed"
+  end
+
+  test "missing or unknown failure step never authorizes recovery" do
+    for {key, report} <- [
+          {"RU-01", %{mode: :draining, update: :failed}},
+          {"RU-02", %{mode: :draining, update: :failed, step: :unexpected}}
+        ] do
+      upgrade(key, %{
+        "step" => "updating",
+        "from_build" => "b1",
+        "from_incarnation" => "inc-1"
+      })
+
+      assert nil == poll(report: Map.put(report, :id, key))
+      assert %{"step" => "updating", "failed_step" => "unknown"} = values(key)
+      assert nil == poll(report: %{id: key, mode: :draining})
+      upgrade(key, %{"step" => "failed"})
+    end
+  end
+
+  test "a failure reported during verification waits for the old build" do
+    upgrade("RU-01", %{
+      "step" => "verifying",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1",
+      "incarnation" => "inc-2"
+    })
+
+    assert nil ==
+             poll(
+               build: "b2",
+               incarnation: "inc-2",
+               report: %{mode: :draining, update: :failed, step: :restart, reason: "restart"}
+             )
+
+    assert %{"step" => "verifying", "failed_step" => "restart"} = values()
+    assert %{action: :resume} = poll(incarnation: "inc-3", report: %{mode: :draining})
+    assert nil == poll(incarnation: "inc-3", report: %{mode: :open})
+    assert values()["step"] == "failed"
+  end
+
+  test "recovery never resumes without matching build, incarnation and report" do
+    upgrade("RU-01", %{
+      "step" => "updating",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1",
+      "failed_step" => "update",
+      "reason" => "download"
+    })
+
+    assert nil == poll(build: "b3", report: %{mode: :draining})
+    assert nil == poll(incarnation: "", report: %{mode: :draining})
+    assert nil == poll(report: %{id: "RU-02", mode: :stopping})
+    assert %{action: :drain} = poll()
+    assert nil == poll(report: %{mode: :stopping})
+    assert %{action: :resume} = poll(report: %{mode: :draining})
+  end
+
+  test "a persisted recovery marker never reruns the update" do
+    upgrade("RU-01", %{
+      "step" => "updating",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1",
+      "failed_step" => "update",
+      "reason" => "download"
+    })
+
+    # A restarted puller may have lost the order; re-establish its mode report first.
+    assert %{action: :drain} = poll()
+    assert %{action: :resume} = poll(report: %{mode: :draining, update: :none})
+    assert %{action: :resume} = poll(report: %{mode: :draining, update: :none})
+    assert nil == poll(report: %{mode: :open, update: :none})
+    assert %{"step" => "failed", "reason" => "download"} = values()
+  end
+
+  test "a verified target is not resumed after its identity changes" do
+    upgrade("RU-01", %{
+      "step" => "verifying",
+      "from_build" => "b1",
+      "from_incarnation" => "inc-1",
+      "incarnation" => "inc-2"
+    })
+
+    assert nil == poll(build: "b1", incarnation: "inc-3", report: %{mode: :draining})
+    assert nil == poll(build: "b2", incarnation: "inc-3", report: %{mode: :draining})
+    assert values()["step"] == "verifying"
+  end
+
+  test "old records without source identity are not blindly resumed" do
+    upgrade("RU-01", %{"step" => "updating", "from_incarnation" => "inc-1"})
+    assert nil == poll(report: %{mode: :draining, update: :failed, step: :update})
+    assert values()["failed_step"] == "update"
+    assert nil == poll(report: %{mode: :draining})
   end
 
   test "a second upgrade of the same Runtime is refused while one runs" do

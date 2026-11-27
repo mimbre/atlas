@@ -40,11 +40,16 @@ A decision, a to-do's steps and stuck work are such stacks (`header`, `text` id 
 The **Machines** tab (contract 0.43.0; Runtimes in the code) is such a stack when there is
 one machine: its page is the tab's page (`header` MACHINE · its key, the state line,
 Health, Slots, Queue, Recently finished, Upgrades, Edit configuration in the toolbar and
-Details). Desired but unverified slots and an unavailable queue are marked unknown. Machines
-does not offer or submit upgrades: a failed update can leave the Runtime draining, and safe
-durable recovery must exist before the action can be enabled. A client shows a tab page with a
-`header` as an opened page, without a list column. With more than one machine the tab
-is a simple list of them for now; the compact overview per machine, grouped, comes
+Details). Desired but unverified slots and an unavailable queue are marked unknown. A recent
+poll is **Seen**, not proof the Runtime is open; an unavailable Flow answer makes its state
+unknown. Machines offers an upgrade only when the core's candidate build is published and
+proven newer than the installed build, and no upgrade is underway. Page renders cache this
+proof for five minutes and globally limit new pair checks to one per 150 seconds to protect
+the unauthenticated GitHub quota. A throttled or expired proof is unknown, never stale success.
+Submit requires Workers submit authorization and fresh proof and fact reads, and fails closed
+when these are unknown. A client shows a tab page with a `header` as an
+opened page, without a list column. With more than one machine the tab is a simple list
+of them for now; the compact overview per machine, grouped, comes
 when a second Runtime exists.
 
 ## 3. Tolerant clients (D-0105)

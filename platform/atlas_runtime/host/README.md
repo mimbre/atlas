@@ -939,7 +939,7 @@ Then, one poll of the Runtime at a time (`AtlasFlow.WorkSource.Upgrade`, `AtlasR
 2. `waiting`: while a slot runs a turn; `busy` names the slots.
 3. `updating`: once no slot is busy, the Runtime runs its update command in the background (below), once per upgrade.
 4. `verifying`: the Runtime polls again from a new incarnation on the build; Flow orders it to resume.
-5. `done` once it is open and offers its slots, so it accepts work again; or `failed`, with `failed_step` (`start`, `update` or `restart`) and `reason`. An upgrade that does not move on for a while shows `Stalled`, and goes on by itself when the Runtime reports again.
+5. `done` once it is open and offers its slots, so it accepts work again. If the update fails, `failed_step` and `reason` are recorded while the upgrade remains `updating` or `verifying`: Flow first resumes the confirmed old build and waits for it to report open, then sets `failed`. An unknown build, missing identity or failure step, or unsafe restart remains pending for the supervisor; Flow does not blindly resume it. In particular, after a restart-stage failure the old build must report a new incarnation before Flow resumes it. An upgrade that does not move on for a while shows `Stalled`, and goes on by itself when a safe Runtime reports again.
 
 One upgrade at a time per Runtime: a second one under the same machinery is refused when it is made, while one has not ended (and Flow ends any that got through `failed` at `start`).
 
@@ -952,6 +952,8 @@ One upgrade at a time per Runtime: a second one under the same machinery is refu
 - it waits (up to 20 minutes: the first start on a release compiles it) until `service status` shows BUILD in a new incarnation. A Runtime that was draining stays draining: the upgrade resumes it.
 
 What it did is in `update.json` in the Runtime home (`upgrade`, `build`, `state`: `running`, `refused`, `failed` or `installed`, `step`, `reason`, `previous`: the CLI the install pointed at before); a detached run logs to `update.log`. All three are denied to the Runtime's agents, as the rest of the home is. To go back by hand, update to the earlier build again.
+
+For a running, refused or failed update, the Runtime retains and reports `update.json` even when a poll answer has no upgrade: that answer can mean Flow could not read Facts, rather than that it recorded the outcome. A later upgrade replaces the record; a completed installed record is removed after an answer without an upgrade.
 
 **Once, by hand.** A Runtime from before this release runs a CLI without `service update` and ignores an upgrade. Bring it to a release once: build this revision's CLI, then `atlas-runtime service update --build BUILD`. From then on its upgrades go through Atlas.
 

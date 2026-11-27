@@ -857,16 +857,16 @@ defmodule AtlasControl.Session do
     end
   end
 
-  defp submit({:machine_page, :machine_upgrade, _} = route, _raw, state) do
+  defp submit({:machine_page, :machine_upgrade, %{machine: machine}} = route, _raw, state) do
     actor = %{key: state.by, kind: actor_kind(state)}
 
-    reason =
-      case AtlasControl.Workers.authorize(state.model, actor, "submit", &ask/2) do
-        :ok -> AtlasControl.MachinesPage.upgrade_unavailable()
-        {:error, why} -> why
-      end
-
-    not_sent(%{state | route: route}, route, [reason])
+    with :ok <- AtlasControl.Workers.authorize(state.model, actor, "submit", &ask/2),
+         {:ok, kind, values, links} <-
+           AtlasControl.MachinesPage.upgrade(state.model, machine, &ask/2, ask_health()) do
+      create(route, kind, values, links, state)
+    else
+      {_, why} -> not_sent(%{state | route: route}, route, [why])
+    end
   end
 
   defp submit({:new, kind} = route, raw, state), do: create(route, kind, raw, %{}, state)

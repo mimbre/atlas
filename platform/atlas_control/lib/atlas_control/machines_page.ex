@@ -8,8 +8,8 @@ defmodule AtlasControl.MachinesPage do
   its page (`/machines/:machine`). The compact overview per machine, grouped, comes once a
   second Runtime exists (docs/design/clients.md). A machine's page is a stack of blocks:
 
-  1. `header` (MACHINE, its key, its name, its kind's icon) and `text` `state`: open,
-     draining or upgrading (an upgrade that has not ended), not seen; and its build;
+  1. `header` (MACHINE, its key, its name, its kind's icon) and `text` `state`: seen,
+     draining or upgrading (an upgrade that has not ended), not seen or unknown; and its build;
   2. `item` `health`: when it last polled, how long a poll waits and since when it runs this
      incarnation; a `text` `health-error`
      (role error) says what to do when it is not seen;
@@ -19,7 +19,7 @@ defmodule AtlasControl.MachinesPage do
   5. `list` `finished`: the last #{10} attempts that ended, each with its subject, outcome
      and duration; one whose subject cannot be found is left out (no hash-only row);
   6. `list` `upgrades`: its upgrades, newest first, each with its step;
-  7. Upgrade actions are unavailable until failed drains have durable safe recovery;
+  7. `answers`: upgrade to the core's build when publication and ancestry are proven;
   8. `actions`: Edit configuration;
   9. `item` `details` in a part of role details: its incarnation, machine name, installed
      version and policy version, each only when known.
@@ -36,21 +36,84 @@ defmodule AtlasControl.MachinesPage do
   @finished 10
   @upgrades 5
 
+  @doc "The Runtime build corresponding to the core image, if known."
+  def newest_build, do: Application.get_env(:atlas_control, :runtime_release)
+
   @doc """
   The page of `route` (`{:machine_page, page, params}`): `read.(kind, query)` reads Facts,
   `flow` is Flow's `_health` answer (nil when Flow did not answer).
   """
-  def render(route, m, read, flow, now \\ DateTime.utc_now()) do
-    with {:ok, c} <- context(m, read, flow, now) do
+  def render(
+        route,
+        m,
+        read,
+        flow,
+        now \\ DateTime.utc_now(),
+        newest \\ newest_build(),
+        verify \\ &AtlasControl.RuntimeRelease.cached_newer?/2
+      ) do
+    with {:ok, c} <- context(m, read, flow, now, newest, verify) do
       cleared(c, fn -> page(route, c) end)
     else
       {:error, why} -> unavailable(why, "/")
     end
   end
 
-  @doc "Why Machines does not offer or submit upgrades."
-  def upgrade_unavailable do
-    "Machine upgrades are unavailable until a failed update can safely recover a drained Runtime."
+  @doc "Build the upgrade fact only after fresh proof and fresh machine and upgrade reads."
+  def upgrade(
+        m,
+        machine,
+        read,
+        flow,
+        newest \\ newest_build(),
+        verify \\ &AtlasControl.RuntimeRelease.newer?/2
+      ) do
+    with {:ok, c} <- context(m, read, flow, DateTime.utc_now(), newest, verify) do
+      cleared(c, fn ->
+        with {:ok, fact} <- machine(c, machine),
+             {:ok, upgrades} <- upgrades_checked(c, fact["key"]),
+             {:ok, _from, to} <- upgrade_offer(runtime(c, fact["key"]), upgrades, c) do
+          u = c.n["upgrades"]
+          {:ok, u["kind"], %{u["build"] => to}, %{u["of"] => [fact["key"]]}}
+        else
+          {_, why} -> {:refuse, why}
+        end
+      end)
+    else
+      {:error, why} -> {:refuse, why}
+    end
+  end
+
+  defp upgrade_offer(runtime, upgrades, c) do
+    build = runtime && runtime["build"]
+    newest = c.newest
+
+    cond do
+      not is_binary(newest) ->
+        {:none, "The core's Runtime build candidate is unknown."}
+
+      not is_binary(build) ->
+        {:none, "Its build is not known: it has not polled since the core started."}
+
+      build == newest ->
+        {:none, "It runs the core's build, #{newest}; whether a newer release exists is unknown."}
+
+      upgrade = Enum.find(upgrades, &open?(&1, c.n)) ->
+        {:none, "Upgrade #{upgrade["key"]} is under way."}
+
+      c.verify.(build, newest) == true ->
+        {:ok, build, newest}
+
+      true ->
+        {:none, "The core's build is not confirmed available and newer than #{build}."}
+    end
+  end
+
+  defp offer(c, key, runtime) do
+    case upgrades_checked(c, key) do
+      {:ok, upgrades} -> upgrade_offer(runtime, upgrades, c)
+      {:error, why} -> {:none, why}
+    end
   end
 
   # The facts read by key for one page are kept while it is made, then dropped.
@@ -112,6 +175,7 @@ defmodule AtlasControl.MachinesPage do
     upgrades = upgrades(c, key)
     attempts = attempts(c, key)
     late = late(runtime, c)
+    offer = offer(c, key, runtime)
 
     head = [
       {"header",
@@ -135,7 +199,7 @@ defmodule AtlasControl.MachinesPage do
       {"health",
        Blocks.item(
          title: "Health",
-         fields: fields(health_fields(runtime, c)),
+         fields: fields(health_fields(runtime, c, offer)),
          actions: [
            Blocks.action(label: "Health", key: "h", to: Pages.path({:worker_page, :health, %{}}))
          ]
@@ -169,6 +233,29 @@ defmodule AtlasControl.MachinesPage do
       {"upgrades",
        Blocks.list(title: "Upgrades", rows: upgrade_rows(upgrades, c), empty: "No upgrade yet.")}
     ]
+
+    answers =
+      case offer do
+        {:ok, from, to} ->
+          [
+            {"answers",
+             Blocks.answers(
+               answers: [
+                 Blocks.panel_answer(
+                   label: "Upgrade to the core's build",
+                   key: "u",
+                   to: Pages.path({:machine_page, :machine_upgrade, %{machine: key}}),
+                   weight: "main",
+                   icon: "upgrade",
+                   detail: "#{from} → #{to}"
+                 )
+               ]
+             )}
+          ]
+
+        {:none, _} ->
+          []
+      end
 
     actions = [
       {"actions",
@@ -205,30 +292,39 @@ defmodule AtlasControl.MachinesPage do
     view(
       name(fact, c),
       back,
-      head ++ health ++ lists ++ actions ++ details_block,
+      head ++ health ++ lists ++ answers ++ actions ++ details_block,
       markup ++
         if(late, do: [Blocks.highlight("health", "health-error", tone: "error")], else: [])
     )
   end
 
-  defp upgrade_page(_route, fact, c) do
+  defp upgrade_page(route, fact, c) do
     key = fact["key"]
     back = machine_path(key)
     name = name(fact, c)
 
     confirm =
-      Blocks.confirm(
-        title: "No upgrade for #{name}",
-        text: upgrade_unavailable(),
-        cancel_to: back
-      )
+      case offer(c, key, runtime(c, key)) do
+        {:ok, from, to} ->
+          Blocks.confirm(
+            title: "Upgrade #{name} to the core's build?",
+            text:
+              "#{name} runs #{from}; the core's newer published build is #{to}. It stops taking new work, lets what runs finish, installs the build, restarts and checks that it runs it, then takes work again.",
+            confirm_label: "Upgrade",
+            confirm_to: Pages.call_to(route),
+            cancel_to: back
+          )
+
+        {:none, why} ->
+          Blocks.confirm(title: "No upgrade for #{name}", text: why, cancel_to: back)
+      end
 
     view("Upgrade #{name}", back, [{"confirm", confirm}])
   end
 
   # -- Blocks' content ---------------------------------------------------------------
 
-  # Open, draining or upgrading (an upgrade that has not ended), or not seen.
+  # A recent poll proves presence, not whether the Runtime accepts work.
   defp state(fact, runtime, c, upgrades \\ nil) do
     upgrades = upgrades || upgrades(c, fact["key"])
     u = c.n["upgrades"]
@@ -244,31 +340,52 @@ defmodule AtlasControl.MachinesPage do
         end
 
       nil ->
-        if runtime && not late(runtime, c), do: "Open", else: "Not seen"
+        cond do
+          not is_map(c.flow) or not is_list(c.flow["runtimes"]) -> "Unknown"
+          runtime && not late(runtime, c) -> "Seen"
+          true -> "Not seen"
+        end
     end
   end
 
   defp build(%{"build" => build}) when is_binary(build), do: "build " <> build
   defp build(_), do: nil
 
-  defp health_fields(runtime, c) do
+  defp health_fields(runtime, c, offer) do
     polled = at(runtime && runtime["polled_at"])
     since = at(runtime && runtime["incarnation_since"])
 
     [
       {"Last seen",
        cond do
-         c.flow == nil -> "unknown: Flow did not answer"
-         polled -> "#{HealthPage.span(seconds(polled, c.now))} ago, #{HealthPage.moment(polled)}"
-         true -> "not since the core started"
+         not is_map(c.flow) or not is_list(c.flow["runtimes"]) ->
+           "unknown: Flow did not report Runtimes"
+
+         polled ->
+           "#{HealthPage.span(seconds(polled, c.now))} ago, #{HealthPage.moment(polled)}"
+
+         true ->
+           "not since the core started"
        end},
       {"Polls",
        case runtime && runtime["poll_max"] do
          n when is_integer(n) -> "each poll waits up to #{n} s for work"
          _ -> nil
        end},
-      {"Running since", since && HealthPage.moment(since)}
+      {"Running since", since && HealthPage.moment(since)},
+      {"Core build", newest_text(runtime, c, offer)}
     ]
+  end
+
+  defp newest_text(runtime, %{newest: newest}, offer) do
+    build = runtime && runtime["build"]
+
+    cond do
+      not is_binary(newest) -> "unknown: the core does not know its own build"
+      build == newest -> "#{newest}, which it runs; newer release unknown"
+      match?({:ok, _, _}, offer) -> "#{newest}, published and newer than #{build}"
+      true -> "#{newest}; availability or ordering unknown"
+    end
   end
 
   # Not seen within the limit: what is wrong, and what to do, in the error tone.
@@ -280,8 +397,8 @@ defmodule AtlasControl.MachinesPage do
 
     what =
       cond do
-        c.flow == nil ->
-          "Flow did not answer, so whether #{key} polls is not known. Open Health to see what is behind."
+        not is_map(c.flow) or not is_list(c.flow["runtimes"]) ->
+          "Flow did not report Runtimes, so whether #{key} polls is not known. Open Health to see what is behind."
 
         polled ->
           "#{key} has not polled for #{HealthPage.span(seconds(polled, c.now))} (limit #{limit}): " <>
@@ -295,7 +412,8 @@ defmodule AtlasControl.MachinesPage do
     [
       {"health-error",
        Blocks.text(
-         label: "Not seen",
+         label:
+           if(is_map(c.flow) and is_list(c.flow["runtimes"]), do: "Not seen", else: "Unknown"),
          text:
            what <>
              " On #{key}, run `atlas-runtime service status`; when it says stopped, " <>
@@ -464,7 +582,7 @@ defmodule AtlasControl.MachinesPage do
 
   # -- Reads -------------------------------------------------------------------------
 
-  defp context(m, read, flow, now) do
+  defp context(m, read, flow, now, newest, verify) do
     case Pages.machines(m) do
       %{} = n ->
         {:ok,
@@ -474,6 +592,8 @@ defmodule AtlasControl.MachinesPage do
            read: read,
            flow: flow,
            now: now,
+           newest: newest,
+           verify: verify,
            cache: make_ref()
          }}
 
@@ -497,14 +617,21 @@ defmodule AtlasControl.MachinesPage do
   end
 
   defp upgrades(c, key) do
+    case upgrades_checked(c, key) do
+      {:ok, facts} -> facts
+      {:error, _} -> []
+    end
+  end
+
+  defp upgrades_checked(c, key) do
     u = c.n["upgrades"]
 
     case c.read.(u["kind"], %{"linked" => %{u["of"] => key}, "plain" => true}) do
       %{"facts" => facts} when is_list(facts) ->
-        Enum.sort_by(facts, &{open?(&1, c.n), recency(created(&1, u)), &1["key"]}, :desc)
+        {:ok, Enum.sort_by(facts, &{open?(&1, c.n), recency(created(&1, u)), &1["key"]}, :desc)}
 
       _ ->
-        []
+        {:error, "Upgrade status is unknown: Facts did not answer."}
     end
   end
 

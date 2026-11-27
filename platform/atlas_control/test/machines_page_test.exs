@@ -83,13 +83,15 @@ defmodule AtlasControl.MachinesPageTest do
     }
   end
 
-  defp render(route, opts \\ []) do
+  defp render(route, opts) do
     MachinesPage.render(
       route,
       @m,
       reader(opts),
       Keyword.get_lazy(opts, :flow, fn -> flow(opts) end),
-      @now
+      @now,
+      Keyword.get(opts, :newest),
+      Keyword.get(opts, :verify, fn _, _ -> false end)
     )
   end
 
@@ -133,12 +135,13 @@ defmodule AtlasControl.MachinesPageTest do
     assert %{"eyebrow" => "MACHINE", "key" => "mini", "title" => "Mac mini", "icon" => "gears"} =
              props(page, "header")
 
-    assert props(page, "state")["text"] == "Open · build develop-aaaaaaaaaaaa"
+    assert props(page, "state")["text"] == "Seen · build develop-aaaaaaaaaaaa"
 
     assert pairs(page, "health") == %{
              "Last seen" => "12 s ago, 27 Nov 11:59:48 UTC",
              "Polls" => "each poll waits up to 25 s for work",
-             "Running since" => "27 Nov 09:00:00 UTC"
+             "Running since" => "27 Nov 09:00:00 UTC",
+             "Core build" => "unknown: the core does not know its own build"
            }
 
     # Desired slots are not evidence of free capacity.
@@ -289,14 +292,52 @@ defmodule AtlasControl.MachinesPageTest do
     assert props(tab(refits: updating), "state")["text"] =~ "Upgrading (RF-02)"
   end
 
-  test "upgrade is unavailable, including a directly opened confirmation" do
-    for opts <- [[], [build: "develop-bbbbbbbbbbbb"], [flow: nil]] do
-      refute block(tab(opts), "answers")
+  test "upgrade is offered only with published newer proof and no upgrade underway" do
+    opts = [newest: "develop-bbbbbbbbbbbb", verify: fn _, _ -> true end]
+    assert block(tab(opts), "answers")
+    page = render({:machine_page, :machine_upgrade, %{machine: "mini"}}, opts)
+    assert props(page, "confirm")["confirm_to"]
+
+    for rejected <- [
+          [newest: nil],
+          [newest: "develop-bbbbbbbbbbbb", verify: fn _, _ -> false end],
+          [newest: "develop-bbbbbbbbbbbb", verify: fn _, _ -> :unknown end],
+          opts ++ [flow: nil],
+          opts ++
+            [refits: [refit("RF-1", "develop-bbbbbbbbbbbb", "waiting", "2026-11-27T11:00:00Z")]]
+        ] do
+      refute block(tab(rejected), "answers")
+
+      refute Map.has_key?(
+               props(
+                 render({:machine_page, :machine_upgrade, %{machine: "mini"}}, rejected),
+                 "confirm"
+               ),
+               "confirm_to"
+             )
+    end
+  end
+
+  test "submit reads fresh upgrade state and proof, and fails closed" do
+    newest = "develop-bbbbbbbbbbbb"
+
+    assert {:ok, "refit", %{"build" => ^newest}, %{"refit_of" => ["mini"]}} =
+             MachinesPage.upgrade(@m, "mini", reader([]), flow([]), newest, fn _, _ -> true end)
+
+    assert {:refuse, _} =
+             MachinesPage.upgrade(@m, "mini", reader([]), flow([]), newest, fn _, _ -> false end)
+
+    read = fn
+      "refit", _ -> %{"error" => "unavailable"}
+      kind, query -> reader([]).(kind, query)
     end
 
-    page = render({:machine_page, :machine_upgrade, %{machine: "mini"}})
-    assert props(page, "confirm")["text"] == MachinesPage.upgrade_unavailable()
-    refute Map.has_key?(props(page, "confirm"), "confirm_to")
+    assert {:refuse, _} =
+             MachinesPage.upgrade(@m, "mini", read, flow([]), newest, fn _, _ -> true end)
+  end
+
+  test "missing Flow is unknown, not open" do
+    assert props(tab(flow: nil), "state")["text"] == "Unknown"
   end
 
   test "a machine not seen within the limit says so in the error tone, and what to do" do
@@ -324,7 +365,7 @@ defmodule AtlasControl.MachinesPageTest do
              %{"id" => "studio", "label" => "Mac Studio", "to" => "/machines/studio"}
            ] = props(page, "machines")["rows"]
 
-    assert hd(props(page, "machines")["rows"])["detail"] == "Open · build develop-aaaaaaaaaaaa"
+    assert hd(props(page, "machines")["rows"])["detail"] == "Seen · build develop-aaaaaaaaaaaa"
 
     machine =
       render({:machine_page, :machine, %{machine: "studio"}},

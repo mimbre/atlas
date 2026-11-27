@@ -170,7 +170,16 @@ defmodule AtlasControl.SessionTest do
 
               AtlasBus.send(
                 AtlasBus.Envelope.reply(request, "answer"),
-                %{"runtimes" => [], "queue" => []}
+                %{
+                  "runtimes" => [
+                    %{
+                      "runtime" => "mini",
+                      "build" => "develop-aaaaaaaaaaaa",
+                      "polled_at" => DateTime.to_iso8601(DateTime.utc_now())
+                    }
+                  ],
+                  "queue" => []
+                }
               )
 
               serve.(serve)
@@ -236,8 +245,60 @@ defmodule AtlasControl.SessionTest do
     put(submitter, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
 
     assert %{"reason" => "refused", "refused" => [reason]} = next(submitter, "page")
-    assert reason == AtlasControl.MachinesPage.upgrade_unavailable()
+    assert reason == "The core's Runtime build candidate is unknown."
     assert FakeStore.sent() == []
+
+    old_req = Application.get_env(:req, :default_options)
+    old_release = Application.get_env(:atlas_control, :runtime_release)
+
+    on_exit(fn ->
+      if old_req,
+        do: Application.put_env(:req, :default_options, old_req),
+        else: Application.delete_env(:req, :default_options)
+
+      if old_release,
+        do: Application.put_env(:atlas_control, :runtime_release, old_release),
+        else: Application.delete_env(:atlas_control, :runtime_release)
+    end)
+
+    Application.put_env(:atlas_control, :runtime_release, "develop-bbbbbbbbbbbb")
+    archive = "atlas-runtime-develop-bbbbbbbbbbbb-darwin-arm64.tar.gz"
+
+    Application.put_env(:req, :default_options,
+      adapter: fn request ->
+        body =
+          if String.contains?(request.url.path, "/releases/") do
+            %{
+              "draft" => false,
+              "assets" =>
+                for(
+                  name <- [archive, archive <> ".sha256"],
+                  do: %{"name" => name, "state" => "uploaded", "size" => 12}
+                )
+            }
+          else
+            %{"status" => "ahead", "ahead_by" => 1}
+          end
+
+        {request, %Req.Response{status: 200, body: body}}
+      end
+    )
+
+    assert AtlasControl.RuntimeRelease.newer?("develop-aaaaaaaaaaaa", "develop-bbbbbbbbbbbb")
+
+    put(allowed, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+    assert %{"reason" => "refused", "refused" => ["forbidden"]} = next(allowed, "page")
+    assert FakeStore.sent() == []
+
+    put(submitter, %{"op" => "submit", "to" => "/machines/mini/upgrade", "values" => %{}})
+    assert %{"reason" => "stored"} = next(submitter, "page")
+
+    assert %{
+             "op" => "create",
+             "by" => "carl",
+             "values" => %{"build" => "develop-bbbbbbbbbbbb"},
+             "links" => %{"refit_of" => ["mini"]}
+           } = FakeStore.last_fact()
   end
 
   test "exact fact reads preserve named values and links for evidence", %{port: port} do
