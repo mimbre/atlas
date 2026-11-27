@@ -83,7 +83,10 @@ defmodule AtlasBFFContract.Contract do
   # that is not their label (no `…` after it). A decision's decline is no `option` but the
   # page's answer weighing `decline` (`no`, deprecated, means the same), with its text as
   # `detail`; one proposal's option is `alone`, answered by the page's Accept.
-  version "0.38.0"
+  # 0.39.0: an answer names what it does (`panel_answer`'s `icon`: question, hand_over,
+  # delegate), as an action does. A decision's Decline is always offered and asks for an
+  # alternative; an option may be marked as whoever gave it (its `badge`).
+  version "0.39.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

@@ -284,7 +284,9 @@ struct Framed: ViewModifier {
 }
 
 /// An answer as Prism's button (`AnswerLabelButton`), styled by the weight Control gives
-/// it (`AnswerLook`), never by whether it asks a note. Its key only in its tooltip.
+/// it (`AnswerLook`), never by whether it asks a note, with the icon Control names
+/// (`ActionIcon`: Ask a question, Hand over, Leave it to the proposer) in the primary
+/// colour, as other plain buttons. Its key only in its tooltip.
 struct AnswerButton: View {
     let answer: PanelAnswerModel
     let pending: Bool
@@ -293,7 +295,7 @@ struct AnswerButton: View {
     var body: some View {
         let look = AnswerLook.of(answer)
         PrismActionButton(label: AnswerLook.label(answer), key: answer.key, pending: pending,
-                          variant: look.variant, tone: look.tone, take: take)
+                          variant: look.variant, tone: look.tone, icon: ActionIcon.symbol(answer.icon), take: take)
     }
 }
 
@@ -321,14 +323,16 @@ public enum AnswerLook {
     }
 }
 
-/// The SF Symbol of an action's `icon`, as Control names what it does; nil (no icon) for
-/// a name it does not know or none.
+/// The SF Symbol of an action's or answer's `icon`, as Control names what it does; nil (no
+/// icon) for a name it does not know or none.
 public enum ActionIcon {
     public static func symbol(_ name: String?) -> String? {
         switch name {
         case "edit": "pencil"
         case "delete": "trash"
         case "hand_over": "person.and.arrow.left.and.arrow.right"
+        case "question": "questionmark.bubble"
+        case "delegate": "arrow.uturn.backward"
         case "create": "plus"
         case "open": "arrow.up.right.square"
         default: nil

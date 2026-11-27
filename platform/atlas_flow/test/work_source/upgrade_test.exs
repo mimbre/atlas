@@ -86,6 +86,21 @@ defmodule AtlasFlow.WorkSource.UpgradeTest do
     assert nil == poll(build: "b2", incarnation: "inc-2")
   end
 
+  # The Engine passes over the hints of Flow's own writes: Delivery (whose Engine here is
+  # the test process) has the upgrade's run reconciled on each step it records, and only then.
+  test "each recorded step has the upgrade's run reconciled" do
+    upgrade("RU-01")
+
+    assert %{action: :drain} = poll()
+    assert_received {:"$gen_cast", {:reconcile, "runtime_upgrade", "RU-01"}}
+
+    assert %{action: :drain} = poll()
+    refute_received {:"$gen_cast", {:reconcile, _, _}}
+
+    assert %{action: :update} = poll(report: %{mode: :draining, busy: []})
+    assert_received {:"$gen_cast", {:reconcile, "runtime_upgrade", "RU-01"}}
+  end
+
   test "open but offering nothing is not yet verified" do
     upgrade("RU-01", %{
       "step" => "verifying",
