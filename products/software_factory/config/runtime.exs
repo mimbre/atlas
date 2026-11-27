@@ -59,7 +59,16 @@ if config_env() != :test do
     # What this environment adds to the model's pages (AtlasControl.Model.catalog/2): the
     # shell's extra tabs ("tabs") and who may read and submit worker guidance
     # ("workers": "read" and "submit", each {"actors": [key]}). None by default.
-    settings: Map.take(settings["control"], ["tabs", "workers"])
+    settings: Map.take(settings["control"], ["tabs", "workers"]),
+    # The newest Runtime release (the Machines page's Upgrade to the newest build): CI
+    # deploys the core labelled <branch>-<commit> and publishes the Runtime of the same push
+    # as the build <branch>-<commit12> (IS-Atlas-26); Fly names the label in FLY_IMAGE_REF.
+    # None off Fly: the page then offers no upgrade.
+    runtime_release:
+      (case Regex.run(~r/:([a-z]+)-([0-9a-f]{12})[0-9a-f]*$/, System.get_env("FLY_IMAGE_REF", "")) do
+         [_, branch, commit] -> "#{branch}-#{commit}"
+         _ -> nil
+       end)
 
   # Flow looks at each open fact again this often, and at once on a hint.
   config :atlas_flow, tick_seconds: get_in(settings, ["flow", "tick_seconds"]) || 60

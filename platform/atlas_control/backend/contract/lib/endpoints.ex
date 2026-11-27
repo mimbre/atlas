@@ -33,6 +33,9 @@ defmodule AtlasBFFContract.Endpoints do
       defendpoint :hand_over, "/k/:kind/:key/hand_over/:run", @submit
       defendpoint :retry, "/k/:kind/:key/retry/:run", @submit
       defendpoint :remove_item, "/k/:kind/:key/remove_item/:run", @submit
+      # Upgrade a machine's Runtime to the newest build (0.41.0): its confirm's submit; the
+      # build is Control's, never the client's.
+      defendpoint :upgrade_machine, "/machines/:machine/upgrade", @submit
 
       defendpoint :fault, "/fault/:fault", @submit
       defendpoint :fact_fault, "/k/:kind/:key/fault/:fault", @submit

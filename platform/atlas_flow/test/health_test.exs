@@ -89,26 +89,92 @@ defmodule AtlasFlow.HealthTest do
     end
   end
 
-  test "Dispatch notes each Runtime's last poll" do
+  test "Dispatch notes each Runtime's last poll and what it said of the Runtime" do
     dir = Path.join(System.tmp_dir!(), "health-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
     table = health!()
     ctx = L.start(dir, health: table)
 
-    assert {:polled, _} = WorkSource.poll({"mini", "ada"}, L.poll_input("mini", [], %{}))
+    assert {:polled, %{timing: %{poll_max: poll_max}}} =
+             WorkSource.poll({"mini", "ada"}, L.poll_input("mini", [], %{}))
+
     L.advance(ctx, 90)
     assert {:polled, _} = WorkSource.poll({"laptop", "bea"}, L.poll_input("laptop", [], %{}))
 
+    mini = %{
+      "runtime" => "mini",
+      "polled_at" => "2026-11-17T12:00:00Z",
+      "build" => "test",
+      "incarnation" => "inc-1",
+      "incarnation_since" => "2026-11-17T12:00:00Z",
+      "poll_max" => poll_max
+    }
+
     assert Health.report(table)["runtimes"] == [
-             %{"runtime" => "laptop", "polled_at" => "2026-11-17T12:01:30Z"},
-             %{"runtime" => "mini", "polled_at" => "2026-11-17T12:00:00Z"}
+             %{
+               mini
+               | "runtime" => "laptop",
+                 "polled_at" => "2026-11-17T12:01:30Z",
+                 "incarnation_since" => "2026-11-17T12:01:30Z"
+             },
+             mini
            ]
+
+    # The same incarnation keeps its start; a new one (a restart, on a new build) starts again.
+    L.advance(ctx, 60)
+    assert {:polled, _} = WorkSource.poll({"mini", "ada"}, L.poll_input("mini", [], %{}))
+    assert %{"incarnation_since" => "2026-11-17T12:00:00Z"} = runtime(table, "mini")
+
+    L.advance(ctx, 60)
+
+    assert {:polled, _} =
+             WorkSource.poll(
+               {"mini", "ada"},
+               %{L.poll_input("mini", [], %{}) | incarnation: "inc-2", build: "b2"}
+             )
+
+    assert %{
+             "build" => "b2",
+             "incarnation" => "inc-2",
+             "incarnation_since" => "2026-11-17T12:03:30Z"
+           } = runtime(table, "mini")
+  end
+
+  defp runtime(table, id), do: Enum.find(Health.report(table)["runtimes"], &(&1["runtime"] == id))
+
+  test "Dispatch notes the queue: what waits, oldest first, without what a lease holds" do
+    dir = Path.join(System.tmp_dir!(), "health-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    table = health!()
+    ctx = L.start(dir, health: table)
+
+    L.supervised_task("B-1", "ada", at: L.epoch())
+    L.supervised_task("B-2", "ada", at: DateTime.add(L.epoch(), 60))
+    :ok = AtlasFlow.Dispatch.resync()
+
+    assert [
+             %{
+               "task" => "TK-B-1-1",
+               "profile" => "deep_coding",
+               "subject_kind" => "bin",
+               "subject_key" => "B-1",
+               "since" => "2026-11-17T12:00:00Z"
+             } = first,
+             %{"task" => "TK-B-2-1"}
+           ] = Health.report(table)["queue"]
+
+    assert is_binary(first["title"])
+
+    # A Runtime takes the oldest: it no longer waits.
+    L.advance(ctx, 1)
+    assert {:polled, %{leases: [_]}} = WorkSource.poll({"mini", "ada"}, L.poll_input("mini"))
+    assert [%{"task" => "TK-B-2-1"}] = Health.report(table)["queue"]
   end
 
   test "`_health` is answered over the Bus" do
     endpoint = "flow/health-#{System.unique_integer([:positive])}"
     table = health!(endpoint)
-    Health.polled("mini", ~U[2026-11-23 10:00:00Z], table)
+    Health.polled("mini", ~U[2026-11-23 10:00:00Z], %{}, table)
     :ok = AtlasBus.attach("tester-#{System.unique_integer([:positive])}")
     request = %{Envelope.new("request", "_health") | address: endpoint}
     :ok = AtlasBus.send(request, %{})
@@ -116,12 +182,14 @@ defmodule AtlasFlow.HealthTest do
 
     assert_receive {:atlas_bus, %Envelope{class: "answer", id: ^id}, answer}
     assert answer["runtimes"] == [%{"runtime" => "mini", "polled_at" => "2026-11-23T10:00:00Z"}]
+    assert answer["queue"] == []
     assert answer["flow"]["due"] == nil
     assert is_binary(answer["at"])
   end
 
   test "a write without a table is dropped" do
-    assert Health.polled("mini", DateTime.utc_now(), :no_such_health_table) == :ok
+    assert Health.polled("mini", DateTime.utc_now(), %{}, :no_such_health_table) == :ok
+    assert Health.queue([], :no_such_health_table) == :ok
     assert Health.report(:no_such_health_table)["runtimes"] == []
   end
 end

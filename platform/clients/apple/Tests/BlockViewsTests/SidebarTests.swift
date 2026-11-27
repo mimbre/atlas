@@ -15,18 +15,23 @@ final class SidebarTests: XCTestCase {
         try! JSONSerialization.data(withJSONObject: object) + Data("\n".utf8)
     }
 
-    /// The shell after a boot with these tabs.
-    private static func shell(_ tabs: [[String: Any]]) -> ShellViewModel {
+    /// The shell after a boot with these tabs (and these other boot fields).
+    private static func shell(_ tabs: [[String: Any]], boot extra: [String: Any] = [:],
+                              blocks: [[String: Any]] = []) -> ShellViewModel {
         var state = SessionState(settings: SessionSettings(env: "test", host: "127.0.0.1", port: 7001))
         _ = state.handle(.start)
         _ = state.handle(.ready)
         _ = state.handle(.line(line(["op": "welcome", "env": "test", "spec": Contract.version, "surface": "console"])))
         _ = state.handle(.line(line(["op": "page", "path": "/", "reason": "open", "title": "Home", "at": "12:00:00",
-                                     "blocks": [], "markup": [], "position": NSNull()])))
-        _ = state.handle(.line(line(["op": "boot", "env": "test", "spec": Contract.version, "revision": "r1",
-                                     "title": "Console", "tabs": tabs, "initial_to": "/", "active_tab": "assigned",
-                                     "name": "Ada"])))
+                                     "blocks": blocks, "markup": [], "position": NSNull()])))
+        let boot: [String: Any] = ["op": "boot", "env": "test", "spec": Contract.version, "revision": "r1",
+                                   "title": "Console", "tabs": tabs, "initial_to": "/", "active_tab": "assigned",
+                                   "name": "Ada"]
+        _ = state.handle(.line(line(boot.merging(extra) { $1 })))
         XCTAssertNil(state.bootFailure)
+        // The tab's page, as Control sends it after boot.
+        _ = state.handle(.line(line(["op": "page", "path": "/", "reason": "open", "title": "Home", "at": "12:00:01",
+                                     "blocks": blocks, "markup": [], "position": NSNull()])))
         return ShellViewModel(state)
     }
 
@@ -130,4 +135,48 @@ final class SidebarTests: XCTestCase {
         XCTAssertEqual(folded.map(\.id), [.tab("assigned"), .tab("open")])
         XCTAssertEqual(folded[0].open, false)
     }
+
+    /// The foot marks only an environment that is not production: production is the plain
+    /// word, any other its name capitalised in a warning tag.
+    func testTheFootTagsOnlyAnEnvironmentThatIsNotProduction() {
+        XCTAssertEqual(SidebarLook.environment("prod", production: true).label, "Production")
+        XCTAssertFalse(SidebarLook.environment("prod", production: true).tagged)
+        XCTAssertEqual(SidebarLook.environment("test", production: false).label, "Test")
+        XCTAssertTrue(SidebarLook.environment("test", production: false).tagged)
+        XCTAssertFalse(Self.shell(Self.tabs).isProduction)
+    }
+
+    /// A tab's page with a `header` block is a block page (one machine's): shown as an opened
+    /// page, with no list column; a list page stays in the list column.
+    func testATabsBlockPageIsShownAsAnOpenedPage() {
+        let header: [String: Any] = ["id": "header", "type": "header",
+                                     "props": ["eyebrow": "MACHINE", "key": "mac-mini", "title": "Mac mini"]]
+        let text: [String: Any] = ["id": "state", "type": "text", "props": ["text": "Healthy"]]
+        let page = Self.shell(Self.tabs, blocks: [header, text])
+        XCTAssertEqual(page.index?.blocks?.count, 2)
+        XCTAssertTrue(page.indexIsPage)
+        XCTAssertFalse(Self.shell(Self.tabs, blocks: [text]).indexIsPage)
+        XCTAssertFalse(Self.shell(Self.tabs).indexIsPage)
+    }
+
+    /// The assistant line Control sends reaches the foot in full; none (or empty) shows none.
+    func testTheAssistantLineReachesTheFootWhenControlSendsOne() {
+        XCTAssertEqual(Self.shell(Self.tabs, boot: ["assistant": "assistant: coordinator"]).assistant,
+                       "assistant: coordinator")
+        XCTAssertNil(Self.shell(Self.tabs).assistant)
+        XCTAssertNil(Self.shell(Self.tabs, boot: ["assistant": ""]).assistant)
+    }
+
+    #if canImport(AppKit)
+    /// The assistant line sits under the name: the foot is taller with it.
+    @MainActor
+    func testTheFootShowsTheAssistantLineUnderTheName() {
+        func height(_ assistant: String?) -> CGFloat {
+            NSHostingView(rootView: SidebarFoot(name: "Ada", assistant: assistant, env: "test", production: false,
+                                                connection: SidebarConnection(mark: .connected, details: "")))
+                .fittingSize.height
+        }
+        XCTAssertGreaterThan(height("assistant: coordinator"), height(nil))
+    }
+    #endif
 }

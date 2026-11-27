@@ -21,64 +21,6 @@ defmodule AtlasControl.WorkerPages do
     }
   end
 
-  # Calm by default, detail on demand (platform/atlas_control/backend/README.md): an Overview of the counts; running
-  # first, in a list of its own, newest activity first; then the turns that finished most
-  # recently (`Workers.board/3`). Each row is the turn: the worker, what it is doing in
-  # plain words, and the worker page of its exact execution; its identity and the rest
-  # are in its technical details.
-  def render({:worker_page, :workers, _}, m, actor, read, _form) do
-    case Workers.board(m, actor, read) do
-      {:ok, %{"running" => running, "finished" => finished}} ->
-        # A turn needs attention when it failed; stopped, killed and finished are ends
-        # someone meant, and a running turn is fine.
-        attention = Enum.count(finished, &(&1["status"] == "failed"))
-
-        # The core's health is a page of its own, one key away (IS-Atlas-117).
-        summary =
-          Pages.summary(
-            [
-              {"Workers", length(running) + length(finished)},
-              {"Running", length(running)},
-              {"Needs attention", attention}
-            ],
-            [health_action()]
-          )
-
-        {details, markup} =
-          Pages.technical_details(
-            Enum.map(running, &technical_pair(&1, :running)) ++
-              Enum.map(finished, &technical_pair(&1, :finished))
-          )
-
-        page(
-          "Workers",
-          "/",
-          [
-            {"summary", summary},
-            {"workers-running",
-             Blocks.list(
-               title: "Running",
-               rows: Enum.map(running, &worker_row(&1, "running")),
-               empty: "No worker is running."
-             )},
-            {"workers-finished",
-             Blocks.list(
-               title: "Finished",
-               rows: Enum.map(finished, &worker_row(&1, finished_detail(&1))),
-               empty: "No worker has finished."
-             )}
-          ] ++ details,
-          markup
-        )
-        |> then(
-          &if details == [], do: &1, else: Map.put(&1, :console_actions, [Pages.details_action()])
-        )
-
-      {:error, reason} ->
-        error(reason, "/")
-    end
-  end
-
   def render({:worker_page, mode, params}, m, actor, read, form) do
     execution = target(params)
 
@@ -100,69 +42,8 @@ defmodule AtlasControl.WorkerPages do
         end
 
       {:error, reason} ->
-        error(reason, "/workers")
+        error(reason, "/machines")
     end
-  end
-
-  defp health_action,
-    do: Blocks.action(label: "Health", key: "h", to: Pages.path({:worker_page, :health, %{}}))
-
-  defp worker_row(worker, detail) do
-    execution = worker["execution"]
-
-    Blocks.row(
-      label: execution["worker"]["worker"],
-      detail: detail,
-      to: path(execution)
-    )
-  end
-
-  # How a turn ended and when, in plain words: "finished 3 Nov 14:02".
-  defp finished_detail(worker) do
-    case present(worker["ended_at"]) do
-      nil -> worker["status"] || "ended"
-      at -> "#{worker["status"] || "ended"} #{Pages.short_moment(at)}"
-    end
-  end
-
-  # A row's technical details, by its worker: where and what it runs, how it ran, and when.
-  defp technical_pair(worker, list) do
-    execution = worker["execution"]
-    identity = execution["worker"]
-    descriptor = worker["descriptor"] || %{}
-
-    {status, model} =
-      case list do
-        :running ->
-          {"running",
-           Enum.find_value(
-             [descriptor["reported_model"], descriptor["configured_model"]],
-             &known/1
-           )}
-
-        :finished ->
-          {worker["status"], worker["model"]}
-      end
-
-    value =
-      [
-        {"machine", identity["machine"]},
-        {"environment", identity["environment"]},
-        {"turn", execution["turn"]},
-        {"attempt", execution["attempt"]},
-        {"backend", known(descriptor["harness"])},
-        {"model", model},
-        {"status", status},
-        {"state", present(worker["state"])},
-        {"reason", present(worker["reason"])},
-        {"item", present(worker["item"])},
-        {"active until", time(worker["lease_until"])},
-        {"ended", time(worker["ended_at"])}
-      ]
-      |> Enum.reject(fn {_, value} -> value in [nil, ""] end)
-      |> Enum.map_join(" · ", fn {label, value} -> "#{label} #{value}" end)
-
-    Blocks.pair(label: identity["worker"], value: value)
   end
 
   # The page leads with what the worker is doing (Worker), and in Conversation with what
@@ -268,7 +149,7 @@ defmodule AtlasControl.WorkerPages do
 
     page(
       "Worker #{identity["worker"]}",
-      "/workers",
+      "/machines",
       [{"worker", content}] ++
         newer ++
         [{"worker-output", output}, {"worker-output-details", output_details}] ++

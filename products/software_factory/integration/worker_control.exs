@@ -218,14 +218,13 @@ defmodule WorkerControlTest do
         }
       })
 
-    # The environment adds the Workers tab and admits the readers (`control` in its settings).
+    # The environment admits the readers (`control` in its settings).
     start_supervised!(
       {AtlasControl.Gateway,
        port: 0,
        name: :worker_proof_gateway,
        model: WorkerControlModel,
        settings: %{
-         "tabs" => [%{"id" => "workers", "label" => "Workers", "to" => "/workers"}],
          "workers" => %{
            "read" => %{"actors" => ["H-1", "H-2"]},
            "submit" => %{"actors" => ["H-1"]}

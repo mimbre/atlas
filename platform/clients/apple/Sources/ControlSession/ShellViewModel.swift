@@ -39,9 +39,12 @@ public struct ShellViewModel: Sendable, Equatable {
     public var title: String?
     /// The viewer's name, as Control sent it (only to a person); nil when none.
     public var name: String?
+    /// The line under the viewer's name, in full as Control sent it ("assistant: coordinator");
+    /// nil when none.
+    public var assistant: String?
     /// The environment: the shell's, else the one the app was started for.
     public var env: String
-    /// Production wears the inverted badge, as in the TUI.
+    /// Production gets no mark; any other environment a warning tag in the foot.
     public var isProduction: Bool
     public var tabs: [Tab]
     public var activeTab: String?
@@ -53,6 +56,15 @@ public struct ShellViewModel: Sendable, Equatable {
     /// The right column: the page opened from a row (under an action's page, the page the
     /// action was taken on).
     public var opened: PageMessage?
+    /// The tab's page is a block page (it has a `header` block; a list page has none): it is
+    /// shown as an opened page is, in the page column with its details beside it and its
+    /// actions in the toolbar, with no list column.
+    public var indexIsPage: Bool { index.map(Self.isBlockPage) ?? false }
+
+    /// A page that names itself with a `header` block, as an opened item's does.
+    public static func isBlockPage(_ page: PageMessage) -> Bool {
+        (page.blocks ?? []).contains { if case .header = $0.content { true } else { false } }
+    }
     /// The page of the action being taken (its confirm, form or more actions), shown over
     /// the columns; nil while it is on its way.
     public var sheet: PageMessage?
@@ -83,6 +95,7 @@ public struct ShellViewModel: Sendable, Equatable {
         let shell = state.shell
         title = shell?.title
         name = shell?.name.flatMap { $0.isEmpty ? nil : $0 }
+        assistant = shell?.assistant.flatMap { $0.isEmpty ? nil : $0 }
         env = shell?.env ?? state.settings.env
         isProduction = env == "prod"
         // A tab without a page to go to cannot be shown.

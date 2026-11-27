@@ -191,6 +191,33 @@ defmodule AtlasTui.ConsoleTest do
     end
   end
 
+  test "the shell's assistant line follows the viewer's name, faint, and is left out without one" do
+    {model, [_]} =
+      Console.receive(
+        handshake(),
+        boot() |> Map.put("greeting", "Ada") |> Map.put("assistant", "assistant: coordinator")
+      )
+
+    {model, []} = Console.receive(model, page())
+    model = %{model | count: "3 assigned to you"}
+
+    assert title_bar(model, 100) ==
+             " Atlas Console · test · Ada · assistant: coordinator · 3 assigned to you"
+
+    [bar | _] = AtlasTui.ConsoleView.header(model, 100)
+    assert {{:header, :muted}, " · assistant: coordinator"} in bar
+
+    # No room: the name and count stay, the assistant line goes first.
+    assert title_bar(model, 50) == " Atlas Console · test · Ada · 3 assigned to you"
+
+    assert title_bar(put_in(model.console.shell["assistant"], nil), 100) ==
+             title_bar(greeted("Ada"), 100)
+
+    {pending, [_]} = Console.refresh(model)
+    {stale, []} = Console.receive(pending, Map.put(boot(), "assistant", 42))
+    assert stale.console.stale
+  end
+
   test "one boot in flight; unsolicited replies and interleaved compatibility pages have no authority" do
     model = fresh()
     assert Console.receive(model, boot()) == {model, []}

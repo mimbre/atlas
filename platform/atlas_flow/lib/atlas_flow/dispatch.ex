@@ -213,12 +213,20 @@ defmodule AtlasFlow.Dispatch do
         # No sweep here (IS-Atlas-110): it runs on its own, in `Sweep`.
         budget = budget(state)
         state = put_in(state.polls[runtime_id], now(state))
-        # Each Runtime's last poll, for Control's health page; never waits.
-        AtlasFlow.Health.polled(runtime_id, state.polls[runtime_id], state.health)
+        # Each Runtime's last poll and what it said of the Runtime, for Control's health
+        # and machines pages; never waits.
+        AtlasFlow.Health.polled(
+          runtime_id,
+          state.polls[runtime_id],
+          about(input, state),
+          state.health
+        )
+
         state = late_accepts(state, runtime_id, holdings, budget)
         {renewed, lost, state} = renew(state, runtime_id, holdings)
         cancel = for id <- renewed, state.leases[id].cancel, do: id
         {leases, state} = grant_offer(state, client, offer, budget)
+        note_queue(state)
 
         answer = %{leases: leases, cancel: cancel, lease_lost: lost, timing: timing(state)}
 
@@ -280,8 +288,11 @@ defmodule AtlasFlow.Dispatch do
     do: {:noreply, state |> resync_ready() |> serve_parked()}
 
   # The lease is cancelled once the task fact says so (`cancel/3`); here only the ready set.
-  def handle_cast({:cancel, task_key, _cause}, state),
-    do: {:noreply, %{state | ready: Map.delete(state.ready, task_key)}}
+  def handle_cast({:cancel, task_key, _cause}, state) do
+    state = %{state | ready: Map.delete(state.ready, task_key)}
+    note_queue(state)
+    {:noreply, state}
+  end
 
   def handle_cast({:swept, id, what}, state), do: {:noreply, learn(state, id, what)}
 
@@ -349,6 +360,40 @@ defmodule AtlasFlow.Dispatch do
   end
 
   defp timing(state), do: %{lease_ttl: state.ttl, poll_max: state.poll_max}
+
+  # What a poll says of its Runtime, for the health table: its build and incarnation, and
+  # the longest this Dispatch holds a poll.
+  defp about(input, state) do
+    input = Translate.normal(input)
+    text = fn value -> if is_binary(value) and value != "", do: value end
+
+    %{
+      "build" => text.(input["build"]),
+      "incarnation" => text.(input["incarnation"]),
+      "poll_max" => state.poll_max
+    }
+  end
+
+  # The work waiting for a Runtime, for the health table: the ready set less what a lease
+  # holds, oldest first.
+  defp note_queue(state) do
+    held = MapSet.new(Map.values(state.leases), & &1.task_key)
+
+    state.ready
+    |> Map.values()
+    |> Enum.reject(&MapSet.member?(held, &1.key))
+    |> Enum.sort_by(&{&1.intent["created_at"], &1.key})
+    |> Enum.map(
+      &%{
+        task: &1.key,
+        title: &1.intent["work"]["title"],
+        profile: &1.intent["work"]["profile"],
+        subject: &1.subject,
+        since: &1.intent["created_at"]
+      }
+    )
+    |> AtlasFlow.Health.queue(state.health)
+  end
 
   # Holdings this Runtime holds a live lease of are renewed; every other is lost to it, once
   # Dispatch has read the leases (before that, an unknown holding is neither).
@@ -742,7 +787,9 @@ defmodule AtlasFlow.Dispatch do
             {id, %{l | subject: l.subject || (ready[l.task_key] && ready[l.task_key].subject)}}
           end)
 
-        %{state | ready: ready, leases: leases}
+        state = %{state | ready: ready, leases: leases}
+        note_queue(state)
+        state
 
       other ->
         Logger.warning("flow dispatch could not read the runs: #{inspect(other)}")

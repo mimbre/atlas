@@ -37,6 +37,14 @@ A decision, a to-do's steps and stuck work are such stacks (`header`, `text` id 
 `text` role `error`, `option` / `instruction`, `answers`, `actions`); see
 `platform/atlas_control/backend/README.md`.
 
+The **Machines** tab (contract 0.41.0; Runtimes in the code) is such a stack when there is
+one machine: its page is the tab's page (`header` MACHINE · its key, the state line,
+Health, Slots, Queue, Recently finished, Upgrades, Upgrade to the newest build as the main
+answer, Edit configuration in the toolbar, Details). A client shows a tab page with a
+`header` as an opened page, without a list column. With more than one machine the tab
+is a simple list of them for now; the compact overview per machine, grouped, comes
+when a second Runtime exists.
+
 ## 3. Tolerant clients (D-0105)
 
 Since contract 0.33.0 Control welcomes a client of any version and says its own.
@@ -127,8 +135,8 @@ blue planned or waiting, green done (the TUI's dot). An unknown tone is no dot.
 | Panel, option, list and item titles; a row card's title | `title7` (16) |
 | Running text (why, a step's text, an option's Rule and Consequences, a plan's text and steps, a confirm's text, details values, a panel's rows and checks, a box, an error, a block said in plain words; a form's labels and text fields) | `bodysmall` (16/24), the body font (Layout A's measure) |
 | Labels (a section's or the details' title, a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
-| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name | `labelsmall` (14) |
-| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's foot, with the environment there (production as Prism's danger tag), with the connection in plain words and the last notice) | `caption` (14) |
+| Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; sidebar groups and the person's name (in the sidebar's foot) | `labelsmall` (14) |
+| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's foot: the assistant line under the person's name when Control sends one ("assistant: coordinator"), then on one line the environment (production as the plain word "Production", no tag; any other environment as a small Prism warning tag, its name capitalised: "Test") · the connection in plain words, the last notice in its popover) | `caption` (14) |
 | The sidebar's section headings (WORK, BROWSE: eyebrows as a card's top line, uppercase, spaced, muted, more space above) | `labelsmall` |
 | A count's badge in the sidebar | `captionsmall` (12), strong |
 | Native buttons (a sheet's Cancel, Save, Confirm, Run; the page's and the toolbar's actions) | the system's control font: see the gaps |
@@ -145,7 +153,7 @@ Prism gaps, and where Atlas's temporary shims live:
 | White on primary is 4.30:1 | `primaryshade` (primary at 97%, 4.51:1) in `palette.ex`; `PrismDarkGap.accentText` on the Mac |
 | Plain button's size and dark label | Mac: other actions as unpadded plain buttons, label in `PrismDarkGap.text` in dark (`PrismDarkGap.buttonStyle`) |
 | `mono` named the system (proportional) font before 0.8.0 | Mac: a panel row's key and a fallback's type in the system's monospaced face (`.monospaced()`) |
-| `Tag` has one size (28pt), too tall for a line of meta text | Mac: the sidebar foot's environment tag as `PrismDarkGap.smallTag` (Prism's tag look at `labelsmall` with less padding) |
+| `Tag` has one size (28pt), too tall for a line of meta text; it needs a `size: small` as `Button` has | Mac: the sidebar foot's environment tag as `PrismDarkGap.smallTag` (Prism's tag look in its tone at `labelsmall`, less padding), until Prism's Tag has `size: small` |
 | No macOS density: Prism's sizes are iOS's and the web's | Mac: Prism's smaller end, until Prism's macOS density |
 | No typography for native controls | Mac: a form's labels and text fields in `bodysmall` (SwiftUI takes the font there); the system's own font where it does not: native push buttons (a sheet's Cancel, Save, Confirm, Run; the page's and the toolbar's actions), a picker's value and pop-up menu, the window title and subtitle, the menu bar and the Actions menu |
 

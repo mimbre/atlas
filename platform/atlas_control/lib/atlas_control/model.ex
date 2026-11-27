@@ -107,6 +107,14 @@ defmodule AtlasControl.Model do
   @callback restart(kind :: String.t(), fact :: map, parts :: map, viewer, actors :: map) ::
               nil | map
 
+  @doc """
+  The names of the machines (Runtimes) the Machines page shows, or nil: `"kind"` (key:
+  the Runtime's id), `"configuration"`, `"policy_version"`, `"upgrades"` (`kind`, `of`,
+  `build`, `step`, `ended`, `failed_step`, `reason`), `"attempts"` (`kind`, `on`, `of`,
+  `slot`, `machine`, `started`, `ended`, `result`) and `"work"` (`of`, `stage`).
+  """
+  @callback machines() :: nil | map
+
   # The callbacks of the component that runs turns that Control calls too, and the
   # configured actors the model's owners name (the flow runner's `actors/0`).
   @shared [turn: 0, guidance: 0, read_first: 2, actors: 0]
@@ -144,7 +152,7 @@ defmodule AtlasControl.Model do
 
   @doc """
   The model as Control serves it: `%{module, kinds, relations, start, turn, guidance,
-  settings}`, its kinds and relations by name, with the environment's settings for
+  machines, settings}`, its kinds and relations by name, with the environment's settings for
   Control (`"tabs"`: the shell's added tabs; `"workers"`: who may read and submit worker
   guidance). Built once, when Control starts.
   """
@@ -159,7 +167,8 @@ defmodule AtlasControl.Model do
       relations: Map.new(for(k <- kinds, r <- k.relations, do: {r.name, r})),
       start: model.start_page(),
       turn: model.turn(),
-      guidance: model.guidance()
+      guidance: model.guidance(),
+      machines: model.machines()
     }
   end
 end

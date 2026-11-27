@@ -576,7 +576,8 @@ defmodule AtlasControl.Session do
            candidate.by_kind,
            message["to"],
            &route(&1, candidate),
-           candidate.by_name
+           candidate.by_name,
+           candidate.by
          ) do
       {:ok, shell} ->
         {shell, missing} = counted(shell, state.tab_counts)
@@ -853,6 +854,17 @@ defmodule AtlasControl.Session do
       {:error, reason} ->
         form = Map.merge(state.form, %{values: raw, errors: [reason]})
         show(%{state | form: form}, route, "refused", nil, [reason])
+    end
+  end
+
+  # Upgrade to the newest build: checked again from fresh reads, then the upgrade is put in
+  # under the machine as a person's create is (`create/5`), naming the newest build; its
+  # page is shown once it is stored. Flow's work source then drains, updates, restarts and
+  # verifies the Runtime.
+  defp submit({:machine_page, :machine_upgrade, %{machine: machine}} = route, _raw, state) do
+    case AtlasControl.MachinesPage.upgrade(state.model, machine, &ask/2, ask_health()) do
+      {:ok, kind, values, links} -> create(route, kind, values, links, state)
+      {:refuse, why} -> not_sent(%{state | route: route}, route, [why])
     end
   end
 
@@ -1639,7 +1651,7 @@ defmodule AtlasControl.Session do
   # what the session only has while on it.
   defp pushable?(%{route: route}) do
     not Pages.form?(route) and
-      not match?({tag, _, _} when tag in [:worker_page, :fault], route) and
+      not match?({tag, _, _} when tag in [:worker_page, :machine_page, :fault], route) and
       not match?({tag, _} when tag in [:faults], route) and
       not match?({:unavailable, _, _}, route) and route != :unknown
   end
@@ -1713,6 +1725,19 @@ defmodule AtlasControl.Session do
       {:worker_page, :health, _} ->
         {health_page(state), answers, ReadSet.none()}
 
+      # The machines: read from Facts as the page is made, with Flow's health answer (each
+      # Runtime's last poll and the queue); read again at every reconcile, as it ages.
+      {:machine_page, _, _} = machine_route ->
+        flow = ask_health()
+
+        {page, read} =
+          recording(fn ask ->
+            AtlasControl.MachinesPage.render(machine_route, state.model, ask, flow)
+          end)
+
+        reads = for {kind, _} <- read, do: {kind, :rows}
+        {page, answers, ReadSet.of(reads, Enum.map(read, &elem(&1, 1)), page.blocks)}
+
       {:worker_page, _, _} = worker_route ->
         {page, read} =
           recording(fn ask ->
@@ -1783,7 +1808,7 @@ defmodule AtlasControl.Session do
     if is_list(readers) and state.by in readers do
       AtlasControl.HealthPage.render(health_report())
     else
-      AtlasControl.WorkerPages.error("forbidden", "/workers")
+      AtlasControl.WorkerPages.error("forbidden", "/machines")
     end
   end
 
@@ -1868,7 +1893,14 @@ defmodule AtlasControl.Session do
     projected =
       if state.surface == "console" do
         with {:ok, shell} <-
-               AtlasControl.Shell.boot(state.model, state.by_kind, nil, nil, state.by_name),
+               AtlasControl.Shell.boot(
+                 state.model,
+                 state.by_kind,
+                 nil,
+                 nil,
+                 state.by_name,
+                 state.by
+               ),
              {:ok, page} <- AtlasControl.Console.project(message, shell["tabs"], console_actions),
              do: {:ok, page}
       else

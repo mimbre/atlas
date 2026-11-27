@@ -90,7 +90,11 @@ defmodule AtlasBFFContract.Contract do
   # kind (`icon` on a `row`, a `header`, a `panel` and a `shell_group`; a tab that lists
   # a kind takes its kind's when the model names none for the tab); a client that does
   # not know the name shows none.
-  version "0.40.0"
+  # 0.41.0: one Machines tab in place of Agents and Workers: the machines pages
+  # (`/machines`, `/machines/:machine`, the Upgrade to the newest build confirm and its
+  # `upgrade_machine` submit); `/workers` shows the Machines page (deprecated). The shell
+  # says who assists its viewer (`assistant`), shown under their name.
+  version "0.41.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

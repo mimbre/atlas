@@ -10,9 +10,9 @@ defmodule AtlasTui.Palette do
 
   `:muted` is a modifier, not a colour: a muted segment keeps the colours of `:dim`, or
   of the role it wraps (`{:selected, :muted}`), and is drawn faint and never bold.
-  `:header` is the title bar, the same in both themes; inside it `:prod` marks only the
-  environment name as an inverted badge (the bar's colours swapped), so production stays
-  recognisable.
+  `:header` is the title bar, the same in both themes; inside it `:env_test` marks the
+  environment name as an orange badge when it is not production, so a test Console is
+  never mistaken for the real one. Production stays plain.
   `:pending_selected` is `:pending` inside the selection: yellow text cannot reach 4.5:1 on
   the selection background, so there the yellow is the background, under dark text.
   `:active` (the group shown) looks like `:selected` but is not the selected row.
@@ -113,7 +113,7 @@ defmodule AtlasTui.Palette do
         style when style in [:selected, :active] -> {:grey1, :primarylight}
         :cursor -> {:grey1, :tertiary}
         :header -> {:white, :primaryshade}
-        :prod -> {:primaryshade, :white}
+        :env_test -> {:grey1, :warning}
         :dim -> if dark, do: {:grey3, :grey1}, else: base
         :border -> if dark, do: {:grey2, :grey1}, else: {:grey2, :white}
         :frame -> if dark, do: {:primary, :grey1}, else: {:primary, :white}
@@ -146,7 +146,7 @@ defmodule AtlasTui.Palette do
     weight =
       cond do
         muted?(role) -> "2;"
-        role in [:bold, :selected, :active, :header, :prod, :route, :lit, :eyebrow] -> "1;"
+        role in [:bold, :selected, :active, :header, :env_test, :route, :lit, :eyebrow] -> "1;"
         true -> ""
       end
 

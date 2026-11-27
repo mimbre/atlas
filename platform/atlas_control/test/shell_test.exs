@@ -1,6 +1,8 @@
 defmodule AtlasControl.ShellTest do
   use ExUnit.Case, async: false
   alias AtlasControl.{FakeStore, Shell, Shop}
+  # The contract version Control speaks, as its contract says it.
+  @version AtlasControl.Blocks.version()
 
   defmodule Protocol do
     use AtlasBFF.Targets.Protocol, contract: AtlasBFFContract.Contract, channel: :control
@@ -51,7 +53,7 @@ defmodule AtlasControl.ShellTest do
     send_message(
       s,
       Map.merge(
-        Protocol.message(:hello, :hello, env: "test", client: "test", spec: "0.40.0"),
+        Protocol.message(:hello, :hello, env: "test", client: "test", spec: @version),
         overrides
       )
     )
@@ -60,7 +62,7 @@ defmodule AtlasControl.ShellTest do
   defp connected(port) do
     s = socket(port)
     hello(s)
-    assert %{"op" => "welcome", "spec" => "0.40.0"} = receive_message(s)
+    assert %{"op" => "welcome", "spec" => @version} = receive_message(s)
     assert %{"op" => "page"} = receive_message(s)
     s
   end
@@ -183,6 +185,36 @@ defmodule AtlasControl.ShellTest do
     refute Map.has_key?(detail, "active_tab")
   end
 
+  test "the Machines tab, and the model's assistant under the name of the one it assists" do
+    assists = Application.get_env(:atlas, :assists)
+    Application.put_env(:atlas, :assists, %{"helper" => "ada"})
+
+    on_exit(fn ->
+      if assists,
+        do: Application.put_env(:atlas, :assists, assists),
+        else: Application.delete_env(:atlas, :assists)
+    end)
+
+    m = description(Shop.Benched)
+
+    assert {:ok, shell} = Shell.boot(m, "member", nil, nil, "Ada", "ada")
+    assert shell["name"] == "Ada"
+    assert shell["assistant"] == "assistant: helper"
+
+    assert %{"label" => "Machines", "to" => "/machines", "section" => "browse", "icon" => "gears"} =
+             List.last(shell["tabs"])
+
+    # Someone the helper does not assist sees none; neither does an agent, which has no name.
+    assert {:ok, shell} = Shell.boot(m, "member", nil, nil, "Bo", "bo")
+    refute Map.has_key?(shell, "assistant")
+    assert {:ok, shell} = Shell.boot(m, nil, nil, nil, nil, "ada")
+    refute Map.has_key?(shell, "assistant")
+
+    # A shop without machines has no such tab.
+    machines = %{"id" => "machines", "label" => "Machines", "to" => "/machines"}
+    assert {:error, _} = Shell.boot(description(Shop.Shelled, %{"tabs" => [machines]}), nil)
+  end
+
   test "invalid and unbounded configuration never becomes authoritative empty tabs" do
     # A model without a shell has none. The model's own title and tabs are checked when it
     # compiles; the tabs an environment adds are checked here.
@@ -200,9 +232,9 @@ defmodule AtlasControl.ShellTest do
     end
 
     # A tab the environment adds that is valid is the last.
-    workers = %{"id" => "workers", "label" => "Workers", "to" => "/workers"}
-    assert {:ok, shell} = Shell.boot(description(Shop.Shelled, %{"tabs" => [workers]}), nil)
-    assert Enum.map(shell["tabs"], & &1["id"]) == ["parts", "widgets", "workers"]
+    health = %{"id" => "health", "label" => "Health", "to" => "/health"}
+    assert {:ok, shell} = Shell.boot(description(Shop.Shelled, %{"tabs" => [health]}), nil)
+    assert Enum.map(shell["tabs"], & &1["id"]) == ["parts", "widgets", "health"]
 
     assert {:error, _} = Shell.boot(description(), nil, String.duplicate("x", 2_049))
   end
@@ -226,7 +258,7 @@ defmodule AtlasControl.ShellTest do
     # D-0105: an older client is welcomed with Control's version.
     old = socket(port)
     hello(old, %{"spec" => "0.1.0"})
-    assert %{"op" => "welcome", "spec" => "0.40.0"} = receive_message(old)
+    assert %{"op" => "welcome", "spec" => @version} = receive_message(old)
   end
 
   test "boot separates queued pages and preserves the edit form", %{port: port} do

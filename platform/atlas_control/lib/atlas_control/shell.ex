@@ -4,15 +4,18 @@ defmodule AtlasControl.Shell do
   settings add), separate from page content. `m` is the model as Control serves it
   (`AtlasControl.Model.catalog/2`).
 
-  A tab opens `/` (what is assigned, `assigned: true`), a kind's list, the workers, or one
-  of the supervision screens (`/_open`, `/_supervised`) when the model's start page has
+  A tab opens `/` (what is assigned, `assigned: true`), a kind's list, the machines (or
+  the workers, deprecated), or one of the supervision screens (`/_open`, `/_supervised`) when the model's start page has
   it. Without a target, a client opens on the tab the shell names as its `default` (its
   id), when the client may see it; else on the first tab. A tab is in the "work" section
   (the default: what needs someone) or "browse" (reference); a browse tab may name its
   own key sequence (`key`, as "g s").
 
   A client that is a fact of a kind the start's assigned relation points at is greeted (`greeting`), when the model words a greeting: its words with `{name}` the
-  viewer's name, as Session read it once at boot. An agent or a migration has none.
+  viewer's name, as Session read it once at boot. An agent or a migration has none. Under
+  that name the shell names the agent that assists the viewer (`assistant`, "assistant:
+  coordinator"): the model's shell names the agent (`assistant`), the environment's
+  settings say whom it assists (`AtlasBus.Actors.assisted/1`).
   """
 
   alias AtlasControl.Pages
@@ -23,10 +26,11 @@ defmodule AtlasControl.Shell do
 
   @doc """
   Build a fresh shell; the optional target selects content without opening a page.
-  `name` is the viewer's name (its fact's label), which a greeting fills in.
+  `name` is the viewer's name (its fact's label), which a greeting fills in; `by` the
+  viewer's key, whom the model's assistant may assist.
   """
-  def boot(m, by_kind, target \\ nil, resolve \\ nil, name \\ nil) do
-    with {:ok, title, configured, default} <- configuration(m),
+  def boot(m, by_kind, target \\ nil, resolve \\ nil, name \\ nil, by \\ nil) do
+    with {:ok, title, configured, default, assistant} <- configuration(m),
          true <- is_nil(target) or text?(target, 2_048),
          true <- Enum.all?(configured, &valid_tab?(&1, m)),
          true <- distinct?(configured, "id"),
@@ -68,9 +72,11 @@ defmodule AtlasControl.Shell do
           spec = Blocks.version()
           name = viewer(m, by_kind, name)
           greeting = greeting(m, name)
+          assistant = assistant(assistant, name, by)
 
           # Navigation and request target do not change the revision. Configuration,
-          # actor-visible tab set, environment, contract version, greeting and name do.
+          # actor-visible tab set, environment, contract version, greeting, name and
+          # assistant do.
           revision =
             [
               title,
@@ -90,9 +96,11 @@ defmodule AtlasControl.Shell do
                 ]
               )
             ]
-            # A shell without a greeting or name keeps the revision it had before either.
+            # A shell without a greeting, name or assistant keeps the revision it had
+            # before either.
             |> Kernel.++(List.wrap(greeting))
             |> Kernel.++(List.wrap(name))
+            |> Kernel.++(List.wrap(assistant))
             |> JSON.encode!()
             |> then(&:crypto.hash(:sha256, &1))
             |> Base.encode16(case: :lower)
@@ -107,7 +115,8 @@ defmodule AtlasControl.Shell do
              initial_to: initial,
              active_tab: active && active["id"],
              greeting: greeting,
-             name: name
+             name: name,
+             assistant: assistant
            )}
         end
       end
@@ -130,6 +139,14 @@ defmodule AtlasControl.Shell do
     end
   end
 
+  # The agent the model names as the assistant, when it assists this viewer (a person
+  # with a name): "assistant: coordinator"; nil otherwise.
+  defp assistant(agent, name, by) do
+    if is_binary(agent) and is_binary(name) and is_binary(by) and
+         AtlasBus.Actors.assisted(agent) == by,
+       do: "assistant: " <> agent
+  end
+
   # The model's greeting with the viewer's name; nil without either.
   defp greeting(_m, nil), do: nil
 
@@ -148,10 +165,13 @@ defmodule AtlasControl.Shell do
       %{"title" => title, "tabs" => tabs} = shell
       when is_list(tabs) and length(tabs) <= 64 ->
         default = shell["default"]
+        assistant = shell["assistant"]
 
-        if text?(title, 128) and Map.keys(shell) -- ["title", "tabs", "default"] == [] and
-             (is_nil(default) or text?(default, 64)),
-           do: {:ok, title, tabs, default},
+        if text?(title, 128) and
+             Map.keys(shell) -- ["title", "tabs", "default", "assistant"] == [] and
+             (is_nil(default) or text?(default, 64)) and
+             (is_nil(assistant) or text?(assistant, 64)),
+           do: {:ok, title, tabs, default, assistant},
            else: {:error, "Invalid shell configuration"}
 
       _ ->
@@ -170,7 +190,8 @@ defmodule AtlasControl.Shell do
       case Pages.route(if(is_binary(to), do: to, else: "")) do
         :home -> tab["assigned"] == true and Pages.assigned_rule(m) != nil
         {:list, kind} -> Pages.kind?(m, kind) and text?(canonical_tab(to), 2_048)
-        {:worker_page, page, _} when page in [:workers, :health] -> tab["assigned"] != true
+        {:worker_page, :health, _} -> tab["assigned"] != true
+        {:machine_page, :machines, _} -> tab["assigned"] != true and Pages.machines(m) != nil
         {:open_for_you, _} -> tab["assigned"] != true and Pages.open_for_you_rule(m) != nil
         {:supervised_by_you, _} -> tab["assigned"] != true and Pages.supervised_rule(m) != nil
         _ -> false
@@ -191,7 +212,8 @@ defmodule AtlasControl.Shell do
       # A removed overview falls back; valid detail/form targets stay canonical.
       index? =
         route == :home or match?({:list, _}, route) or
-          match?({:worker_page, page, _} when page in [:workers, :health], route) or
+          match?({:worker_page, :health, _}, route) or
+          match?({:machine_page, :machines, _}, route) or
           screen?(route)
 
       configured? = Enum.any?(tabs, &(&1["to"] == canonical))
@@ -237,12 +259,18 @@ defmodule AtlasControl.Shell do
        do: target_path(route, kind, [kind, key, relation], m)
 
   defp canonical_target({:worker_page, page, params} = route, _m)
-       when page in [:workers, :health, :worker, :worker_guidance] do
-    keys = if page in [:workers, :health], do: [], else: [:machine, :worker, :turn, :attempt]
+       when page in [:health, :worker, :worker_guidance] do
+    keys = if page == :health, do: [], else: [:machine, :worker, :turn, :attempt]
 
     if Enum.all?(keys, &text?(params[&1], 2_048)),
       do: {:ok, Pages.path(route)},
       else: {:error, "Invalid worker execution route parameters"}
+  end
+
+  defp canonical_target({:machine_page, page, params} = route, _m) do
+    if page == :machines or text?(params[:machine], 2_048),
+      do: {:ok, Pages.path(route)},
+      else: {:error, "Invalid machine route parameters"}
   end
 
   defp canonical_target(_route, _m), do: {:ok, nil}
@@ -267,7 +295,11 @@ defmodule AtlasControl.Shell do
   defp icon(_m, {:supervised_by_you, _}), do: "supervised"
   defp icon(_m, {:open_for_you, _}), do: "open"
   defp icon(_m, {:worker_page, _, _}), do: "workers"
+  defp icon(m, {:machine_page, _, _}), do: m |> Pages.machines() |> machine_icon(m)
   defp icon(_m, _route), do: nil
+
+  defp machine_icon(%{"kind" => kind}, m), do: Pages.kind_icon(m, kind)
+  defp machine_icon(_none, _m), do: nil
 
   # Whether a tab's count is what waits for the viewer: what is assigned to them.
   defp for_you?(route), do: route == :home
