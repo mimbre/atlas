@@ -45,11 +45,13 @@ public enum Option {
     }
 
     /// Its answer as the page's actions: on its key, and on `0` for the recommended one.
+    /// The only proposal's (`alone`) only on `0`: its key is the page's Accept.
     public static func actions(_ block: OptionBlock) -> [ActionModel] {
         guard let own = action(block) else { return [] }
-        guard block.tone == "success" else { return [own] }
         var zero = own
         zero.key = "0"
+        if block.alone == true { return [zero] }
+        guard block.tone == "success" else { return [own] }
         return [own, zero]
     }
 }

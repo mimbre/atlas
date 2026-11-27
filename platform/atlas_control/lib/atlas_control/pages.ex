@@ -1664,8 +1664,20 @@ defmodule AtlasControl.Pages do
 
   defp supervision_action(verb, route) do
     {label, key} = @supervision[verb]
-    Blocks.action(label: label, key: key, to: path(route))
+    Blocks.action(label: label, key: key, to: path(route), button: button(label))
   end
+
+  @doc """
+  What a button says for an action or answer labelled `label`, when that is not `label`:
+  the label without its `…` (Hand to for Hand to…), since a button says nothing of what
+  its click opens; nil when it is the label.
+  """
+  def button(label) when is_binary(label) do
+    plain = String.trim_trailing(label, "…")
+    if plain != label, do: plain
+  end
+
+  def button(_label), do: nil
 
   # The run's supervisor on a span subject's page, keys only, by the relation's label,
   # with the fact that set it when Facts knows it (who picked it up, on whose behalf).
@@ -3089,7 +3101,7 @@ defmodule AtlasControl.Pages do
           action(:delete, k, path({:delete, k.name, fact["key"]}))
 
         %{label: label, key: key, to: to} ->
-          Blocks.action(label: label, key: key, to: to, icon: "open")
+          Blocks.action(label: label, key: key, to: to, icon: "open", button: button(label))
       end
     end
   end
@@ -3137,7 +3149,8 @@ defmodule AtlasControl.Pages do
             label: label,
             key: key,
             to: path({page, kind, fact["key"], r.name}),
-            icon: "hand_over"
+            icon: "hand_over",
+            button: button(label)
           )
   end
 
@@ -3356,7 +3369,8 @@ defmodule AtlasControl.Pages do
             to: a["to"],
             submit_to: a["submit_to"],
             note: if(by_key[a["key"]][:note], do: true),
-            weight: weight
+            weight: weight,
+            button: button(a["label"])
           )
         end
     )
@@ -3501,64 +3515,78 @@ defmodule AtlasControl.Pages do
   end
 
   # A decision as a stack of simple blocks (D-0104): `intro` (its header, why, what went
-  # wrong), one `option` block per option, the recommended one first, each with its own
-  # answer: the page's action of the same key (`others`), "Choose" (the first main, the
-  # rest other), or "Decline" (no) for one given with a note; then the rest of `others` as
-  # the page's answers, each weighing other.
+  # wrong), then its adopt options as `option` blocks, the recommended one first, and below
+  # them the page's answers. A decline (the option given with a note) is no card: it is
+  # the answers' decline, its text the explanation beside it (`detail`). With one adopt
+  # option its card shows no answer (`alone`): the answers are Accept (main, its answer)
+  # and Decline (decline, the decline's). With more, each card has its own Choose (the
+  # recommended main, the rest other) and, when there is a decline, the answers Decline all. Each
+  # answer is the page's action of the same key (`others`), its call unchanged; the rest of
+  # `others` follow in the answers, each weighing other.
   defp decision_blocks(intro, options, others, todo) do
     by_key = Map.new(others, &{&1["key"], &1})
     options = Enum.filter(options, &Map.has_key?(by_key, &1.answer.key))
     taken = Enum.map(options, & &1.answer.key)
 
-    sorted = Enum.sort_by(options, &(!&1.recommended))
-    main = Enum.find(sorted, &(!&1.answer.note))
-    no = Enum.find(sorted, & &1.answer.note)
+    {declines, adopts} = Enum.split_with(options, & &1.answer.note)
+    adopts = Enum.sort_by(adopts, &(!&1.recommended))
+    decline = List.first(declines)
+    alone? = match?([_], adopts)
+
+    answer = fn o, label, weight ->
+      action = by_key[o.answer.key]
+
+      Blocks.panel_answer(
+        label: label,
+        key: action["key"],
+        to: action["to"],
+        submit_to: action["submit_to"],
+        note: if(o.answer.note, do: true),
+        weight: weight,
+        detail: if(o.answer.note, do: o.text)
+      )
+    end
 
     option_blocks =
-      sorted
+      adopts
       |> Enum.with_index(1)
       |> Enum.map(fn {o, n} ->
-        action = by_key[o.answer.key]
-
-        {badge, tone} =
-          cond do
-            o.recommended -> {"★ Recommended", "success"}
-            o.answer.note -> {"Decline · note", "warning"}
-            true -> {nil, nil}
-          end
-
         {"option-#{n}",
          Blocks.option(
            n: n,
            text: o.text,
-           badge: badge,
-           tone: tone,
+           badge: if(o.recommended, do: "★ Recommended"),
+           tone: if(o.recommended, do: "success"),
            fields: o.fields,
-           answer:
-             Blocks.panel_answer(
-               label: if(o.answer.note, do: "Decline", else: "Choose"),
-               key: action["key"],
-               to: action["to"],
-               submit_to: action["submit_to"],
-               note: if(o.answer.note, do: true),
-               weight:
-                 cond do
-                   o == main -> "main"
-                   o == no -> "no"
-                   true -> "other"
-                 end
-             )
+           answer: answer.(o, "Choose", if(n == 1, do: "main", else: "other")),
+           alone: if(alone?, do: true)
          )}
       end)
+
+    decided =
+      if(alone?, do: [answer.(hd(adopts), "Accept", "main")], else: []) ++
+        if(decline,
+          do: [
+            answer.(
+              decline,
+              if(alone? or adopts == [], do: "Decline", else: "Decline all"),
+              "decline"
+            )
+          ],
+          else: []
+        )
 
     # `0` answers the recommended option again (`answer_actions/3`); its option shows it.
     rest = Enum.reject(others, &(&1["key"] in ["0" | taken]))
 
+    answers =
+      if(rest == [], do: [], else: answers_block(rest, todo.answers, false)["props"]["answers"])
+
     intro ++
       option_blocks ++
-      if(rest == [],
+      if(decided ++ answers == [],
         do: [],
-        else: [{"answers", answers_block(rest, todo.answers, false)}]
+        else: [{"answers", Blocks.answers(answers: decided ++ answers)}]
       )
   end
 
@@ -3756,7 +3784,8 @@ defmodule AtlasControl.Pages do
         submit_to:
           if((a.change and a[:name]) && !a.note, do: call_to({:answer, kind, key, name})),
         note: if(a.note, do: true),
-        weight: weight
+        weight: weight,
+        button: button(a.label)
       )
     end
   end
@@ -3766,7 +3795,8 @@ defmodule AtlasControl.Pages do
       Blocks.action(
         label: a["label"],
         key: a["key"],
-        to: path({:item, record_k.name, fact["key"]})
+        to: path({:item, record_k.name, fact["key"]}),
+        button: button(a["label"])
       )
     end
   end
@@ -3950,7 +3980,8 @@ defmodule AtlasControl.Pages do
           Blocks.action(
             label: offer.label,
             key: offer.key,
-            to: path({:answer, kind, fact["key"], "_restart-" <> offer.run})
+            to: path({:answer, kind, fact["key"], "_restart-" <> offer.run}),
+            button: button(offer.label)
           )
         ]
     end
@@ -3975,6 +4006,7 @@ defmodule AtlasControl.Pages do
               label: a.label,
               key: a.key,
               to: path({:answer, kind, fact["key"], Map.get(a, :name) || a.key}),
+              button: button(a.label),
               # One that needs a note (a decline) opens its form to ask for it first.
               submit_to:
                 if(a[:name] && !a.note, do: call_to({:answer, kind, fact["key"], a.name}))
@@ -3984,7 +4016,13 @@ defmodule AtlasControl.Pages do
       case {todo.answers, changes} do
         {[%{name: _, label: label} | _], [first | _]} ->
           # `0` is the recommended choice 1 again: the same page, call and note.
-          changes ++ [Map.merge(first, %{"label" => "Recommended: " <> label, "key" => "0"})]
+          changes ++
+            [
+              Map.merge(Map.delete(first, "button"), %{
+                "label" => "Recommended: " <> label,
+                "key" => "0"
+              })
+            ]
 
         _ ->
           changes
@@ -3995,7 +4033,12 @@ defmodule AtlasControl.Pages do
           {op, relation} <- [{:set, a.set}, {:remove, a.remove}],
           is_binary(relation),
           do:
-            Blocks.action(label: a.label, key: a.key, to: path({op, kind, fact["key"], relation}))
+            Blocks.action(
+              label: a.label,
+              key: a.key,
+              to: path({op, kind, fact["key"], relation}),
+              button: button(a.label)
+            )
   end
 
   # The component answers of an item page's reads, after its lists and causes.

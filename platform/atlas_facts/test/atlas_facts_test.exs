@@ -73,7 +73,15 @@ defmodule AtlasFactsTest do
       "consequences" => ""
     }
 
-    second = %{first | "id" => "second", "text" => "Second"}
+    # Something to adopt beside the decline: declines alone are no choice.
+    second = %{
+      first
+      | "id" => "second",
+        "text" => "Second",
+        "effect" => "adopt",
+        "rule" => "Use the second",
+        "consequences" => "The second holds"
+    }
 
     original =
       JSON.encode!(%{

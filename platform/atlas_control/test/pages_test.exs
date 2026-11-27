@@ -1093,7 +1093,9 @@ defmodule AtlasControl.PagesTest do
       "key" => "h",
       "label" => "Hand to…",
       "to" => "/k/widget/W-1/links/checked_by",
-      "icon" => "hand_over"
+      "icon" => "hand_over",
+      # A button says nothing of the form that follows.
+      "button" => "Hand to"
     }
 
     answers = fn widget ->
@@ -2128,9 +2130,9 @@ defmodule AtlasControl.PagesTest do
 
     # Each says its weight: Done the main one, Won't do the no, the rest other.
     weights = Map.new(blocks["answers"]["answers"], &{&1["label"], &1["weight"]})
-    assert %{"Done" => "main", "Won't do" => "no", "Later" => "other"} = weights
+    assert %{"Done" => "main", "Won't do" => "decline", "Later" => "other"} = weights
     assert Enum.count(weights, &(elem(&1, 1) == "main")) == 1
-    assert Enum.count(weights, &(elem(&1, 1) == "no")) == 1
+    assert Enum.count(weights, &(elem(&1, 1) == "decline")) == 1
 
     refute Enum.any?(blocks["answers"]["answers"], &(&1["key"] in ~w(Enter Up Down)))
     refute Enum.any?(page.blocks, &(&1["type"] == "steps"))

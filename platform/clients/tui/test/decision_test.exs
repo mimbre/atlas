@@ -28,7 +28,7 @@ defmodule AtlasTui.DecisionTest do
     end)
   end
 
-  test "a decision's blocks top down: question, why, each option, the other answers, details" do
+  test "a decision's blocks top down: question, why, each alternative, the answers, details" do
     lines = lines(PanelFixture.model(:choice))
 
     order =
@@ -39,8 +39,8 @@ defmodule AtlasTui.DecisionTest do
           "Why: Files need nothing to run.",
           "1. Use files",
           "2. Use memory",
-          "3. Decline",
-          "l Inspector's log",
+          "3 Decline all · note",
+          "Decline all: None of these fits; say why.",
           ~r/^  Details$/,
           "Status"
         ],
@@ -49,6 +49,8 @@ defmodule AtlasTui.DecisionTest do
 
     assert Enum.all?(order, &is_integer/1)
     assert order == Enum.sort(order)
+    # The decline is no card.
+    refute at(lines, "3. ")
   end
 
   test "on a wide terminal the details stand beside the decision" do
@@ -56,37 +58,52 @@ defmodule AtlasTui.DecisionTest do
     assert at(lines, "Status") < at(lines, "1. Use files")
   end
 
-  test "every option shows its rule and what then follows, a decline its details" do
+  test "every alternative shows its rule and what then follows" do
     screen = screen(PanelFixture.model(:choice))
 
     for id <- ["files", "memory"] do
       assert screen =~ "Rule: Store examples in #{id}."
       assert screen =~ "Then: Use #{id} holds them."
     end
-
-    assert screen =~ "Details: None of these fits; say why."
   end
 
-  test "each option has its badge and its own answer on its key" do
+  test "each alternative has its badge and its own Choose; Decline all with the answers" do
     model = PanelFixture.model(:choice)
 
     assert line(model, "1. Use files") =~ "★ Recommended"
-    assert line(model, "3. Decline") =~ "Decline · note"
     refute line(model, "2. Use memory") =~ "★"
 
     assert line(model, "1 Choose")
     assert line(model, "2 Choose")
-    assert line(model, "3 Decline · note")
+    assert line(model, "3 Decline all · note") =~ "l Inspector's log"
 
-    # The main answer and the no in the primary colour, another Choose dim.
+    # The main answer and the decline in the primary colour, another Choose dim.
     role =
       &Enum.map(styles(model, &1), fn
         {_surface, role} -> role
         role -> role
       end)
 
-    assert :info in role.("1 Choose") and :info in role.("3 Decline · note")
+    assert :info in role.("1 Choose") and :info in role.("3 Decline all · note")
     assert :dim in role.("2 Choose") and :info not in role.("2 Choose")
+  end
+
+  test "one proposal: its card without an answer, then 1 Accept · 2 Decline · note" do
+    model = PanelFixture.model(:proposal)
+    lines = lines(model)
+
+    assert line(model, "1. Use files") =~ "★ Recommended"
+    refute at(lines, "1 Choose")
+    assert line(model, "1 Accept") =~ "2 Decline · note"
+    assert line(model, "Decline: None of these fits; say why.")
+
+    {_, by_one} = Model.key(model, {:char, "1"})
+    assert [{:send, %{"op" => "submit", "params" => %{"answer" => "option-files"}}}] = by_one
+    assert Model.key(model, :enter) |> elem(1) == by_one
+    assert Model.key(model, {:char, "0"}) |> elem(1) == by_one
+
+    note_form = "/k/decision/D-7/answer/decline"
+    assert {_, [{:send, %{"op" => "open", "to" => ^note_form}}]} = Model.key(model, {:char, "2"})
   end
 
   test "the selection starts on the first option, on the selected surface, and the arrows move it" do
@@ -101,9 +118,9 @@ defmodule AtlasTui.DecisionTest do
     assert {:card_selected, :bold} in styles(down, "2. Use memory")
     assert {:card, :bold} in styles(down, "1. Use files")
 
-    {last, []} = press(down, [:down, :down, :down])
-    assert line(last, "3. Decline") =~ "▸"
-    {first, []} = press(last, [:up, :up, :up, :up])
+    {last, []} = press(down, [:down, :down])
+    assert line(last, "2. Use memory") =~ "▸"
+    {first, []} = press(last, [:up, :up, :up])
     assert line(first, "1. Use files") =~ "▸"
   end
 
@@ -119,15 +136,13 @@ defmodule AtlasTui.DecisionTest do
     assert press(model, [:down, :enter]) |> elem(1) == by_two
   end
 
-  test "Enter on a decline opens its note form, as its key does, and never submits" do
+  test "Decline all opens its note form and never submits" do
     model = PanelFixture.model(:choice)
     note_form = "/k/decision/D-7/answer/decline"
     {by_key, by_three} = Model.key(model, {:char, "3"})
-    {by_enter, by_arrows} = press(model, [:down, :down, :enter])
 
     assert [{:send, %{"op" => "open", "to" => ^note_form}}] = by_three
-    assert by_arrows == by_three
-    assert by_enter.console.expected == note_form and by_key.console.expected == note_form
+    assert by_key.console.expected == note_form
   end
 
   test "the arrows never answer" do
@@ -139,7 +154,7 @@ defmodule AtlasTui.DecisionTest do
     end
   end
 
-  test "stuck work: the question, its byline, what went wrong in an error card, then its options" do
+  test "stuck work: the question, its byline, what went wrong in an error card, then its proposal" do
     model = PanelFixture.model(:stuck)
     lines = lines(model)
 
@@ -152,9 +167,8 @@ defmodule AtlasTui.DecisionTest do
           "the tests could not reach the database.",
           "1. Retry",
           "Then: Runs the work again from where it stopped.",
-          "2. Close it",
-          "Details: Closes the widget; you say why.",
-          "l Agent's log"
+          "t Accept",
+          "Decline: Close it"
         ],
         &at(lines, &1)
       )
@@ -165,10 +179,10 @@ defmodule AtlasTui.DecisionTest do
     assert {:card, :error} in styles(model, "What went wrong")
     assert {:card, :plain} in styles(model, "could not reach the database")
     assert line(model, "1. Retry") =~ "★ Recommended"
-    assert line(model, "2. Close it") =~ "Decline · note"
+    assert line(model, "t Accept") =~ "c Decline · note"
   end
 
-  test "stuck work: Enter retries as t does; on Close it, opens its note form as c does" do
+  test "stuck work: Enter retries as t does; c opens its note form" do
     model = PanelFixture.model(:stuck)
     {_, by_key} = Model.key(model, {:char, "t"})
 
@@ -177,7 +191,6 @@ defmodule AtlasTui.DecisionTest do
 
     {_, by_c} = Model.key(model, {:char, "c"})
     assert [{:send, %{"op" => "open", "to" => "/k/widget/K-1/answer/close"}}] = by_c
-    assert press(model, [:down, :enter]) |> elem(1) == by_c
   end
 
   test "a decision fits any width" do

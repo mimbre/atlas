@@ -79,7 +79,11 @@ defmodule AtlasBFFContract.Contract do
   # a tab whose model names no icon gets one from the page it opens (assigned, supervised,
   # open, workers); the shell names its viewer (`name`), one the start's assigned relation
   # points at.
-  version "0.37.0"
+  # 0.38.0: an action and an answer may say what a button shows for them (`button`) when
+  # that is not their label (no `…` after it). A decision's decline is no `option` but the
+  # page's answer weighing `decline` (`no`, deprecated, means the same), with its text as
+  # `detail`; one proposal's option is `alone`, answered by the page's Accept.
+  version "0.38.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup
