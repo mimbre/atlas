@@ -311,6 +311,31 @@ defmodule Model.ControlViewsTest do
     assert Enum.any?(fields, &(&1["value"] == "123"))
   end
 
+  test "scene related lists have one heading, including when empty" do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+    route = {:item, "scene", "SC-Atlas-01"}
+    scene = %{"key" => "SC-Atlas-01", "values" => %{"title" => "A scene"}}
+
+    answers = [
+      %{"fact" => scene} | for(_ <- tl(AtlasControl.Pages.reads(route, m)), do: %{"facts" => []})
+    ]
+
+    page = AtlasControl.Pages.render(route, m, answers)
+    lists = Map.new(page.blocks, &{&1["id"], &1})
+    sections = Enum.filter(page.markup, &(&1["kind"] == "section"))
+
+    assert Enum.any?(sections, &(get_in(&1, ["props", "title"]) == "Gate verdicts"))
+    assert Enum.any?(sections, &(get_in(&1, ["props", "title"]) == "Tasks"))
+
+    for section <- sections, block = lists[section["start"]], block && block["type"] == "list" do
+      refute Map.has_key?(block["props"], "title")
+    end
+
+    assert Enum.any?(page.blocks, fn block ->
+             block["type"] == "list" and get_in(block, ["props", "title"]) == "Use cases"
+           end)
+  end
+
   test "scene details are ordered separate blocks and retain relation origins and other pairs" do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     route = {:item, "scene", "SC-Atlas-01"}
