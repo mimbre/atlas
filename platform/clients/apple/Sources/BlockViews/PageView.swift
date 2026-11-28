@@ -120,6 +120,7 @@ public struct PageView: View {
                         .padding(.horizontal, header ? Prism.Spacing.px15 : 0))
                 case .row(let row):
                     RowCard(row: row, selected: line.to == selectedPath, focused: listFocused, raised: !listPage)
+                        .allowRowShadowOverflow()
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
                         .listRowBackground(listPage ? PrismDarkGap.listGround(scheme) : .clear)
@@ -256,6 +257,7 @@ public struct PageView: View {
     /// A row of the page that is not one of its selection.
     private func still(_ content: some View) -> some View {
         content
+            .allowRowShadowOverflow()
             .frame(maxWidth: .infinity, alignment: .leading)
             .selectionDisabled()
             .listRowSeparator(.hidden)

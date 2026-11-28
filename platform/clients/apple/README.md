@@ -38,8 +38,9 @@ disclosure. Legacy collapsible markup is also shown expanded.
 Item pages show a header's optional state and current age beneath its title and a list's
 optional progress aside alongside its heading.
 Overview lists keep their own ground; list rows on opened pages, including under section
-headings, sit on the page background as individually shadowed cards with room for their
-shadows. Section headings have no divider line.
+headings, sit on the page background as individually shadowed cards. Native list rows let
+card shadows extend beyond the row without changing card spacing; the scroll viewport still
+clips its content. Section headings have no divider line.
 
 ## Build, test, run
 
