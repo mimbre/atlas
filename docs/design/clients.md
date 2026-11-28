@@ -106,6 +106,9 @@ Below 80 columns a TUI row keeps its icon, key and title only. Chrome (title bar
 status and key lines) is not a column and takes the full width. Text wraps at its
 column's width.
 The focused TUI column has a primary-colour heading and a ▸ marker in both themes.
+When interactive details are under the page rather than beside it, the page column's
+heading names the details while they have focus, distinguishing focus from the
+persistently selected list row.
 
 Where the rule lives: `AtlasTui.Columns` (applied by `AtlasTui.View` and
 `AtlasTui.ConsoleView`); `WindowLayout` in BlockViews (applied by `PageView` and

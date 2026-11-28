@@ -472,8 +472,14 @@ defmodule AtlasTui.View do
               {nodes(content(list), list, inner, :all), list_title(model, list)}
 
             :page ->
-              {page_lines(model, main, if(beside?, do: [], else: details), inner, room),
-               if(Columns.nothing_open?(model), do: "Page", else: model.title)}
+              title =
+                cond do
+                  focus == :details and not beside? -> details_title(details)
+                  Columns.nothing_open?(model) -> "Page"
+                  true -> model.title
+                end
+
+              {page_lines(model, main, if(beside?, do: [], else: details), inner, room), title}
 
             :details when details == [] ->
               {[[], [{:dim, " No details beside this page."}]], "Details"}
@@ -495,7 +501,8 @@ defmodule AtlasTui.View do
           end
 
         {body, _cut, viewport} = scrolled(lines, scroll, max(room - 1, 1))
-        {column, w, headed(body, title, column == focus, x > 0, w), viewport}
+        focused = column == focus or (column == :page and focus == :details and not beside?)
+        {column, w, headed(body, title, focused, x > 0, w), viewport}
       end
 
     lines =
