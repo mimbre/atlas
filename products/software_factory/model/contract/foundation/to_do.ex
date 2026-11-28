@@ -45,7 +45,7 @@ defmodule Model.ToDo do
     icon(:checklist)
     field(:title, :string, required: true, description: "The work in a few words")
 
-    field(:instructions, :string, intent: :body,
+    field(:instructions, :string,
       required: true,
       description: "What to do, where, and what counts as done",
       multiline: true

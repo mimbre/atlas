@@ -34,7 +34,7 @@ defmodule Model.Machinery do
     """ do
     icon(:gears)
 
-    field(:name, :string, intent: :label,
+    field(:name, :string,
       required: true,
       description: "As it is shown; its name in Flow's configuration",
       set_by: [:flow]
