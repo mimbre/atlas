@@ -1799,8 +1799,7 @@ defmodule AtlasControl.Pages do
 
   defp waiting_pair(_p), do: []
 
-  # Open for you, calm: its groups and one list per span, titled with the span's flow; on a
-  # group's page (`active`, `{subflow, span}`) only that span's list.
+  # Open for you is one list; its groups filter the work rather than adding sections.
   defp open_for_you(m, by, answers, active) do
     case Enum.find(answers, &match?(%{"error" => _}, &1)) do
       nil ->
@@ -1809,23 +1808,18 @@ defmodule AtlasControl.Pages do
         counts = Map.new(per_span, fn {s, facts} -> {{s.subflow, s.span}, length(facts)} end)
         shown = for {s, _} = group <- per_span, active in [nil, {s.subflow, s.span}], do: group
 
-        lists =
-          for {s, facts} <- shown do
-            {"list:#{s.subflow}:#{s.span}",
-             Blocks.list(
-               title: span_title(m, s),
-               rows:
-                 work_order(
-                   for {kind, fact, work} <- facts do
-                     {screen_row(m, kind, fact, work, by, false),
-                      deadline(m, [{written_on(s), work}, {kind, fact}])}
-                   end
-                 ),
-               empty: rule.empty
-             )}
-          end
+        rows =
+          Enum.flat_map(shown, fn {s, facts} ->
+            work_order(
+              for {kind, fact, work} <- facts do
+                {screen_row(m, kind, fact, work, by, false),
+                 deadline(m, [{written_on(s), work}, {kind, fact}])}
+              end
+            )
+          end)
 
-        grouped_page(m, {:open_for_you, nil}, counts, active, rule.title || "", lists)
+        list = Blocks.list(rows: rows, empty: rule.empty)
+        grouped_page(m, {:open_for_you, nil}, counts, active, rule.title || "", [{"list", list}])
 
       failed ->
         unavailable(failed, "/")

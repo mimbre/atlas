@@ -110,10 +110,10 @@ public struct PageView: View {
                     still(Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
                         .padding(.horizontal, header ? Prism.Spacing.px15 : 0))
                 case .row(let row):
-                    RowCard(row: row, selected: line.to == selectedPath, focused: listFocused)
+                    RowCard(row: row, selected: line.to == selectedPath, focused: listFocused, raised: !listPage)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
-                        .listRowBackground(listPage ? PrismDarkGap.listGround(scheme) : PrismDarkGap.card(scheme))
+                        .listRowBackground(listPage ? PrismDarkGap.listGround(scheme) : .clear)
                 case .actions(let actions):
                     still(ActionsView(actions: actions, act: act))
                 case .entry(let entry):
@@ -346,7 +346,7 @@ struct ListRowView: View {
         // The button owns its card. Future nested controls must be siblings of this
         // button, with no overlay or parent tap gesture.
         Button { if let to = row.to { open(to) } } label: {
-            RowCard(row: row, selected: selected, focused: true)
+            RowCard(row: row, selected: selected, focused: true, raised: true)
         }
         .buttonStyle(.plain)
         .disabled(row.to == nil)
@@ -368,6 +368,7 @@ struct RowCard: View {
     let selected: Bool
     /// Whether the list the card is in has the keys.
     let focused: Bool
+    var raised = false
     @State private var hovering = false
     @Environment(\.colorScheme) private var scheme
 
@@ -381,6 +382,7 @@ struct RowCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 shape.fill(PrismDarkGap.listCard(scheme, selected: selected, focused: focused, hovering: hovering))
+                    .prismShadow(raised ? Prism.Shadows.prismCard : PrismShadow(color: .clear, y: 0, blur: 0))
             }
             .overlay {
                 if selected { shape.strokeBorder(PrismDarkGap.listCardEdge(scheme, focused: focused), lineWidth: 1) }
@@ -388,7 +390,7 @@ struct RowCard: View {
             .contentShape(shape)
             .onHover { hovering = $0 }
             .padding(.horizontal, Prism.Spacing.px10)
-            .padding(.vertical, Prism.Spacing.px3)
+            .padding(.vertical, raised ? Prism.Spacing.px10 : Prism.Spacing.px3)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
