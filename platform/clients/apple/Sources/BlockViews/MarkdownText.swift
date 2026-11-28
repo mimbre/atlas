@@ -36,9 +36,7 @@ struct MarkdownDocument {
 
 
     init(_ source: String) {
-        // Foundation can omit raw HTML; show the source instead so no sent content disappears.
-        let containsHTML = source.range(of: #"<[^>]*>"#, options: .regularExpression) != nil
-        guard !containsHTML, let parsed = try? AttributedString(markdown: source), !parsed.characters.isEmpty else {
+        guard let parsed = try? AttributedString(markdown: source), !parsed.characters.isEmpty else {
             parts = [Part(text: AttributedString(source), intent: nil)]
             return
         }

@@ -20,6 +20,7 @@ forms (S4), `ConsoleKit` (S5), `WorkerViews` (S6), the agent (S7), and the launc
 Xcode app target and signing (S8). The macOS app is built as a SwiftPM executable;
 the small local development bundle helper below provides Finder/Dock launch before S8.
 Command copy icons use a semibold SF Symbol for visibility.
+Explicit Markdown text renders headings and lists even when it contains literal angle-bracket placeholders.
 Rows embedded in a page use raised cards with the Prism card shadow; overview rows keep their flat list treatment.
 
 The Mac sidebar contains only top-level destinations. The current index page's Control
