@@ -120,6 +120,7 @@ public struct PageView: View {
                         .padding(.horizontal, header ? Prism.Spacing.px15 : 0))
                 case .row(let row):
                     RowCard(row: row, selected: line.to == selectedPath, focused: listFocused, raised: !listPage)
+                        .pointingHand(enabled: line.to != nil)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
                         .listRowBackground(listPage ? PrismDarkGap.listGround(scheme) : .clear)
@@ -364,6 +365,7 @@ struct ListRowView: View {
             RowCard(row: row, selected: selected, focused: true, raised: true)
         }
         .buttonStyle(.plain)
+        .pointingHand()
         .disabled(row.to == nil)
     }
 }

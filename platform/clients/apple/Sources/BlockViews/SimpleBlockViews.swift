@@ -301,6 +301,7 @@ struct PrismActionButton: View {
         .buttonStyle(PrismDarkGap.buttonStyle(variant, tone: tone, padded: padded, loading: pending,
                                               icon: icon != nil, scheme: scheme))
         .textSelection(.disabled)
+        .pointingHand()
         .disabled(pending)
         .help(help)
     }
@@ -392,6 +393,7 @@ struct OtherActionsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointingHand()
         .disabled(busy)
         .help(PageActions.tooltip(action))
         .accessibilityLabel(AnswerLook.label(action))
@@ -436,6 +438,7 @@ public struct ItemToolbar: ToolbarContent {
                 ToolbarIcon(icon: action.icon)
             }
         }
+        .pointingHand()
         .disabled(busy)
         .help(PageActions.tooltip(action))
         .accessibilityLabel(AnswerLook.label(action))
@@ -533,6 +536,7 @@ struct CommandBlock: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .pointingHand()
             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
             .help(copied ? "Copied" : "Copy")
             .accessibilityLabel(copied ? "Copied" : "Copy")

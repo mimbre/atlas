@@ -243,6 +243,9 @@ Rules:
   semantics.
 - **iOS.** On iPhone the same tabs move to a tab bar, with More for the tabs beyond what
   it shows, and list → page becomes a navigation stack. iPad keeps the three columns.
+- **macOS pointer.** Enabled controls and navigable rows use a pointing hand on hover;
+  disabled controls and rows without a destination do not. Selectable Markdown keeps its
+  native text cursor, including over inline links, to preserve text selection.
 - **Rejected alternative:** tabs as a segmented control in the toolbar. It breaks down once
   a description has more than about 5 tabs.
 - Text blocks and item or option fields render Markdown only when `syntax` is `markdown`;
