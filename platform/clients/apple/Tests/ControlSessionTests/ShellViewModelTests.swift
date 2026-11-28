@@ -97,6 +97,22 @@ final class ShellViewModelTests: XCTestCase {
         XCTAssertEqual(ShellViewModel(h.state).activeTab, "machines")
     }
 
+    func testGalleryTabFromControlBootCanBeSelected() {
+        let h = Harness()
+        let tabs: [[String: Any]] = [
+            ["id": "scene", "label": "Scenes", "section": "work", "to": "/k/scene"],
+            ["id": "blocks", "label": "Blocks", "section": "browse", "key": "g b", "to": "/_blocks"]
+        ]
+        h.connect(boot: Lines.boot(tabs: tabs, initialTo: "/k/scene", activeTab: "scene"),
+                  start: Lines.page("/k/scene"))
+        XCTAssertNil(h.state.bootFailure)
+        XCTAssertEqual(ShellViewModel(h.state).tabs.map(\.id), ["scene", "blocks"])
+        h.session.selectTab("blocks")
+        XCTAssertEqual(h.connection.take(), [.open(OpenRequest(to: "/_blocks"))])
+        h.connection.receive(Lines.page("/_blocks"))
+        XCTAssertEqual(ShellViewModel(h.state).activeTab, "blocks")
+    }
+
     func testATabBootDidNotSendCannotBeChosen() {
         let h = Harness()
         h.connect()

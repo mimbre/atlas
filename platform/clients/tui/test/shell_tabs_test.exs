@@ -14,7 +14,7 @@ defmodule AtlasTui.ShellTabsTest do
   @external_resource @product
 
   # The routes `AtlasControl.Shell` lets a tab open, one path each.
-  @tab_paths ["/", "/k/widget", "/machines", "/workers", "/_open", "/_supervised"]
+  @tab_paths ["/", "/k/widget", "/machines", "/workers", "/_open", "/_supervised", "/_blocks"]
 
   defp handshake do
     model = %{Model.new("test") | console: Console.new()}
@@ -89,7 +89,14 @@ defmodule AtlasTui.ShellTabsTest do
   end
 
   test "a page Control never serves as a tab is still refused" do
-    for to <- ["/k/widget/W1", "/k/widget/new", "/_kinds", "/workers/m/w/t/a", "/faults"] do
+    for to <- [
+          "/k/widget/W1",
+          "/k/widget/new",
+          "/_kinds",
+          "/workers/m/w/t/a",
+          "/faults",
+          "/_blocks/text/full"
+        ] do
       tabs = [
         %{"id" => "x", "label" => "X", "to" => to, "section" => "work"},
         %{"id" => "w", "label" => "W", "to" => "/workers", "section" => "browse", "key" => "g w"}
@@ -103,6 +110,7 @@ defmodule AtlasTui.ShellTabsTest do
     shell = @product |> File.read!() |> JSON.decode!() |> Map.fetch!("shell")
     tabs = Map.fetch!(shell, "tabs")
     assert tabs != []
+    assert Enum.any?(tabs, &(&1["to"] == "/_blocks"))
     default = Enum.find(tabs, &(&1["id"] == shell["default"])) || hd(tabs)
 
     # Control leaves `assigned` tabs out for a client the start page assigns nothing to.

@@ -271,7 +271,7 @@ defmodule Model.SupervisionTest do
 
     # Melle (2026-11-24): most urgent first, Assigned to you first; then what one browses.
     assert Enum.map(tabs, & &1["id"]) ==
-             ~w(assigned supervised_by_you open_for_you scenes to_dos machines)
+             ~w(assigned supervised_by_you open_for_you scenes to_dos blocks machines)
 
     for {id, to, entry} <- [
           {"open_for_you", "/_open", start.open_for_you},
@@ -352,7 +352,7 @@ defmodule Model.SupervisionTest do
     {work, browse} = Enum.split_with(shell["tabs"], &(&1["section"] == "work"))
 
     assert Enum.map(shell["tabs"], & &1["section"]) ==
-             ~w(work work work browse browse browse)
+             ~w(work work work browse browse browse browse)
 
     assert Enum.map(work, & &1["id"]) == ~w(assigned supervised_by_you open_for_you)
 

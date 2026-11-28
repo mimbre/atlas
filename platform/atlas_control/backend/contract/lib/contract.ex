@@ -105,7 +105,8 @@ defmodule AtlasBFFContract.Contract do
   # 0.47.0: text and pair syntax replaces format; coordinated client update required.
   # 0.48.0: boot no longer claims an assistant is connected.
   # 0.49.0: explicit unknown block, shown like an unrecognized block.
-  version "0.49.0"
+  # 0.50.0: the shared block gallery and its individual examples.
+  version "0.50.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

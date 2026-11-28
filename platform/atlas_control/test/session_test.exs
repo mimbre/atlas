@@ -20,6 +20,59 @@ defmodule AtlasControl.SessionTest do
     %{port: AtlasControl.Gateway.port(:gateway)}
   end
 
+  test "gallery opens generated samples over Control and refuses submissions", %{port: port} do
+    socket = client(port)
+    assert %{"op" => "welcome"} = next(socket, "welcome")
+    next(socket, "page")
+    put(socket, %{"op" => "open", "to" => "/_blocks"})
+    assert %{"blocks" => blocks} = next(socket, "page")
+    rows = Enum.find(blocks, &(&1["type"] == "list"))["props"]["rows"]
+    assert Enum.any?(rows, &(&1["to"] == "/_blocks/text/full"))
+    assert Enum.any?(rows, &(&1["to"] == "/_blocks/unknown/full"))
+    put(socket, %{"op" => "open", "to" => "/_blocks/text/full"})
+    assert %{"blocks" => [%{"type" => "text"}]} = next(socket, "page")
+
+    put(socket, %{
+      "op" => "submit",
+      "endpoint" => "create",
+      "params" => %{"kind" => "widget"},
+      "values" => %{"title" => "must not be written"}
+    })
+
+    assert %{"text" => "Gallery examples cannot submit changes."} = next(socket, "notice")
+  end
+
+  test "Console receives the same gallery sample and a valid action projection" do
+    port = gateway(Shop.Shelled)
+
+    {:ok, socket} =
+      :gen_tcp.connect(~c"127.0.0.1", port, [
+        :binary,
+        packet: :line,
+        active: false,
+        buffer: 4_194_304
+      ])
+
+    put(socket, %{
+      "op" => "hello",
+      "env" => "test",
+      "client" => "tui",
+      "surface" => "console",
+      "spec" => AtlasControl.Blocks.version()
+    })
+
+    assert %{"surface" => "console"} = next(socket, "welcome")
+    next(socket, "page")
+    put(socket, %{"op" => "open", "to" => "/_blocks/text/full"})
+    page = next(socket, "page")
+    assert Enum.any?(page["blocks"], &(&1["type"] == "text" and &1["id"] == "sample"))
+    assert {:ok, _} = AtlasBFFContract.Console.compile(page)
+    put(socket, %{"op" => "open", "to" => "/_blocks/unknown/full"})
+    page = next(socket, "page")
+    assert Enum.any?(page["blocks"], &(&1["type"] == "unknown" and &1["id"] == "sample"))
+    assert {:ok, _} = AtlasBFFContract.Console.compile(page)
+  end
+
   defp client(port, env \\ "test") do
     {:ok, socket} =
       :gen_tcp.connect(~c"127.0.0.1", port, [
