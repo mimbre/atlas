@@ -1440,8 +1440,12 @@ defmodule AtlasControl.PagesTest do
 
     held = Enum.find(page.blocks, &(&1["id"] == "parent:held_by"))
 
-    assert [%{"id" => "K-1", "label" => "Keeper", "to" => "/k/keeper/K-1"}] =
-             held["props"]["rows"]
+    assert [
+             %{"id" => "K-1", "label" => "Keeper", "kind" => "Keeper", "to" => "/k/keeper/K-1"} =
+               row
+           ] = held["props"]["rows"]
+
+    refute Map.has_key?(row, "since")
 
     # The links page offers the facts of every kind it may point at.
     assert Pages.reads({:links, "widget", "W-1", "held_by"}, @held) == [

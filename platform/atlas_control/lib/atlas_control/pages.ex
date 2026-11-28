@@ -4909,7 +4909,13 @@ defmodule AtlasControl.Pages do
 
       rows =
         for key <- Enum.sort_by(keys, &key_order/1), to = kind_of.(key), to != nil do
-          Blocks.row(id: key, label: singular(m, to), to: path({:item, to, key}))
+          Blocks.row(
+            id: key,
+            label: singular(m, to),
+            kind: singular(m, to),
+            icon: kind_icon(m, to),
+            to: path({:item, to, key})
+          )
         end
 
       {"parent:" <> r.name, {String.capitalize(r.label), Blocks.list(rows: rows)}}
