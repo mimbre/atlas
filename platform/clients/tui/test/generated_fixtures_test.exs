@@ -11,5 +11,45 @@ defmodule AtlasTui.GeneratedFixturesTest do
       decoded = AtlasTui.Blocks.decode(variant["sample"])
       refute match?(%AtlasTui.Blocks.Fallback{}, decoded), "#{block["name"]}: #{variant["case"]}"
     end
+
+    for block <- fixtures["blocks"],
+        variant <- AtlasBFF.Targets.FixtureVariants.combinations(block) do
+      decoded = AtlasTui.Blocks.decode(variant["sample"])
+      refute match?(%AtlasTui.Blocks.Fallback{}, decoded), "#{block["name"]}: #{variant["case"]}"
+    end
+  end
+
+  test "the actual TUI view renders generated Markdown and plain text specimens" do
+    [{"fixtures.json", body}] =
+      AtlasBFF.Targets.Fixtures.files(AtlasBFFContract.Contract.__schema__())
+
+    fixtures = JSON.decode!(body)["fixtures"]
+    text = Enum.find(fixtures["blocks"], &(&1["name"] == "text"))
+
+    for syntax <- ["plain", "markdown"] do
+      sample =
+        AtlasBFF.Targets.FixtureVariants.combine(text, ["syntax"], %{
+          "syntax" => syntax,
+          "text" => "long"
+        })["sample"]
+
+      page = %{
+        "op" => "page",
+        "path" => "/k/example",
+        "reason" => "open",
+        "title" => "Example",
+        "blocks" => [sample],
+        "markup" => []
+      }
+
+      screen =
+        page
+        |> AtlasTui.ConsoleProjectionFixture.model()
+        |> AtlasTui.View.render(100, 40, 5)
+        |> AtlasTui.View.plain()
+
+      assert screen =~ "An example heading"
+      assert screen =~ "First item"
+    end
   end
 end

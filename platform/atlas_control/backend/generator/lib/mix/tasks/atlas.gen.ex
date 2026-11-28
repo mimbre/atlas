@@ -32,7 +32,11 @@ defmodule Mix.Tasks.Atlas.Gen do
 
   # Every file target has `files/2`: a contract's `__schema__/0` and the target's options
   # to `[{path, body}]`, paths relative to the target's folder.
-  @targets %{json: AtlasBFF.Targets.Json, swift: AtlasBFF.Targets.Swift, fixtures: AtlasBFF.Targets.Fixtures}
+  @targets %{
+    json: AtlasBFF.Targets.Json,
+    swift: AtlasBFF.Targets.Swift,
+    fixtures: AtlasBFF.Targets.Fixtures
+  }
 
   @impl true
   def run(args) do

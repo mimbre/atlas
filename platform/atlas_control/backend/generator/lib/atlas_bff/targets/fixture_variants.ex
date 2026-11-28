@@ -1,17 +1,67 @@
 defmodule AtlasBFF.Targets.FixtureVariants do
   @moduledoc """
-  Bounded structural coverage: required-only and all-present objects, each optional
-  field present alone and absent alone, and each field's representative values against
-  an all-present baseline. Models are also emitted independently, so their fields receive
-  the same coverage without a cross-product of every nested optional field.
+  Bounded structural samples plus lazy combinations of each entry's optional fields.
+  Every mask is available without writing the exponential cross-product to JSON.
+  Nested models are independent; callers compose their specimens as needed.
   """
 
   @lengths [:short, :normal, :long]
 
   def entries(entries, models) do
     for entry <- entries do
-      %{"name" => to_string(entry.name), "variants" => variants(entry.fields, models)}
+      %{
+        "name" => to_string(entry.name),
+        "optional" => for(field <- entry.fields, not field.required, do: to_string(field.name)),
+        "variants" => variants(entry.fields, models)
+      }
     end
+  end
+
+  @doc "Lazily enumerate every local optional-field presence mask in a generated entry."
+  def combinations(entry) do
+    optional = Map.fetch!(entry, "optional")
+    count = Bitwise.bsl(1, length(optional))
+
+    Stream.map(0..(count - 1), fn mask ->
+      present =
+        optional
+        |> Enum.with_index()
+        |> Enum.filter(fn {_name, index} -> Bitwise.band(mask, Bitwise.bsl(1, index)) != 0 end)
+        |> Enum.map(&elem(&1, 0))
+
+      combine(entry, present)
+    end)
+  end
+
+  @doc "Construct one presence mask with optional per-field generated value-case overrides."
+  def combine(entry, present, overrides \\ %{}) do
+    optional = Map.fetch!(entry, "optional")
+    if present -- optional != [], do: raise(ArgumentError, "unknown optional fixture fields")
+    variants = Map.new(entry["variants"], &{&1["case"], &1})
+    required = Map.fetch!(variants, "required")
+    full = Map.fetch!(variants, "full")
+
+    props = fn variant ->
+      if variant["sample"], do: variant["sample"]["props"], else: variant["props"]
+    end
+
+    values = Map.merge(props.(required), Map.take(props.(full), present))
+
+    values =
+      Enum.reduce(overrides, values, fn {field, case_name}, current ->
+        unless Map.has_key?(current, field),
+          do: raise(ArgumentError, "override for absent field #{field}")
+
+        example = Map.fetch!(variants, "value:#{field}:#{case_name}")
+        Map.put(current, field, Map.fetch!(props.(example), field))
+      end)
+
+    if full["sample"] do
+      put_in(full, ["sample", "props"], values)
+    else
+      Map.put(full, "props", values)
+    end
+    |> Map.put("case", "combination:" <> Enum.join(present, ","))
   end
 
   defp variants(fields, models) do
@@ -47,6 +97,8 @@ defmodule AtlasBFF.Targets.FixtureVariants do
       presence ++ values
   end
 
+  defp value_cases(%{type: :string, name: :syntax}), do: [:plain, :markdown]
+
   defp value_cases(%{type: :string, intent: intent}) when intent in [:label, :title, :body],
     do: @lengths
 
@@ -81,6 +133,7 @@ defmodule AtlasBFF.Targets.FixtureVariants do
     end
   end
 
+  defp value(%{type: :string, name: :syntax}, _models, :plain, _stack), do: "plain"
   defp value(%{type: :string, name: :syntax}, _models, _size, _stack), do: "markdown"
 
   defp value(%{type: :string} = field, _models, size, _stack) do

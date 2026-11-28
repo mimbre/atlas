@@ -8,7 +8,6 @@ defmodule AtlasBFF.Targets.Swift.Tests do
   import AtlasBFF.Targets.Swift, only: [member: 1, type_name: 1]
   alias AtlasBFF.Names
 
-
   @doc "`ContractTests.swift`."
   def contract(schema, channels, package) do
     ctx = %{

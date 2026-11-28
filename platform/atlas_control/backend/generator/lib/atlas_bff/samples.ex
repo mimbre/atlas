@@ -15,10 +15,19 @@ defmodule AtlasBFF.Samples do
   end
 
   def block(block, ctx, which),
-    do: %{"id" => "b1", "type" => to_string(block.name), "props" => fields(block.fields, ctx, which, 0)}
+    do: %{
+      "id" => "b1",
+      "type" => to_string(block.name),
+      "props" => fields(block.fields, ctx, which, 0)
+    }
 
   def markup(kind, ctx, which),
-    do: %{"kind" => to_string(kind.name), "start" => "b1", "end" => "b1", "props" => fields(kind.fields, ctx, which, 0)}
+    do: %{
+      "kind" => to_string(kind.name),
+      "start" => "b1",
+      "end" => "b1",
+      "props" => fields(kind.fields, ctx, which, 0)
+    }
 
   def message(message, ctx) do
     message.fields
@@ -38,9 +47,19 @@ defmodule AtlasBFF.Samples do
   def sample(:boolean, _name, _ctx, _which, _depth), do: true
   def sample(:map, _name, _ctx, _which, _depth), do: %{}
   def sample(:list, _name, _ctx, _which, _depth), do: []
-  def sample({:map, inner}, name, ctx, which, depth), do: %{"k" => sample(inner, name, ctx, which, depth)}
-  def sample({:list, inner}, name, ctx, which, depth), do: if(depth > @depth, do: [], else: [sample(inner, name, ctx, which, depth)])
-  def sample(:"$block", _name, %{blocks: [block | _]} = ctx, _which, _depth), do: block(block, ctx, :required)
-  def sample(:"$markup", _name, %{markup: [kind | _]} = ctx, _which, _depth), do: markup(kind, ctx, :required)
-  def sample(model, _name, ctx, which, depth) when is_atom(model), do: fields(Map.fetch!(ctx.models, model), ctx, which, depth)
+
+  def sample({:map, inner}, name, ctx, which, depth),
+    do: %{"k" => sample(inner, name, ctx, which, depth)}
+
+  def sample({:list, inner}, name, ctx, which, depth),
+    do: if(depth > @depth, do: [], else: [sample(inner, name, ctx, which, depth)])
+
+  def sample(:"$block", _name, %{blocks: [block | _]} = ctx, _which, _depth),
+    do: block(block, ctx, :required)
+
+  def sample(:"$markup", _name, %{markup: [kind | _]} = ctx, _which, _depth),
+    do: markup(kind, ctx, :required)
+
+  def sample(model, _name, ctx, which, depth) when is_atom(model),
+    do: fields(Map.fetch!(ctx.models, model), ctx, which, depth)
 end

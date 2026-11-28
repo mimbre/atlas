@@ -110,12 +110,18 @@ python3 -m unittest discover -s tools/control-fixtures -p 'test_server.py'
 For every block, markup and model it includes required-only and all-present specimens,
 each optional field present alone and absent alone, and per-field representative values
 against the all-present specimen: short/normal/long intent-bearing strings, empty/one/
-three-member lists and maps, both booleans and zero/one integers. Nested models are
-covered independently, not as a Cartesian product. Markdown-capable values use valid
-Markdown and their enclosing `syntax` field opts in when present. The finite texts are
-examples, not an exhaustive string set. The schema does not declare enum domains,
-action-key grammars, routable targets or other cross-field semantics, so these are
-structural decoder specimens, not operational pages or real-server checks.
+three-member lists and maps, both booleans and zero/one integers. The JSON also records
+each entry's optional field names. `AtlasBFF.Targets.FixtureVariants.combinations(entry)`
+lazily enumerates all $2^n$ local presence masks; `combine(entry, present, overrides)`
+constructs one mask and can select generated value cases for several fields at once.
+Nested models are independent; consumers must compose them and vary list lengths to
+exercise cross-model interactions. No exponential cross-product is written eagerly, and
+the finite text examples and list lengths do not exhaust values. Markdown-capable text
+includes both explicit `plain` and `markdown` syntax as well as omission.
+
+The schema does not declare enum domains, action-key grammars, routable targets or other
+cross-field semantics, so these are structural specimens, not operational pages or
+real-server checks.
 
 The separate operational replay path below uses synthetic facts through the real product
 model and BFF, with a local in-process Bus and test FakeStore. It writes native pages and

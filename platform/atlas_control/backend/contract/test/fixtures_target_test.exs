@@ -77,11 +77,63 @@ defmodule AtlasBFFContract.FixturesTargetTest do
     cases = Map.new(text["variants"], &{&1["case"], &1["sample"]["props"]})
     refute Map.has_key?(cases["required"], "syntax")
     assert cases["full"]["syntax"] == "markdown"
+    assert cases["value:syntax:plain"]["syntax"] == "plain"
+    assert cases["value:syntax:markdown"]["syntax"] == "markdown"
+
+    masks = text |> AtlasBFF.Targets.FixtureVariants.combinations() |> Enum.to_list()
+    assert length(masks) == Bitwise.bsl(1, length(text["optional"]))
+    assert length(Enum.uniq_by(masks, &Map.keys(&1["sample"]["props"]))) == length(masks)
+
+    combined =
+      AtlasBFF.Targets.FixtureVariants.combine(text, ["syntax", "label"], %{
+        "syntax" => "plain",
+        "text" => "long"
+      })
+
+    assert combined["sample"]["props"]["syntax"] == "plain"
+    assert combined["sample"]["props"]["label"] != nil
+    assert combined["sample"]["props"]["text"] == cases["value:text:long"]["text"]
 
     sizes =
       for size <- ~w(short normal long), do: String.length(cases["value:text:#{size}"]["text"])
 
     assert sizes == Enum.sort(sizes) and length(Enum.uniq(sizes)) == 3
     assert cases["value:text:long"]["text"] =~ "# "
+  end
+
+  test "every local optional-field combination remains contract-valid" do
+    schema = AtlasBFFContract.Contract.__schema__()
+    [{"fixtures.json", json}] = AtlasBFF.Targets.Fixtures.files(schema)
+    fixtures = JSON.decode!(json)["fixtures"]
+    models = Map.new(schema.models, &{&1.name, &1.fields})
+
+    for {kind, definitions} <- [
+          {"blocks", schema.blocks},
+          {"markup", schema.markup},
+          {"models", schema.models}
+        ],
+        {entry, definition} <- Enum.zip(fixtures[kind], definitions) do
+      count =
+        entry
+        |> AtlasBFF.Targets.FixtureVariants.combinations()
+        |> Enum.reduce(0, fn variant, count ->
+          props = if kind == "models", do: variant["props"], else: variant["sample"]["props"]
+
+          for field <- definition.fields do
+            name = to_string(field.name)
+            if field.required, do: assert(Map.has_key?(props, name))
+
+            if Map.has_key?(props, name),
+              do:
+                assert(
+                  :ok = AtlasBFF.Targets.Protocol.validate_value!(models, field.type, props[name])
+                )
+          end
+
+          count + 1
+        end)
+
+      assert count == Bitwise.bsl(1, length(entry["optional"]))
+    end
   end
 end
