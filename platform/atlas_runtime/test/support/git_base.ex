@@ -10,9 +10,13 @@ defmodule AtlasRuntime.Test.GitBase do
   @doc "The file the prepared base adds on the base's commit: `{path, content}`."
   def dependency, do: {"deps/dep/mix.exs", "dependency\n"}
 
-  @doc "A new, empty place to serve bases from: the `url` of `serve/3`."
-  def url,
-    do: Path.join(System.tmp_dir!(), "atlas-code-git-#{System.unique_integer([:positive])}")
+  @doc "Creates a new, empty place to serve bases from: the `url` of `serve/3`."
+  def url do
+    name = "atlas-code-git-#{Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)}"
+    url = Path.join(System.tmp_dir!(), name)
+    File.mkdir!(url)
+    url
+  end
 
   @doc "Serves `files` (`%{path => content}`, relative to the base's root) as base `base_id`."
   def serve(base_id, files), do: serve(url(), base_id, files)
