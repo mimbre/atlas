@@ -157,9 +157,10 @@ read it, with its kind, icon, key and link. Facts resolves at most 64 distinct l
 targets per page by exact key in the same snapshot; it applies the target's ordinary read
 rules and records each target's freshness dependencies. Missing or failed targets keep
 their links and show the reason. Beyond the cap, or with an older Facts, the label remains
-the kind. Target lookups do not derive work presentation: doing that currently enumerates
-entire subject and run kinds. Consequently a target's run-derived age is absent until
-Facts has bounded indexes for that presentation; no unrelated event is used as its age.
+the kind. The row's age follows the overview's presenting run and derived completion:
+Facts reads the work component by key, looks up runs by subject, and evaluates completion
+through indexed relation and exact-key reads, all in the same snapshot. A missing
+timestamp stays absent; no unrelated event is used as its age.
 The Mac uses the same compact row card in related and overview lists.
 
 The names (view model, markup) live in one place: `AtlasBFF.Names`, plus the `defmarkup` macro and the module name `AtlasBFF.Markup`.

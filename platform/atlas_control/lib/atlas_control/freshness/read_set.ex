@@ -89,7 +89,7 @@ defmodule AtlasControl.Freshness.ReadSet do
   # A page with an answer Facts could not give is as of no position: any change makes it
   # stale, and a reconcile reads it again.
   defp as_of(answers) do
-    if Enum.any?(answers, &Map.has_key?(&1, "error")),
+    if Enum.any?(answers, &(Map.has_key?(&1, "error") or Map.has_key?(&1, "work_error"))),
       do: nil,
       else: answers |> Enum.map(& &1["position"]) |> lowest()
   end

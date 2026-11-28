@@ -4940,11 +4940,13 @@ defmodule AtlasControl.Pages do
       icon: kind_icon(m, to),
       to: path({:item, to, key}),
       tone: tone,
-      since: since
+      since: since || if(is_map(target), do: target["work_since"])
     )
   end
 
-  defp parent_detail(k, %{} = fact, _target), do: detail(k, fact)
+  defp parent_detail(k, %{} = fact, target),
+    do: join_detail(detail(k, fact), if(is_map(target), do: target["work_error"]))
+
   defp parent_detail(_k, _fact, %{"error" => error}) when is_binary(error), do: error
   defp parent_detail(_k, _fact, %{"fact" => nil}), do: "Not found"
   defp parent_detail(_k, _fact, _target), do: nil
