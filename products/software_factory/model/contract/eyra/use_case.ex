@@ -163,24 +163,6 @@ defmodule Model.UseCase do
             [label: "Needs", earlier: true]
           ]
         ],
-        detail_groups: [
-          [title: "Use case", fields: [:description, :design, :note]],
-          [title: "Plan discussion", fields: [:supervisor_note, :questions, :answers]],
-          [title: "People", relations: [:produced_by, :assigned_to, :accepted_by]],
-          [
-            title: "Progress",
-            fields: [
-              :phase,
-              :status,
-              :children,
-              :open_children,
-              :verdict,
-              :task_result,
-              :pass_result,
-              :gate_result
-            ]
-          ]
-        ],
         actions: [
           [
             key: "i",
@@ -189,6 +171,41 @@ defmodule Model.UseCase do
             record: :proposal
           ]
         ]
+      ]
+    )
+
+    page(
+      state: [:phase, :status],
+      intro: [field: :description],
+      sections: [:design, :note, :supervisor_note, :questions, :answers],
+      items: [
+        relation: :in_use_case,
+        empty: [
+          pick_up: "Once someone picks up Plan, its agent proposes the issues here.",
+          break_down:
+            "Plan's agent is working out the issues; they show here once it proposes them.",
+          clarifying:
+            "Plan's agent asked its producer questions first; once they are answered, it proposes the issues.",
+          accepting: "Plan proposed no issues: decline it with a note to try again.",
+          building: "Plan starts again to propose its issues."
+        ]
+      ],
+      details: [
+        [title: "People", relations: [:produced_by, :assigned_to, :accepted_by]],
+        [
+          title: "Progress",
+          fields: [
+            :phase,
+            :status,
+            :children,
+            :open_children,
+            :verdict,
+            :task_result,
+            :pass_result,
+            :gate_result
+          ]
+        ],
+        [title: "Use case", fields: [:flux_id]]
       ]
     )
   end

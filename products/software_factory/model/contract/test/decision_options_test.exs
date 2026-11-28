@@ -539,13 +539,28 @@ defmodule Model.DecisionOptionsTest do
       |> Map.put("key", "D-private")
       |> update_in(
         ["values"],
-        &Map.merge(&1, %{"status" => "accepted", "option_history" => "not JSON"})
+        &Map.merge(&1, %{
+          "status" => "accepted",
+          "decision" => "The recorded rule",
+          "context" => "The recorded context",
+          "consequences" => "The recorded consequences",
+          "option_history" => "not JSON"
+        })
       )
 
     reads = AtlasControl.Pages.reads(route, m)
     answers = [%{"fact" => legacy} | for(_ <- tl(reads), do: %{"facts" => []})]
     page = AtlasControl.Pages.render(route, m, answers)
     blocks = Map.new(page.blocks, &{&1["id"], &1})
+    assert blocks["header"]["props"]["title"] == "Example"
+    assert blocks["decision-decision"]["props"]["text"] == "The recorded rule"
+    assert blocks["decision-consequences"]["props"]["text"] == "The recorded consequences"
+    refute Enum.any?(page.blocks, &(&1["type"] in ["option", "answers"]))
+
+    for value <- ["The recorded rule", "The recorded context", "The recorded consequences"] do
+      assert Enum.any?(blocks["item"]["props"]["fields"], &(&1["value"] == value))
+    end
+
     refute blocks["decision-history-1"]
     refute blocks["page-detail-1"]
     refute blocks["decision-raw-options"]
@@ -615,7 +630,7 @@ defmodule Model.DecisionOptionsTest do
 
   # The page a TUI opens from Assigned to you, as Control serves it to a Console client:
   # its blocks besides console actions, and how a key resolves on it.
-  defp served(text, values \\ %{}, state \\ "for_person") do
+  defp served(text, values \\ %{}, state \\ "for_person", viewer \\ "ada") do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     decide = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "decide"))
 
@@ -637,7 +652,7 @@ defmodule Model.DecisionOptionsTest do
       [%{"fact" => fact}] ++
         for(_ <- 2..(length(reads) - 1)//1, do: %{"facts" => []}) ++ [%{"fact" => assignment}]
 
-    form = %{by: "ada", by_kind: "person"}
+    form = %{by: viewer, by_kind: "person"}
     page = AtlasControl.Pages.render(route, m, answers, form)
 
     assert Enum.any?(page.markup, &(get_in(&1, ["props", "role"]) == "details"))
@@ -705,6 +720,31 @@ defmodule Model.DecisionOptionsTest do
                }
              }
            ] = note.(to)
+  end
+
+  test "a non-owner sees the actual offer without answer actions" do
+    {blocks, _resolve, _note} = served(@text, %{}, "for_person", "bob")
+    choice = JSON.decode!(@text)
+    header = Enum.find(blocks, &(&1["id"] == "header"))
+    assert header["props"]["title"] == choice["question"]
+    assert Enum.find(blocks, &(&1["id"] == "why"))["props"]["text"] == choice["rationale"]
+    cards = Enum.filter(blocks, &String.starts_with?(&1["id"], "option-"))
+    assert Enum.all?(cards, &(&1["type"] == "item"))
+
+    titles =
+      Enum.with_index(choice["options"], 1) |> Enum.map(fn {o, n} -> "#{n}. #{o["text"]}" end)
+
+    assert Enum.map(cards, & &1["props"]["title"]) == titles
+
+    for {card, option} <- Enum.zip(cards, choice["options"]) do
+      assert card["props"]["actions"] == []
+
+      for field <- ~w(details rule consequences) do
+        assert Enum.any?(card["props"]["fields"], &(&1["value"] == option[field]))
+      end
+    end
+
+    refute Enum.any?(blocks, &(&1["type"] == "answers"))
   end
 
   test "the details show no field a main block already shows, and no title of their own" do

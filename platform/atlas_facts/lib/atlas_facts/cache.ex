@@ -23,6 +23,9 @@ defmodule AtlasFacts.Cache do
   whole (`publish/3`), with Facts' position, before Facts answers it. A generation, odd
   while Facts puts, tells a reader that the copy changed under it: it reads again, so it
   never sees a write half applied.
+
+  Runs are indexed by the mapped subject fields, and links by kind, relation and target.
+  Both indexes share the facts' published generation and include the owner's staged changes.
   """
   @behaviour AtlasFacts.Rela
 
@@ -30,11 +33,23 @@ defmodule AtlasFacts.Cache do
 
   alias AtlasFacts.Rela
 
-  def open(backend) do
+  def open(backend, run_mapping \\ nil) do
     table = :ets.new(__MODULE__, [:ordered_set, :protected, read_concurrency: true])
+    runs = :ets.new(__MODULE__, [:bag, :protected, read_concurrency: true])
+    links = :ets.new(__MODULE__, [:bag, :protected, read_concurrency: true])
     meta = :ets.new(__MODULE__, [:set, :protected, read_concurrency: true])
     :ets.insert(meta, [{:generation, 0}, {:position, 0}, {:description, nil}])
-    {__MODULE__, %{backend: backend, table: table, meta: meta, owner: self()}}
+
+    {__MODULE__,
+     %{
+       backend: backend,
+       table: table,
+       runs: runs,
+       links: links,
+       meta: meta,
+       owner: self(),
+       mapping: run_mapping
+     }}
   end
 
   @doc "Thrown by `get/3` outside Facts' process for a fact with no version yet."
@@ -45,6 +60,8 @@ defmodule AtlasFacts.Cache do
   # Facts' process only: what it put since it last published (`{plural, key} => fact or
   # :gone`), whether readers are told the copy is changing, what it published last.
   defp staged_key(c), do: {__MODULE__, c.table, :staged}
+  defp staged_runs_key(c), do: {__MODULE__, c.table, :staged_runs}
+  defp staged_links_key(c), do: {__MODULE__, c.table, :staged_links}
   defp open_key(c), do: {__MODULE__, c.table, :open}
   defp published_key(c), do: {__MODULE__, c.table, :published}
 
@@ -77,9 +94,7 @@ defmodule AtlasFacts.Cache do
 
     if staged != %{} or moved? or Process.get(open_key(c)) == true do
       open_window(c)
-      {gone, put} = Enum.split_with(staged, fn {_at, fact} -> fact == :gone end)
-      for {at, :gone} <- gone, do: :ets.delete(c.table, at)
-      :ets.insert(c.table, put)
+      for {at, fact} <- staged, do: replace(c, at, fact)
 
       if moved? do
         :ets.insert(c.meta, [{:position, position}, {:description, description}])
@@ -87,6 +102,8 @@ defmodule AtlasFacts.Cache do
       end
 
       if Process.get(staged_key(c)), do: Process.put(staged_key(c), %{})
+      Process.delete(staged_runs_key(c))
+      Process.delete(staged_links_key(c))
       :ets.update_counter(c.meta, :generation, 1)
       Process.delete(open_key(c))
     end
@@ -144,7 +161,13 @@ defmodule AtlasFacts.Cache do
       # Put at once, between rela's answers and `publish/3`: readers wait for it.
       open_window(c)
       if Process.get(staged_key(c)), do: Process.put(staged_key(c), %{})
+      Process.delete(staged_runs_key(c))
+      Process.delete(staged_links_key(c))
       :ets.delete_all_objects(c.table)
+      :ets.delete_all_objects(c.runs)
+      :ets.delete_all_objects(c.links)
+      plural = get_in(description, ["entities", (c.mapping || %{})["kind"], "plural"])
+      :ets.insert(c.table, {:run_plural, plural})
       for {plural, facts} <- listed, fact <- facts, do: put(c, plural, fact)
       :ets.insert(c.table, {:relations, relation_kinds(description)})
 
@@ -212,11 +235,170 @@ defmodule AtlasFacts.Cache do
     case Process.get(staged_key(c)) do
       nil ->
         open_window(c)
-        if fact == :gone, do: :ets.delete(c.table, at), else: :ets.insert(c.table, {at, fact})
+        replace(c, at, fact)
 
       staged ->
+        staged_runs(c, at, Map.get(staged, at), fact)
+        staged_links(c, at, Map.get(staged, at), fact)
         Process.put(staged_key(c), Map.put(staged, at, fact))
     end
+  end
+
+  defp run_subject(c, plural, %{properties: properties}) do
+    with [{:run_plural, ^plural}] <- :ets.lookup(c.table, :run_plural),
+         %{"fields" => %{"subject_kind" => kind, "subject_key" => key}} <- c.mapping do
+      {properties[kind], properties[key]}
+    else
+      _ -> nil
+    end
+  end
+
+  defp run_subject(_c, _plural, _fact), do: nil
+
+  defp replace(c, {plural, key} = at, fact) do
+    case :ets.lookup(c.table, at) do
+      [{_, old}] ->
+        if subject = run_subject(c, plural, old),
+          do: :ets.delete_object(c.runs, {subject, key})
+
+        for ref <- link_refs(plural, old), do: :ets.delete_object(c.links, {ref, key})
+
+      [] ->
+        :ok
+    end
+
+    if fact == :gone do
+      :ets.delete(c.table, at)
+    else
+      :ets.insert(c.table, {at, fact})
+      if subject = run_subject(c, plural, fact), do: :ets.insert(c.runs, {subject, key})
+      for ref <- link_refs(plural, fact), do: :ets.insert(c.links, {ref, key})
+    end
+  end
+
+  defp staged_runs(c, {plural, key}, old, fact) do
+    index = Process.get(staged_runs_key(c), %{})
+
+    index =
+      case run_subject(c, plural, old) do
+        nil ->
+          index
+
+        subject ->
+          keys = MapSet.delete(Map.fetch!(index, subject), key)
+
+          if MapSet.size(keys) == 0,
+            do: Map.delete(index, subject),
+            else: Map.put(index, subject, keys)
+      end
+
+    index =
+      case run_subject(c, plural, fact) do
+        nil -> index
+        subject -> Map.update(index, subject, MapSet.new([key]), &MapSet.put(&1, key))
+      end
+
+    Process.put(staged_runs_key(c), index)
+  end
+
+  defp link_refs(plural, %{links: links}) do
+    for {relation, targets} <- links, target <- targets, do: {plural, relation, target}
+  end
+
+  defp link_refs(_plural, _fact), do: []
+
+  defp staged_links(c, {plural, key}, old, fact) do
+    index = Process.get(staged_links_key(c), %{})
+
+    index =
+      Enum.reduce(MapSet.new(link_refs(plural, old)), index, fn ref, acc ->
+        keys = MapSet.delete(Map.fetch!(acc, ref), key)
+        if MapSet.size(keys) == 0, do: Map.delete(acc, ref), else: Map.put(acc, ref, keys)
+      end)
+
+    index =
+      Enum.reduce(link_refs(plural, fact), index, fn ref, acc ->
+        Map.update(acc, ref, MapSet.new([key]), &MapSet.put(&1, key))
+      end)
+
+    Process.put(staged_links_key(c), index)
+  end
+
+  @doc "The raw facts of `plural` linking through `relation` to any of `targets`."
+  def linked({__MODULE__, c}, plural, relation, targets) do
+    targets = MapSet.new(targets)
+    staged = Process.get(staged_key(c)) || %{}
+    staged_links = Process.get(staged_links_key(c), %{})
+
+    keys =
+      Enum.reduce(targets, MapSet.new(), fn target, acc ->
+        ref = {plural, relation, target}
+        acc = MapSet.union(acc, Map.get(staged_links, ref, MapSet.new()))
+
+        Enum.reduce(:ets.lookup(c.links, ref), acc, fn {_, key}, keys ->
+          MapSet.put(keys, key)
+        end)
+      end)
+
+    facts =
+      for key <- keys,
+          fact <-
+            [
+              case Map.fetch(staged, {plural, key}) do
+                {:ok, fact} ->
+                  fact
+
+                :error ->
+                  case :ets.lookup(c.table, {plural, key}) do
+                    [{_, fact}] -> fact
+                    [] -> nil
+                  end
+              end
+            ],
+          is_map(fact),
+          Enum.any?(fact.links[relation] || [], &MapSet.member?(targets, &1)),
+          do: fact
+
+    {:ok, Enum.sort_by(facts, & &1.key)}
+  end
+
+  @doc "The raw runs for exactly this subject in the current copy."
+  def subject_runs({__MODULE__, c}, subject_kind, subject_key) do
+    subject = {subject_kind, subject_key}
+
+    plural =
+      case :ets.lookup(c.table, :run_plural) do
+        [{:run_plural, plural}] -> plural
+        [] -> nil
+      end
+
+    staged = Process.get(staged_key(c)) || %{}
+    staged_keys = Map.get(Process.get(staged_runs_key(c), %{}), subject, MapSet.new())
+
+    keys =
+      Enum.reduce(:ets.lookup(c.runs, subject), staged_keys, fn {_, key}, acc ->
+        MapSet.put(acc, key)
+      end)
+
+    facts =
+      for key <- keys,
+          fact <-
+            [
+              case Map.fetch(staged, {plural, key}) do
+                {:ok, fact} ->
+                  fact
+
+                :error ->
+                  case :ets.lookup(c.table, {plural, key}) do
+                    [{_, fact}] -> fact
+                    [] -> nil
+                  end
+              end
+            ],
+          run_subject(c, plural, fact) == subject,
+          do: fact
+
+    {:ok, Enum.sort_by(facts, & &1.key)}
   end
 
   @impl true

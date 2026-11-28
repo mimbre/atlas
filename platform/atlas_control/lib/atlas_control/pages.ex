@@ -2195,6 +2195,8 @@ defmodule AtlasControl.Pages do
         {child_answers, rest} = Enum.split(child_answers, length(relations))
         {cause_answers, _part_answers} = Enum.split(rest, length(cause_fields(m)))
 
+        target_map = related_targets([answer | child_answers] ++ rest)
+
         fields =
           [Blocks.pair(label: "Id", value: key)] ++
             own_fields(k, fact, k.hidden) ++
@@ -2274,15 +2276,17 @@ defmodule AtlasControl.Pages do
             Enum.all?(rel(m, name).to, fn to -> Enum.any?(parts, &(elem(&1, 0) == to)) end)
         end
 
+        parents = parent_lists(m, kind, fact, target_map, form[:by])
+
         references =
           Enum.map(lists, &elem(&1, 1)) ++
             cause_lists(m, key, cause_answers, form[:by]) ++
-            Enum.reject(parent_lists(m, kind, fact), &component.(elem(&1, 0))) ++
+            Enum.reject(parents, &component.(elem(&1, 0))) ++
             if(deciding,
               do: [],
               else:
                 Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
-                  parent_lists(m, part_kind, part)
+                  parent_lists(m, part_kind, part, target_map, form[:by])
                 end)
             )
 
@@ -2372,9 +2376,9 @@ defmodule AtlasControl.Pages do
             remaining =
               Enum.map(remaining, &elem(&1, 1)) ++
                 cause_lists(m, key, cause_answers, form[:by]) ++
-                parent_lists(m, kind, fact) ++
+                parent_lists(m, kind, fact, target_map, form[:by]) ++
                 Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
-                  parent_lists(m, part_kind, part)
+                  parent_lists(m, part_kind, part, target_map, form[:by])
                 end)
 
             header =
@@ -2388,29 +2392,18 @@ defmodule AtlasControl.Pages do
               )
 
             # Keep the existing proposal panel and its navigation, including its answer actions.
-            panel_blocks =
-              if panel do
-                {block, _listed} = panel_block(m, kind, key, fact, todo, panel, related)
-                [{"panel", block}]
-              else
-                []
-              end
+            {panel_blocks, remaining_next} =
+              page_panel_blocks(m, kind, key, fact, todo, panel, related, next)
 
             todo_blocks = if todo && !panel, do: [{"todo", todo_item(todo)}], else: []
-
-            panel_keys =
-              for {"panel", block} <- panel_blocks,
-                  answer <- block["props"]["answers"] || [],
-                  do: answer["key"]
-
-            remaining_next = Enum.reject(next, &(&1["key"] in panel_keys))
 
             answer_blocks =
               if remaining_next == [],
                 do: [],
                 else: [{"answers", answers_block(remaining_next, (todo && todo.answers) || [])}]
 
-            detail_blocks = page_detail_blocks(m, k, spec, item)
+            detail_blocks =
+              page_details_with_actions(m, k, spec, without_page_content(item, k, spec, fact))
 
             content =
               [{"header", header}] ++
@@ -2551,9 +2544,10 @@ defmodule AtlasControl.Pages do
           true ->
             ids = for {id, _} <- references, do: id
             others = others_block(more)
+            head = decision_read_blocks(k, fact, key) |> iconed(kind_icon(m, kind))
 
             main =
-              Blocks.part("item", if(others == [], do: "item", else: "actions"),
+              Blocks.part(decision_start(head), if(others == [], do: "item", else: "actions"),
                 title: "Content",
                 role: "main"
               )
@@ -2569,7 +2563,7 @@ defmodule AtlasControl.Pages do
               end
 
             {item, detail_blocks, technical} = decision_details(m, k, fact, item)
-            content = [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
+            content = head ++ [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
             markup = markup ++ details_part(detail_blocks ++ technical)
 
             # Its owner's part first: what to do (IS-Atlas-54).
@@ -3657,6 +3651,31 @@ defmodule AtlasControl.Pages do
     parent || {:list, kind}
   end
 
+  defp without_page_content(item, k, spec, fact) do
+    names = [k.primary, get_in(spec, ["intro", "field"]) | List.wrap(spec["sections"])]
+
+    shown =
+      for name <- names,
+          f = field(k, name),
+          f != nil,
+          fact["values"][name] not in [nil, ""],
+          do: f.label
+
+    absent =
+      for group <- List.wrap(spec["details"]),
+          name <- List.wrap(group["fields"]),
+          f = field(k, name),
+          f != nil,
+          fact["values"][name] in [nil, ""],
+          do: f.label
+
+    update_in(item, ["props", "fields"], fn fields ->
+      Enum.reject(fields, fn pair ->
+        pair["label"] in shown or (pair["label"] in absent and is_nil(pair["origin"]))
+      end)
+    end)
+  end
+
   defp details_part([]), do: []
 
   defp details_part(blocks) do
@@ -3666,6 +3685,14 @@ defmodule AtlasControl.Pages do
   end
 
   # A declared page may group its existing pairs; anything not named stays in the item.
+  defp page_details_with_actions(m, k, %{"details" => groups}, item) when is_list(groups),
+    do: panel_detail_blocks(m, k, groups, item)
+
+  defp page_details_with_actions(m, k, spec, item) do
+    [{"item", block}] = page_detail_blocks(m, k, spec, item)
+    [{"item", put_in(block, ["props", "actions"], item["props"]["actions"])}]
+  end
+
   defp page_detail_blocks(m, k, %{"details" => groups}, item) when is_list(groups) do
     {blocks, rest} =
       groups
@@ -4023,6 +4050,78 @@ defmodule AtlasControl.Pages do
       )
   end
 
+  defp decision_start([{id, _} | _]), do: id
+  defp decision_start([]), do: "item"
+
+  # Read-only choices come from the stored offer, never from an answer or a fallback.
+  defp decision_read_blocks(%{decision_options: rule} = k, fact, key) when is_map(rule) do
+    text = get_in(fact, ["values", rule["definition"]])
+
+    case RelaDSL.DecisionOptions.decode_stored(rule, text) do
+      {:ok, choice} ->
+        options = RelaDSL.DecisionOptions.ordered(choice)
+        alone? = length(options) == 1
+
+        [
+          {"header", Blocks.header(key: key, title: choice["question"])},
+          {"why", Blocks.text(text: choice["rationale"])}
+        ] ++
+          for {option, n} <- Enum.with_index(options, 1),
+              do: decision_read_option(option, n, choice["recommended"], alone?)
+
+      _ ->
+        [{"header", Blocks.header(key: key, title: label(k, fact))}] ++
+          decision_recorded_outcome(k, fact, rule)
+    end
+  end
+
+  defp decision_read_blocks(_k, _fact, _key), do: []
+
+  defp decision_recorded_outcome(k, fact, rule) do
+    for property <- ~w(rule consequences),
+        name = get_in(rule, ["adopt", property]),
+        f = field(k, name),
+        f != nil,
+        value = get_in(fact, ["values", name]),
+        value not in [nil, ""],
+        do:
+          {"decision-#{name}",
+           Blocks.text(label: f.label, text: to_text(value), format: Map.get(f, :format))}
+  end
+
+  defp decision_read_option(option, n, recommended, alone?) do
+    fields =
+      for {label, field} <- [{"Rule", "rule"}, {"Consequences", "consequences"}],
+          is_binary(option[field]) and String.trim(option[field]) != "",
+          do: Blocks.pair(label: label, value: option[field])
+
+    {badge, _tone} = decision_read_badge(option, recommended, alone?, fields)
+    fields = [Blocks.pair(label: "Details", value: option["details"]) | fields]
+    fields = if badge, do: [Blocks.pair(label: "Note", value: badge) | fields], else: fields
+    title = if alone?, do: option["text"], else: "#{n}. #{option["text"]}"
+
+    {"option-#{n}", Blocks.item(title: title, fields: fields, actions: [])}
+  end
+
+  defp decision_read_badge(option, recommended, alone?, fields) do
+    cond do
+      alone? ->
+        {nil, nil}
+
+      option["id"] == recommended ->
+        {"★ Recommended", "success"}
+
+      is_binary(option["by"]) and fields == [] ->
+        {"#{option["by"]}'s alternative, to be worked out by the proposer", nil}
+
+      is_binary(option["by"]) ->
+        {"#{option["by"]}'s alternative", nil}
+
+      true ->
+        {nil, nil}
+    end
+  end
+
   # A decision's choice (`todo.choice`): the question, why, then each alternative to adopt
   # with its rule and what follows from it, one added from whoever declined marked as
   # theirs (`by`, D-0106): until its proposer works it out it has neither, and shows none.
@@ -4057,6 +4156,25 @@ defmodule AtlasControl.Pages do
       todo
     )
   end
+
+  defp page_panel_blocks(m, kind, key, fact, todo, %{"choose" => true} = panel, related, next) do
+    blocks =
+      stuck_blocks(m, kind, key, fact, todo, panel, related, next)
+      |> Enum.map(fn
+        {"header", block} -> {"decision-header", block}
+        other -> other
+      end)
+
+    {blocks, []}
+  end
+
+  defp page_panel_blocks(m, kind, key, fact, todo, %{} = panel, related, next) do
+    {block, _listed} = panel_block(m, kind, key, fact, todo, panel, related)
+    keys = for answer <- block["props"]["answers"] || [], do: answer["key"]
+    {[{"panel", block}], Enum.reject(next, &(&1["key"] in keys))}
+  end
+
+  defp page_panel_blocks(_m, _kind, _key, _fact, _todo, nil, _related, next), do: {[], next}
 
   # Stuck work, as the model's `panel` with `choose` declares it: its title as the
   # question, its byline, what went wrong (its `box`), then each answer as an option, the
@@ -4884,7 +5002,7 @@ defmodule AtlasControl.Pages do
   end
 
   # The facts this one points at, as lists to open them from: `[{id, {title, list}}]`.
-  defp parent_lists(m, kind, fact) do
+  defp parent_lists(m, kind, fact, related, by) do
     for r <- relations(m),
         kind in r.from,
         r.to != [],
@@ -4900,18 +5018,43 @@ defmodule AtlasControl.Pages do
 
       rows =
         for key <- Enum.sort_by(keys, &key_order/1), to = kind_of.(key), to != nil do
-          Blocks.row(
-            id: key,
-            label: singular(m, to),
-            kind: singular(m, to),
-            icon: kind_icon(m, to),
-            to: path({:item, to, key})
-          )
+          parent_row(m, to, key, related[{to, key}], by)
         end
 
       {"parent:" <> r.name, {String.capitalize(r.label), Blocks.list(rows: rows)}}
     end
   end
+
+  defp related_targets(answers) do
+    for answer <- answers,
+        target <- answer["related"] || [],
+        into: %{},
+        do: {{target["kind"], target["key"]}, target["answer"]}
+  end
+
+  defp parent_row(m, to, key, target, by) do
+    to_kind = kind(m, to) || unknown_kind(to)
+    fact = if is_map(target), do: target["fact"]
+    {tone, since} = if is_map(fact), do: status(fact, [fact], by), else: {nil, nil}
+
+    Blocks.row(
+      id: key,
+      label: if(is_map(fact), do: label(to_kind, fact), else: singular(m, to)),
+      detail: parent_detail(to_kind, fact, target),
+      kind: singular(m, to),
+      icon: kind_icon(m, to),
+      to: path({:item, to, key}),
+      tone: tone,
+      since: since || if(is_map(target), do: target["work_since"])
+    )
+  end
+
+  defp parent_detail(k, %{} = fact, target),
+    do: join_detail(detail(k, fact), if(is_map(target), do: target["work_error"]))
+
+  defp parent_detail(_k, _fact, %{"error" => error}) when is_binary(error), do: error
+  defp parent_detail(_k, _fact, %{"fact" => nil}), do: "Not found"
+  defp parent_detail(_k, _fact, _target), do: nil
 
   # The fact's web address, opened outside the client: its first field the model marks as
   # a URL, when it has a value. A client opens only http and https, and Control offers

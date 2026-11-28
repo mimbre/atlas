@@ -53,6 +53,35 @@ defmodule AtlasTui.DecisionTest do
     refute at(lines, "3. ")
   end
 
+  test "read-only alternatives retain their content without answer buttons" do
+    page = PanelFixture.page(:choice)
+
+    blocks =
+      for block <- page["blocks"], block["type"] != "answers" do
+        if block["type"] == "option" do
+          props = block["props"]
+
+          %{
+            "id" => block["id"],
+            "type" => "item",
+            "props" => %{
+              "title" => "#{props["n"]}. #{props["text"]}",
+              "fields" => props["fields"],
+              "actions" => []
+            }
+          }
+        else
+          block
+        end
+      end
+
+    model = page |> Map.put("blocks", blocks) |> PanelFixture.projected()
+    assert line(model, "1. Use files")
+    assert line(model, "2. Use memory")
+    assert line(model, "Store examples in files.")
+    assert Model.options(model) == []
+  end
+
   test "on a wide terminal the details stand beside the decision" do
     lines = lines(PanelFixture.model(:choice), 160)
     assert at(lines, "Status") < at(lines, "1. Use files")
