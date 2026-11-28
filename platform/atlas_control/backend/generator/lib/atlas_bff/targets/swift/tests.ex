@@ -8,7 +8,6 @@ defmodule AtlasBFF.Targets.Swift.Tests do
   import AtlasBFF.Targets.Swift, only: [member: 1, type_name: 1]
   alias AtlasBFF.Names
 
-  @depth 3
 
   @doc "`ContractTests.swift`."
   def contract(schema, channels, package) do
@@ -464,54 +463,9 @@ defmodule AtlasBFF.Targets.Swift.Tests do
 
   # --- Samples -------------------------------------------------------------------------
 
-  defp block_json(block, ctx, which),
-    do: %{
-      "id" => "b1",
-      "type" => to_string(block.name),
-      "props" => fields(block.fields, ctx, which, 0)
-    }
-
-  defp markup_json(kind, ctx, which),
-    do: %{
-      "kind" => to_string(kind.name),
-      "start" => "b1",
-      "end" => "b1",
-      "props" => fields(kind.fields, ctx, which, 0)
-    }
-
-  defp message_json(m, ctx) do
-    m.fields
-    |> Enum.map(&{&1.name, sample(&1.type, &1.name, ctx, :full, 0)})
-    |> Map.new()
-    |> Map.merge(Map.new(m.literals))
-  end
-
-  defp fields(fields, ctx, which, depth) do
-    for f <- fields, f.required or (which == :full and depth < @depth), into: %{} do
-      {to_string(f.name), sample(f.type, f.name, ctx, which, depth + 1)}
-    end
-  end
-
-  defp sample(:string, name, _ctx, _which, _depth), do: "#{name} 1"
-  defp sample(:integer, _name, _ctx, _which, _depth), do: 7
-  defp sample(:boolean, _name, _ctx, _which, _depth), do: true
-  defp sample(:map, _name, _ctx, _which, _depth), do: %{}
-  defp sample(:list, _name, _ctx, _which, _depth), do: []
-
-  defp sample({:map, inner}, name, ctx, which, depth),
-    do: %{"k" => sample(inner, name, ctx, which, depth)}
-
-  defp sample({:list, inner}, name, ctx, which, depth),
-    do: if(depth > @depth, do: [], else: [sample(inner, name, ctx, which, depth)])
-
-  defp sample(:"$block", _name, %{blocks: [block | _]} = ctx, _which, _depth),
-    do: block_json(block, ctx, :required)
-
-  defp sample(:"$markup", _name, %{markup: [kind | _]} = ctx, _which, _depth),
-    do: markup_json(kind, ctx, :required)
-
-  defp sample(model, _name, ctx, which, depth) when is_atom(model),
-    do: fields(Map.fetch!(ctx.models, model), ctx, which, depth)
+  defp block_json(block, ctx, which), do: AtlasBFF.Samples.block(block, ctx, which)
+  defp markup_json(kind, ctx, which), do: AtlasBFF.Samples.markup(kind, ctx, which)
+  defp message_json(message, ctx), do: AtlasBFF.Samples.message(message, ctx)
 
   # A value of another type than `type`.
   defp wrong(:string), do: 1

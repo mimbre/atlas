@@ -13,9 +13,10 @@ defmodule Mix.Tasks.Atlas.Gen do
   `contract` uses `AtlasBFF.Schema`; `targets` maps each file target to its folder, or to
   `{folder, options}` for a target that takes options;
   `root` (optional, default the project's folder) is what the header's path to the
-  contract file is relative to. The
-  file targets are `json` (`AtlasBFF.Targets.Json`) and `swift` (`AtlasBFF.Targets.Swift`,
-  option `package:`, the Swift package's name). Compile-time targets
+  contract file is relative to.
+  The file targets are `json` (`AtlasBFF.Targets.Json`), `fixtures`
+  (`AtlasBFF.Targets.Fixtures`, structural samples), and `swift`
+  (`AtlasBFF.Targets.Swift`, option `package:`). Compile-time targets
   (`AtlasBFF.Targets.Server`, `AtlasBFF.Targets.Client`) write no files.
 
   Every file starts with an `AtlasBFF.Header`. A file without exactly that header is
@@ -31,7 +32,7 @@ defmodule Mix.Tasks.Atlas.Gen do
 
   # Every file target has `files/2`: a contract's `__schema__/0` and the target's options
   # to `[{path, body}]`, paths relative to the target's folder.
-  @targets %{json: AtlasBFF.Targets.Json, swift: AtlasBFF.Targets.Swift}
+  @targets %{json: AtlasBFF.Targets.Json, swift: AtlasBFF.Targets.Swift, fixtures: AtlasBFF.Targets.Fixtures}
 
   @impl true
   def run(args) do

@@ -3,6 +3,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -11,12 +12,25 @@ HERE = Path(__file__).resolve().parent
 
 
 class ControlFixtureTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.temp.cleanup)
+        cls.artifact = Path(cls.temp.name) / 'product.json'
+        root = HERE.parents[1]
+        subprocess.run(
+            ['mix', 'run', '--no-start', str(HERE / 'product_generate.exs'), str(cls.artifact)],
+            cwd=root / 'products/software_factory',
+            env=dict(os.environ, MIX_ENV='test'),
+            check=True, timeout=120,
+        )
+
     def start_server(self, scenario):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0))
             port = probe.getsockname()[1]
         env = dict(os.environ, MIX_ENV='prod', ATLAS_ENV='prod', ATLAS_ENV_FILE='/nonexistent/production.json')
-        process = subprocess.Popen([sys.executable, str(HERE / 'server.py'), '--scenario', scenario, '--port', str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
+        process = subprocess.Popen([sys.executable, str(HERE / 'server.py'), '--scenario', scenario, '--port', str(port), '--artifact', str(self.artifact)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
         self.addCleanup(process.stderr.close)
         self.addCleanup(lambda: process.wait(timeout=10))
         self.addCleanup(process.terminate)

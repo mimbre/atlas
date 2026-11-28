@@ -99,15 +99,21 @@ For offline client presentation work, run the read-only JSON-lines Control endpo
 the repository root (Elixir/Mix and the software factory dependencies are required):
 
 ```sh
-(cd products/software_factory && MIX_ENV=test mix deps.get)
+bin/generate atlas model
+(cd products/software_factory && MIX_ENV=test mix deps.get && MIX_ENV=test mix run --no-start ../../tools/control-fixtures/product_generate.exs ../../tools/control-fixtures/.generated/product.json)
 python3 tools/control-fixtures/server.py --scenario decision --port 4747
 python3 -m unittest discover -s tools/control-fixtures -p 'test_server.py'
 ```
 
-The launcher forces Mix's `test` environment. It starts only a local in-process Bus and
-test FakeStore to feed synthetic facts through the real product model and Control's page
-builders, then stops the store; no Control, Facts, Rela or Flow server is started and no
-production environment configuration is read.
+`bin/generate atlas` produces the generic BFF fixture target in
+`platform/atlas_control/backend/targets/fixtures/`: required/full block and markup
+specimens and typed wire examples. They are structural samples, not semantic product
+pages or substitutes for real-client and real-server checks. The separate product
+generator feeds synthetic facts through the real product model and BFF using a local
+in-process Bus and test FakeStore, then writes native pages and boot shells for replay.
+Neither generation nor replay starts a Control, Facts, Rela or Flow server or reads
+production environment configuration. Regenerate the product artifact after BFF,
+product model or fixture-data changes; the server rejects a different contract version.
 
 Choose `decision`, `scene`, `todo`, `lists`, or `empty`; the selected scenario is the
 initial page, and the fixture tabs link the other examples. Connect either client to

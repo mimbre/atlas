@@ -1,7 +1,9 @@
 defmodule ControlFixtures.Scenarios do
   @moduledoc false
 
-  def tabs do
+  def tabs, do: :persistent_term.get({__MODULE__, :tabs})
+
+  def definitions do
     [
       {"decision", "Decisions", "/k/decision"},
       {"scene", "Scenes", "/k/scene"},
