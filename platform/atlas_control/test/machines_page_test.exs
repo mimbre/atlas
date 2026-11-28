@@ -175,7 +175,14 @@ defmodule AtlasControl.MachinesPageTest do
              "Policy version" => "3"
            }
 
-    assert page.markup == []
+    assert [
+             %{
+               "kind" => "part",
+               "start" => "identity",
+               "end" => "versions",
+               "props" => %{"title" => "Details", "role" => "details"}
+             }
+           ] = page.markup
   end
 
   test "missing machine details remain unknown without empty detail cards" do

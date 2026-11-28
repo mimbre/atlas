@@ -147,6 +147,7 @@ defmodule Model.OpenForYouTest do
     await(c.runs, fn -> read(c.runs, %{"key" => run})["fact"]["links"][relation] == ["ada"] end)
 
     assert tos(rows(render({:open_for_you, "ada"}, m), list)) == []
+    assert actions(render({:item, "issue", @issue}, m, %{by: "bea", by_kind: "person"})) == []
     assert tos(rows(render({:supervised_by_you, "ada"}, m), "list")) == [to]
 
     # (4) Its supervisor may hand it over (to bea), among the page's other actions.
