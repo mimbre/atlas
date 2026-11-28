@@ -728,9 +728,22 @@ defmodule Model.DecisionOptionsTest do
     header = Enum.find(blocks, &(&1["id"] == "header"))
     assert header["props"]["title"] == choice["question"]
     assert Enum.find(blocks, &(&1["id"] == "why"))["props"]["text"] == choice["rationale"]
-    cards = Enum.filter(blocks, &(&1["type"] == "option"))
-    assert Enum.map(cards, & &1["props"]["text"]) == Enum.map(choice["options"], & &1["text"])
-    assert Enum.all?(cards, &(not Map.has_key?(&1["props"], "answer")))
+    cards = Enum.filter(blocks, &String.starts_with?(&1["id"], "option-"))
+    assert Enum.all?(cards, &(&1["type"] == "item"))
+
+    titles =
+      Enum.with_index(choice["options"], 1) |> Enum.map(fn {o, n} -> "#{n}. #{o["text"]}" end)
+
+    assert Enum.map(cards, & &1["props"]["title"]) == titles
+
+    for {card, option} <- Enum.zip(cards, choice["options"]) do
+      assert card["props"]["actions"] == []
+
+      for field <- ~w(details rule consequences) do
+        assert Enum.any?(card["props"]["fields"], &(&1["value"] == option[field]))
+      end
+    end
+
     refute Enum.any?(blocks, &(&1["type"] == "answers"))
   end
 

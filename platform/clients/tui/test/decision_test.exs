@@ -54,15 +54,28 @@ defmodule AtlasTui.DecisionTest do
   end
 
   test "read-only alternatives retain their content without answer buttons" do
-    model = PanelFixture.model(:choice)
+    page = PanelFixture.page(:choice)
 
     blocks =
-      Enum.map(model.blocks, fn
-        %AtlasTui.Blocks.Option{} = option -> %{option | answer: nil}
-        block -> block
-      end)
+      for block <- page["blocks"], block["type"] != "answers" do
+        if block["type"] == "option" do
+          props = block["props"]
 
-    model = %{model | blocks: blocks}
+          %{
+            "id" => block["id"],
+            "type" => "item",
+            "props" => %{
+              "title" => "#{props["n"]}. #{props["text"]}",
+              "fields" => props["fields"],
+              "actions" => []
+            }
+          }
+        else
+          block
+        end
+      end
+
+    model = page |> Map.put("blocks", blocks) |> PanelFixture.projected()
     assert line(model, "1. Use files")
     assert line(model, "2. Use memory")
     assert line(model, "Store examples in files.")

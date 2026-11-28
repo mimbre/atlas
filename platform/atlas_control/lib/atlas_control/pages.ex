@@ -4095,17 +4095,12 @@ defmodule AtlasControl.Pages do
           is_binary(option[field]) and String.trim(option[field]) != "",
           do: Blocks.pair(label: label, value: option[field])
 
-    {badge, tone} = decision_read_badge(option, recommended, alone?, fields)
+    {badge, _tone} = decision_read_badge(option, recommended, alone?, fields)
+    fields = [Blocks.pair(label: "Details", value: option["details"]) | fields]
+    fields = if badge, do: [Blocks.pair(label: "Note", value: badge) | fields], else: fields
+    title = if alone?, do: option["text"], else: "#{n}. #{option["text"]}"
 
-    {"option-#{n}",
-     Blocks.option(
-       n: n,
-       text: option["text"],
-       badge: badge,
-       tone: tone,
-       fields: fields,
-       alone: if(alone?, do: true)
-     )}
+    {"option-#{n}", Blocks.item(title: title, fields: fields, actions: [])}
   end
 
   defp decision_read_badge(option, recommended, alone?, fields) do

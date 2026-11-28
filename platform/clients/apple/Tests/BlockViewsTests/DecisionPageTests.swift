@@ -88,22 +88,24 @@ final class DecisionPageTests: XCTestCase {
             if entry.id == id, case .text(let block) = entry.item { block } else { nil }
         }.first
     }
+
     func testReadOnlyOptionsKeepContentWithoutActions() throws {
         let blocks: [[String: Any]] = [
-            ["id": "option-1", "type": "option", "props": [
-                "n": 1, "text": "Use SQLite",
+            ["id": "option-1", "type": "item", "props": [
+                "title": "1. Use SQLite", "actions": [],
                 "fields": [["label": "Rule", "value": "Store examples in SQLite."]]
             ]],
-            ["id": "option-2", "type": "option", "props": [
-                "n": 2, "text": "Use Postgres",
+            ["id": "option-2", "type": "item", "props": [
+                "title": "2. Use Postgres", "actions": [],
                 "fields": [["label": "Consequences", "value": "A server to run."]]
             ]],
         ]
         let page = try Self.page("/k/decision/D-7", blocks)
-        let options = Self.options(page)
-        XCTAssertEqual(options.compactMap(\.text), ["Use SQLite", "Use Postgres"])
-        XCTAssertEqual(Option.fields(options[0]).first?.value, "Store examples in SQLite.")
-        XCTAssertTrue(options.allSatisfy { Option.action($0) == nil && Option.actions($0).isEmpty })
+        let items = PagePresentation(page).entries.compactMap { entry -> ItemBlock? in
+            if case .item(let item) = entry.item { item } else { nil }
+        }
+        XCTAssertEqual(items.compactMap(\.title), ["1. Use SQLite", "2. Use Postgres"])
+        XCTAssertEqual(items[0].fields?.first?.value, "Store examples in SQLite.")
         XCTAssertTrue(PageActions.all(page).isEmpty)
     }
 

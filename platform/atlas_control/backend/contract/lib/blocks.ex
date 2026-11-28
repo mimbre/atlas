@@ -80,17 +80,17 @@ defmodule AtlasBFFContract.Blocks do
       # One adopt option of a decision, one block per option in Control's order (the
       # recommended one first): its number `n` (from 1), its `text`, a `badge` in its
       # `tone` (success: "★ Recommended"), what it means (`fields`: its Rule and what
-      # follows Then) and, when offered, its own `answer`, the page's action of the same
-      # key. Read-only options have no answer. Since 0.38.0 a decline is no option block but
-      # the page's decline answer (Decline, Decline all) in the `answers` block below.
-      # `alone`: the only proposal; its answer is that block's Accept.
+      # follows Then) and its own `answer`, the page's action of the same key. Since 0.38.0
+      # a decline is no option block but the page's decline answer (Decline, Decline all)
+      # in the `answers` block below. `alone`: the only proposal; its answer is that
+      # block's Accept, so a client shows no answer on the card.
       defblock :option do
         field :n, :integer, required: true
         field :text, :string, required: true
         field :badge, :string
         field :tone, :string
         field :fields, {:list, :pair}, required: true
-        field :answer, :panel_answer
+        field :answer, :panel_answer, required: true
         field :alone, :boolean
       end
 

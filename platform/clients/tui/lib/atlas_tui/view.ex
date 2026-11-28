@@ -1430,8 +1430,6 @@ defmodule AtlasTui.View do
   # An option's answer on its key, as far as Control projects it (`answer_key/1`: Choose);
   # on the selected option, Enter that answers it as its key does and,
   # among more options, the arrows that select; wrapped at `width`.
-  defp option_answer(nil, _selected, _options, _model, _width), do: []
-
   defp option_answer(answer, selected, options, model, width) do
     if MapSet.member?(projected_keys(model), answer.key) do
       [
