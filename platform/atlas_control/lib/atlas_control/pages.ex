@@ -2540,9 +2540,10 @@ defmodule AtlasControl.Pages do
           true ->
             ids = for {id, _} <- references, do: id
             others = others_block(more)
+            head = decision_read_blocks(k, fact, key) |> iconed(kind_icon(m, kind))
 
             main =
-              Blocks.part("item", if(others == [], do: "item", else: "actions"),
+              Blocks.part(decision_start(head), if(others == [], do: "item", else: "actions"),
                 title: "Content",
                 role: "main"
               )
@@ -2558,7 +2559,7 @@ defmodule AtlasControl.Pages do
               end
 
             {item, detail_blocks, technical} = decision_details(m, k, fact, item)
-            content = [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
+            content = head ++ [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
             markup = markup ++ details_part(detail_blocks ++ technical)
 
             # Its owner's part first: what to do (IS-Atlas-54).
@@ -4043,6 +4044,78 @@ defmodule AtlasControl.Pages do
         do: [],
         else: [{"answers", answers_block(next, todo.answers)}]
       )
+  end
+
+  defp decision_start([{id, _} | _]), do: id
+  defp decision_start([]), do: "item"
+
+  # Read-only choices come from the stored offer, never from an answer or a fallback.
+  defp decision_read_blocks(%{decision_options: rule} = k, fact, key) when is_map(rule) do
+    text = get_in(fact, ["values", rule["definition"]])
+
+    case RelaDSL.DecisionOptions.decode_stored(rule, text) do
+      {:ok, choice} ->
+        options = RelaDSL.DecisionOptions.ordered(choice)
+        alone? = length(options) == 1
+
+        [
+          {"header", Blocks.header(key: key, title: choice["question"])},
+          {"why", Blocks.text(text: choice["rationale"])}
+        ] ++
+          for {option, n} <- Enum.with_index(options, 1),
+              do: decision_read_option(option, n, choice["recommended"], alone?)
+
+      _ ->
+        [{"header", Blocks.header(key: key, title: label(k, fact))}] ++
+          decision_recorded_outcome(k, fact, rule)
+    end
+  end
+
+  defp decision_read_blocks(_k, _fact, _key), do: []
+
+  defp decision_recorded_outcome(k, fact, rule) do
+    for property <- ~w(rule consequences),
+        name = get_in(rule, ["adopt", property]),
+        f = field(k, name),
+        f != nil,
+        value = get_in(fact, ["values", name]),
+        value not in [nil, ""],
+        do:
+          {"decision-#{name}",
+           Blocks.text(label: f.label, text: to_text(value), format: Map.get(f, :format))}
+  end
+
+  defp decision_read_option(option, n, recommended, alone?) do
+    fields =
+      for {label, field} <- [{"Rule", "rule"}, {"Consequences", "consequences"}],
+          is_binary(option[field]) and String.trim(option[field]) != "",
+          do: Blocks.pair(label: label, value: option[field])
+
+    {badge, _tone} = decision_read_badge(option, recommended, alone?, fields)
+    fields = [Blocks.pair(label: "Details", value: option["details"]) | fields]
+    fields = if badge, do: [Blocks.pair(label: "Note", value: badge) | fields], else: fields
+    title = if alone?, do: option["text"], else: "#{n}. #{option["text"]}"
+
+    {"option-#{n}", Blocks.item(title: title, fields: fields, actions: [])}
+  end
+
+  defp decision_read_badge(option, recommended, alone?, fields) do
+    cond do
+      alone? ->
+        {nil, nil}
+
+      option["id"] == recommended ->
+        {"★ Recommended", "success"}
+
+      is_binary(option["by"]) and fields == [] ->
+        {"#{option["by"]}'s alternative, to be worked out by the proposer", nil}
+
+      is_binary(option["by"]) ->
+        {"#{option["by"]}'s alternative", nil}
+
+      true ->
+        {nil, nil}
+    end
   end
 
   # A decision's choice (`todo.choice`): the question, why, then each alternative to adopt

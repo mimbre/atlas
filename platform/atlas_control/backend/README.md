@@ -144,6 +144,8 @@ A decision is a stack of simple blocks instead (D-0104), in place of the `todo` 
 
 For a kind whose single-choice rule declares `details`, Control groups the named fields in model order, leaving absent fields out. Prior offer revisions show their question, rationale, recommendation, option substance, recorded content and links; revisions with identical definitions but different content remain distinct. The exact stored definition, selected definition, revision and history remain in separate standalone blocks after the grouped details, with no collapsible section or nested Details card. Clients render the same blocks at narrow and wide widths without interpreting the kind or the stored JSON.
 
+For other viewers and completed decisions, the same header and one read-only `item` per alternative show the stored offer, without answer actions. These use the existing 0.46.0 contract and work with older clients. A decision without a valid stored offer has a header and its recorded fields instead: Control does not invent an option or an outcome. Existing permitted page actions and all recorded details remain available.
+
 Standalone detail blocks and their related sections share a `Details` part. Clients can
 place that part beside the main content or below it without merging or hiding its blocks.
 
