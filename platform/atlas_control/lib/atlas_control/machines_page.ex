@@ -315,8 +315,16 @@ defmodule AtlasControl.MachinesPage do
       name(fact, c),
       back,
       head ++ health ++ lists ++ answers ++ actions ++ details,
-      if(late, do: [Blocks.highlight("health", "health-error", tone: "error")], else: [])
+      if(late, do: [Blocks.highlight("health", "health-error", tone: "error")], else: []) ++
+        details_part(details)
     )
+  end
+
+  defp details_part([]), do: []
+
+  defp details_part([{first, _} | _] = details) do
+    {last, _} = List.last(details)
+    [Blocks.part(first, last, title: "Details", role: "details")]
   end
 
   defp upgrade_page(route, fact, c) do

@@ -54,6 +54,20 @@ final class PagePresentationTests: XCTestCase {
         XCTAssertEqual(list.rows?.map(\.to), ["/k/widget/W-01"])
     }
 
+    func testRelatedRowsKeepTheControlCardFieldsAndLink() throws {
+        let rows: JSONValue = .array([.object([
+            "id": .string("K-1"), "label": .string("Keeper"), "kind": .string("Keeper"),
+            "to": .string("/k/keeper/K-1"),
+        ])])
+        let presentation = PagePresentation(try page([block("list", ["rows": rows], id: "parent:held_by")]))
+        guard case .list(let list) = presentation.entries[0].item, let row = list.rows?.first
+        else { return XCTFail("related row lost") }
+        XCTAssertEqual(RowCardText.top(row).text, "KEEPER · K-1")
+        XCTAssertEqual(row.label, "Keeper")
+        XCTAssertEqual(row.to, "/k/keeper/K-1")
+        XCTAssertNil(row.since)
+    }
+
     func testValidItemsKeepFullFieldsAlongsideIncompleteAndUnknownBlocks() throws {
         let full = "First line\n\n" + String(repeating: "complete detail ", count: 100) + "\nLast line"
         let item = block("item", [

@@ -221,7 +221,7 @@ defmodule Model.ControlViewsTest do
              "Not accepted"
            ]
 
-    refute Enum.any?(page.markup, &(&1["kind"] == "part" and &1["props"]["role"] == "details"))
+    assert Enum.any?(page.markup, &(&1["kind"] == "part" and &1["props"]["role"] == "details"))
   end
 
   test "sparse Plan acceptance and a non-owner retain their existing behavior" do
@@ -248,9 +248,6 @@ defmodule Model.ControlViewsTest do
     page = AtlasControl.Pages.render({:item, "scene", "SC-Atlas-01"}, m, answers)
     header = Enum.find(page.blocks, &(&1["id"] == "header"))["props"]
     assert header["title"] == "Write the first scene"
-    item = Enum.find(page.blocks, &(&1["id"] == "page-detail-3"))["props"]
-    assert item["title"] == "Scene"
-    assert Enum.any?(item["fields"], &(&1["label"] == "Title"))
 
     %{blocks: [%{"props" => list}]} =
       AtlasControl.Pages.render({:list, "scene"}, m, [%{"facts" => [scene]}])
@@ -301,8 +298,16 @@ defmodule Model.ControlViewsTest do
           pair <- block["props"]["fields"],
           do: pair
 
-    assert Enum.any?(fields, &(&1["value"] == "What happens next?"))
-    assert Enum.any?(fields, &(&1["value"] == "The producer answered."))
+    refute Enum.any?(
+             fields,
+             &(&1["value"] in [
+                 scene["values"]["title"],
+                 scene["values"]["description"],
+                 "What happens next?",
+                 "The producer answered."
+               ])
+           )
+
     assert Enum.any?(fields, &(&1["value"] == "123"))
   end
 
@@ -355,22 +360,23 @@ defmodule Model.ControlViewsTest do
 
     page = AtlasControl.Pages.render(route, m, answers)
     details = Enum.filter(page.blocks, &String.starts_with?(&1["id"], "page-detail-"))
-    assert Enum.map(details, & &1["props"]["title"]) == ["Design", "People", "Progress", "Scene"]
-    people = Enum.at(details, 1)["props"]["fields"]
+    assert Enum.map(details, & &1["props"]["title"]) == ["People", "Progress", "Scene"]
+    people = Enum.at(details, 0)["props"]["fields"]
     assert Enum.any?(people, &(&1["value"] == "ada" and &1["origin"]["cause"] == "Created"))
-    assert Enum.any?(Enum.at(details, 2)["props"]["fields"], &(&1["value"] == "2"))
-    assert Enum.any?(Enum.at(details, 3)["props"]["fields"], &(&1["value"] == "123"))
+    assert Enum.any?(Enum.at(details, 1)["props"]["fields"], &(&1["value"] == "2"))
+    assert Enum.any?(Enum.at(details, 2)["props"]["fields"], &(&1["value"] == "123"))
 
     assert Enum.any?(
              page.blocks,
              &(&1["id"] == "item" and &1["props"]["title"] == "Other details")
            )
 
-    refute Enum.any?(
-             page.markup,
-             &(get_in(&1, ["props", "collapsible"]) == true or
-                 get_in(&1, ["props", "role"]) == "details")
-           )
+    assert Enum.any?(page.markup, fn mark ->
+             mark["kind"] == "part" and mark["start"] == hd(details)["id"] and
+               get_in(mark, ["props", "role"]) == "details"
+           end)
+
+    refute Enum.any?(page.markup, &(get_in(&1, ["props", "collapsible"]) == true))
   end
 
   test "a failed use case read is shown on the scene page" do
@@ -456,7 +462,7 @@ defmodule Model.ControlViewsTest do
     assert [%{"id" => "D-0001", "to" => "/k/decision/D-0001"}] =
              blocks["parent:based_on"]["props"]["rows"]
 
-    refute Enum.any?(page.markup, &(&1["kind"] == "part" and &1["props"]["role"] == "details"))
+    assert Enum.any?(page.markup, &(&1["kind"] == "part" and &1["props"]["role"] == "details"))
 
     sparse = put_in(fact, ["values"], %{"title" => "Rotate the key", "instructions" => "Tidy it"})
     sparse = put_in(sparse, ["links"], %{})
