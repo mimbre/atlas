@@ -48,8 +48,16 @@ class ControlFixtureTest(unittest.TestCase):
                 self.assertEqual(welcome['surface'], 'console')
                 first = json.loads(stream.readline())
                 self.assertEqual(first['path'], path)
-                if scenario in {'decision', 'scene', 'todo'}:
-                    title = {'decision': 'How do we store examples?', 'scene': 'Make examples easy to inspect', 'todo': 'Prepare the local examples'}[scenario]
+                if scenario == 'decision':
+                    source = HERE.parents[1] / 'products/software_factory/e2e/fixtures/decision-options.json'
+                    offer = json.loads(source.read_text())
+                    self.assertTrue(any(block['type'] == 'header' and block['props'].get('title') == offer['question'] for block in first['blocks']))
+                    self.assertEqual(
+                        {block['props']['text'] for block in first['blocks'] if block['type'] == 'option'},
+                        {option['text'] for option in offer['options']},
+                    )
+                elif scenario in {'scene', 'todo'}:
+                    title = {'scene': 'Make examples easy to inspect', 'todo': 'Prepare the local examples'}[scenario]
                     self.assertTrue(any(block.get('props', {}).get('title') == title for block in first['blocks']))
                 self.assertTrue(any(block['type'] == 'console_action' for block in first['blocks']))
                 shell = self.exchange(stream, {'op': 'boot'})

@@ -7,6 +7,11 @@ defmodule ControlFixtures.ProductPagesTest do
 
   test "product BFF renders synthetic decisions, scenes, to-dos and lists for both surfaces" do
     pages = ControlFixtures.ProductPages.build!()
+    offer =
+      __DIR__
+      |> Path.join("../../products/software_factory/e2e/fixtures/decision-options.json")
+      |> File.read!()
+      |> JSON.decode!()
     tabs = [
       %{"id" => "decision", "label" => "Decisions", "to" => "/k/decision", "section" => "work"},
       %{"id" => "scene", "label" => "Scenes", "to" => "/k/scene", "section" => "work"},
@@ -14,7 +19,7 @@ defmodule ControlFixtures.ProductPagesTest do
     ]
 
     for {path, title} <- [
-          {"/k/decision/D-7", "How do we store examples?"},
+          {"/k/decision/D-7", offer["question"]},
           {"/k/scene/SC-1", "Make examples easy to inspect"},
           {"/k/to_do/TD-12", "Prepare the local examples"}
         ] do
@@ -30,6 +35,7 @@ defmodule ControlFixtures.ProductPagesTest do
     end
 
     assert Enum.any?(pages["/k/to_do/TD-12"]["blocks"], &(&1["type"] == "instruction"))
-    assert Enum.any?(pages["/k/decision/D-7"]["blocks"], &(&1["type"] == "option"))
+    options = for %{"type" => "option", "props" => props} <- pages["/k/decision/D-7"]["blocks"], do: props["text"]
+    assert Enum.sort(options) == Enum.sort(Enum.map(offer["options"], & &1["text"]))
   end
 end
