@@ -1145,7 +1145,7 @@ defmodule AtlasTui.View do
         value_width = max(width - padding, 1)
 
         rows =
-          if pair.syntax == "markdown" do
+          if Map.get(pair, :syntax) == "markdown" do
             AtlasTui.Markdown.render(pair.value || "—", value_width, &display_width/1)
           else
             Enum.map(detail_wrap(pair.value || "—", value_width), &[text_row(&1)])
