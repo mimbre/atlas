@@ -287,6 +287,35 @@ final class PagePresentationTests: XCTestCase {
         XCTAssertEqual(chart.plain.lines, ["Up 3%"])
     }
 
+    func testDefinedUnknownUsesTheSameFallbackPresentationAsAnUnrecognizedType() throws {
+        let props: [String: JSONValue] = [
+            "title": .string("Example"), "text": .string("First"),
+            "lines": .array([.string("Second"), .string("Third")]),
+        ]
+        let defined = block("unknown", props, id: "defined")
+        let future = block("future_block", props, id: "future")
+        let empty = block("unknown", [:], id: "empty")
+        guard case .unknown = Block(raw: defined).content,
+              case .fallback(let wireFallback) = Block(raw: future).content
+        else { return XCTFail("wire types did not decode distinctly") }
+        XCTAssertEqual(wireFallback.reason, .unknownType)
+        XCTAssertEqual(wireFallback.raw, future)
+
+        let presentation = PagePresentation(try page([defined, future, empty, block("list", ["rows": .array([])])]))
+        guard case .fallback(let shown) = presentation.entries[0].item,
+              case .fallback(let unrecognized) = presentation.entries[1].item,
+              case .fallback(let placeholder) = presentation.entries[2].item,
+              case .list = presentation.entries[3].item
+        else { return XCTFail("fallbacks or following block lost") }
+        XCTAssertEqual(shown.type, "unknown")
+        XCTAssertEqual(shown.reason, .unknownType)
+        XCTAssertEqual(shown.plain.title, unrecognized.plain.title)
+        XCTAssertEqual(shown.plain.lines, ["First", "Second", "Third"])
+        XCTAssertEqual(shown.plain.lines, unrecognized.plain.lines)
+        XCTAssertNil(placeholder.plain.title)
+        XCTAssertTrue(placeholder.plain.lines.isEmpty)
+    }
+
     func testAKnownBlockMissingAPropertyStillShows() throws {
         let rowless = block("list", ["title": .string("Work")], id: "rowless")
         let textless = block("text", ["label": .string("Why")], id: "textless")

@@ -12,6 +12,11 @@ defmodule AtlasBFFContract.FixturesTargetTest do
     control = Enum.find(fixtures["channels"], &(&1["channel"] == "control"))
     assert Enum.any?(control["messages"], &(&1["sample"]["op"] == "boot"))
     assert Enum.any?(control["messages"], &(&1["sample"]["op"] == "page"))
+    unknown = Enum.find(fixtures["blocks"], &(&1["name"] == "unknown"))
+    assert unknown
+    assert Enum.sort(unknown["optional"]) == ~w(lines text title)
+    assert Enum.any?(unknown["variants"], &(&1["sample"]["type"] == "unknown"))
+
     models = Map.new(schema.models, &{&1.name, &1.fields})
 
     for {kind, definitions} <- [
