@@ -72,6 +72,22 @@ defmodule AtlasTui.TolerantReaderTest do
     refute text =~ "/k/plan/1"
   end
 
+  test "the defined unknown block uses the same plain rendering as an unrecognized type" do
+    props = %{"title" => "Example", "text" => "First", "lines" => ["Second", "Third"]}
+    defined = %{"type" => "unknown", "id" => "example", "props" => props}
+    future = %{defined | "type" => "future_block"}
+
+    assert %Blocks.Unknown{title: "Example", text: "First", lines: ["Second", "Third"]} =
+             Blocks.decode(defined)
+
+    assert %Blocks.Fallback{type: "future_block", reason: "unknown block"} = Blocks.decode(future)
+    assert screen(model(page([defined, @row]))) == screen(model(page([future, @row])))
+
+    empty = %{defined | "props" => %{}}
+    assert screen(model(page([empty, @row]))) =~ "(a unknown block this TUI cannot show)"
+    assert screen(model(page([empty, @row]))) =~ "Still here"
+  end
+
   test "a property of another type than this TUI knows is left out, never a crash" do
     odd = %{"type" => "list", "id" => "odd", "props" => %{"title" => 7, "rows" => "many"}}
     assert screen(model(page([odd, @row]))) =~ "Still here"
