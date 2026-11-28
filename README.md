@@ -93,6 +93,24 @@ bin/atlas-dev e2e --env test                               # the end-to-end test
 node --test platform/ops/ci/tested-tree.test.mjs           # CI's tested-tree record (Node 18+)
 ```
 
+### Shared Control fixtures
+
+For offline client presentation work, run the read-only JSON-lines Control endpoint from
+the repository root (Elixir/Mix and the Control dependencies are required):
+
+```sh
+python3 tools/control-fixtures/server.py --scenario decision --port 4747
+python3 -m unittest discover -s tools/control-fixtures -p 'test_server.py'
+```
+
+Choose `decision`, `scene`, `todo`, `lists`, or `empty`; the selected scenario is the
+initial page, and the fixture tabs link the other examples. Connect either client to
+`127.0.0.1:4747` in the `test` environment. A Console-surface hello receives Control's
+actual Console action projection; a native hello receives the same unprojected content.
+The fixture implements hello, boot, open and refresh only. It explicitly rejects unknown
+pages and operations, including submits: the visible examples do not write any data and
+are not a substitute for real-server or mutation verification. Stop it with Ctrl-C.
+
 Four commands, each with its own purpose:
 
 - `atlas`: Control's client. The Console (`atlas tui`), the agents' commands on facts, and provisioning (`atlas help`).
