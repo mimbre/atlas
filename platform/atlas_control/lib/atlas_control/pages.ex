@@ -2276,13 +2276,12 @@ defmodule AtlasControl.Pages do
             Enum.all?(rel(m, name).to, fn to -> Enum.any?(parts, &(elem(&1, 0) == to)) end)
         end
 
+        parents = parent_lists(m, kind, fact, target_map, form[:by])
+
         references =
           Enum.map(lists, &elem(&1, 1)) ++
             cause_lists(m, key, cause_answers, form[:by]) ++
-            Enum.reject(
-              parent_lists(m, kind, fact, target_map, form[:by]),
-              &component.(elem(&1, 0))
-            ) ++
+            Enum.reject(parents, &component.(elem(&1, 0))) ++
             if(deciding,
               do: [],
               else:
