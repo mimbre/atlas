@@ -103,7 +103,8 @@ defmodule AtlasBFFContract.Contract do
   # 0.44.0: headers may show state and age, and lists may show an aside.
   # 0.45.0: shell tabs no longer carry groups; group navigation remains in list pages.
   # 0.46.0: text blocks and labelled values may explicitly declare Markdown.
-  version "0.46.0"
+  # 0.47.0: text and pair syntax replaces format; coordinated client update required.
+  version "0.47.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

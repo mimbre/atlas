@@ -45,7 +45,7 @@ defmodule RelaDSL.Description.OfficeTest do
 
     assert letter.extension["properties"]["body"] == %{
              "multiline" => true,
-             "format" => "markdown"
+             "syntax" => "markdown"
            }
 
     assert letter.schema["properties"]["title"]["required"] == true

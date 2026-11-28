@@ -493,7 +493,7 @@ struct ItemBlockView: View {
                         Text(label).prism(Prism.Typography.label)
                             .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
-                    FormattedText(text: field.value ?? "—", format: field.format).prism(Prism.Typography.bodysmall)
+                    FormattedText(text: field.value ?? "—", syntax: field.syntax).prism(Prism.Typography.bodysmall)
                         .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.primary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

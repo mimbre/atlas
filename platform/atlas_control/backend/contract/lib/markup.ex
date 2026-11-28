@@ -6,7 +6,7 @@ defmodule AtlasBFFContract.Markup do
   defmacro __using__(_opts) do
     quote do
       defmarkup :legend do
-        field :title, :string, required: true
+        field :title, :string, intent: :title, required: true
         field :context, :string, required: true
       end
 
@@ -21,13 +21,13 @@ defmodule AtlasBFFContract.Markup do
       # decides; the one part that may stand beside blocks in no part, as the page's last
       # stretch). Parts do not nest in parts; sections nest in parts.
       defmarkup :part do
-        field :title, :string, required: true
+        field :title, :string, intent: :title, required: true
         field :role, :string, required: true
       end
 
       # A titled stretch of the view; legacy collapsible markup is shown expanded.
       defmarkup :section do
-        field :title, :string, required: true
+        field :title, :string, intent: :title, required: true
         field :collapsible, :boolean
       end
 

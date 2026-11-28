@@ -2408,7 +2408,7 @@ defmodule AtlasControl.Pages do
                   do: [],
                   else: [
                     {"intro",
-                     Blocks.text(text: text, format: Map.get(field(k, intro) || %{}, :format))}
+                     Blocks.text(text: text, syntax: Map.get(field(k, intro) || %{}, :syntax))}
                   ]
                 ) ++
                 for(
@@ -2422,7 +2422,7 @@ defmodule AtlasControl.Pages do
                      Blocks.text(
                        label: f.label,
                        text: to_text(value),
-                       format: Map.get(f, :format)
+                       syntax: Map.get(f, :syntax)
                      )}
                 ) ++
                 todo_blocks ++
@@ -3998,7 +3998,7 @@ defmodule AtlasControl.Pages do
           Blocks.pair(
             label: f.label,
             value: show(f, value) <> late(k, fact, f.name),
-            format: Map.get(f, :format)
+            syntax: Map.get(f, :syntax)
           )
         ],
         else: []
@@ -4161,7 +4161,7 @@ defmodule AtlasControl.Pages do
         normalize_text(to_text(value)) not in ["", "—"],
         do:
           {"decision-#{name}",
-           Blocks.text(label: f.label, text: to_text(value), format: Map.get(f, :format))}
+           Blocks.text(label: f.label, text: to_text(value), syntax: Map.get(f, :syntax))}
   end
 
   defp decision_read_option(option, n, recommended, alone?) do
