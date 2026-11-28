@@ -146,6 +146,10 @@ For a kind whose single-choice rule declares `details`, Control groups the named
 
 For other viewers and completed decisions, the same header and one read-only `item` per alternative show the stored offer, without answer actions. These use the existing 0.46.0 contract and work with older clients. A decision without a valid stored offer has a header and its recorded fields instead: Control does not invent an option or an outcome. Existing permitted page actions and all recorded details remain available.
 
+On these read-only pages, the header and outcome are not repeated in the details, and
+empty values (including the stored `—` placeholder) are omitted. Other details, grouped
+fields, stored offer records and related lists remain in the adaptive Details part.
+
 Standalone detail blocks and their related sections share a `Details` part. Clients can
 place that part beside the main content or below it without merging or hiding its blocks.
 

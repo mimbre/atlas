@@ -557,14 +557,70 @@ defmodule Model.DecisionOptionsTest do
     assert blocks["decision-consequences"]["props"]["text"] == "The recorded consequences"
     refute Enum.any?(page.blocks, &(&1["type"] in ["option", "answers"]))
 
-    for value <- ["The recorded rule", "The recorded context", "The recorded consequences"] do
-      assert Enum.any?(blocks["item"]["props"]["fields"], &(&1["value"] == value))
-    end
+    fields = blocks["item"]["props"]["fields"]
+    assert Enum.any?(fields, &(&1["value"] == "The recorded context"))
+    refute Enum.any?(fields, &(&1["value"] in ["The recorded rule", "The recorded consequences"]))
 
     refute blocks["decision-history-1"]
     refute blocks["page-detail-1"]
     refute blocks["decision-raw-options"]
     assert hd(blocks["decision-raw-option_history"]["props"]["fields"])["value"] == "not JSON"
+  end
+
+  test "read-only decisions keep useful details and controls without repeating their content" do
+    m = AtlasControl.Model.catalog(Model.AtlasEyra)
+    route = {:item, "decision", "D-private"}
+
+    for options <- [nil, @text] do
+      fact =
+        current(options)
+        |> Map.put("key", "D-private")
+        |> put_in(["values", "status"], "accepted")
+        |> update_in(
+          ["values"],
+          &Map.merge(&1, %{
+            "decision" => "A recorded rule",
+            "context" => "Important context",
+            "consequences" => "—",
+            "enforced_by" => "—",
+            "scope" => "platform"
+          })
+        )
+        |> put_in(["links", "decided_by"], ["ada"])
+
+      reads = AtlasControl.Pages.reads(route, m)
+      answers = [%{"fact" => fact} | for(_ <- tl(reads), do: %{"facts" => []})]
+      page = AtlasControl.Pages.render(route, m, answers, %{by: "ada", by_kind: "person"})
+      blocks = Map.new(page.blocks, &{&1["id"], &1})
+      fields = for block <- page.blocks, field <- block["props"]["fields"] || [], do: field
+
+      refute blocks["decision-consequences"]
+      refute Enum.any?(fields, &(&1["value"] == "—"))
+      refute Enum.any?(fields, &(&1["label"] == "Id"))
+      assert Enum.any?(fields, &(&1["value"] == "Important context"))
+      assert Enum.any?(fields, &(&1["value"] == "ada"))
+      assert Enum.any?(page.markup, &(get_in(&1, ["props", "role"]) == "details"))
+      assert Enum.any?(blocks["actions"]["props"]["actions"], &(&1["key"] == "u"))
+
+      if options == nil do
+        refute Enum.any?(fields, &(&1["value"] in ["Example", "A recorded rule"]))
+        assert blocks["decision-decision"]["props"]["text"] == "A recorded rule"
+      else
+        assert Enum.any?(fields, &(&1["value"] == "Example"))
+        assert blocks["header"]["props"]["title"] != "Example"
+      end
+
+      message = %{
+        "path" => "/k/decision/D-private",
+        "blocks" => page.blocks,
+        "markup" => page.markup
+      }
+
+      assert {:ok, projected} =
+               AtlasControl.Console.project(message, Model.AtlasEyra.shell(%{})["tabs"])
+
+      assert {:ok, _} = AtlasBFFContract.Console.compile(projected)
+    end
   end
 
   test "unselected current offers use full content identity, not definition text" do
