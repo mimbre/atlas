@@ -104,7 +104,7 @@ defmodule Model.OpenForYouTest do
   test "an open issue is open for a person, who picks it up, then supervises it", c do
     m = c.m
     span = Enum.find(Pages.open_for_you_rule(m).spans, &(&1.subflow == "issue"))
-    list = "list:#{span.subflow}:#{span.span}"
+    list = "list"
     to = Pages.path({:item, "issue", @issue})
 
     # No coordinator: the model's default owner of the issue's work does not exist.
@@ -164,8 +164,7 @@ defmodule Model.OpenForYouTest do
 
   test "the numbered issues of a use case are picked up in order: a later one waits", c do
     m = c.m
-    span = Enum.find(Pages.open_for_you_rule(m).spans, &(&1.subflow == "issue"))
-    list = "list:#{span.subflow}:#{span.span}"
+    list = "list"
 
     put("use_case", %{
       "op" => "create",
