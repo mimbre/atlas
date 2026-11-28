@@ -66,7 +66,8 @@ defmodule AtlasFacts.Server do
   @recovery "_flow_recovery"
   # How many reads one page may ask for, and what each may say (no other query context).
   @page_reads 64
-  @page_read_keys ~w(key linked plain incoming presentation)
+  @page_read_keys ~w(key linked plain incoming presentation related)
+  @related_reads 64
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
 
@@ -986,6 +987,7 @@ defmodule AtlasFacts.Server do
         {answers, state} =
           Enum.map_reduce(reads, Map.put(state, :page_lists, key), fn [kind, read], state ->
             {answer, state} = page_answer(state, kind, read)
+            {answer, state} = related_answers(state, kind, read, answer, key)
             {Map.put(answer, "position", read_position(state)), state}
           end)
 
@@ -1024,6 +1026,68 @@ defmodule AtlasFacts.Server do
       {:error, reason, state} -> {%{"error" => reason, "error_kind" => "answered"}, state}
     end
   end
+
+  # Resolve only links from the requested fact, at the same snapshot and under the same
+  # page authorization. The page-wide cap leaves excess links usable without enrichment.
+  defp related_answers(
+         state,
+         kind,
+         %{"related" => true, "key" => _},
+         %{"fact" => %{} = fact} = answer,
+         page
+       ) do
+    targets = related_targets(state.description, kind, fact)
+
+    cache = Process.get(page)
+    remaining = max(@related_reads - map_size(Map.get(cache, :related, %{})), 0)
+    previous = Map.get(cache, :related, %{})
+
+    wanted =
+      Enum.filter(targets, &Map.has_key?(previous, &1)) ++
+        (targets |> Enum.reject(&Map.has_key?(previous, &1)) |> Enum.take(remaining))
+
+    {results, state} =
+      Enum.map_reduce(wanted, state, fn {to, target} = id, state ->
+        case get_in(Process.get(page), [:related, id]) do
+          nil ->
+            {result, state} = page_answer(state, to, %{"key" => target, "plain" => true})
+            result = Map.put(result, "position", read_position(state))
+
+            Process.put(
+              page,
+              update_in(Process.get(page), [Access.key(:related, %{})], &Map.put(&1, id, result))
+            )
+
+            {%{"kind" => to, "key" => target, "answer" => result}, state}
+
+          result ->
+            {%{"kind" => to, "key" => target, "answer" => result}, state}
+        end
+      end)
+
+    {Map.put(answer, "related", results), state}
+  end
+
+  defp related_answers(state, _kind, _read, answer, _page), do: {answer, state}
+
+  defp related_targets(description, kind, fact) do
+    relations = description["relations"] || %{}
+    entities = description["entities"] || %{}
+
+    for {relation, keys} <- fact["links"] || %{},
+        spec = relations[relation],
+        is_map(spec) and kind in (spec["from"] || []),
+        key <- List.wrap(keys),
+        is_binary(key),
+        to = related_kind(spec, fact, relation, key),
+        is_binary(to) and to in (spec["to"] || []),
+        is_binary(get_in(entities, [to, "plural"])),
+        uniq: true,
+        do: {to, key}
+  end
+
+  defp related_kind(%{"to" => [one]}, _fact, _relation, _key), do: one
+  defp related_kind(_spec, fact, relation, key), do: get_in(fact, ["link_kinds", relation, key])
 
   # A read in a page is answered as it would be alone: a guidance record by Guidance (with
   # its own rules for what may be read), any other fact as an ordinary read.

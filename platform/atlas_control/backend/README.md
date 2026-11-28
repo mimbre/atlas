@@ -152,10 +152,14 @@ The start page of what is assigned to the viewer (`/`) is calm; it is the shared
 
 Control decides the order of every list; a client shows rows in the order it gets them and never re-sorts them. The work lists (Assigned to you, Open for you, Supervised by you, and each of their groups) are in work order: rows with a deadline first (the `deadline` Facts presents on the work, else the field the kind's late rule names), soonest at the top; then the rest by how long each has waited (the row's `since`), oldest first, a row without one last; ties by key. Browse lists (a kind's list) keep their own order.
 
-Parent relation rows carry their kind and icon as well as the key and link. The page read
-knows only the linked key and kind, not the target fact: its label remains the kind and it
-has no target state or age. Resolving those requires a bounded, authorized target lookup
-that preserves the page snapshot and freshness dependencies; Control does not guess them.
+Parent relation rows carry the target's title and directly stored state when Facts can
+read it, with its kind, icon, key and link. Facts resolves at most 64 distinct linked
+targets per page by exact key in the same snapshot; it applies the target's ordinary read
+rules and records each target's freshness dependencies. Missing or failed targets keep
+their links and show the reason. Beyond the cap, or with an older Facts, the label remains
+the kind. Target lookups do not derive work presentation: doing that currently enumerates
+entire subject and run kinds. Consequently a target's run-derived age is absent until
+Facts has bounded indexes for that presentation; no unrelated event is used as its age.
 The Mac uses the same compact row card in related and overview lists.
 
 The names (view model, markup) live in one place: `AtlasBFF.Names`, plus the `defmarkup` macro and the module name `AtlasBFF.Markup`.

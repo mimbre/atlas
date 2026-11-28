@@ -2195,6 +2195,8 @@ defmodule AtlasControl.Pages do
         {child_answers, rest} = Enum.split(child_answers, length(relations))
         {cause_answers, _part_answers} = Enum.split(rest, length(cause_fields(m)))
 
+        related = related_targets([answer | child_answers] ++ rest)
+
         fields =
           [Blocks.pair(label: "Id", value: key)] ++
             own_fields(k, fact, k.hidden) ++
@@ -2277,12 +2279,12 @@ defmodule AtlasControl.Pages do
         references =
           Enum.map(lists, &elem(&1, 1)) ++
             cause_lists(m, key, cause_answers, form[:by]) ++
-            Enum.reject(parent_lists(m, kind, fact), &component.(elem(&1, 0))) ++
+            Enum.reject(parent_lists(m, kind, fact, related, form[:by]), &component.(elem(&1, 0))) ++
             if(deciding,
               do: [],
               else:
                 Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
-                  parent_lists(m, part_kind, part)
+                  parent_lists(m, part_kind, part, related, form[:by])
                 end)
             )
 
@@ -2380,9 +2382,9 @@ defmodule AtlasControl.Pages do
             remaining =
               Enum.map(remaining, &elem(&1, 1)) ++
                 cause_lists(m, key, cause_answers, form[:by]) ++
-                parent_lists(m, kind, fact) ++
+                parent_lists(m, kind, fact, related, form[:by]) ++
                 Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
-                  parent_lists(m, part_kind, part)
+                  parent_lists(m, part_kind, part, related, form[:by])
                 end)
 
             header =
@@ -4893,7 +4895,7 @@ defmodule AtlasControl.Pages do
   end
 
   # The facts this one points at, as lists to open them from: `[{id, {title, list}}]`.
-  defp parent_lists(m, kind, fact) do
+  defp parent_lists(m, kind, fact, related, by) do
     for r <- relations(m),
         kind in r.from,
         r.to != [],
@@ -4909,18 +4911,41 @@ defmodule AtlasControl.Pages do
 
       rows =
         for key <- Enum.sort_by(keys, &key_order/1), to = kind_of.(key), to != nil do
-          Blocks.row(
-            id: key,
-            label: singular(m, to),
-            kind: singular(m, to),
-            icon: kind_icon(m, to),
-            to: path({:item, to, key})
-          )
+          parent_row(m, to, key, related[{to, key}], by)
         end
 
       {"parent:" <> r.name, {String.capitalize(r.label), Blocks.list(rows: rows)}}
     end
   end
+
+  defp related_targets(answers) do
+    for answer <- answers,
+        target <- answer["related"] || [],
+        into: %{},
+        do: {{target["kind"], target["key"]}, target["answer"]}
+  end
+
+  defp parent_row(m, to, key, target, by) do
+    to_kind = kind(m, to) || unknown_kind(to)
+    fact = if is_map(target), do: target["fact"]
+    {tone, since} = if is_map(fact), do: status(fact, [fact], by), else: {nil, nil}
+
+    Blocks.row(
+      id: key,
+      label: if(is_map(fact), do: label(to_kind, fact), else: singular(m, to)),
+      detail: parent_detail(to_kind, fact, target),
+      kind: singular(m, to),
+      icon: kind_icon(m, to),
+      to: path({:item, to, key}),
+      tone: tone,
+      since: since
+    )
+  end
+
+  defp parent_detail(k, %{} = fact, _target), do: detail(k, fact)
+  defp parent_detail(_k, _fact, %{"error" => error}) when is_binary(error), do: error
+  defp parent_detail(_k, _fact, %{"fact" => nil}), do: "Not found"
+  defp parent_detail(_k, _fact, _target), do: nil
 
   # The fact's web address, opened outside the client: its first field the model marks as
   # a URL, when it has a value. A client opens only http and https, and Control offers

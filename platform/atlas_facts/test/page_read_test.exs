@@ -74,6 +74,16 @@ defmodule AtlasFacts.PageReadTest do
         end
       end)
     end
+
+    def get(agent, plural, key) do
+      with {:ok, facts} <- list(agent, plural),
+           %{} = fact <- Enum.find(facts, &(&1.key == key)) do
+        {:ok, %{fact | version: "1"}}
+      else
+        nil -> {:error, :not_found}
+        error -> error
+      end
+    end
   end
 
   @moduletag :tmp_dir
@@ -156,6 +166,28 @@ defmodule AtlasFacts.PageReadTest do
     Agent.update(c.backend, &Map.put(&1, :box, nil))
     :ok = AtlasFacts.Server.reload(c.server)
     refute Map.has_key?(hd(read("jar")["facts"]), "review")
+  end
+
+  test "related targets are read at the page snapshot with their dependencies", c do
+    query = %{"reads" => [["jar", %{"key" => "J-1", "related" => true}]]}
+
+    assert %{
+             "answers" => [
+               %{"fact" => %{"key" => "J-1"}, "related" => [related], "position" => position}
+             ]
+           } =
+             read("_page", query)
+
+    assert %{"kind" => "box", "key" => "B-1", "answer" => target} = related
+    assert target["position"] == position
+    assert target["fact"]["values"]["status"] == nil
+    assert ["key", "box", "B-1", "*"] in target["deps"]
+
+    Agent.update(c.backend, &Map.put(&1, :box, "replaced"))
+    :ok = AtlasFacts.Server.reload(c.server)
+    [source] = read("_page", query)["answers"]
+    assert [target] = source["related"]
+    assert target["answer"]["fact"]["values"]["status"] == "replaced"
   end
 
   test "batch entry cannot bypass restricted reads or accept another query context" do

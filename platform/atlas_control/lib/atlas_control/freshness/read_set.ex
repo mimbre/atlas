@@ -42,6 +42,14 @@ defmodule AtlasControl.Freshness.ReadSet do
   """
   def of(reads, answers, blocks) do
     pairs = Enum.zip(reads, answers)
+
+    related =
+      for answer <- answers,
+          %{"kind" => kind, "answer" => result} <- answer["related"] || [],
+          do: {{kind, :target}, result}
+
+    pairs = pairs ++ related
+    all_answers = answers ++ Enum.map(related, &elem(&1, 1))
     rows = for {{_kind, :rows}, answer} <- pairs, fact <- facts(answer), do: fact
     row_keys = MapSet.new(rows, & &1["key"])
     row_targets = rows |> Enum.flat_map(&targets/1) |> MapSet.new()
@@ -62,8 +70,8 @@ defmodule AtlasControl.Freshness.ReadSet do
 
     %__MODULE__{
       deps: deps |> MapSet.to_list() |> Enum.sort(),
-      as_of: as_of(answers),
-      until: answers |> Enum.map(& &1["until"]) |> Enum.reduce(nil, &earliest/2),
+      as_of: as_of(all_answers),
+      until: all_answers |> Enum.map(& &1["until"]) |> Enum.reduce(nil, &earliest/2),
       row_keys: row_keys(blocks, joins)
     }
   end
