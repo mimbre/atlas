@@ -46,7 +46,7 @@ The BEAM side runs the system. rela describes it. Entities, schemas, flows and t
 
 ## Develop
 
-You need Erlang and Elixir at the versions in `.tool-versions`, and Go for the Runtime CLI. The end-to-end test also needs tmux, `python3` and `curl`.
+You need Erlang and Elixir at the versions in `.tool-versions`, and Go for the Runtime CLI. CI pins the same Elixir patch (1.18.6) so its formatter agrees with local worktrees; install the listed Elixir build before checking or committing. The end-to-end test also needs tmux, `python3` and `curl`.
 
 Generated targets (the model's Rela project and diagrams, Control's `blocks.json` and Swift package, the Runtime's and Code's JSON) are build output: they are not kept in git and nothing compares them. `bin/generate` writes them all from this checkout's contracts, `bin/generate model atlas` only those; run it after a fresh clone and after changing a contract or the model. The model's needs the pinned rela, which it installs into `${XDG_CACHE_HOME:-~/.cache}/atlas/rela-<version>` when missing. A deploy, `atlas-ops restart`, `bin/atlas-dev` and `bin/check` run it themselves.
 

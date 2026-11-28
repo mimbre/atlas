@@ -98,7 +98,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - name: The generator holds none of Atlas's values
         run: |
           if grep -rniE 'AtlasBFFContract|AtlasControl|AtlasTui|AtlasAgent|scene|use_case|turn_outcome|submit_to|cancel_to|confirm_to|\.\./contract|backend/contract|"0\.2\.0"' lib test mix.exs; then
@@ -125,7 +125,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - name: The generator holds none of the Runtime's values
         run: |
           if grep -rniE 'AtlasRuntime\.|AtlasRuntimeBoundary\.(Work|Operations|History)\b|AtlasControl|AtlasBFF|boundary/contract|\.\./contract|work\.json|operations\.json|history\.json|client_key|work_id|turn_id|at_capacity|read_all|choose_slot|deep_coding|light_work|independent_review|quiescent|provenance|policy_version|cost_class|retry_after|harness|bff\.sock|ATLAS_RUNTIME_HOME' lib test mix.exs; then
@@ -150,7 +150,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       # The tests read platform/atlas_runtime/boundary/targets: test_helper.exs writes them first.
@@ -171,7 +171,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - name: The generator holds none of Code's values
         run: |
           if grep -rniE 'AtlasCode\.|AtlasCodeBoundary\.Code\b|AtlasRuntime|AtlasControl|AtlasBFF|boundary/contract|\.\./contract|code\.json|resolve_reference|create_snapshot|snapshot_id|snapshot_repository|unsupported_entry|\brev_|repository_mismatch|unknown_revision|unknown_reference|provider_unavailable|atlas-code|ATLAS_CODE_HOME' lib test mix.exs; then
@@ -196,7 +196,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       # Writes platform/atlas_code/boundary/targets from the contract.
@@ -216,7 +216,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       # Writes platform/atlas_control/backend/targets from the contract.
@@ -251,7 +251,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       # It holds none of the Runtime's values and depends on no other generator (D36):
       # neither the boundary's or the backend's nor Control's (atlas_control/backend).
       - name: The generator holds none of the Runtime's values
@@ -302,7 +302,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - name: The DSL holds none of Atlas's flows
         run: |
           if grep -rnE '(^|[^.[:alnum:]_])Model\.[A-Z{]|:model\b' lib test mix.exs || grep -rniE '\.\./contract|model/contract|\bissue\b|pull_request|pr_review|pr_test|use_case|\bscene\b|\bdecision\b|delivery_evidence' lib test mix.exs; then
@@ -335,7 +335,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       # rela, pinned in platform/atlas_facts/rela/scripts/start-test.sh: bin/generate model
       # installs it into ~/.cache/atlas when missing and validates and draws with it; the
       # Rela scripts' tests and the contract's :rela tests use the same (ATLAS_RELA_BIN).
@@ -380,7 +380,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - name: The generator holds none of the Runtime's values
         run: |
           if grep -rniE 'AtlasRuntime\b|AtlasRuntimeBoundary|/v1/work|/v1/runtime|/v1/control|/v1/policy|/v1/slots|/v1/harnesses|operations|history|backend\.sock|runtime\.sock|work_id|choose_slot|\.\./contract' lib test mix.exs; then
@@ -408,7 +408,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - name: The backend contract never depends on the Runtime's private model
         run: |
           if grep -nE 'atlas_runtime_model|model/' mix.exs; then
@@ -456,7 +456,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
@@ -498,7 +498,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       # The tests read the product's description (targets/rela/atlas.json), which
       # bin/generate model writes with the pinned rela it installs when missing.
       - uses: actions/cache@v4
@@ -523,7 +523,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - run: mix compile --warnings-as-errors && mix format --check-formatted && mix test --warnings-as-errors
         working-directory: platform/clients/agent
       # The one-off migration (atlas migrate-done-owner) compiles the client too.
@@ -545,7 +545,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - run: bin/generate atlas
         working-directory: .
       - run: python3 -B platform/clients/apple/tools/test_atlas_swift.py
@@ -573,7 +573,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       # The pinned rela that bin/generate model installs when missing.
       - uses: actions/cache@v4
         with:
@@ -612,7 +612,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - name: The library holds no system's vocabulary
         run: |
           if grep -rnE 'AtlasRuntime|AtlasCode|atlas_runtime|atlas_code|work_id|snapshot_id|base_revision|fpr_' lib test mix.exs; then
@@ -640,7 +640,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - name: The library names no system
         run: |
           if grep -rnE 'Atlas(Bus|Facts|Flow|Runtime|Control|Gates|Code|Learn)\b|atlas_(bus|facts|flow|runtime|control|gates|code|learn)\b' lib test mix.exs; then
@@ -674,7 +674,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - name: The library names no system
         run: |
           if grep -rnE 'Atlas(Bus|Facts|Flow|Runtime|Control|Gates|Code|Learn)\b|atlas_(bus|facts|flow|runtime|control|gates|code|learn)\b' lib test mix.exs; then
@@ -745,7 +745,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
       - uses: actions/cache@v4
@@ -787,7 +787,7 @@ jobs:
         if: needs.tested-tree.outputs.deploy != 'false'
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - uses: superfly/flyctl-actions/setup-flyctl@master
         if: needs.tested-tree.outputs.deploy != 'false'
       - run: python3 -m pip install -r platform/atlas_facts/rela/scripts/requirements.txt
@@ -886,7 +886,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - run: bin/generate atlas
       - name: Publish this contract version, unless it is
         env:
@@ -940,7 +940,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
-          elixir-version: "1.18"
+          elixir-version: "1.18.6"
       - uses: actions/cache@v4
         with:
           path: ~/.cache/atlas

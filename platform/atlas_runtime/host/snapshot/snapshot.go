@@ -578,11 +578,16 @@ func resolvesInside(links, folded map[string]string, root, path, target string) 
 // complete reports whether the baseline exists with its completion marker; an unmarked
 // folder at that path is refused rather than reused or replaced.
 func complete(baseline string) (bool, error) {
+	if _, err := os.Lstat(baseline); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
 	if _, err := os.Lstat(filepath.Join(baseline, "complete")); err == nil {
 		return true, nil
-	}
-	if _, err := os.Lstat(baseline); errors.Is(err, fs.ErrNotExist) {
-		return false, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return false, err
 	}
 	return false, fmt.Errorf("baseline %s exists without its completion marker", baseline)
 }
