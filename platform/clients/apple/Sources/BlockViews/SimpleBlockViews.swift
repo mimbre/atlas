@@ -223,7 +223,7 @@ struct OptionView: View {
             ForEach(Array(Option.fields(block).enumerated()), id: \.offset) { _, field in
                 VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
                     Text(field.label ?? "").prism(Prism.Typography.label).foregroundStyle(PrismDarkGap.muted(scheme))
-                    FormattedText(text: field.value ?? "—", format: field.format).prism(Prism.Typography.bodysmall)
+                    FormattedText(text: field.value ?? "—", syntax: field.syntax).prism(Prism.Typography.bodysmall)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
