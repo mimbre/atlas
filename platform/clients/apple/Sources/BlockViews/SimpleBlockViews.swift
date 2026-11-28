@@ -403,16 +403,19 @@ struct OtherActionsView: View {
 public struct ItemToolbar: ToolbarContent {
     let actions: [ActionModel]
     let pending: SessionState.Pending?
+    let trailing: Bool
     let act: (ActionModel) -> Void
 
-    public init(actions: [ActionModel], pending: SessionState.Pending?, act: @escaping (ActionModel) -> Void) {
+    public init(actions: [ActionModel], pending: SessionState.Pending?, trailing: Bool, act: @escaping (ActionModel) -> Void) {
         self.actions = actions
         self.pending = pending
+        self.trailing = trailing
         self.act = act
     }
 
     public var body: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
+            if trailing && !actions.isEmpty { Spacer() }
             ForEach(Array(actions.enumerated()), id: \.offset) { _, action in button(action) }
         }
     }

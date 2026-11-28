@@ -116,7 +116,7 @@ struct ShellView: View {
                     .navigationSplitViewColumnWidth(WindowLayout.list)
                     // The list's own actions (Create to-do) above it, quiet icons.
                     .toolbar {
-                        ItemToolbar(actions: PageActions.listToolbar(shell.index), pending: shell.pending, act: session.act)
+                        ItemToolbar(actions: PageActions.listToolbar(shell.index), pending: shell.pending, trailing: false, act: session.act)
                     }
             } detail: {
                 page(shell.opened, shell)
@@ -128,7 +128,7 @@ struct ShellView: View {
     private func page(_ page: PageMessage?, _ shell: ShellViewModel) -> some View {
         Column(page: page, header: true, selectedPath: shell.selectedPath, open: session.open, act: session.act)
             .toolbar {
-                ItemToolbar(actions: PageActions.toolbar(page), pending: shell.pending, act: session.act)
+                ItemToolbar(actions: PageActions.toolbar(page), pending: shell.pending, trailing: true, act: session.act)
             }
     }
 }
