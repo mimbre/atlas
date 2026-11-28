@@ -167,18 +167,15 @@ defmodule AtlasControl.SupervisionTest do
       route = {:open_for_you, "ada"}
       page = Pages.render(route, m, screen_answers(route, m, items))
 
-      # One list per span, in the declared order, with the open facts' keys as its rows.
-      lists = for b <- page.blocks, b["type"] == "list", do: b
+      # All open work is in one unsectioned list.
+      assert [list] = for(b <- page.blocks, b["type"] == "list", do: b)
+      refute list["props"]["title"]
+      assert keys_of(list["props"]["rows"]) == ["W-1", "W-9"], span(m).written_on
 
-      assert Enum.map(lists, & &1["id"]) ==
-               for(s <- Pages.open_for_you_rule(m).spans, do: "list:#{s.subflow}:#{s.span}")
-
-      assert keys_of(hd(lists)["props"]["rows"]) == ["W-1", "W-9"], span(m).written_on
-
-      # No Overview: the tab and the groups count. The span's title says the flow, so a row
-      # does not; Flow's default holder is not shown, an owner set by hand is.
+      # No Overview: the tab and filters count. Flow's default holder is not shown,
+      # while an owner set by hand is.
       refute block(page, "summary")
-      details = Map.new(hd(lists)["props"]["rows"], &{&1["id"], &1["detail"]})
+      details = Map.new(list["props"]["rows"], &{&1["id"], &1["detail"]})
       assert details == %{"W-1" => "", "W-9" => "bob"}
     end
   end
@@ -254,9 +251,7 @@ defmodule AtlasControl.SupervisionTest do
       # `[` and `]` open the previous and the next group.
       assert Enum.map(page.console_actions, & &1.operation["to"]) == [group["to"], group["to"]]
 
-      # Each row shows its key; on Supervised by you's whole page, where flows mix in one
-      # list, its flow's short name (never the sentence of what is expected). Open for you
-      # titles each span's list with its flow, so its rows do not repeat it.
+      # Supervised by you shows the flow's short name on the mixed list.
       assert is_binary(m.start.flows[s.subflow])
       rows = for %{"type" => "list"} = b <- page.blocks, row <- b["props"]["rows"], do: row
       assert [%{"id" => ^mine, "detail" => ^all_detail}] = rows
