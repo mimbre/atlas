@@ -1455,6 +1455,51 @@ defmodule AtlasControl.PagesTest do
            ]
   end
 
+  test "parent rows use the resolved target and retain their link when it is unavailable" do
+    source =
+      fact("W-1", %{"title" => "One"})
+      |> Map.put("links", %{"held_by" => ["K-1"]})
+      |> Map.put("link_kinds", %{"held_by" => %{"K-1" => "keeper"}})
+
+    route = {:item, "widget", "W-1"}
+    rest = for _ <- tl(Pages.reads(route, @held)), do: %{"facts" => []}
+
+    row = fn target ->
+      answer = %{
+        "fact" => source,
+        "related" => [%{"kind" => "keeper", "key" => "K-1", "answer" => target}]
+      }
+
+      page = render(route, @held, [answer | rest])
+
+      page.blocks
+      |> Enum.find(&(&1["id"] == "parent:held_by"))
+      |> get_in(["props", "rows"])
+      |> hd()
+    end
+
+    assert %{"label" => "Kay", "kind" => "Keeper", "to" => "/k/keeper/K-1"} =
+             row.(%{"fact" => fact("K-1", %{"title" => "Kay"})})
+
+    assert %{"label" => "Kay", "since" => "2026-11-20T08:00:00Z"} =
+             row.(%{
+               "fact" => fact("K-1", %{"title" => "Kay"}),
+               "work_since" => "2026-11-20T08:00:00Z"
+             })
+
+    assert %{"label" => "Kay", "detail" => "work unavailable", "to" => "/k/keeper/K-1"} =
+             row.(%{
+               "fact" => fact("K-1", %{"title" => "Kay"}),
+               "work_error" => "work unavailable"
+             })
+
+    assert %{"label" => "Keeper", "detail" => "not reachable", "to" => "/k/keeper/K-1"} =
+             row.(%{"error" => "not reachable"})
+
+    assert %{"label" => "Keeper", "detail" => "Not found", "to" => "/k/keeper/K-1"} =
+             row.(%{"fact" => nil})
+  end
+
   # A start page of what is assigned to the client (made-up kinds and words).
   @assigning AtlasControl.Model.catalog(Shop.Assigning)
 
