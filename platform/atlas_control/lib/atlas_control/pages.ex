@@ -2546,29 +2546,10 @@ defmodule AtlasControl.Pages do
             page("#{k.label} #{key}", back, content, markup)
 
           true ->
-            ids = for {id, _} <- references, do: id
-            others = others_block(more)
             head = decision_read_blocks(k, fact, key) |> iconed(kind_icon(m, kind))
 
-            main =
-              Blocks.part(decision_start(head), if(others == [], do: "item", else: "actions"),
-                title: "Content",
-                role: "main"
-              )
-
-            markup =
-              case ids do
-                [] ->
-                  [main]
-
-                [first | _] ->
-                  [main, Blocks.part(first, List.last(ids), title: "References", role: "related")] ++
-                    sections
-              end
-
-            {item, detail_blocks, technical} = decision_details(m, k, fact, item)
-            content = head ++ [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
-            markup = markup ++ details_part(detail_blocks ++ technical)
+            {content, markup} =
+              read_item_page(m, k, fact, item, head, others_block(more), lists, sections)
 
             # Its owner's part first: what to do (IS-Atlas-54).
             {content, markup} =
@@ -3775,6 +3756,58 @@ defmodule AtlasControl.Pages do
     end
   end
 
+  defp read_item_page(m, %{decision_options: %{}} = k, fact, item, head, others, lists, sections),
+    do: decision_read_page(m, k, fact, item, head, others, lists, sections)
+
+  defp read_item_page(m, k, fact, item, head, others, lists, sections) do
+    main =
+      Blocks.part(decision_start(head), if(others == [], do: "item", else: "actions"),
+        title: "Content",
+        role: "main"
+      )
+
+    markup =
+      case lists do
+        [] ->
+          [main]
+
+        [{first, _} | _] ->
+          {last, _} = List.last(lists)
+          [main, Blocks.part(first, last, title: "References", role: "related")] ++ sections
+      end
+
+    {item, detail_blocks, technical} = decision_details(m, k, fact, item)
+
+    {head ++ [{"item", item} | others] ++ lists ++ detail_blocks ++ technical,
+     markup ++ details_part(detail_blocks ++ technical)}
+  end
+
+  defp decision_read_page(m, k, fact, item, head, others, lists, sections) do
+    shown = shown_texts(head)
+
+    item =
+      item
+      |> put_in(["props", "title"], "Other details")
+      |> update_in(["props", "fields"], fn fields ->
+        Enum.reject(fields, fn pair ->
+          pair["label"] == "Id" or
+            (is_nil(pair["origin"]) and normalize_text(pair["value"]) in ["", "—"]) or
+            normalize_text(pair["value"]) in shown
+        end)
+      end)
+
+    {item, groups, technical} = decision_details(m, k, fact, item)
+    props = item["props"]
+
+    other =
+      if props["fields"] == [] and props["actions"] in [nil, []] and props["links"] in [nil, []],
+        do: [],
+        else: [{"item", item}]
+
+    details = other ++ groups ++ technical ++ lists
+    {head ++ others ++ details, details_part(details) ++ sections}
+  end
+
   # The model names the groups and the exact offer records.
   defp decision_details(m, k, fact, item) do
     case Map.get(k, :decision_options) do
@@ -4100,7 +4133,7 @@ defmodule AtlasControl.Pages do
         f = field(k, name),
         f != nil,
         value = get_in(fact, ["values", name]),
-        value not in [nil, ""],
+        normalize_text(to_text(value)) not in ["", "—"],
         do:
           {"decision-#{name}",
            Blocks.text(label: f.label, text: to_text(value), format: Map.get(f, :format))}
