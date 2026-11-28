@@ -151,6 +151,9 @@ Where the state shows a field as steps (the model's `section: [..., steps: true]
 
 Kinds may declare a block page with state fields, an intro, ordered text sections and a primary child relation. Control shows its header, complete intro, populated sections, the related list and its completion count, the existing to-do or proposal panel and available actions, then the full item and other relations. A page may group its item pairs into ordered, titled detail blocks by field and relation; pairs not named and the item's links remain in Other details. These groups are ordinary standalone blocks, not nested or collapsible. The existing proposal panel retains its full-proposal action. A failed child read remains visible in its list; it is not represented as an empty successful read. This changes presentation only, not the answers, authorization or stored data.
 
+Fields already displayed as the page title, intro or text sections are not repeated in
+its detail blocks; unshown fields and links remain available there.
+
 The primary child list carries its heading; each other related list takes its heading
 from its section, not a second list title. This applies to empty and populated lists.
 
