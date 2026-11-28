@@ -2510,7 +2510,8 @@ defmodule AtlasControl.Pages do
                    put_in(item, ["props", "actions"], [])}
 
                 nil ->
-                  {decide_blocks(todo, next), judged, put_in(item, ["props", "actions"], [])}
+                  {fallback_decide_blocks(k, fact, key, todo, next), judged,
+                   put_in(item, ["props", "actions"], [])}
               end
 
             detail_item = details.(item, head)
@@ -4092,6 +4093,37 @@ defmodule AtlasControl.Pages do
         do: [],
         else: [{"answers", answers_block(next, todo.answers)}]
       )
+  end
+
+  defp fallback_decide_blocks(%{decision_options: rule} = k, fact, key, todo, next)
+       when is_map(rule),
+       do: legacy_decision_blocks(k, fact, key, todo, next)
+
+  defp fallback_decide_blocks(_k, _fact, _key, todo, next), do: decide_blocks(todo, next)
+
+  # A pending decision made without an options document still has a rule to decide.
+  defp legacy_decision_blocks(k, fact, key, todo, next) do
+    rule = k.decision_options
+
+    fields =
+      for {label, property} <- [{"Rule", "rule"}, {"Consequences", "consequences"}],
+          name = get_in(rule, ["adopt", property]),
+          value = get_in(fact, ["values", name]),
+          normalize_text(to_text(value)) not in ["", "—"],
+          do: Blocks.pair(label: label, value: to_text(value))
+
+    context = get_in(fact, ["values", "context"])
+
+    [{"header", Blocks.header(eyebrow: "YOUR DECISION", key: key, title: label(k, fact))}] ++
+      if(normalize_text(to_text(context)) in ["", "—"],
+        do: [],
+        else: [{"why", Blocks.text(text: context)}]
+      ) ++
+      if(fields == [],
+        do: [],
+        else: [{"decision", Blocks.item(title: "Decision", fields: fields)}]
+      ) ++
+      if(next == [], do: [], else: [{"answers", answers_block(next, todo.answers)}])
   end
 
   defp decision_start([{id, _} | _]), do: id
