@@ -99,9 +99,13 @@ For offline client presentation work, run the read-only JSON-lines Control endpo
 the repository root (Elixir/Mix and the Control dependencies are required):
 
 ```sh
+(cd platform/atlas_control && MIX_ENV=test mix deps.get)
 python3 tools/control-fixtures/server.py --scenario decision --port 4747
 python3 -m unittest discover -s tools/control-fixtures -p 'test_server.py'
 ```
+
+The launcher forces Mix's `test` environment and does not start Control or other Atlas
+applications; it does not read the caller's production environment configuration.
 
 Choose `decision`, `scene`, `todo`, `lists`, or `empty`; the selected scenario is the
 initial page, and the fixture tabs link the other examples. Connect either client to

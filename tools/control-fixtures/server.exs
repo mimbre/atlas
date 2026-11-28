@@ -62,7 +62,7 @@ defmodule ControlFixtures.Server do
 
       true ->
         target = requested || Scenarios.initial(state.scenario)
-        active = Enum.find(Scenarios.tabs(), &(&1["to"] == target))
+        active = Scenarios.tab_for(target)
         shell = %{"op" => "boot", "title" => "Atlas Console fixtures", "env" => "test", "spec" => AtlasControl.Blocks.version(), "revision" => "shared-fixtures", "tabs" => Scenarios.tabs(), "initial_to" => target}
         shell = if active, do: Map.put(shell, "active_tab", active["id"]), else: shell
         send_line(socket, shell)

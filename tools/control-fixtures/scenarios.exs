@@ -3,18 +3,28 @@ defmodule ControlFixtures.Scenarios do
 
   def tabs do
     [
-      {"decision", "Decision", "/k/decision/D-7"},
-      {"scene", "Scene", "/k/scene/SC-1"},
-      {"todo", "To-Do", "/k/todo/TD-12"},
-      {"lists", "Scenes", "/k/scene"},
-      {"empty", "Empty", "/k/scene/empty"}
+      {"decision", "Decisions", "/k/decision"},
+      {"scene", "Scenes", "/k/scene"},
+      {"todo", "To-Dos", "/k/todo"},
+      {"lists", "Open work", "/_open"},
+      {"empty", "Issues", "/k/issue"}
     ]
     |> Enum.map(fn {id, label, to} ->
       %{"id" => id, "label" => label, "to" => to, "section" => "work"}
     end)
   end
 
-  def initial(id), do: Enum.find_value(tabs(), fn tab -> if tab["id"] == id, do: tab["to"] end)
+  def initial("decision"), do: "/k/decision/D-7"
+  def initial("scene"), do: "/k/scene/SC-1"
+  def initial("todo"), do: "/k/todo/TD-12"
+  def initial("lists"), do: "/_open"
+  def initial("empty"), do: "/k/issue"
+
+  def tab_for(path) do
+    Enum.find(tabs(), fn tab ->
+      path == tab["to"] or (String.starts_with?(tab["to"], "/k/") and String.starts_with?(path, tab["to"] <> "/"))
+    end)
+  end
 
   def page("/k/decision/D-7" = path) do
     options = [
@@ -37,7 +47,7 @@ defmodule ControlFixtures.Scenarios do
       block("why", "text", %{"text" => "Give each client the same representative content."}),
       block("step-1", "instruction", %{"n" => 1, "lines" => [%{"kind" => "text", "text" => "Open a terminal"}, %{"kind" => "command", "text" => "cd ~/atlas"}]}),
       block("step-2", "instruction", %{"n" => 2, "lines" => [%{"kind" => "text", "text" => "Review the examples in both clients."}, %{"kind" => "route", "parts" => ["Atlas", "Scenes"]}]}),
-      block("answers", "answers", %{"answers" => [%{"label" => "Done", "key" => "x", "weight" => "main", "to" => path <> "/answer/done", "note" => true}, %{"label" => "Won't do", "key" => "n", "weight" => "no", "to" => path <> "/answer/no", "note" => true}]}),
+      block("answers", "answers", %{"answers" => [%{"label" => "Done", "key" => "x", "weight" => "main", "to" => path <> "/answer/done", "note" => true}, %{"label" => "Won't do", "key" => "n", "weight" => "decline", "to" => path <> "/answer/no", "note" => true}]}),
       item("TD-12", [%{"label" => "Status", "value" => "Open"}])
     ], details())
   end
@@ -54,15 +64,21 @@ defmodule ControlFixtures.Scenarios do
     ], [%{"kind" => "part", "start" => "item", "end" => "related", "props" => %{"title" => "Details", "role" => "details"}}])
   end
 
-  def page("/k/scene" = path) do
-    page(path, "Scenes", [block("list", "list", %{"title" => "Scenes", "rows" => [
+  def page("/k/decision" = path), do: page(path, "Decisions", [block("list", "list", %{"title" => "Decisions", "rows" => [%{"id" => "D-7", "label" => "How do we store examples?", "to" => "/k/decision/D-7"}]})], [])
+
+  def page("/k/todo" = path), do: page(path, "To-Dos", [block("list", "list", %{"title" => "To-Dos", "rows" => [%{"id" => "TD-12", "label" => "Prepare the local examples", "to" => "/k/todo/TD-12"}]})], [])
+
+  def page("/k/scene" = path), do: page(path, "Scenes", [block("list", "list", %{"title" => "Scenes", "rows" => [%{"id" => "SC-1", "label" => "Make examples easy to inspect", "to" => "/k/scene/SC-1"}]})], [])
+
+  def page("/_open" = path) do
+    page(path, "Open work", [block("list", "list", %{"title" => "Open work", "rows" => [
       %{"id" => "SC-1", "label" => "Make examples easy to inspect", "detail" => "Ready to pick up", "to" => "/k/scene/SC-1"},
       %{"id" => "D-7", "label" => "How do we store examples?", "detail" => "Open decision", "to" => "/k/decision/D-7"},
       %{"id" => "TD-12", "label" => "Prepare the local examples", "detail" => "Open To-Do", "to" => "/k/todo/TD-12"}
     ]})], [])
   end
 
-  def page("/k/scene/empty" = path), do: page(path, "Empty scenes", [block("list", "list", %{"title" => "Scenes", "rows" => [], "empty" => "No scenes match this view."})], [])
+  def page("/k/issue" = path), do: page(path, "Issues", [block("list", "list", %{"title" => "Issues", "rows" => [], "empty" => "No issues match this view."})], [])
   def page(_), do: nil
 
   defp page(path, title, blocks, markup), do: %{"op" => "page", "reason" => "open", "path" => path, "title" => title, "blocks" => blocks, "markup" => markup}

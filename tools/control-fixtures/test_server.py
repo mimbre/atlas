@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -14,7 +15,9 @@ class ControlFixtureTest(unittest.TestCase):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0))
             port = probe.getsockname()[1]
-        process = subprocess.Popen([sys.executable, str(HERE / 'server.py'), '--scenario', scenario, '--port', str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        env = dict(os.environ, MIX_ENV='prod', ATLAS_ENV='prod', ATLAS_ENV_FILE='/nonexistent/production.json')
+        process = subprocess.Popen([sys.executable, str(HERE / 'server.py'), '--scenario', scenario, '--port', str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
+        self.addCleanup(process.stderr.close)
         self.addCleanup(lambda: process.wait(timeout=10))
         self.addCleanup(process.terminate)
         deadline = time.monotonic() + 90
@@ -25,7 +28,9 @@ class ControlFixtureTest(unittest.TestCase):
                 sock = socket.create_connection(('127.0.0.1', port), timeout=1)
                 sock.settimeout(5)
                 self.addCleanup(sock.close)
-                return sock.makefile('rwb')
+                stream = sock.makefile('rwb')
+                self.addCleanup(stream.close)
+                return stream
             except ConnectionRefusedError:
                 time.sleep(0.1)
         self.fail('fixture server did not start')
@@ -36,7 +41,7 @@ class ControlFixtureTest(unittest.TestCase):
         return json.loads(stream.readline())
 
     def test_scenarios_and_console_projection(self):
-        for scenario, path in [('decision', '/k/decision/D-7'), ('scene', '/k/scene/SC-1'), ('todo', '/k/todo/TD-12'), ('lists', '/k/scene'), ('empty', '/k/scene/empty')]:
+        for scenario, path in [('decision', '/k/decision/D-7'), ('scene', '/k/scene/SC-1'), ('todo', '/k/todo/TD-12'), ('lists', '/_open'), ('empty', '/k/issue')]:
             with self.subTest(scenario=scenario):
                 stream = self.start_server(scenario)
                 welcome = self.exchange(stream, {'op': 'hello', 'env': 'test', 'client': 'tui', 'spec': '999.0.0', 'surface': 'console'})
@@ -46,6 +51,14 @@ class ControlFixtureTest(unittest.TestCase):
                 self.assertTrue(any(block['type'] == 'console_action' for block in first['blocks']))
                 shell = self.exchange(stream, {'op': 'boot'})
                 self.assertEqual(shell['initial_to'], path)
+                self.assertEqual(shell['active_tab'], scenario)
+                self.assertEqual(len({tab['id'] for tab in shell['tabs']}), len(shell['tabs']))
+                self.assertEqual(len({tab['to'] for tab in shell['tabs']}), len(shell['tabs']))
+                for tab in shell['tabs']:
+                    self.assertRegex(tab['to'], r'^(/_open|/k/[^/]+)$')
+                    tab_page = self.exchange(stream, {'op': 'open', 'to': tab['to']})
+                    self.assertEqual(tab_page['path'], tab['to'])
+                    self.assertEqual(tab_page['reason'], 'open')
                 page = self.exchange(stream, {'op': 'open', 'to': path})
                 self.assertEqual(page['reason'], 'open')
                 refreshed = self.exchange(stream, {'op': 'refresh'})
