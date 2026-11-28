@@ -157,24 +157,4 @@ final class SidebarTests: XCTestCase {
         XCTAssertFalse(Self.shell(Self.tabs).indexIsPage)
     }
 
-    /// The assistant line Control sends reaches the foot in full; none (or empty) shows none.
-    func testTheAssistantLineReachesTheFootWhenControlSendsOne() {
-        XCTAssertEqual(Self.shell(Self.tabs, boot: ["assistant": "assistant: coordinator"]).assistant,
-                       "assistant: coordinator")
-        XCTAssertNil(Self.shell(Self.tabs).assistant)
-        XCTAssertNil(Self.shell(Self.tabs, boot: ["assistant": ""]).assistant)
-    }
-
-    #if canImport(AppKit)
-    /// The assistant line sits under the name: the foot is taller with it.
-    @MainActor
-    func testTheFootShowsTheAssistantLineUnderTheName() {
-        func height(_ assistant: String?) -> CGFloat {
-            NSHostingView(rootView: SidebarFoot(name: "Ada", assistant: assistant, env: "test", production: false,
-                                                connection: SidebarConnection(mark: .connected, details: "")))
-                .fittingSize.height
-        }
-        XCTAssertGreaterThan(height("assistant: coordinator"), height(nil))
-    }
-    #endif
 }

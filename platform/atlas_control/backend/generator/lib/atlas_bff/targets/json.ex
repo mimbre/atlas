@@ -22,6 +22,11 @@ defmodule AtlasBFF.Targets.Json do
           Enum.map(e.fields, fn f ->
             %{"name" => Atom.to_string(f.name), "type" => type(f.type), "required" => f.required}
             |> deprecated.(f)
+            |> then(fn map ->
+              Enum.reduce([:intent, :syntax], map, fn key, acc ->
+                if f[key], do: Map.put(acc, to_string(key), to_string(f[key])), else: acc
+              end)
+            end)
           end)
       }
       |> deprecated.(e)
@@ -90,7 +95,8 @@ defmodule AtlasBFF.Targets.Json do
   defp type({:map, inner}), do: "map of " <> type(inner)
   defp type(type), do: Atom.to_string(type)
 
-  defp pretty(value), do: IO.iodata_to_binary(pretty(value, 0)) <> "\n"
+  @doc false
+  def pretty(value), do: IO.iodata_to_binary(pretty(value, 0)) <> "\n"
 
   defp pretty(map, level) when is_map(map) do
     inner =

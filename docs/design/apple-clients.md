@@ -243,10 +243,13 @@ Rules:
   semantics.
 - **iOS.** On iPhone the same tabs move to a tab bar, with More for the tabs beyond what
   it shows, and list → page becomes a navigation stack. iPad keeps the three columns.
+- **macOS pointer.** Enabled controls, navigable rows, and permitted inline Markdown links
+  use a pointing hand on hover; disabled controls and rows without a destination do not.
+  Other selectable Markdown text retains its native text cursor.
 - **Rejected alternative:** tabs as a segmented control in the toolbar. It breaks down once
   a description has more than about 5 tabs.
-- Text blocks and item or option fields render Markdown only when `format` is `markdown`;
-  missing or unknown formats stay plain text. Markdown body text uses the same Prism
+- Text blocks and item or option fields render Markdown only when `syntax` is `markdown`;
+  missing or unknown syntax stays plain text. Markdown body text uses the same Prism
   `bodysmall` font and line height as plain text, retaining bold and italic emphasis;
   code uses `monosmall`. Headings use `title4`–`title7` (levels 4–6 share `title7`),
   below the page title. Code is displayed as text, and only clicked HTTP(S) links can open.

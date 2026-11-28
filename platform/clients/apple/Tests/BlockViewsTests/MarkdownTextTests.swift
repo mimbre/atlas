@@ -6,20 +6,26 @@ import XCTest
 
 final class MarkdownTextTests: XCTestCase {
     func testOnlyExplicitMarkdownChangesPlainText() throws {
-        for (format, expected) in [(nil, false), ("future", false), ("markdown", true)] as [(String?, Bool)] {
+        for (syntax, expected) in [(nil, false), ("future", false), ("markdown", true)] as [(String?, Bool)] {
             var fields = ["text": "# Literal"]
-            fields["format"] = format
+            fields["syntax"] = syntax
             let data = try JSONSerialization.data(withJSONObject: fields)
             let block = try JSONDecoder().decode(TextBlock.self, from: data)
             XCTAssertEqual(TextLine.isMarkdown(block), expected)
             XCTAssertEqual(TextLine.line(block, now: Date()), "# Literal")
             var pairFields = ["value": "# Literal"]
-            pairFields["format"] = format
+            pairFields["syntax"] = syntax
             let pairData = try JSONSerialization.data(withJSONObject: pairFields)
             let pair = try JSONDecoder().decode(PairModel.self, from: pairData)
-            XCTAssertEqual(MarkdownDocument.isMarkdown(pair.format), expected)
+            XCTAssertEqual(MarkdownDocument.isMarkdown(pair.syntax), expected)
             XCTAssertEqual(pair.value, "# Literal")
         }
+        let legacyTextData = try JSONSerialization.data(withJSONObject: ["text": "# Literal", "format": "markdown"])
+        let legacyText = try JSONDecoder().decode(TextBlock.self, from: legacyTextData)
+        XCTAssertFalse(TextLine.isMarkdown(legacyText))
+        let legacyPairData = try JSONSerialization.data(withJSONObject: ["value": "# Literal", "format": "markdown"])
+        let legacyPair = try JSONDecoder().decode(PairModel.self, from: legacyPairData)
+        XCTAssertFalse(MarkdownDocument.isMarkdown(legacyPair.syntax))
     }
 
     func testHTMLIsShownAsLiteralSource() {

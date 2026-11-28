@@ -29,6 +29,7 @@ public struct GroupFilters: View {
                                     .foregroundStyle(active ? PrismDarkGap.accentText(scheme) : PrismDarkGap.text(scheme))
                             }
                             .buttonStyle(.plain)
+                            .pointingHand()
                             .accessibilityAddTraits(active ? .isSelected : [])
                         } else {
                             Text([group.label ?? "Group", group.count.map(String.init)].compactMap { $0 }.joined(separator: " "))

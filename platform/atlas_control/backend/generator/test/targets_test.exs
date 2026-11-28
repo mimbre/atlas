@@ -195,7 +195,13 @@ defmodule AtlasBFF.TargetsTest do
       end
 
       [link, greeting] = json["models"]
-      assert hd(link["fields"]) == %{"name" => "label", "required" => true, "type" => "string"}
+
+      assert hd(link["fields"]) == %{
+               "name" => "label",
+               "required" => true,
+               "type" => "string",
+               "intent" => "label"
+             }
 
       assert List.last(greeting["fields"]) ==
                %{"name" => "tags", "required" => false, "type" => "map of string"}

@@ -37,10 +37,10 @@ A decision, a to-do's steps and stuck work are such stacks (`header`, `text` id 
 `text` role `error`, `option` / `instruction`, `answers`, `actions`); see
 `platform/atlas_control/backend/README.md`.
 
-In the TUI, a `text` block or item field with `format: "markdown"` presents headings as H1–H6
+In the TUI, a `text` block or item field with `syntax: "markdown"` presents headings as H1–H6
 below the page title, emphasis, lists, visible link destinations and literal fenced code.
 Links are not opened automatically, HTML is not interpreted, and unsupported syntax
-remains readable. An absent or unknown format retains the existing plain-text presentation.
+remains readable. An absent or unknown syntax retains the existing plain-text presentation.
 
 The **Machines** tab (contract 0.43.0; Runtimes in the code) is such a stack when there is
 one machine: its page is the tab's page (`header` MACHINE · its key, the state line,
@@ -159,7 +159,7 @@ blue planned or waiting, green done. An unknown tone uses the row's text colour.
 | Section and details headings | `title6` (20); aligned with their cards, and with the main content when alongside |
 | Labels (a field's label, the selected panel row, a check's name, a plan step's name; sidebar tabs, the sidebar's icons) | `label` (16) |
 | Eyebrows in small caps (`TO DO FOR YOU · TD-12`), a route's parts, a state chip; the person's name (in the sidebar's foot) | `labelsmall` (14) |
-| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's foot: the assistant line under the person's name when Control sends one ("assistant: coordinator"), then on one line the environment (production as the plain word "Production", no tag; any other environment as a small Prism warning tag, its name capitalised: "Test") · the connection in plain words, the last notice in its popover) | `caption` (14) |
+| Meta lines (a byline, "Asked:", "By", "Sending…", an empty list; a row card's top line, age and state; the sidebar's foot: the environment (production as the plain word "Production", no tag; any other environment as a small Prism warning tag, its name capitalised: "Test") · the connection in plain words, the last notice in its popover) | `caption` (14) |
 | The sidebar's section headings (WORK, BROWSE: eyebrows as a card's top line, uppercase, spaced, muted, more space above) | `labelsmall` |
 | A count's badge in the sidebar | `captionsmall` (12), strong |
 | Native buttons (a sheet's Cancel, Save, Confirm, Run; the page's and the toolbar's actions) | the system's control font: see the gaps |

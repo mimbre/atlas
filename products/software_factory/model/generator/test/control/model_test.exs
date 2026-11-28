@@ -34,9 +34,9 @@ defmodule RelaDSL.Control.ModelTest do
       refute Enum.find(kind("letter").fields, &(&1.name == "gate_result")).settable
     end
 
-    test "field formats pass through from the declaration" do
-      assert Enum.find(kind("letter").fields, &(&1.name == "body")).format == "markdown"
-      assert Enum.find(kind("letter").fields, &(&1.name == "title")).format == nil
+    test "field syntaxes pass through from the declaration" do
+      assert Enum.find(kind("letter").fields, &(&1.name == "body")).syntax == "markdown"
+      assert Enum.find(kind("letter").fields, &(&1.name == "title")).syntax == nil
     end
 
     test "the relations that start at a kind, and the fields a flow keeps to itself" do

@@ -1,6 +1,7 @@
 # Python configuration tools
 __pycache__/
 *.pyc
+/tools/control-fixtures/.generated/
 # What the umbrella's apps (products/software_factory, apps_path ../../platform) leave in
 # their own folders when run one by one
 platform/atlas_*/_build/

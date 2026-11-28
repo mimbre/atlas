@@ -323,8 +323,7 @@ defmodule RelaDSL.Description.Check do
     path = ["shell"]
     tabs = is_map(shell) && shell["tabs"]
 
-    keys(shell, ~w(title tabs default assistant), path) ++
-      assistant(shell, path) ++
+    keys(shell, ~w(title tabs default), path) ++
       if(is_map(shell) and text?(shell["title"]) and byte_size(shell["title"]) <= 128,
         do: [],
         else: p(path, :shell_title, [], "shell.title: expected nonempty text")
@@ -336,22 +335,6 @@ defmodule RelaDSL.Description.Check do
   end
 
   defp shell(_ctx), do: []
-
-  # The agent whose line a client shows under the viewer's name (`assistant`, optional):
-  # the key of an agent fact.
-  defp assistant(%{"assistant" => a}, path) do
-    if text?(a) and byte_size(a) <= 64,
-      do: [],
-      else:
-        p(
-          path,
-          :shell_assistant,
-          [],
-          "shell.assistant: expected nonempty text of at most 64 bytes"
-        )
-  end
-
-  defp assistant(_shell, _path), do: []
 
   # The tab a client opens on without a target (`default`, optional): one of the tabs.
   defp default_tab(shell, tabs, path) do
@@ -570,7 +553,7 @@ defmodule RelaDSL.Description.Check do
       create(ctx, kind, spec["create"], at.("create")) ++
       Enum.flat_map(spec["properties"] || %{}, fn {name, note} ->
         field(ctx, kind, name, at.("properties")) ++
-          keys(note, ~w(set_by multiline label cause format), at.("properties") ++ [name])
+          keys(note, ~w(set_by multiline label cause syntax), at.("properties") ++ [name])
       end) ++
       late(ctx, kind, spec["late"], at.("late")) ++
       Enum.flat_map(List.wrap(spec["counts"]), fn c ->

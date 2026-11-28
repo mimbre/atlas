@@ -120,6 +120,8 @@ public struct PageView: View {
                         .padding(.horizontal, header ? Prism.Spacing.px15 : 0))
                 case .row(let row):
                     RowCard(row: row, selected: line.to == selectedPath, focused: listFocused, raised: !listPage)
+                        .pointingHand(enabled: line.to != nil)
+                        .allowRowShadowOverflow()
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
                         .listRowBackground(listPage ? PrismDarkGap.listGround(scheme) : .clear)
@@ -256,16 +258,18 @@ public struct PageView: View {
     /// A row of the page that is not one of its selection.
     private func still(_ content: some View) -> some View {
         content
+            .allowRowShadowOverflow()
             .frame(maxWidth: .infinity, alignment: .leading)
             .selectionDisabled()
             .listRowSeparator(.hidden)
     }
 
     @ViewBuilder private func entryView(_ entry: PagePresentation.Entry, inDetails: Bool = false,
-                                        detailHeading: Bool = false, followsCardsBeforeDetails: Bool = false) -> some View {
+                                        detailHeading: Bool = false, followsCardsBeforeDetails: Bool = false,
+                                        sectionIndent: CGFloat = 0) -> some View {
         switch entry.item {
         case .list(let list):
-            ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
+            ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act, emptyIndent: sectionIndent)
         case .groups(let groups): GroupFilters(groups: groups, selected: selectedGroup, filter: filter)
         case .item(let item): ItemBlockView(item: item, inDetails: inDetails, detailHeading: detailHeading, act: act)
         case .option(let option): OptionView(block: option, detailHeading: detailHeading, act: act)
@@ -298,7 +302,10 @@ public struct PageView: View {
 
     private func blocks(_ section: PagePresentation.Section, inDetails: Bool, detailHeading: Bool) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
-            ForEach(section.entries) { entryView($0, inDetails: inDetails, detailHeading: detailHeading) }
+            ForEach(section.entries) {
+                entryView($0, inDetails: inDetails, detailHeading: detailHeading,
+                          sectionIndent: inDetails ? 0 : Prism.Spacing.px10)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -320,6 +327,7 @@ struct ListBlockView: View {
     let selectedPath: String?
     let open: (String) -> Void
     let act: (ActionModel) -> Void
+    var emptyIndent: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
@@ -336,6 +344,7 @@ struct ListBlockView: View {
             }
             if (list.rows ?? []).isEmpty, let empty = list.empty {
                 Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                    .padding(.leading, emptyIndent)
             }
             ForEach(Array((list.rows ?? []).enumerated()), id: \.offset) { _, row in
                 ListRowView(row: row, selected: row.to == selectedPath, open: open)
@@ -358,6 +367,7 @@ struct ListRowView: View {
             RowCard(row: row, selected: selected, focused: true, raised: true)
         }
         .buttonStyle(.plain)
+        .pointingHand()
         .disabled(row.to == nil)
     }
 }
@@ -493,7 +503,7 @@ struct ItemBlockView: View {
                         Text(label).prism(Prism.Typography.label)
                             .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
-                    FormattedText(text: field.value ?? "—", format: field.format).prism(Prism.Typography.bodysmall)
+                    FormattedText(text: field.value ?? "—", syntax: field.syntax).prism(Prism.Typography.bodysmall)
                         .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.primary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

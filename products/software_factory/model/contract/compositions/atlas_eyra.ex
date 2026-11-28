@@ -208,8 +208,7 @@ defmodule Model.AtlasEyra do
   shell(
     title: "Atlas Console",
     tabs: @tabs,
-    default: @boot_tab,
-    assistant: :coordinator
+    default: @boot_tab
   )
 
   read_first(

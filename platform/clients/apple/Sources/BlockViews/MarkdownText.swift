@@ -1,6 +1,9 @@
 import Foundation
 import Prism
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Foundation parses Markdown into attributed text; no HTML view or code execution is involved.
 struct MarkdownDocument {
@@ -32,7 +35,7 @@ struct MarkdownDocument {
     }
 
     let parts: [Part]
-    static func isMarkdown(_ format: String?) -> Bool { format == "markdown" }
+    static func isMarkdown(_ syntax: String?) -> Bool { syntax == "markdown" }
 
 
     init(_ source: String) {
@@ -62,11 +65,11 @@ struct MarkdownDocument {
 
 struct FormattedText: View {
     let text: String
-    let format: String?
+    let syntax: String?
 
     var body: some View {
         Group {
-            if MarkdownDocument.isMarkdown(format) {
+            if MarkdownDocument.isMarkdown(syntax) {
                 MarkdownText(source: text)
             } else {
                 Text(text)
@@ -75,8 +78,13 @@ struct FormattedText: View {
     }
 }
 
+#if os(macOS)
+private struct LinkText: TextAttribute {}
+#endif
+
 struct MarkdownText: View {
     let source: String
+    var openLink: (URL) -> OpenURLAction.Result = { _ in .systemAction }
 
     var body: some View {
         let document = MarkdownDocument(source)
@@ -85,15 +93,17 @@ struct MarkdownText: View {
                 if let level = part.headingLevel {
                     Self.text(part, typography: Self.headingTypography(level))
                         .prism(Self.headingTypography(level))
+                        .linkPointer(part)
                         .accessibilityAddTraits(.isHeader)
                 } else {
                     Self.text(part, typography: part.isCode ? Prism.Typography.monosmall : Prism.Typography.bodysmall)
                         .prism(part.isCode ? Prism.Typography.monosmall : Prism.Typography.bodysmall)
+                        .linkPointer(part)
                 }
             }
         }
         .environment(\.openURL, OpenURLAction { url in
-            MarkdownDocument.allows(url) ? .systemAction : .discarded
+            MarkdownDocument.allows(url) ? openLink(url) : .discarded
         })
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -102,6 +112,11 @@ struct MarkdownText: View {
     private static func text(_ part: MarkdownDocument.Part, typography: PrismTypography) -> Text {
         part.text.runs.reduce(Text(part.prefix)) { result, run in
             var fragment = Text(AttributedString(part.text[run.range]))
+            #if os(macOS)
+            if let url = run.link, MarkdownDocument.allows(url) {
+                fragment = fragment.customAttribute(LinkText())
+            }
+            #endif
             let intent = run.inlinePresentationIntent
             if intent?.contains(.stronglyEmphasized) == true {
                 let strong = typography.emphasis(.strong)
@@ -123,3 +138,78 @@ struct MarkdownText: View {
         }
     }
 }
+
+#if os(macOS)
+/// Track link glyphs without intercepting selection or clicks on the text.
+private final class LinkCursorView: NSView {
+    var regions: [CGRect] = []
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        for rect in regions {
+            let visible = rect.intersection(visibleRect).intersection(bounds)
+            if !visible.isEmpty {
+                addTrackingArea(NSTrackingArea(rect: visible, options: [.activeInKeyWindow, .mouseEnteredAndExited, .mouseMoved], owner: self))
+            }
+        }
+    }
+    override func mouseEntered(with event: NSEvent) { NSCursor.pointingHand.set() }
+    override func mouseMoved(with event: NSEvent) { NSCursor.pointingHand.set() }
+    override func resetCursorRects() {
+        for rect in regions { addCursorRect(rect, cursor: .pointingHand) }
+    }
+}
+
+private struct LinkCursorRegion: NSViewRepresentable {
+    let regions: [CGRect]
+    func makeNSView(context: Context) -> LinkCursorView { LinkCursorView() }
+    func updateNSView(_ view: LinkCursorView, context: Context) {
+        if view.regions != regions {
+            view.regions = regions
+            view.needsLayout = true
+            view.updateTrackingAreas()
+        }
+        view.window?.invalidateCursorRects(for: view)
+    }
+}
+
+private struct LinkPointer: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func body(content: Content) -> some View {
+        content.overlayPreferenceValue(Text.LayoutKey.self) { layouts in
+            GeometryReader { geometry in
+                if isEnabled {
+                    let bounds = layouts.flatMap { anchored in
+                        let origin = geometry[anchored.origin]
+                        return anchored.layout.flatMap { line in
+                            line.compactMap { run -> CGRect? in
+                                guard run[LinkText.self] != nil else { return nil }
+                                return run.typographicBounds.rect.offsetBy(dx: origin.x, dy: origin.y)
+                            }
+                        }
+                    }
+                    LinkCursorRegion(regions: bounds)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder func linkPointer(_ part: MarkdownDocument.Part) -> some View {
+        if part.text.runs.contains(where: { $0.link.map(MarkdownDocument.allows) == true }) {
+            modifier(LinkPointer())
+        } else {
+            self
+        }
+    }
+}
+#else
+private extension View {
+    func linkPointer(_ part: MarkdownDocument.Part) -> some View { self }
+}
+#endif
