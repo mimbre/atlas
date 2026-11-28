@@ -238,6 +238,38 @@ func TestCanonicalManifestMatchesCodeJSON(t *testing.T) {
 	}
 }
 
+func TestCompleteDuringAtomicPublication(t *testing.T) {
+	parent := t.TempDir()
+	for i := range 1000 {
+		staging := filepath.Join(parent, fmt.Sprintf("staging-%d", i))
+		baseline := filepath.Join(parent, fmt.Sprintf("baseline-%d", i))
+		must(t, os.Mkdir(staging, 0700))
+		must(t, os.WriteFile(filepath.Join(staging, "complete"), []byte("complete\n"), 0600))
+
+		start := make(chan struct{})
+		published := make(chan error, 1)
+		go func() {
+			<-start
+			published <- os.Rename(staging, baseline)
+		}()
+		close(start)
+		_, err := complete(baseline)
+		must(t, <-published)
+		if err != nil {
+			t.Fatalf("complete baseline refused during publication: %v", err)
+		}
+		if ready, err := complete(baseline); err != nil || !ready {
+			t.Fatalf("published baseline: ready=%v error=%v", ready, err)
+		}
+	}
+
+	unmarked := filepath.Join(parent, "unmarked")
+	must(t, os.Mkdir(unmarked, 0700))
+	if ready, err := complete(unmarked); err == nil || ready {
+		t.Fatalf("unmarked baseline: ready=%v error=%v", ready, err)
+	}
+}
+
 func TestMaterializesRealCodeSnapshotWithBaselineAndRecord(t *testing.T) {
 	f, id := codeFixture(t)
 	hexID := strings.TrimPrefix(id, "sha256:")

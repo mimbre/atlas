@@ -216,6 +216,37 @@ defmodule AtlasControl.Freshness.AffectedTest do
     assert set.as_of == nil
   end
 
+  test "related target changes invalidate the page and target errors have no position" do
+    target = %{
+      "fact" => %{"key" => "P-1"},
+      "deps" => [["key", "part", "P-1", "*"]],
+      "position" => 4
+    }
+
+    source = %{
+      "fact" => %{"key" => "W-1"},
+      "deps" => [@w1],
+      "position" => 4,
+      "related" => [%{"kind" => "part", "key" => "P-1", "answer" => target}]
+    }
+
+    set = ReadSet.of([{"widget", :rows}], [source], [])
+
+    assert Affected.stale?(set.deps, set.as_of, [
+             {5, [change("part", "P-1", "change", ["title"])]}
+           ])
+
+    refute Affected.stale?(set.deps, set.as_of, [
+             {5, [change("part", "P-2", "change", ["title"])]}
+           ])
+
+    failed = put_in(source, ["related", Access.at(0), "answer"], %{"error" => "unavailable"})
+    assert ReadSet.of([{"widget", :rows}], [failed], []).as_of == nil
+
+    failed_work = put_in(source, ["related", Access.at(0), "answer", "work_error"], "unavailable")
+    assert ReadSet.of([{"widget", :rows}], [failed_work], []).as_of == nil
+  end
+
   test "a page with an answer that is an error was read at no position, whatever Facts said" do
     set =
       ReadSet.of(

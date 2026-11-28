@@ -77,6 +77,26 @@ defmodule AtlasControl.PageReadsTest do
     assert PageReads.roles({:list, "box"}, @description) == [{"box", :rows}]
   end
 
+  test "an item requests related targets only for its own and component key reads" do
+    PageReads.answers({:item, "box", "B-1"}, @description, fn "_page", content, _ ->
+      assert ["box", %{"key" => "B-1", "related" => true}] in content["reads"]
+      assert ["tag", %{"key" => "T-B-1", "related" => true}] in content["reads"]
+      %{"answers" => Enum.map(content["reads"], fn _ -> %{"facts" => []} end)}
+    end)
+  end
+
+  test "an older Facts that rejects related reads still serves the item" do
+    ask = fn "_page", %{"reads" => reads}, _ ->
+      if Enum.any?(reads, fn [_, read] -> read["related"] == true end) do
+        %{"error" => "invalid page reads"}
+      else
+        %{"answers" => Enum.map(reads, fn _ -> %{"facts" => []} end)}
+      end
+    end
+
+    assert [%{"facts" => []} | _] = PageReads.answers({:item, "box", "B-1"}, @description, ask)
+  end
+
   test "a page without reads asks nothing" do
     assert PageReads.answers({:new, "box"}, @description, fn _, _, _ -> flunk("asked") end) == []
   end
