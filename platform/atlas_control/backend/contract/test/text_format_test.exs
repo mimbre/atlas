@@ -29,8 +29,12 @@ defmodule AtlasBFFContract.TextFormatTest do
 
   test "shared spec classifies text and identifies Markdown-capable fields" do
     schema = AtlasBFFContract.Contract.__schema__()
+
     field = fn entries, entry, name ->
-      entries |> Enum.find(&(&1.name == entry)) |> Map.fetch!(:fields) |> Enum.find(&(&1.name == name))
+      entries
+      |> Enum.find(&(&1.name == entry))
+      |> Map.fetch!(:fields)
+      |> Enum.find(&(&1.name == name))
     end
 
     assert %{intent: :title} = field.(schema.blocks, :header, :title)

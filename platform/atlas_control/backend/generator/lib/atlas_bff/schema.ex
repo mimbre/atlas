@@ -303,16 +303,16 @@ defmodule AtlasBFF.Schema do
         )
       end
 
-      @spec_fields (%{
-                      name: unquote(name),
-                      type: unquote(type),
-                      required: unquote(Keyword.get(opts, :required, false)),
-                      file: unquote(file),
-                      line: unquote(line)
-                    }
-                    |> AtlasBFF.Schema.__deprecated__(unquote(opts[:deprecated]))
-                    |> AtlasBFF.Schema.__metadata__(:intent, unquote(opts[:intent]))
-                    |> AtlasBFF.Schema.__metadata__(:syntax, unquote(opts[:syntax])))
+      @spec_fields %{
+                     name: unquote(name),
+                     type: unquote(type),
+                     required: unquote(Keyword.get(opts, :required, false)),
+                     file: unquote(file),
+                     line: unquote(line)
+                   }
+                   |> AtlasBFF.Schema.__deprecated__(unquote(opts[:deprecated]))
+                   |> AtlasBFF.Schema.__metadata__(:intent, unquote(opts[:intent]))
+                   |> AtlasBFF.Schema.__metadata__(:syntax, unquote(opts[:syntax]))
     end
   end
 
