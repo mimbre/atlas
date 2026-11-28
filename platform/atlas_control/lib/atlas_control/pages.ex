@@ -2195,7 +2195,7 @@ defmodule AtlasControl.Pages do
         {child_answers, rest} = Enum.split(child_answers, length(relations))
         {cause_answers, _part_answers} = Enum.split(rest, length(cause_fields(m)))
 
-        related = related_targets([answer | child_answers] ++ rest)
+        target_map = related_targets([answer | child_answers] ++ rest)
 
         fields =
           [Blocks.pair(label: "Id", value: key)] ++
@@ -2279,12 +2279,12 @@ defmodule AtlasControl.Pages do
         references =
           Enum.map(lists, &elem(&1, 1)) ++
             cause_lists(m, key, cause_answers, form[:by]) ++
-            Enum.reject(parent_lists(m, kind, fact, related, form[:by]), &component.(elem(&1, 0))) ++
+            Enum.reject(parent_lists(m, kind, fact, target_map, form[:by]), &component.(elem(&1, 0))) ++
             if(deciding,
               do: [],
               else:
                 Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
-                  parent_lists(m, part_kind, part, related, form[:by])
+                  parent_lists(m, part_kind, part, target_map, form[:by])
                 end)
             )
 
@@ -2382,9 +2382,9 @@ defmodule AtlasControl.Pages do
             remaining =
               Enum.map(remaining, &elem(&1, 1)) ++
                 cause_lists(m, key, cause_answers, form[:by]) ++
-                parent_lists(m, kind, fact, related, form[:by]) ++
+                parent_lists(m, kind, fact, target_map, form[:by]) ++
                 Enum.flat_map(parts, fn {part_kind, _k, part, _made} ->
-                  parent_lists(m, part_kind, part, related, form[:by])
+                  parent_lists(m, part_kind, part, target_map, form[:by])
                 end)
 
             header =
