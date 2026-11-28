@@ -147,7 +147,7 @@ defmodule Model.ControlViewsTest do
       "key" => "R-1",
       "flow" => flow,
       "generation" => 1,
-      "status" => "active",
+      "status" => Keyword.get(opts, :status, "active"),
       "state" => state
     }
 
@@ -191,6 +191,43 @@ defmodule Model.ControlViewsTest do
        do: Keyword.get(opts, :issues, %{"facts" => []})
 
   defp plan_answer(_kind, _query, _index, _fact, _assignment, _opts), do: %{"facts" => []}
+
+  defp assert_console_page(page, path) do
+    message = %{"path" => path, "blocks" => page.blocks, "markup" => page.markup}
+
+    assert {:ok, projected} =
+             AtlasControl.Console.project(message, Model.AtlasEyra.shell(%{})["tabs"])
+
+    assert {:ok, projection} = AtlasBFFContract.Console.compile(projected)
+    projection
+  end
+
+  test "use case actions project once for active and completed runs" do
+    completed = plan_page(%{}, "ada", state: "broken_down", status: "completed")
+    projection = assert_console_page(completed, "/k/use_case/UC-1")
+
+    assert {:ok, bindings} =
+             AtlasBFFContract.Console.bindings(projection, %{
+               path: "/k/use_case/UC-1",
+               context: "browse",
+               generation: 1
+             })
+
+    assert bindings["g"]["props"]["label"] == "Restart"
+
+    for {viewer, state} <- [{"ada", "accepting"}, {"bob", "accepting"}, {"ada", "clarifying"}] do
+      assert_console_page(plan_page(%{}, viewer, state: state), "/k/use_case/UC-1")
+    end
+  end
+
+  test "issue actions project for owner and non-owner in active and completed states" do
+    for viewer <- ["ada", "bob"], state <- ["working", "stuck", "review_stuck", "done"] do
+      assert_console_page(
+        issue_page(%{"title" => "An issue"}, viewer, state),
+        "/k/issue/IS-Atlas-01"
+      )
+    end
+  end
 
   test "Plan acceptance keeps the proposal, answers and all use case content" do
     page =
@@ -647,9 +684,7 @@ defmodule Model.ControlViewsTest do
     m = AtlasControl.Model.catalog(Model.AtlasEyra)
     flow = Enum.find(Model.AtlasEyra.subflows(:test), &(&1.name() == "issue"))
 
-    presentation =
-      flow.present(state, values)
-      |> Map.merge(%{"state" => state, "owner" => ["ada"], "actionable" => true})
+    presentation = issue_presentation(flow, state, values)
 
     issue = %{"key" => "IS-Atlas-01", "values" => values, "links" => %{}}
     assignment = %{"key" => "AS-IS-Atlas-01", "values" => %{}, "presentation" => presentation}
@@ -676,6 +711,16 @@ defmodule Model.ControlViewsTest do
       end
 
     AtlasControl.Pages.render(route, m, answers, %{by: viewer, by_kind: "person"})
+  end
+
+  defp issue_presentation(flow, state, values) do
+    (flow.present(state, values) || %{})
+    |> Map.merge(%{
+      "state" => state,
+      "owner" => ["ada"],
+      "actionable" => state != "done",
+      "status" => if(state == "done", do: "completed", else: "active")
+    })
   end
 
   # Every action and answer a page offers explains itself (`help`, a client's tooltip):
