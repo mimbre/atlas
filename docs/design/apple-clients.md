@@ -246,9 +246,12 @@ Rules:
 - **Rejected alternative:** tabs as a segmented control in the toolbar. It breaks down once
   a description has more than about 5 tabs.
 - Text blocks and item or option fields render Markdown only when `format` is `markdown`;
-  missing or unknown formats stay plain text. Markdown headings remain below the page
-  title, code is displayed as text, and only clicked HTTP(S) links can open. Content with
-  raw HTML is shown as literal source, not rendered or silently discarded.
+  missing or unknown formats stay plain text. Markdown body text uses the same Prism
+  `bodysmall` font and line height as plain text, retaining bold and italic emphasis;
+  code uses `monosmall`. Headings use `title4`–`title7` (levels 4–6 share `title7`),
+  below the page title. Code is displayed as text, and only clicked HTTP(S) links can open.
+  Content with raw HTML is shown as
+  literal source, not rendered or silently discarded.
 
 What differs by platform beyond the layout stays in the platform targets:
 
