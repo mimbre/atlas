@@ -58,23 +58,36 @@ defmodule Mix.Tasks.Atlas.GenTest do
 
   test "an unknown target fails before anything is written", %{tmp_dir: dir} do
     Application.put_env(:atlas_bff, :targets, kotlin: dir)
-    assert_raise Mix.Error, ~r/unknown target :kotlin; known: \[:fixtures, :json, :swift\]/, fn -> gen() end
+
+    assert_raise Mix.Error, ~r/unknown target :kotlin; known: \[:fixtures, :json, :swift\]/, fn ->
+      gen()
+    end
+
     assert File.ls!(dir) == []
   end
 
-  test "fixture target derives specimens for each block and markup from the schema", %{tmp_dir: dir} do
+  test "fixture target derives specimens for each block and markup from the schema", %{
+    tmp_dir: dir
+  } do
     Application.put_env(:atlas_bff, :targets, fixtures: dir)
     gen()
     document = dir |> Path.join("fixtures.json") |> File.read!() |> JSON.decode!()
     fixtures = document["fixtures"]
     schema = AtlasBFF.Example.__schema__()
     assert fixtures["version"] == schema.version
-    assert Enum.map(fixtures["blocks"], & &1["name"]) == Enum.map(schema.blocks, &to_string(&1.name))
-    assert Enum.map(fixtures["markup"], & &1["name"]) == Enum.map(schema.markup, &to_string(&1.name))
+
+    assert Enum.map(fixtures["blocks"], & &1["name"]) ==
+             Enum.map(schema.blocks, &to_string(&1.name))
+
+    assert Enum.map(fixtures["markup"], & &1["name"]) ==
+             Enum.map(schema.markup, &to_string(&1.name))
+
     for block <- fixtures["blocks"] do
-      assert block["required"]["type"] == block["name"]
-      assert block["full"]["type"] == block["name"]
+      assert Enum.all?(block["variants"], &(&1["sample"]["type"] == block["name"]))
+      assert Enum.any?(block["variants"], &(&1["case"] == "required"))
+      assert Enum.any?(block["variants"], &(&1["case"] == "full"))
     end
+
     gen()
     assert_received {:mix_shell, :info, ["generated files are up to date"]}
   end

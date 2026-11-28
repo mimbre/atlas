@@ -105,12 +105,21 @@ python3 tools/control-fixtures/server.py --scenario decision --port 4747
 python3 -m unittest discover -s tools/control-fixtures -p 'test_server.py'
 ```
 
-`bin/generate atlas` produces the generic BFF fixture target in
-`platform/atlas_control/backend/targets/fixtures/`: required/full block and markup
-specimens and typed wire examples. They are structural samples, not semantic product
-pages or substitutes for real-client and real-server checks. The separate product
-generator feeds synthetic facts through the real product model and BFF using a local
-in-process Bus and test FakeStore, then writes native pages and boot shells for replay.
+`bin/generate atlas` produces
+`platform/atlas_control/backend/targets/fixtures/fixtures.json` from the BFF spec.
+For every block, markup and model it includes required-only and all-present specimens,
+each optional field present alone and absent alone, and per-field representative values
+against the all-present specimen: short/normal/long intent-bearing strings, empty/one/
+three-member lists and maps, both booleans and zero/one integers. Nested models are
+covered independently, not as a Cartesian product. Markdown-capable values use valid
+Markdown and their enclosing `syntax` field opts in when present. The finite texts are
+examples, not an exhaustive string set. The schema does not declare enum domains,
+action-key grammars, routable targets or other cross-field semantics, so these are
+structural decoder specimens, not operational pages or real-server checks.
+
+The separate operational replay path below uses synthetic facts through the real product
+model and BFF, with a local in-process Bus and test FakeStore. It writes native pages and
+boot shells for replay; it does not use the structural specimens as production content.
 Neither generation nor replay starts a Control, Facts, Rela or Flow server or reads
 production environment configuration. Regenerate the product artifact after BFF,
 product model or fixture-data changes; the server rejects a different contract version.
