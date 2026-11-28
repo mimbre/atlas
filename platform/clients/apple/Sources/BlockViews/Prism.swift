@@ -1,5 +1,8 @@
 import Prism
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 // Prism's tokens and components come from its package (Package.swift pins the release).
 // Here only what Atlas lays on top of them: the page's measure, Prism's radius in points
@@ -26,6 +29,54 @@ extension View {
         self.shadow(color: shadow.color, radius: shadow.blur / 2, x: shadow.x, y: shadow.y)
     }
 }
+
+// SwiftUI's native List clips each NSTableRowView independently, cutting off shadows.
+// Keep the scroll view's viewport clip; only let a row draw beyond its own bounds.
+extension View {
+    @ViewBuilder func allowRowShadowOverflow() -> some View {
+        #if os(macOS)
+        background(RowShadowOverflow().allowsHitTesting(false))
+        #else
+        self
+        #endif
+    }
+}
+
+#if os(macOS)
+private struct RowShadowOverflow: NSViewRepresentable {
+    func makeNSView(context: Context) -> RowOverflowView { RowOverflowView() }
+    func updateNSView(_ view: RowOverflowView, context: Context) { view.scheduleUnclip() }
+}
+
+private final class RowOverflowView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        scheduleUnclip()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        scheduleUnclip()
+    }
+
+    func scheduleUnclip() {
+        DispatchQueue.main.async { [weak self] in self?.unclipRow() }
+    }
+
+    func unclipRow() {
+        var ancestor = superview
+        while let view = ancestor {
+            if let row = view as? NSTableRowView {
+                row.layer?.masksToBounds = false
+                return
+            }
+            ancestor = view.superview
+        }
+    }
+}
+#endif
 
 /// A calm card (`PrismDarkGap.card`).
 struct PrismCard: ViewModifier {

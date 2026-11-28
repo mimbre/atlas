@@ -11,21 +11,12 @@ defmodule AtlasTui.ConsoleView do
     suffix = " · #{model.env} "
     title = String.slice(title, 0, max(width - String.length(suffix) - 1, 0))
     # The shell's greeting (the viewer's name) follows the environment, before the count,
-    # with the assistant line after it, faint:
-    # "Atlas Console · prod · <name> · assistant: coordinator · 3 assigned to you". Both
-    # are cut to the room the rest of the bar leaves, and left out when there is none.
+    # cut to the room the rest of the bar leaves.
     room = width - String.length(" #{title}" <> suffix <> "· " <> count) - 1
 
     greeting =
       if shell && shell["greeting"],
         do: String.slice(shell["greeting"], 0, max(room, 0)),
-        else: ""
-
-    room = room - String.length(greeting) - 3
-
-    assistant =
-      if greeting != "" && shell["assistant"] && room > 0,
-        do: " · " <> String.slice(shell["assistant"], 0, room),
         else: ""
 
     {greeting, count} =
@@ -44,7 +35,6 @@ defmodule AtlasTui.ConsoleView do
       {:header, " #{title} ·"},
       {if(model.env == "prod", do: :header, else: :env_test), " #{model.env} "},
       {:header, greeting},
-      {{:header, :muted}, assistant},
       {:header, count},
       {:pending, stale}
     ]

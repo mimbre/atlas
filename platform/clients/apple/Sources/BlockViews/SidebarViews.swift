@@ -125,7 +125,6 @@ public struct SidebarView: View {
     let selection: SidebarItem.ID?
     let stale: Bool
     let name: String?
-    let assistant: String?
     let env: String
     let production: Bool
     let connection: SidebarConnection
@@ -135,14 +134,13 @@ public struct SidebarView: View {
     @FocusState private var focused: Bool
 
     public init(work: [SidebarItem], browse: [SidebarItem], selection: SidebarItem.ID?, stale: Bool, name: String?,
-                assistant: String?, env: String, production: Bool, connection: SidebarConnection,
+                env: String, production: Bool, connection: SidebarConnection,
                 select: @escaping (SidebarItem.ID) -> Void) {
         self.work = work
         self.browse = browse
         self.selection = selection
         self.stale = stale
         self.name = name
-        self.assistant = assistant
         self.env = env
         self.production = production
         self.connection = connection
@@ -169,7 +167,7 @@ public struct SidebarView: View {
         .onKeyPress(.upArrow) { step(-1) }
         .onKeyPress(.downArrow) { step(1) }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            SidebarFoot(name: name, assistant: assistant, env: env, production: production, connection: connection)
+            SidebarFoot(name: name, env: env, production: production, connection: connection)
         }
         .background(PrismDarkGap.sidebarGround(scheme))
     }
@@ -273,14 +271,13 @@ struct SidebarBadge: View {
 }
 
 /// The sidebar's foot, below a line, the shell's one place for its state, never wrapping:
-/// the person's name, under it the assistant line when Control sends one; then on one line
-/// the environment (production as the plain word, any other as a small warning tag), the
+/// the person's name, then on one line the environment (production as the plain word,
+/// any other as a small warning tag), the
 /// connection's dot (not connected: a red warning sign) and its short state. The plain words
 /// (why, what happens next) and the technical details are in a popover on the state (click;
 /// hover shows them too).
 struct SidebarFoot: View {
     let name: String?
-    let assistant: String?
     let env: String
     let production: Bool
     let connection: SidebarConnection
@@ -293,13 +290,6 @@ struct SidebarFoot: View {
                 Text(name)
                     .prism(Prism.Typography.labelsmall)
                     .foregroundStyle(PrismDarkGap.text(scheme))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            if let assistant {
-                Text(assistant)
-                    .prism(Prism.Typography.caption)
-                    .foregroundStyle(PrismDarkGap.muted(scheme))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }

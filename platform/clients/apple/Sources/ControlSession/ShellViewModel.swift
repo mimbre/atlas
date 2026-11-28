@@ -24,9 +24,6 @@ public struct ShellViewModel: Sendable, Equatable {
     public var title: String?
     /// The viewer's name, as Control sent it (only to a person); nil when none.
     public var name: String?
-    /// The line under the viewer's name, in full as Control sent it ("assistant: coordinator");
-    /// nil when none.
-    public var assistant: String?
     /// The environment: the shell's, else the one the app was started for.
     public var env: String
     /// Production gets no mark; any other environment a warning tag in the foot.
@@ -77,7 +74,6 @@ public struct ShellViewModel: Sendable, Equatable {
         let shell = state.shell
         title = shell?.title
         name = shell?.name.flatMap { $0.isEmpty ? nil : $0 }
-        assistant = shell?.assistant.flatMap { $0.isEmpty ? nil : $0 }
         env = shell?.env ?? state.settings.env
         isProduction = env == "prod"
         // A tab without a page to go to cannot be shown.

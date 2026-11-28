@@ -98,13 +98,13 @@ defmodule AtlasBFFContract.Contract do
   # a form. A decision's Decline sends no `detail` any more.
   # 0.43.0: one Machines tab in place of Agents and Workers: the machines pages
   # (`/machines`, `/machines/:machine`, the Upgrade to the newest build confirm and its
-  # `upgrade_machine` submit); `/workers` shows the Machines page (deprecated). The shell
-  # says who assists its viewer (`assistant`), shown under their name.
+  # `upgrade_machine` submit); `/workers` shows the Machines page (deprecated).
   # 0.44.0: headers may show state and age, and lists may show an aside.
   # 0.45.0: shell tabs no longer carry groups; group navigation remains in list pages.
   # 0.46.0: text blocks and labelled values may explicitly declare Markdown.
   # 0.47.0: text and pair syntax replaces format; coordinated client update required.
-  version "0.47.0"
+  # 0.48.0: boot no longer claims an assistant is connected.
+  version "0.48.0"
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup

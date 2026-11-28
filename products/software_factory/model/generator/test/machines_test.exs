@@ -1,8 +1,7 @@
 defmodule RelaDSL.MachinesTest do
   @moduledoc """
-  The machines a Runtime runs work on (`machines`) and the shell's assistant: what a
-  composition declares is compiled into the root module as plain data, and names that
-  resolve to nothing are refused.
+  The machines a Runtime runs work on (`machines`): what a composition declares is
+  compiled into the root module as plain data, and names that resolve to nothing are refused.
   """
   use ExUnit.Case, async: true
 
@@ -178,17 +177,12 @@ defmodule RelaDSL.MachinesTest do
     refused(decl(@machines) <> decl(@machines), "machines is given more than once")
   end
 
-  test "the shell keeps its assistant" do
+  test "the shell rejects the obsolete assistant option" do
     shell = """
     shell(title: "Desk", tabs: [[id: :cases, label: "Cases", to: "/k/case"]], assistant: :coordinator)
     """
 
-    assert model(shell).shell(%{})["assistant"] == "coordinator"
-
-    refused(
-      String.replace(shell, ":coordinator", "\"\""),
-      "shell.assistant: expected nonempty text"
-    )
+    refused(shell, "shell: unknown keys assistant")
   end
 
   test "a tab opens /machines only with machines" do
