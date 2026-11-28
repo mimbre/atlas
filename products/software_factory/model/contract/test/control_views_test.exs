@@ -221,7 +221,7 @@ defmodule Model.ControlViewsTest do
              "Not accepted"
            ]
 
-    refute Enum.any?(page.markup, &(&1["kind"] == "part" and &1["props"]["role"] == "details"))
+    assert Enum.any?(page.markup, &(&1["kind"] == "part" and &1["props"]["role"] == "details"))
   end
 
   test "sparse Plan acceptance and a non-owner retain their existing behavior" do
@@ -366,11 +366,12 @@ defmodule Model.ControlViewsTest do
              &(&1["id"] == "item" and &1["props"]["title"] == "Other details")
            )
 
-    refute Enum.any?(
-             page.markup,
-             &(get_in(&1, ["props", "collapsible"]) == true or
-                 get_in(&1, ["props", "role"]) == "details")
-           )
+    assert Enum.any?(page.markup, fn mark ->
+             mark["kind"] == "part" and mark["start"] == hd(details)["id"] and
+               get_in(mark, ["props", "role"]) == "details"
+           end)
+
+    refute Enum.any?(page.markup, &(get_in(&1, ["props", "collapsible"]) == true))
   end
 
   test "a failed use case read is shown on the scene page" do
@@ -456,7 +457,7 @@ defmodule Model.ControlViewsTest do
     assert [%{"id" => "D-0001", "to" => "/k/decision/D-0001"}] =
              blocks["parent:based_on"]["props"]["rows"]
 
-    refute Enum.any?(page.markup, &(&1["kind"] == "part" and &1["props"]["role"] == "details"))
+    assert Enum.any?(page.markup, &(&1["kind"] == "part" and &1["props"]["role"] == "details"))
 
     sparse = put_in(fact, ["values"], %{"title" => "Rotate the key", "instructions" => "Tidy it"})
     sparse = put_in(sparse, ["links"], %{})
