@@ -27,9 +27,11 @@ The Mac sidebar contains only top-level destinations. The current index page's C
 `groups` are selectable Prism-styled pills above its list, with their counts and a
 horizontally scrollable layout when they do not fit.
 
-Toolbar actions are icon-only with descriptive tooltips and accessibility labels. On the
-page, explicitly main answers precede secondary answers and have no icon; unweighted
-actions are not promoted merely because they are first. When a row of answers sits between
+Toolbar actions are icon-only with descriptive tooltips and accessibility labels. Opened-page
+actions stay near the main content when details are beside it, and at the trailing edge when
+details are below it or absent. On the page, explicitly main answers precede secondary answers
+and have no icon; unweighted actions are not promoted merely because they are first. When a row of
+answers sits between
 a stack of cards and details below, its lower spacing matches the cards' shadow room above.
 Details parts and their sections show all blocks as a stack without a surrounding card or
 disclosure. Legacy collapsible markup is also shown expanded.
