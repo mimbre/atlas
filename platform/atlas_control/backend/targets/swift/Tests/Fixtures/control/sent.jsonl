@@ -1,4 +1,4 @@
-{"client":"capture","env":"test","op":"hello","spec":"0.47.0"}
+{"client":"capture","env":"test","op":"hello","spec":"0.48.0"}
 {"op":"boot"}
 {"op":"boot","to":"/k/part"}
 {"op":"open","to":"/k/widget"}
@@ -7,12 +7,12 @@
 {"op":"open","to":"/k/widget/W-01/edit"}
 {"op":"open","to":"/k/widget/W-01/delete"}
 {"op":"open","to":"/k/widget/new"}
-{"op":"open","to":"/_kinds"}
-{"op":"open","to":"/no/such/page"}
 {"op":"open","to":"/k/widget/W-01/edit"}
 {"cause":"fixture","endpoint":"update","op":"submit","params":{"key":"W-01","kind":"widget"},"values":{"title":"After"}}
 {"op":"open","to":"/k/widget/new"}
 {"endpoint":"create","op":"submit","params":{"kind":"widget"},"values":{"title":"Three"}}
 {"op":"open","to":"/k/widget"}
 {"op":"refresh"}
+{"op":"open","to":"/_kinds"}
+{"op":"open","to":"/no/such/page"}
 {"op":"turn"}
