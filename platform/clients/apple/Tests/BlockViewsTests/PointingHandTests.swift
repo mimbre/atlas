@@ -10,6 +10,7 @@ final class PointingHandTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["ATLAS_CURSOR_UI_TEST"] == "1" else {
             throw XCTSkip("Set ATLAS_CURSOR_UI_TEST=1 in a graphical session")
         }
+        XCTAssertTrue(CGPreflightPostEventAccess(), "Native hover proof requires macOS input-posting permission")
         let app = NSApplication.shared
         let previousApp = NSWorkspace.shared.frontmostApplication
         let previousMouse = CGEvent(source: nil)?.location
