@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.47.0"
+  version "0.48.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -259,9 +259,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # `greeting`: the words a client greets its viewer with, the viewer's name filled in,
   # for a viewer the start's assigned relation points at, when the model words
   # one; `name`, that viewer's name (none for an agent or a migration). Control reads the
-  # name once at boot, so it is part of the shell's revision. `assistant` (0.43.0): the
-  # line a client shows under that name, the agent that assists the viewer in the
-  # model's words ("assistant: coordinator"); none when no such agent assists them.
+  # name once at boot, so it is part of the shell's revision.
   defmodel :shell do
     field :title, :string, intent: :title, required: true
     field :env, :string, required: true
@@ -272,7 +270,6 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :active_tab, :string
     field :greeting, :string, intent: :body
     field :name, :string, intent: :label
-    field :assistant, :string, intent: :label
   end
 
   defmodel :boot_error do

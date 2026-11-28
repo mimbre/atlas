@@ -574,8 +574,7 @@ defmodule AtlasControl.Session do
            candidate.by_kind,
            message["to"],
            &route(&1, candidate),
-           candidate.by_name,
-           candidate.by
+           candidate.by_name
          ) do
       {:ok, shell} ->
         {shell, missing} = counted(shell, state.tab_counts, state.model)
@@ -1916,8 +1915,7 @@ defmodule AtlasControl.Session do
                  state.by_kind,
                  nil,
                  nil,
-                 state.by_name,
-                 state.by
+                 state.by_name
                ),
              {:ok, page} <- AtlasControl.Console.project(message, shell["tabs"], console_actions),
              do: {:ok, page}

@@ -11,11 +11,9 @@ defmodule AtlasControl.Shell do
   (the default: what needs someone) or "browse" (reference); a browse tab may name its
   own key sequence (`key`, as "g s").
 
-  A client that is a fact of a kind the start's assigned relation points at is greeted (`greeting`), when the model words a greeting: its words with `{name}` the
-  viewer's name, as Session read it once at boot. An agent or a migration has none. Under
-  that name the shell names the agent that assists the viewer (`assistant`, "assistant:
-  coordinator"): the model's shell names the agent (`assistant`), the environment's
-  settings say whom it assists (`AtlasBus.Actors.assisted/1`).
+  A client that is a fact of a kind the start's assigned relation points at is greeted
+  (`greeting`), when the model words a greeting: its words with `{name}` the viewer's
+  name, as Session read it once at boot. An agent or a migration has none.
   """
 
   alias AtlasControl.Pages
@@ -26,11 +24,10 @@ defmodule AtlasControl.Shell do
 
   @doc """
   Build a fresh shell; the optional target selects content without opening a page.
-  `name` is the viewer's name (its fact's label), which a greeting fills in; `by` the
-  viewer's key, whom the model's assistant may assist.
+  `name` is the viewer's name (its fact's label), which a greeting fills in.
   """
-  def boot(m, by_kind, target \\ nil, resolve \\ nil, name \\ nil, by \\ nil) do
-    with {:ok, title, configured, default, assistant} <- configuration(m),
+  def boot(m, by_kind, target \\ nil, resolve \\ nil, name \\ nil) do
+    with {:ok, title, configured, default} <- configuration(m),
          true <- is_nil(target) or text?(target, 2_048),
          true <- Enum.all?(configured, &valid_tab?(&1, m)),
          true <- distinct?(configured, "id"),
@@ -74,11 +71,9 @@ defmodule AtlasControl.Shell do
           spec = Blocks.version()
           name = viewer(m, by_kind, name)
           greeting = greeting(m, name)
-          assistant = assistant(assistant, name, by)
 
           # Navigation and request target do not change the revision. Configuration,
-          # actor-visible tab set, environment, contract version, greeting, name and
-          # assistant do.
+          # actor-visible tab set, environment, contract version, greeting and name do.
           revision =
             [
               title,
@@ -97,11 +92,9 @@ defmodule AtlasControl.Shell do
                 ]
               )
             ]
-            # A shell without a greeting, name or assistant keeps the revision it had
-            # before either.
+            # A shell without a greeting or name keeps its earlier revision.
             |> Kernel.++(List.wrap(greeting))
             |> Kernel.++(List.wrap(name))
-            |> Kernel.++(List.wrap(assistant))
             |> JSON.encode!()
             |> then(&:crypto.hash(:sha256, &1))
             |> Base.encode16(case: :lower)
@@ -116,8 +109,7 @@ defmodule AtlasControl.Shell do
              initial_to: initial,
              active_tab: active && active["id"],
              greeting: greeting,
-             name: name,
-             assistant: assistant
+             name: name
            )}
         end
       end
@@ -140,14 +132,6 @@ defmodule AtlasControl.Shell do
     end
   end
 
-  # The model's assistant, when it assists this named viewer: "assistant: coordinator";
-  # nil otherwise.
-  defp assistant(agent, name, by) do
-    if is_binary(agent) and is_binary(name) and is_binary(by) and
-         AtlasBus.Actors.assisted(agent) == by,
-       do: "assistant: " <> agent
-  end
-
   # The model's greeting with the viewer's name; nil without either.
   defp greeting(_m, nil), do: nil
 
@@ -166,13 +150,11 @@ defmodule AtlasControl.Shell do
       %{"title" => title, "tabs" => tabs} = shell
       when is_list(tabs) and length(tabs) <= 64 ->
         default = shell["default"]
-        assistant = shell["assistant"]
 
         if text?(title, 128) and
-             Map.keys(shell) -- ["title", "tabs", "default", "assistant"] == [] and
-             (is_nil(default) or text?(default, 64)) and
-             (is_nil(assistant) or text?(assistant, 64)),
-           do: {:ok, title, tabs, default, assistant},
+             Map.keys(shell) -- ["title", "tabs", "default"] == [] and
+             (is_nil(default) or text?(default, 64)),
+           do: {:ok, title, tabs, default},
            else: {:error, "Invalid shell configuration"}
 
       _ ->

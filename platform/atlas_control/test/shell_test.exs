@@ -182,30 +182,14 @@ defmodule AtlasControl.ShellTest do
     refute Map.has_key?(detail, "active_tab")
   end
 
-  test "the Machines tab, and the model's assistant under the name of the one it assists" do
-    assists = Application.get_env(:atlas, :assists)
-    Application.put_env(:atlas, :assists, %{"helper" => "ada"})
-
-    on_exit(fn ->
-      if assists,
-        do: Application.put_env(:atlas, :assists, assists),
-        else: Application.delete_env(:atlas, :assists)
-    end)
-
+  test "the Machines tab does not claim an assistant connection" do
     m = description(Shop.Benched)
-
-    assert {:ok, shell} = Shell.boot(m, "member", nil, nil, "Ada", "ada")
+    assert {:ok, shell} = Shell.boot(m, "member", nil, nil, "Ada")
     assert shell["name"] == "Ada"
-    assert shell["assistant"] == "assistant: helper"
+    refute Map.has_key?(shell, "assistant")
 
     assert %{"label" => "Machines", "to" => "/machines", "section" => "browse", "icon" => "gears"} =
              List.last(shell["tabs"])
-
-    # Someone the helper does not assist sees none; neither does an agent, which has no name.
-    assert {:ok, shell} = Shell.boot(m, "member", nil, nil, "Bo", "bo")
-    refute Map.has_key?(shell, "assistant")
-    assert {:ok, shell} = Shell.boot(m, nil, nil, nil, nil, "ada")
-    refute Map.has_key?(shell, "assistant")
 
     # A shop without machines has no such tab.
     machines = %{"id" => "machines", "label" => "Machines", "to" => "/machines"}
@@ -266,6 +250,7 @@ defmodule AtlasControl.ShellTest do
     assert %{"op" => "page", "path" => "/k/widget/W-01/edit"} = receive_message(s)
     shell = receive_message(s)
     assert {:reply, %{effect: :complete}} = Protocol.classify(:boot, shell)
+    refute Map.has_key?(shell, "assistant")
     assert shell["initial_to"] == "/k/part"
 
     send_message(s, %{
