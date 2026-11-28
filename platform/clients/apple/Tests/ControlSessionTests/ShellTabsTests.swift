@@ -11,7 +11,7 @@ final class ShellTabsTests: XCTestCase {
     private let settings = SessionSettings(env: "test", host: "127.0.0.1", port: 7001)
 
     /// The routes `AtlasControl.Shell` lets a tab open, one path each.
-    private let tabPaths = ["/", "/k/widget", "/workers", "/_open", "/_supervised"]
+    private let tabPaths = ["/", "/k/widget", "/workers", "/machines", "/_open", "/_supervised", "/_blocks"]
 
     /// Welcomed and hello's page consumed: the first boot is on the wire.
     private func booting() -> SessionState {
@@ -41,7 +41,7 @@ final class ShellTabsTests: XCTestCase {
     }
 
     func testAPageControlNeverServesAsATabIsStillRefused() {
-        for to in ["/k/widget/W1", "/k/widget/new", "/_kinds", "/workers/m/w/t/a", "/faults"] {
+        for to in ["/k/widget/W1", "/k/widget/new", "/_kinds", "/workers/m/w/t/a", "/faults", "/_blocks/text/full"] {
             var state = booting()
             _ = state.handle(.line(Lines.boot(tabs: [Lines.tab("x", to), Lines.tab("w", "/workers")], initialTo: "/workers", activeTab: "w")))
             XCTAssertEqual(state.bootFailure, .invalid(.tab(index: 0)), to)
@@ -63,6 +63,7 @@ final class ShellTabsTests: XCTestCase {
         let shell = try XCTUnwrap(root["shell"] as? [String: Any])
         let tabs = try XCTUnwrap(shell["tabs"] as? [[String: Any]])
         XCTAssertFalse(tabs.isEmpty)
+        XCTAssertTrue(tabs.contains { $0["to"] as? String == "/_blocks" })
         let defaultTab = tabs.first { $0["id"] as? String == shell["default"] as? String } ?? tabs[0]
 
         // Control sends id, label, to and section; it leaves `assigned` tabs out for a client the
