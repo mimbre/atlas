@@ -262,10 +262,11 @@ public struct PageView: View {
     }
 
     @ViewBuilder private func entryView(_ entry: PagePresentation.Entry, inDetails: Bool = false,
-                                        detailHeading: Bool = false, followsCardsBeforeDetails: Bool = false) -> some View {
+                                        detailHeading: Bool = false, followsCardsBeforeDetails: Bool = false,
+                                        sectionIndent: CGFloat = 0) -> some View {
         switch entry.item {
         case .list(let list):
-            ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act)
+            ListBlockView(list: list, selectedPath: selectedPath, open: open, act: act, emptyIndent: sectionIndent)
         case .groups(let groups): GroupFilters(groups: groups, selected: selectedGroup, filter: filter)
         case .item(let item): ItemBlockView(item: item, inDetails: inDetails, detailHeading: detailHeading, act: act)
         case .option(let option): OptionView(block: option, detailHeading: detailHeading, act: act)
@@ -298,7 +299,10 @@ public struct PageView: View {
 
     private func blocks(_ section: PagePresentation.Section, inDetails: Bool, detailHeading: Bool) -> some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px15) {
-            ForEach(section.entries) { entryView($0, inDetails: inDetails, detailHeading: detailHeading) }
+            ForEach(section.entries) {
+                entryView($0, inDetails: inDetails, detailHeading: detailHeading,
+                          sectionIndent: inDetails ? 0 : Prism.Spacing.px10)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -320,6 +324,7 @@ struct ListBlockView: View {
     let selectedPath: String?
     let open: (String) -> Void
     let act: (ActionModel) -> Void
+    var emptyIndent: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: Prism.Spacing.px3) {
@@ -336,6 +341,7 @@ struct ListBlockView: View {
             }
             if (list.rows ?? []).isEmpty, let empty = list.empty {
                 Text(empty).prism(Prism.Typography.caption).foregroundStyle(.secondary)
+                    .padding(.leading, emptyIndent)
             }
             ForEach(Array((list.rows ?? []).enumerated()), id: \.offset) { _, row in
                 ListRowView(row: row, selected: row.to == selectedPath, open: open)
