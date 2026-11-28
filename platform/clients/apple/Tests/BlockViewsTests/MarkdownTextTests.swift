@@ -1,6 +1,7 @@
 import AtlasControlKit
 @testable import BlockViews
 import Foundation
+import Prism
 import XCTest
 
 final class MarkdownTextTests: XCTestCase {
@@ -31,6 +32,13 @@ final class MarkdownTextTests: XCTestCase {
         let source = (1...6).map { String(repeating: "#", count: $0) + " Heading \($0)" }.joined(separator: "\n\n")
         let document = MarkdownDocument(source)
         XCTAssertEqual(document.parts.compactMap(\.headingLevel), [1, 2, 3, 4, 5, 6])
+    }
+
+    func testHeadingTypographyUsesPrismBelowPageTitle() {
+        let expected = [Prism.Typography.title4, Prism.Typography.title5, Prism.Typography.title6,
+                        Prism.Typography.title7, Prism.Typography.title7, Prism.Typography.title7]
+        XCTAssertEqual((1...6).map(MarkdownText.headingTypography), expected)
+        XCTAssertTrue(expected.allSatisfy { $0.size < Prism.Typography.title3.size })
     }
 
     func testFencedCodeIsLiteralAndNotALink() {
