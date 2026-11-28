@@ -79,6 +79,7 @@ defmodule AtlasTui.TolerantReaderTest do
 
     assert %Blocks.Unknown{title: "Example", text: "First", lines: ["Second", "Third"]} =
              Blocks.decode(defined)
+
     assert %Blocks.Fallback{type: "future_block", reason: "unknown block"} = Blocks.decode(future)
     assert screen(model(page([defined, @row]))) == screen(model(page([future, @row])))
 
