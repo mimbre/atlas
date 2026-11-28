@@ -742,6 +742,30 @@ defmodule Model.DecisionOptionsTest do
 
   defp answers_of(blocks), do: Enum.find(blocks, &(&1["id"] == "answers"))["props"]["answers"]
 
+  test "a pending decision without an options document shows its rule before the answers" do
+    {blocks, _resolve, _note} =
+      served(nil, %{
+        "title" => "UI work",
+        "context" => "Why",
+        "decision" => "Separate work",
+        "consequences" => "Independent priority"
+      })
+
+    by_id = Map.new(blocks, &{&1["id"], &1})
+    assert by_id["header"]["props"]["title"] == "UI work"
+    assert by_id["why"]["props"]["text"] == "Why"
+    fields = by_id["decision"]["props"]["fields"]
+    assert Enum.any?(fields, &(&1["label"] == "Rule" and &1["value"] == "Separate work"))
+
+    assert Enum.any?(
+             fields,
+             &(&1["label"] == "Consequences" and &1["value"] == "Independent priority")
+           )
+
+    assert Enum.any?(answers_of(blocks), &(&1["key"] == "a"))
+    refute by_id["todo"]
+  end
+
   # The decider's own answers below the options (D-0106), each quiet but Decline, each with
   # what it does by name and in full: Ask, and Delegate, whose form chooses the proposer
   # or another person.

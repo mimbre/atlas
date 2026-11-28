@@ -5,6 +5,7 @@ selecting an option, and `0` aliases recommended choice `1`. This guide describe
 answers of a decision without options: one created without them, or a historical
 one. Existing records are not rewritten to manufacture alternatives or selections.
 Both have the same answers besides Accept or Choose (D-0106): nothing ends declined.
+The page presents its title, context, rule and consequences before its answers.
 
 A proposed decision that its decider gate gives to a person (`for_person`, or
 `for_person_always` for a fixed person rule) is that person's: it is on their
