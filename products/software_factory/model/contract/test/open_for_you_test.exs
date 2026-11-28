@@ -93,7 +93,9 @@ defmodule Model.OpenForYouTest do
   defp tos(rows), do: for(%{"to" => to} <- rows, do: to)
 
   defp actions(page) do
-    for %{"to" => to} <- block(page, "item")["props"]["actions"] || [],
+    for b <- page.blocks,
+        action <- (b["props"]["actions"] || []) ++ (b["props"]["answers"] || []),
+        %{"to" => to} <- [action],
         route = Pages.route(to),
         elem(route, 0) in [:pick_up, :hand_over],
         do: route

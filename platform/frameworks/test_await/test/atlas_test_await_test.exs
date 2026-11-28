@@ -114,13 +114,15 @@ defmodule AtlasTestAwaitTest do
 
       checks = counter()
 
-      # The first check releases the ticks, so every later check follows an event.
+      # Read before releasing the ticks, so the first check cannot already see the last.
       check =
         counted(checks, fn ->
+          value = :atomics.get(ticks, 1)
+
           if :counters.get(checks, 1) == 1,
             do: send(ticker, {:go, Await.message({:relay, relay}) && relay})
 
-          :atomics.get(ticks, 1) == 3
+          value == 3
         end)
 
       assert Await.until(check, wake: {:subscribe, fn -> send(test, {:relay, self()}) end})
@@ -207,9 +209,10 @@ defmodule AtlasTestAwaitTest do
 
       check =
         counted(checks, fn ->
+          # Read before releasing the updates, while still calling the traced process.
+          value = Agent.get(agent, & &1)
           if :counters.get(checks, 1) == 1, do: send(updater, :go)
-          # A call from the waiter itself: no event, or this would spin.
-          Agent.get(agent, & &1) == 3
+          value == 3
         end)
 
       assert Await.until(check, wake: {:trace, agent})

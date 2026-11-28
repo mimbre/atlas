@@ -144,6 +144,8 @@ A decision is a stack of simple blocks instead (D-0104), in place of the `todo` 
 
 For a kind whose single-choice rule declares `details`, Control groups the named fields in model order, leaving absent fields out. Prior offer revisions show their question, rationale, recommendation, option substance, recorded content and links; revisions with identical definitions but different content remain distinct. The exact stored definition, selected definition, revision and history remain in separate standalone blocks after the grouped details, with no collapsible section or nested Details card. Clients render the same blocks at narrow and wide widths without interpreting the kind or the stored JSON.
 
+For other viewers and completed decisions, the same header and one read-only `item` per alternative show the stored offer, without answer actions. These use the existing 0.46.0 contract and work with older clients. A decision without a valid stored offer has a header and its recorded fields instead: Control does not invent an option or an outcome. Existing permitted page actions and all recorded details remain available.
+
 Standalone detail blocks and their related sections share a `Details` part. Clients can
 place that part beside the main content or below it without merging or hiding its blocks.
 
@@ -154,6 +156,9 @@ Kinds may declare a block page with state fields, an intro, ordered text section
 Fields already displayed as the page title, intro or text sections are not repeated in
 its detail blocks; unshown fields and links remain available there.
 
+Next steps in an answers block or choice are not repeated on a details item, keeping
+Console key bindings unambiguous. Panel answers retain their page actions for Console.
+
 The primary child list carries its heading; each other related list takes its heading
 from its section, not a second list title. This applies to empty and populated lists.
 
@@ -161,10 +166,15 @@ The start page of what is assigned to the viewer (`/`) is calm; it is the shared
 
 Control decides the order of every list; a client shows rows in the order it gets them and never re-sorts them. The work lists (Assigned to you, Open for you, Supervised by you, and each of their groups) are in work order: rows with a deadline first (the `deadline` Facts presents on the work, else the field the kind's late rule names), soonest at the top; then the rest by how long each has waited (the row's `since`), oldest first, a row without one last; ties by key. Browse lists (a kind's list) keep their own order.
 
-Parent relation rows carry their kind and icon as well as the key and link. The page read
-knows only the linked key and kind, not the target fact: its label remains the kind and it
-has no target state or age. Resolving those requires a bounded, authorized target lookup
-that preserves the page snapshot and freshness dependencies; Control does not guess them.
+Parent relation rows carry the target's title and directly stored state when Facts can
+read it, with its kind, icon, key and link. Facts resolves at most 64 distinct linked
+targets per page by exact key in the same snapshot; it applies the target's ordinary read
+rules and records each target's freshness dependencies. Missing or failed targets keep
+their links and show the reason. Beyond the cap, or with an older Facts, the label remains
+the kind. The row's age follows the overview's presenting run and derived completion:
+Facts reads the work component by key, looks up runs by subject, and evaluates completion
+through indexed relation and exact-key reads, all in the same snapshot. A missing
+timestamp stays absent; no unrelated event is used as its age.
 The Mac uses the same compact row card in related and overview lists.
 
 The names (view model, markup) live in one place: `AtlasBFF.Names`, plus the `defmarkup` macro and the module name `AtlasBFF.Markup`.

@@ -17,9 +17,21 @@ defmodule AtlasControl.PageReads do
         []
 
       reads ->
-        content = %{"reads" => Enum.map(reads, fn {kind, read} -> [kind, read] end)}
+        content = %{
+          "reads" => Enum.map(reads, fn {kind, read} -> [kind, related(route, read)] end)
+        }
 
-        case ask.("_page", content, length(reads)) do
+        reply = ask.("_page", content, length(reads))
+
+        reply =
+          if match?({:item, _, _}, route) and reply["error"] == "invalid page reads" do
+            original = %{"reads" => Enum.map(reads, fn {kind, read} -> [kind, read] end)}
+            ask.("_page", original, length(reads))
+          else
+            reply
+          end
+
+        case reply do
           %{"answers" => answers} when is_list(answers) and length(answers) == length(reads) ->
             answers
 
@@ -31,6 +43,9 @@ defmodule AtlasControl.PageReads do
         end
     end
   end
+
+  defp related({:item, _, _}, %{"key" => _} = read), do: Map.put(read, "related", true)
+  defp related(_, read), do: read
 
   @doc "The reads of `route` as `AtlasControl.Freshness.ReadSet.of/3` takes them: `[{kind, role}]`."
   def roles(route, m) do
