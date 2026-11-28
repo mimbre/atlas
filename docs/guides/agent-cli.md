@@ -58,6 +58,8 @@ Hand over… stays the supervisor's own; an agent that assists nobody picks noth
 
 The scene pipeline's flows a person picks up are **Design** (Scene → Use cases), **Plan** (Use case → Issues) and **Build** (Issue → Pull request): each is a group of Open for you and of Supervised by you. A use case is design (D-0099): Design makes it with its Design part, and there is no design step or design status after it. A use case has no Accept of its own: it is accepted by itself once all its issues are done. **Accept** (Accept the scene) goes to the scene's producer once all its use cases are accepted. What Flow writes names the flow so too: `Assigned to: melle (since …, by flow: Flow Design: its agent's break-down is done → melle)`.
 
+Open for you shows one continuous list; its group filters navigate to each flow's work.
+
 ## Retrying or removing a stuck scene, use case or issue
 
 Its supervisor (or an agent that assists them) handles a stuck or failed item from its page, in the Console or with `atlas do` (IS-Atlas-09):
