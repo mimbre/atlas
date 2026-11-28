@@ -98,7 +98,8 @@ defmodule AtlasRuntime.Work.CancelTest do
     case attempt.result.native_outcome do
       :stopped ->
         assert attempt.cancel_stage in [:signalled, :forced]
-        assert (attempt.cancel_stage == :forced) == match?(%DateTime{}, attempt.timestamps.forced_at)
+        forced = attempt.cancel_stage == :forced
+        assert forced == match?(%DateTime{}, attempt.timestamps.forced_at)
         assert turn["state"] == "stopped"
         assert is_nil(turn["termination"]["kill_signalled_at"])
 
