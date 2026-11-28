@@ -225,6 +225,7 @@ public struct ActionButtons: View {
                 Text(AnswerLook.label(action))
             }
         }
+        .pointingHand()
         .disabled(pending)
         .help(pending ? (self.pending?.text ?? PageActions.tooltip(action)) : PageActions.tooltip(action))
         .accessibilityValue(pending ? Text(self.pending?.text ?? "") : Text(""))
@@ -398,7 +399,7 @@ public struct ActionPageView: View {
                         Text(pending.text).prism(Prism.Typography.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Cancel", action: leave).keyboardShortcut(.cancelAction)
+                    Button("Cancel", action: leave).keyboardShortcut(.cancelAction).pointingHand()
                 }
             }
         }
@@ -464,11 +465,12 @@ struct ConfirmView: View {
                     Text("Sending…").prism(Prism.Typography.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Cancel", action: leave).keyboardShortcut(.cancelAction)
+                Button("Cancel", action: leave).keyboardShortcut(.cancelAction).pointingHand()
                 if let call = block.confirmTo {
                     Button(block.confirmLabel ?? "Confirm") { submit(call, [:]) }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
+                        .pointingHand()
                         .disabled(submitting)
                 }
             }
@@ -513,10 +515,11 @@ struct FormView: View {
                     Text("Sending…").prism(Prism.Typography.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Cancel", action: leave).keyboardShortcut(.cancelAction)
+                Button("Cancel", action: leave).keyboardShortcut(.cancelAction).pointingHand()
                 Button(block.submitLabel ?? "Save") { if let call = block.submitTo { submit(call, Self.values(block, draft)) } }
                     .keyboardShortcut("s", modifiers: .command)
                     .buttonStyle(.borderedProminent)
+                    .pointingHand()
                     .disabled(submitting || block.submitTo == nil || !Self.complete(block, draft))
                     .help("\(block.submitLabel ?? "Save") (⌘S)")
             }
@@ -578,10 +581,12 @@ struct FormView: View {
             LabeledContent(input.label ?? input.name ?? "") { Text(input.value ?? "—").textSelection(.enabled) }
         case "choice" where Self.radio(input):
             Picker(label(input), selection: binding(input)) { choices(input) }
+                .pointingHand()
                 .radioGroup()
                 .help(input.hint ?? "")
         case "choice", "boolean":
             Picker(label(input), selection: binding(input)) { choices(input) }
+                .pointingHand()
                 .help(input.hint ?? "")
         case "multiline":
             TextField(label(input), text: binding(input), prompt: input.hint.map(Text.init), axis: .vertical)

@@ -239,6 +239,7 @@ struct SidebarRow: View {
                     in: RoundedRectangle(cornerRadius: 10))
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onTapGesture(perform: select)
+        .pointingHand()
         .onHover { hovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
@@ -314,6 +315,7 @@ struct SidebarFoot: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .pointingHand()
                 .help(connection.details)
                 .popover(isPresented: $showsDetails, arrowEdge: .top) {
                     Text(connection.details)
