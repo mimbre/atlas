@@ -85,11 +85,11 @@ struct MarkdownText: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(document.parts.enumerated()), id: \.offset) { _, part in
                 if let level = part.headingLevel {
-                    Text("\(Text(part.prefix))\(Text(part.text))")
+                    Self.text(part, typography: Self.headingTypography(level))
                         .prism(Self.headingTypography(level))
                         .accessibilityAddTraits(.isHeader)
                 } else {
-                    Text("\(Text(part.prefix))\(Text(part.text))")
+                    Self.text(part, typography: part.isCode ? Prism.Typography.monosmall : Prism.Typography.bodysmall)
                         .prism(part.isCode ? Prism.Typography.monosmall : Prism.Typography.bodysmall)
                 }
             }
@@ -99,6 +99,20 @@ struct MarkdownText: View {
         })
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private static func text(_ part: MarkdownDocument.Part, typography: PrismTypography) -> Text {
+        part.text.runs.reduce(Text(part.prefix)) { result, run in
+            var fragment = Text(AttributedString(part.text[run.range]))
+            let intent = run.inlinePresentationIntent
+            if intent?.contains(.stronglyEmphasized) == true {
+                let strong = typography.emphasis(.strong)
+                fragment = fragment.font((strong.weight > typography.weight ? strong : typography).font)
+            }
+            if intent?.contains(.emphasized) == true { fragment = fragment.italic() }
+            if intent?.contains(.code) == true { fragment = fragment.monospaced() }
+            return Text("\(result)\(fragment)")
+        }
     }
 
     // The page title is title3; Prism has four smaller title levels.
