@@ -3,6 +3,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -11,12 +12,25 @@ HERE = Path(__file__).resolve().parent
 
 
 class ControlFixtureTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.temp.cleanup)
+        cls.artifact = Path(cls.temp.name) / 'product.json'
+        root = HERE.parents[1]
+        subprocess.run(
+            ['mix', 'run', '--no-start', str(HERE / 'product_generate.exs'), str(cls.artifact)],
+            cwd=root / 'products/software_factory',
+            env=dict(os.environ, MIX_ENV='test'),
+            check=True, timeout=120,
+        )
+
     def start_server(self, scenario):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0))
             port = probe.getsockname()[1]
         env = dict(os.environ, MIX_ENV='prod', ATLAS_ENV='prod', ATLAS_ENV_FILE='/nonexistent/production.json')
-        process = subprocess.Popen([sys.executable, str(HERE / 'server.py'), '--scenario', scenario, '--port', str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
+        process = subprocess.Popen([sys.executable, str(HERE / 'server.py'), '--scenario', scenario, '--port', str(port), '--artifact', str(self.artifact)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
         self.addCleanup(process.stderr.close)
         self.addCleanup(lambda: process.wait(timeout=10))
         self.addCleanup(process.terminate)
@@ -41,13 +55,24 @@ class ControlFixtureTest(unittest.TestCase):
         return json.loads(stream.readline())
 
     def test_scenarios_and_console_projection(self):
-        for scenario, path in [('decision', '/k/decision/D-7'), ('scene', '/k/scene/SC-1'), ('todo', '/k/todo/TD-12'), ('lists', '/_open'), ('empty', '/k/issue')]:
+        for scenario, path in [('decision', '/k/decision/D-7'), ('scene', '/k/scene/SC-1'), ('todo', '/k/to_do/TD-12'), ('lists', '/_open'), ('empty', '/k/issue')]:
             with self.subTest(scenario=scenario):
                 stream = self.start_server(scenario)
                 welcome = self.exchange(stream, {'op': 'hello', 'env': 'test', 'client': 'tui', 'spec': '999.0.0', 'surface': 'console'})
                 self.assertEqual(welcome['surface'], 'console')
                 first = json.loads(stream.readline())
                 self.assertEqual(first['path'], path)
+                if scenario == 'decision':
+                    source = HERE.parents[1] / 'products/software_factory/e2e/fixtures/decision-options.json'
+                    offer = json.loads(source.read_text())
+                    self.assertTrue(any(block['type'] == 'header' and block['props'].get('title') == offer['question'] for block in first['blocks']))
+                    self.assertEqual(
+                        {block['props']['text'] for block in first['blocks'] if block['type'] == 'option'},
+                        {option['text'] for option in offer['options']},
+                    )
+                elif scenario in {'scene', 'todo'}:
+                    title = {'scene': 'Make examples easy to inspect', 'todo': 'Prepare the local examples'}[scenario]
+                    self.assertTrue(any(block.get('props', {}).get('title') == title for block in first['blocks']))
                 self.assertTrue(any(block['type'] == 'console_action' for block in first['blocks']))
                 shell = self.exchange(stream, {'op': 'boot'})
                 self.assertEqual(shell['initial_to'], path)
