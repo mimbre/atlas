@@ -2406,7 +2406,7 @@ defmodule AtlasControl.Pages do
                 do: [],
                 else: [{"answers", answers_block(remaining_next, (todo && todo.answers) || [])}]
 
-            detail_blocks = page_detail_blocks(m, k, spec, item)
+            detail_blocks = page_details_with_actions(m, k, spec, item)
 
             content =
               [{"header", header}] ++
@@ -3663,6 +3663,14 @@ defmodule AtlasControl.Pages do
   end
 
   # A declared page may group its existing pairs; anything not named stays in the item.
+  defp page_details_with_actions(m, k, %{"details" => groups}, item) when is_list(groups),
+    do: panel_detail_blocks(m, k, groups, item)
+
+  defp page_details_with_actions(m, k, spec, item) do
+    [{"item", block}] = page_detail_blocks(m, k, spec, item)
+    [{"item", put_in(block, ["props", "actions"], item["props"]["actions"])}]
+  end
+
   defp page_detail_blocks(m, k, %{"details" => groups}, item) when is_list(groups) do
     {blocks, rest} =
       groups
