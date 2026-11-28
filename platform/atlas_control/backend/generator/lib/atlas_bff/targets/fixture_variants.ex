@@ -64,6 +64,13 @@ defmodule AtlasBFF.Targets.FixtureVariants do
     |> Map.put("case", "combination:" <> Enum.join(present, ","))
   end
 
+  @doc false
+  def scalar_examples(field) do
+    [:normal | value_cases(field)]
+    |> Enum.map(&value(field, %{}, &1, []))
+    |> Enum.uniq()
+  end
+
   defp variants(fields, models) do
     required = object(fields, models, :required, [])
     full = object(fields, models, :full, [])

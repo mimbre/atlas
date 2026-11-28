@@ -114,10 +114,15 @@ three-member lists and maps, both booleans and zero/one integers. The JSON also 
 each entry's optional field names. `AtlasBFF.Targets.FixtureVariants.combinations(entry)`
 lazily enumerates all $2^n$ local presence masks; `combine(entry, present, overrides)`
 constructs one mask and can select generated value cases for several fields at once.
-Nested models are independent; consumers must compose them and vary list lengths to
-exercise cross-model interactions. No exponential cross-product is written eagerly, and
-the finite text examples and list lengths do not exhaust values. Markdown-capable text
-includes both explicit `plain` and `markdown` syntax as well as omission.
+For nested interactions, `AtlasBFF.Targets.FixtureCombinations.stream(schema, kind, name)`
+lazily combines optional fields and finite value choices recursively, including each
+member of a 0/1/3-element list or map independently. In the contract project, for example,
+`mix atlas.fixtures --kind block --name item --offset 0 --limit 20` emits JSON lines; kinds
+are `block`, `markup`, or `model`. `--max-depth` defaults to 8 and can be raised for
+recursive model structures. Large offsets and complete traversals still take time.
+No exponential cross-product is written eagerly, and finite texts, numeric values,
+map keys and collection lengths do not exhaust values. Markdown-capable text includes
+explicit `plain` and `markdown` syntax as well as omission.
 
 The schema does not declare enum domains, action-key grammars, routable targets or other
 cross-field semantics, so these are structural specimens, not operational pages or

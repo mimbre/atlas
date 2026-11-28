@@ -52,4 +52,31 @@ defmodule AtlasTui.GeneratedFixturesTest do
       assert screen =~ "First item"
     end
   end
+
+  test "recursively generated nested optional fields reach the TUI decoder" do
+    schema = AtlasBFFContract.Contract.__schema__()
+
+    block =
+      schema
+      |> AtlasBFF.Targets.FixtureCombinations.stream(:block, :item)
+      |> Stream.take(10_000)
+      |> Enum.find(fn sample ->
+        case sample["props"]["fields"] do
+          [pair] -> Map.has_key?(pair, "value") and Map.has_key?(pair, "syntax")
+          _ -> false
+        end
+      end)
+
+    assert block
+    assert [%{"value" => _, "syntax" => _}] = block["props"]["fields"]
+    refute match?(%AtlasTui.Blocks.Fallback{}, AtlasTui.Blocks.decode(block))
+    models = Map.new(schema.models, &{&1.name, &1.fields})
+
+    assert :ok =
+             AtlasBFF.Targets.Protocol.validate_value!(
+               models,
+               {:list, :pair},
+               block["props"]["fields"]
+             )
+  end
 end
