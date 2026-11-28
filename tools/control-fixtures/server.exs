@@ -4,7 +4,12 @@ defmodule ControlFixtures.Server do
   @moduledoc false
   alias ControlFixtures.Scenarios
 
-  def run(scenario, port) do
+  def run(scenario, port, path) do
+    fixture = path |> File.read!() |> JSON.decode!()
+    if fixture["spec"] != AtlasControl.Blocks.version(), do: raise("fixture contract differs; regenerate it")
+    :persistent_term.put({Scenarios, :pages}, Map.fetch!(fixture, "pages"))
+    :persistent_term.put({Scenarios, :tabs}, Map.fetch!(fixture, "tabs"))
+    :persistent_term.put({Scenarios, :boots}, Map.fetch!(fixture, "boots"))
     {:ok, listener} = :gen_tcp.listen(port, [:binary, packet: :line, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
     IO.puts("Control fixture #{scenario} listening on 127.0.0.1:#{port}")
     accept(listener, scenario)
@@ -18,7 +23,10 @@ defmodule ControlFixtures.Server do
     accept(listener, scenario)
   end
 
-  defp session(socket, scenario), do: receive_line(socket, %{hello: false, surface: nil, path: Scenarios.initial(scenario), scenario: scenario})
+  defp session(socket, scenario) do
+    boot = :persistent_term.get({Scenarios, :boots}) |> Map.fetch!(scenario)
+    receive_line(socket, %{hello: false, surface: nil, path: boot["initial_to"], boot: boot})
+  end
 
   defp receive_line(socket, state) do
     case :gen_tcp.recv(socket, 0) do
@@ -61,9 +69,9 @@ defmodule ControlFixtures.Server do
         {:ok, state}
 
       true ->
-        target = requested || Scenarios.initial(state.scenario)
+        target = requested || state.boot["initial_to"]
         active = Scenarios.tab_for(target)
-        shell = %{"op" => "boot", "title" => "Atlas Console fixtures", "env" => "test", "spec" => AtlasControl.Blocks.version(), "revision" => "shared-fixtures", "tabs" => Scenarios.tabs(), "initial_to" => target}
+        shell = Map.put(state.boot, "initial_to", target)
         shell = if active, do: Map.put(shell, "active_tab", active["id"]), else: shell
         send_line(socket, shell)
         {:ok, state}
@@ -108,5 +116,5 @@ defmodule ControlFixtures.Server do
   end
 end
 
-[scenario, port] = System.argv()
-ControlFixtures.Server.run(scenario, String.to_integer(port))
+[scenario, port, artifact] = System.argv()
+ControlFixtures.Server.run(scenario, String.to_integer(port), artifact)

@@ -5,6 +5,7 @@ config :atlas_bff,
   contract: AtlasBFFContract.Contract,
   targets: [
     json: "../targets/json",
+    fixtures: "../targets/fixtures",
     # The Swift package; its fixture tests check that hello, welcome and boot lines carry
     # this contract's version in `spec`.
     swift: {"../targets/swift", package: "AtlasControlKit", version_field: "spec"}

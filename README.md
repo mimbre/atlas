@@ -96,16 +96,44 @@ node --test platform/ops/ci/tested-tree.test.mjs           # CI's tested-tree re
 ### Shared Control fixtures
 
 For offline client presentation work, run the read-only JSON-lines Control endpoint from
-the repository root (Elixir/Mix and the Control dependencies are required):
+the repository root (Elixir/Mix and the software factory dependencies are required):
 
 ```sh
-(cd platform/atlas_control && MIX_ENV=test mix deps.get)
+bin/generate atlas model
+(cd products/software_factory && MIX_ENV=test mix deps.get && MIX_ENV=test mix run --no-start ../../tools/control-fixtures/product_generate.exs ../../tools/control-fixtures/.generated/product.json)
 python3 tools/control-fixtures/server.py --scenario decision --port 4747
 python3 -m unittest discover -s tools/control-fixtures -p 'test_server.py'
 ```
 
-The launcher forces Mix's `test` environment and does not start Control or other Atlas
-applications; it does not read the caller's production environment configuration.
+`bin/generate atlas` produces
+`platform/atlas_control/backend/targets/fixtures/fixtures.json` from the BFF spec.
+For every block, markup and model it includes required-only and all-present specimens,
+each optional field present alone and absent alone, and per-field representative values
+against the all-present specimen: short/normal/long intent-bearing strings, empty/one/
+three-member lists and maps, both booleans and zero/one integers. The JSON also records
+each entry's optional field names. `AtlasBFF.Targets.FixtureVariants.combinations(entry)`
+lazily enumerates all $2^n$ local presence masks; `combine(entry, present, overrides)`
+constructs one mask and can select generated value cases for several fields at once.
+For nested interactions, `AtlasBFF.Targets.FixtureCombinations.stream(schema, kind, name)`
+lazily combines optional fields and finite value choices recursively, including each
+member of a 0/1/3-element list or map independently. In the contract project, for example,
+`mix atlas.fixtures --kind block --name item --offset 0 --limit 20` emits JSON lines; kinds
+are `block`, `markup`, or `model`. `--max-depth` defaults to 8 and can be raised for
+recursive model structures. Large offsets and complete traversals still take time.
+No exponential cross-product is written eagerly, and finite texts, numeric values,
+map keys and collection lengths do not exhaust values. Markdown-capable text includes
+explicit `plain` and `markdown` syntax as well as omission.
+
+The schema does not declare enum domains, action-key grammars, routable targets or other
+cross-field semantics, so these are structural specimens, not operational pages or
+real-server checks.
+
+The separate operational replay path below uses synthetic facts through the real product
+model and BFF, with a local in-process Bus and test FakeStore. It writes native pages and
+boot shells for replay; it does not use the structural specimens as production content.
+Neither generation nor replay starts a Control, Facts, Rela or Flow server or reads
+production environment configuration. Regenerate the product artifact after BFF,
+product model or fixture-data changes; the server rejects a different contract version.
 
 Choose `decision`, `scene`, `todo`, `lists`, or `empty`; the selected scenario is the
 initial page, and the fixture tabs link the other examples. Connect either client to
@@ -114,6 +142,11 @@ actual Console action projection; a native hello receives the same unprojected c
 The fixture implements hello, boot, open and refresh only. It explicitly rejects unknown
 pages and operations, including submits: the visible examples do not write any data and
 are not a substitute for real-server or mutation verification. Stop it with Ctrl-C.
+The To-Do routes use the product's `/k/to_do` kind. Long Scene content and the empty Issue
+list are synthetic facts rendered by the same BFF, not handwritten block JSON. Only the
+fixture's listed targets are navigable; submissions and unrelated targets are refused.
+To check the BFF pages and Console projection independently, run
+`cd products/software_factory && MIX_ENV=test mix run --no-start ../../tools/control-fixtures/product_pages_test.exs`.
 
 Four commands, each with its own purpose:
 
