@@ -75,6 +75,14 @@ final class PointingHandTests: XCTestCase {
                 }
             }
         }
+        let activationDeadline = Date().addingTimeInterval(3)
+        while Date() < activationDeadline && (!app.isActive || !panel.isKeyWindow) {
+            if let event = app.nextEvent(matching: .any, until: Date().addingTimeInterval(0.05), inMode: .default, dequeue: true) {
+                app.sendEvent(event)
+            }
+        }
+        XCTAssertTrue(app.isActive, "test app must be active")
+        XCTAssertTrue(panel.isKeyWindow, "test window must be key")
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         move(120, 20, hand: false)
         move(30, 260, hand: true)
