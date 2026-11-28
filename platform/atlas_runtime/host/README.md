@@ -583,6 +583,7 @@ These are the helper steps behind a work's frozen result and its `from_work` and
   - The result is `{"snapshot_id", "destination", "read_only"}`. On failure it exits nonzero, leaves no `NEW_PATH`, record or staging, and writes `{"code", "error"}` to stderr. The other codes are `baseline_missing` and `io`.
 - **`materialize --read-only`** is today's `materialize`, with the folder sealed as `compose --read-only` seals it.
   - The baseline and the record are the same as without the flag.
+  - Concurrent materializations of the same snapshot can share its atomically published baseline; an existing baseline without its completion marker is refused and left untouched.
   - Every result now carries `"read_only": true|false`.
   - The folder's own root is sealed right after the publishing rename and everything below it before, because macOS 15 refuses to move a directory without write permission to another parent.
   - It remains the only one of the three that contacts Code.
