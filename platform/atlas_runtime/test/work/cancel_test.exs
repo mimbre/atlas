@@ -88,9 +88,27 @@ defmodule AtlasRuntime.Work.CancelTest do
     send(slow, :go)
     [attempt] = await_state(work.work_id, :cancelled).attempts
     assert attempt.cancel_reason == :cancel
-    assert attempt.result.native_outcome == :stopped
+    assert attempt.result.kind == :cancelled
     assert attempt.quiescent
-    assert turn(bench, attempt.turn_id)["state"] == "stopped"
+
+    turn = turn(bench, attempt.turn_id)
+    assert is_binary(turn["termination"]["stop_signalled_at"])
+
+    # Grace can expire before the newly admitted turn's group is confirmed gone.
+    case attempt.result.native_outcome do
+      :stopped ->
+        assert attempt.cancel_stage in [:signalled, :forced]
+        assert (attempt.cancel_stage == :forced) == match?(%DateTime{}, attempt.timestamps.forced_at)
+        assert turn["state"] == "stopped"
+        assert is_nil(turn["termination"]["kill_signalled_at"])
+
+      :killed ->
+        assert attempt.cancel_stage == :forced
+        assert %DateTime{} = attempt.timestamps.forced_at
+        assert turn["state"] == "killed"
+        assert is_binary(turn["termination"]["kill_requested_at"])
+        assert is_binary(turn["termination"]["kill_signalled_at"])
+    end
 
     # The only turn of the request: the Service started it once.
     assert [_] =
