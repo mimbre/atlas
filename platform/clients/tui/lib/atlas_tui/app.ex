@@ -49,7 +49,7 @@ defmodule AtlasTui.App do
 
     model = %{Model.new(env) | release: opts[:release]}
     model = put_in(model.console.start_to, opts[:to])
-    model = put_in(model.console.truecolor, System.get_env("COLORTERM") in ["truecolor", "24bit"])
+    model = put_in(model.console.truecolor, AtlasTui.Palette.truecolor?())
 
     state = %{
       model: model,
@@ -401,7 +401,7 @@ defmodule AtlasTui.App do
     theme = AtlasTui.Palette.theme(state.settings["tui_theme"])
 
     {rows, model} = View.frame(state.model, width, height, state.reconcile)
-    rows |> View.to_ansi(theme) |> IO.write()
+    rows |> View.to_ansi(theme, state.model.console.truecolor) |> IO.write()
 
     sync_output(%{state | model: model} |> mouse())
   end

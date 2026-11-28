@@ -138,7 +138,32 @@ defmodule AtlasTui.Palette do
     {@tokens[fg], @tokens[bg]}
   end
 
-  def ansi(style, theme) do
+  @doc "Whether RGB colors are available and have not been disabled."
+  def truecolor?(colorterm \\ System.get_env("COLORTERM"), no_color \\ System.get_env("NO_COLOR")) do
+    colorterm in ["truecolor", "24bit"] and no_color in [nil, ""]
+  end
+
+  def ansi(style, theme, truecolor \\ true)
+  def ansi(style, theme, true), do: ansi_color(style, theme)
+
+  def ansi(style, _theme, false) do
+    role =
+      case role(style) do
+        {selected, :muted} -> selected
+        other -> other
+      end
+
+    attribute =
+      cond do
+        role in [:selected, :active, :cursor, :pending_selected] -> "7"
+        role in [:bold, :header, :env_test, :route, :lit, :eyebrow] -> "1"
+        true -> "0"
+      end
+
+    ["\e[0;", attribute, "m"]
+  end
+
+  defp ansi_color(style, theme) do
     {fg, bg} = colors(style, theme)
     role = role(style)
 

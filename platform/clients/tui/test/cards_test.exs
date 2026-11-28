@@ -153,14 +153,14 @@ defmodule AtlasTui.CardsTest do
     end
   end
 
-  test "without truecolor a card is its lines behind a left bar, the selected one in primary" do
+  test "without truecolor a selected card has a distinct left bar" do
     for model <- pages() do
       rows = render(model, 90, false)
       refute Enum.any?(rows, &card_row?/1)
     end
 
     rows = render(PanelFixture.model(:choice), 90, false)
-    assert [{:plain, " "}, {:frame, "▌"} | _] = Enum.find(rows, &(text(&1) =~ "1. Use files"))
+    assert [{:plain, " "}, {:frame, "▉"} | _] = Enum.find(rows, &(text(&1) =~ "1. Use files"))
 
     assert [{:plain, " "}, {:rest_frame, "▌"} | _] =
              Enum.find(rows, &(text(&1) =~ "2. Use memory"))
