@@ -242,6 +242,9 @@ defmodule AtlasControl.Freshness.AffectedTest do
 
     failed = put_in(source, ["related", Access.at(0), "answer"], %{"error" => "unavailable"})
     assert ReadSet.of([{"widget", :rows}], [failed], []).as_of == nil
+
+    failed_work = put_in(source, ["related", Access.at(0), "answer", "work_error"], "unavailable")
+    assert ReadSet.of([{"widget", :rows}], [failed_work], []).as_of == nil
   end
 
   test "a page with an answer that is an error was read at no position, whatever Facts said" do

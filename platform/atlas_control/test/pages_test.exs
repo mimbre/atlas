@@ -1481,6 +1481,18 @@ defmodule AtlasControl.PagesTest do
     assert %{"label" => "Kay", "kind" => "Keeper", "to" => "/k/keeper/K-1"} =
              row.(%{"fact" => fact("K-1", %{"title" => "Kay"})})
 
+    assert %{"label" => "Kay", "since" => "2026-11-20T08:00:00Z"} =
+             row.(%{
+               "fact" => fact("K-1", %{"title" => "Kay"}),
+               "work_since" => "2026-11-20T08:00:00Z"
+             })
+
+    assert %{"label" => "Kay", "detail" => "work unavailable", "to" => "/k/keeper/K-1"} =
+             row.(%{
+               "fact" => fact("K-1", %{"title" => "Kay"}),
+               "work_error" => "work unavailable"
+             })
+
     assert %{"label" => "Keeper", "detail" => "not reachable", "to" => "/k/keeper/K-1"} =
              row.(%{"error" => "not reachable"})
 

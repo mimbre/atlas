@@ -117,7 +117,7 @@ defmodule AtlasFacts.Server do
     model =
       AtlasFacts.Model.check!(Keyword.get_lazy(opts, :model, &AtlasFacts.Model.configured!/0))
 
-    rela = Cache.open(Keyword.fetch!(opts, :rela))
+    rela = Cache.open(Keyword.fetch!(opts, :rela), model.run_mapping())
 
     case Rela.description(rela) do
       {:ok, served} ->
@@ -1050,7 +1050,7 @@ defmodule AtlasFacts.Server do
       Enum.map_reduce(wanted, state, fn {to, target} = id, state ->
         case get_in(Process.get(page), [:related, id]) do
           nil ->
-            {result, state} = page_answer(state, to, %{"key" => target, "plain" => true})
+            {result, state} = related_target_answer(state, to, target)
             result = Map.put(result, "position", read_position(state))
 
             Process.put(
@@ -1070,6 +1070,16 @@ defmodule AtlasFacts.Server do
 
   defp related_answers(state, _kind, _read, answer, _page), do: {answer, state}
 
+  defp related_target_answer(state, kind, key) do
+    {{answer, state}, frame} =
+      Deps.collect(fn ->
+        {answer, state} = page_answer(state, kind, %{"key" => key, "plain" => true})
+        related_work_since(state, kind, answer)
+      end)
+
+    {Deps.attach(answer, frame), state}
+  end
+
   defp related_targets(description, kind, fact) do
     relations = description["relations"] || %{}
     entities = description["entities"] || %{}
@@ -1088,6 +1098,96 @@ defmodule AtlasFacts.Server do
 
   defp related_kind(%{"to" => [one]}, _fact, _relation, _key), do: one
   defp related_kind(_spec, fact, relation, key), do: get_in(fact, ["link_kinds", relation, key])
+
+  # The overview presents a subject's work from its component and presenting run. Read
+  # that same work by key and its runs through the subject index, never whole kinds.
+  defp related_work_since(state, kind, %{"fact" => %{} = subject} = answer) do
+    presenters =
+      Enum.filter(state.model.presentation(), fn p -> p["subject"] == kind end)
+
+    related_work_since(state, subject, answer, presenters)
+  end
+
+  defp related_work_since(state, _kind, answer), do: {answer, state}
+
+  defp related_work_since(state, _subject, answer, []), do: {answer, state}
+
+  defp related_work_since(state, subject, answer, [presenter | rest]) do
+    case related_work(state, subject, presenter) do
+      {%{"fact" => %{} = work}, state} ->
+        case related_view_since(state, presenter, work, subject) do
+          {:ok, nil} -> {answer, state}
+          {:ok, since} -> {Map.put(answer, "work_since", since), state}
+          {:error, reason} -> {Map.put(answer, "work_error", read_error(reason)["error"]), state}
+        end
+
+      {%{"error" => error}, state} ->
+        {Map.put(answer, "work_error", error), state}
+
+      {_, state} ->
+        related_work_since(state, subject, answer, rest)
+    end
+  end
+
+  defp related_work(state, subject, %{"on" => nil}), do: {%{"fact" => subject}, state}
+
+  defp related_work(state, subject, presenter) do
+    case get_in(subject, ["links", presenter["on"]]) do
+      [key] -> page_answer(state, presenter["kind"], %{"key" => key, "plain" => true})
+      _ -> {%{"fact" => nil}, state}
+    end
+  end
+
+  defp related_view_since(state, presenter, work, subject) do
+    kind = presenter["subject"]
+    mapping = state.model.run_mapping()
+    Deps.kind(mapping["kind"])
+
+    with {:ok, runs} <- Cache.subject_runs(state.cache, kind, subject["key"]),
+         {:ok, raw} <- Rela.get(state.cache, plural(state, kind), subject["key"]),
+         {:ok, [derived]} <- state.model.derived(kind, [raw], related_lookup(state)) do
+      completion = derived["completion"] || %{}
+      runs = decode_subject_runs(state, presenter, subject["key"], runs)
+
+      view =
+        AtlasFacts.Presentation.view(presenter, work, subject, runs, fn ->
+          completion["done"] == true
+        end)
+
+      since =
+        if completion["done"] == true and view["status"] not in ["active", "blocked"] do
+          (completion["by"] && get_in(subject, ["origins", completion["by"], "since"])) ||
+            view["since"]
+        else
+          if view["status"] in ["active", "blocked", "completed"], do: view["since"]
+        end
+
+      {:ok, since}
+    end
+  end
+
+  defp related_lookup(state) do
+    %{
+      "linked" => fn kind, relation, keys ->
+        for key <- keys, do: Deps.linked(relation, key)
+        Cache.linked(state.cache, plural(state, kind), relation, keys)
+      end,
+      "facts" => fn kind, keys ->
+        for key <- keys, do: Deps.key(kind, key)
+
+        with {:ok, facts} <-
+               Enum.reduce_while(keys, {:ok, []}, fn key, {:ok, facts} ->
+                 case Rela.get(state.cache, plural(state, kind), key) do
+                   {:ok, fact} -> {:cont, {:ok, [fact | facts]}}
+                   {:error, :not_found} -> {:cont, {:ok, facts}}
+                   {:error, reason} -> {:halt, {:error, reason}}
+                 end
+               end) do
+          {:ok, Enum.sort_by(facts, & &1.key)}
+        end
+      end
+    }
+  end
 
   # A read in a page is answered as it would be alone: a guidance record by Guidance (with
   # its own rules for what may be read), any other fact as an ordinary read.
@@ -1380,39 +1480,41 @@ defmodule AtlasFacts.Server do
   defp subject_runs(state, presenter, key) do
     mapping = state.model.run_mapping()
     names = for f <- presenter["flows"] || [], do: f["name"]
-    supervised_by = get_in(mapping || %{}, ["supervision", "relation"])
 
     if mapping == nil or names == [] do
       {:ok, []}
     else
       Deps.kind(mapping["kind"])
-      f = mapping["fields"]
 
       with {:ok, facts} <- collection(state, plural(state, mapping["kind"])) do
-        runs =
-          for run <- facts,
-              p = run.properties,
-              p[f["subject_kind"]] == presenter["subject"],
-              p[f["subject_key"]] == key,
-              p[f["flow"]] in names,
-              do: %{
-                "key" => run.key,
-                "flow" => p[f["flow"]],
-                "generation" => p[f["generation"]],
-                "status" => p[f["status"]],
-                "state" => p[f["state"]],
-                "since" => f["entered_at"] && p[f["entered_at"]],
-                "supervisor" => if(supervised_by, do: run.links[supervised_by] || [], else: []),
-                "supervisor_origin" =>
-                  supervised_by &&
-                    Links.origins(state.links, mapping["kind"], run.key, run.links)[
-                      supervised_by
-                    ]
-              }
-
-        {:ok, runs}
+        {:ok, decode_subject_runs(state, presenter, key, facts)}
       end
     end
+  end
+
+  defp decode_subject_runs(state, presenter, key, facts) do
+    mapping = state.model.run_mapping()
+    f = mapping["fields"]
+    names = for flow <- presenter["flows"] || [], do: flow["name"]
+    supervised_by = get_in(mapping, ["supervision", "relation"])
+
+    for run <- facts,
+        p = run.properties,
+        p[f["subject_kind"]] == presenter["subject"],
+        p[f["subject_key"]] == key,
+        p[f["flow"]] in names,
+        do: %{
+          "key" => run.key,
+          "flow" => p[f["flow"]],
+          "generation" => p[f["generation"]],
+          "status" => p[f["status"]],
+          "state" => p[f["state"]],
+          "since" => f["entered_at"] && p[f["entered_at"]],
+          "supervisor" => if(supervised_by, do: run.links[supervised_by] || [], else: []),
+          "supervisor_origin" =>
+            supervised_by &&
+              Links.origins(state.links, mapping["kind"], run.key, run.links)[supervised_by]
+        }
   end
 
   defp subject_completed?(state, kind, %{"raw" => raw}) do

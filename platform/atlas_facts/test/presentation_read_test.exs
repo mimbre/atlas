@@ -24,7 +24,11 @@ defmodule AtlasFacts.PresentationReadTest do
 
       %{
         "entities" => %{
-          "parcel" => %{"plural" => "parcels", "properties" => %{"phase" => string}},
+          "parcel" => %{
+            "plural" => "parcels",
+            "properties" => %{"phase" => string},
+            "completion" => %{"by" => "accepted_by"}
+          },
           "label" => %{
             "plural" => "labels",
             "properties" => %{"step" => string, "todo" => string, "later" => string}
@@ -35,8 +39,10 @@ defmodule AtlasFacts.PresentationReadTest do
         },
         "relations" => %{
           "label" => %{"from" => ["parcel"], "to" => ["label"], "max_outgoing" => 1},
+          "accepted_by" => %{"from" => ["parcel"], "to" => ["clerk"], "max_outgoing" => 1},
           "held_by" => %{"from" => ["label"], "to" => ["clerk"], "max_outgoing" => 1},
-          "watched_by" => %{"from" => ["cursor"], "to" => ["clerk"], "max_outgoing" => 1}
+          "watched_by" => %{"from" => ["cursor"], "to" => ["clerk"], "max_outgoing" => 1},
+          "assigned_parcel" => %{"from" => ["clerk"], "to" => ["parcel"], "max_outgoing" => 1}
         },
         "flow_runtime" => %{
           "version" => 1,
@@ -205,6 +211,87 @@ defmodule AtlasFacts.PresentationReadTest do
   end
 
   defp page(reads), do: read("_page", %{"reads" => reads})["answers"]
+
+  test "a related work subject carries the same age as its ordinary work presentation", ctx do
+    {:ok, _} =
+      Rela.create(ctx.rela, "clerks", "bea", %{}, %{
+        "assigned_parcel" => {"parcel", ["P-1"]}
+      })
+
+    source = ["clerk", %{"key" => "bea", "related" => true}]
+    ordinary = read("label", %{"key" => "L-1", "plain" => true, "presentation" => true})
+
+    assert %{"state" => "weigh", "since" => "2026-11-20T08:00:00Z"} =
+             ordinary["fact"]["presentation"]
+
+    [answer] = page([source])
+    assert [%{"kind" => "parcel", "key" => "P-1", "answer" => target}] = answer["related"]
+    assert target["fact"]["key"] == "P-1"
+    assert target["work_since"] == ordinary["fact"]["presentation"]["since"]
+    assert ["key", "label", "L-1", "*"] in target["deps"]
+    assert ["kind", "cursor"] in target["deps"]
+
+    {:ok, run} = Rela.get(ctx.rela, "cursors", "R-1")
+
+    {:ok, _} =
+      Rela.change(
+        ctx.rela,
+        "cursors",
+        "R-1",
+        %{"entered_at" => "2026-11-22T09:00:00Z"},
+        run.version,
+        %{}
+      )
+
+    [answer] = page([source])
+    assert [%{"answer" => %{"work_since" => "2026-11-22T09:00:00Z"}}] = answer["related"]
+
+    {:ok, run} = Rela.get(ctx.rela, "cursors", "R-1")
+    {:ok, _} = Rela.change(ctx.rela, "cursors", "R-1", %{"entered_at" => nil}, run.version, %{})
+    ordinary = read("label", %{"key" => "L-1", "plain" => true, "presentation" => true})
+    assert ordinary["fact"]["presentation"]["since"] == nil
+    [answer] = page([source])
+    assert [%{"answer" => target}] = answer["related"]
+    refute Map.has_key?(target, "work_since")
+    run(ctx.rela, "active", "weigh")
+
+    run(ctx.rela, "blocked", "weigh")
+    ordinary = read("label", %{"key" => "L-1", "plain" => true, "presentation" => true})
+    assert ordinary["fact"]["presentation"]["status"] == "blocked"
+    [answer] = page([source])
+
+    assert hd(answer["related"])["answer"]["work_since"] ==
+             ordinary["fact"]["presentation"]["since"]
+
+    run(ctx.rela, "completed", "done")
+    ordinary = read("label", %{"key" => "L-1", "plain" => true, "presentation" => true})
+    assert ordinary["fact"]["presentation"]["reopened"] == true
+    [answer] = page([source])
+
+    assert hd(answer["related"])["answer"]["work_since"] ==
+             ordinary["fact"]["presentation"]["since"]
+
+    {:ok, parcel} = Rela.get(ctx.rela, "parcels", "P-1")
+
+    {:ok, _} =
+      Rela.change(ctx.rela, "parcels", "P-1", %{}, parcel.version, %{
+        "accepted_by" => {"clerk", ["ada"]}
+      })
+
+    ordinary = read("label", %{"key" => "L-1", "plain" => true, "presentation" => true})
+    assert ordinary["fact"]["presentation"]["reopened"] == false
+    [answer] = page([source])
+
+    assert hd(answer["related"])["answer"]["work_since"] ==
+             ordinary["fact"]["presentation"]["since"]
+
+    {:ok, parcel} = Rela.get(ctx.rela, "parcels", "P-1")
+    :ok = Rela.delete(ctx.rela, "parcels", "P-1", parcel.version)
+    [answer] = page([source])
+    assert [%{"answer" => target}] = answer["related"]
+    refute Map.has_key?(target, "work_since")
+    refute target["fact"]
+  end
 
   test "a page's presentation carries the presenting run's supervisor, from the run itself",
        ctx do
