@@ -243,40 +243,6 @@ defmodule Model.Issue do
       merging: [
         heading: "TO MERGE",
         title: "\#{pr_url|number} {title}",
-        detail_groups: [
-          [title: "Issue", fields: [:description, :stage, :order, :flux_ref, :flux_id]],
-          [
-            title: "Pull request",
-            fields: [
-              :pr_url,
-              :pr_state,
-              :pr_outcome,
-              :pr_mergeable,
-              :pr_head,
-              :pr_checks,
-              :pr_checks_head,
-              :pr_checks_failure
-            ]
-          ],
-          [
-            title: "Build and checks",
-            fields: [
-              :pass_result,
-              :gate_result,
-              :effect_result,
-              :task_result,
-              :publication,
-              :ci_fixes,
-              :ci_green,
-              :ci_push,
-              :pr_updates,
-              :pr_update,
-              :retry_step,
-              :task_failure,
-              :pr_close_failure
-            ]
-          ]
-        ],
         records: [
           review: [relation: :task_of, where: [kind: :review]],
           author: [relation: :task_of, where: [kind: :author]]
@@ -361,6 +327,46 @@ defmodule Model.Issue do
             label: "Agent's log",
             help: "Open the task whose attempt failed",
             record: :last
+          ]
+        ]
+      ]
+    )
+
+    page(
+      state: [:stage],
+      intro: [field: :description],
+      items: [relation: :in_issue],
+      details: [
+        [title: "Issue", fields: [:stage, :order, :flux_ref, :flux_id]],
+        [
+          title: "Pull request",
+          fields: [
+            :pr_url,
+            :pr_state,
+            :pr_outcome,
+            :pr_mergeable,
+            :pr_head,
+            :pr_checks,
+            :pr_checks_head,
+            :pr_checks_failure
+          ]
+        ],
+        [
+          title: "Build and checks",
+          fields: [
+            :pass_result,
+            :gate_result,
+            :effect_result,
+            :task_result,
+            :publication,
+            :ci_fixes,
+            :ci_green,
+            :ci_push,
+            :pr_updates,
+            :pr_update,
+            :retry_step,
+            :task_failure,
+            :pr_close_failure
           ]
         ]
       ]
