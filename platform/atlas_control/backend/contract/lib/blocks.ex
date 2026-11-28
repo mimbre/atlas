@@ -152,6 +152,13 @@ defmodule AtlasBFFContract.Blocks do
         field :steps, {:list, :step}, required: true
       end
 
+      # Explicitly show the plain fallback presentation for an unknown block.
+      defblock :unknown do
+        field :title, :string
+        field :text, :string
+        field :lines, {:list, :string}
+      end
+
       defblock :console_action do
         field :label, :string, required: true
         field :keys, {:list, :string}, required: true

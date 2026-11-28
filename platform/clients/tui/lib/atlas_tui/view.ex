@@ -84,7 +84,7 @@ defmodule AtlasTui.View do
   def known,
     do: %{
       blocks:
-        ~w(list groups item option panel header text instruction answers actions form confirm plan console_action),
+        ~w(list groups item option panel header text instruction answers actions form confirm plan console_action unknown),
       markup: ~w(part section highlight legend)
     }
 
@@ -1231,6 +1231,9 @@ defmodule AtlasTui.View do
 
     title(plan.title, width) ++ [[]] ++ about ++ [[]] ++ steps
   end
+
+  defp block(%AtlasTui.Blocks.Unknown{} = example, at, model, width, room),
+    do: block(plainly(example), at, model, width, room)
 
   # A block this TUI does not know, or cannot draw as its type: what it says, plainly.
   defp block(%Fallback{title: nil, lines: [], type: type}, _at, _model, _width, _room),

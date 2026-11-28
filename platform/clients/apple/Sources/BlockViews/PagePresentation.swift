@@ -94,6 +94,15 @@ public struct PagePresentation: Sendable, Equatable {
         entries.contains { if case .header = $0.item { true } else { false } }
     }
 
+    private static func unknownFallback(_ example: UnknownBlock) -> Fallback {
+        var props: [String: JSONValue] = [:]
+        if let title = example.title { props["title"] = .string(title) }
+        if let text = example.text { props["text"] = .string(text) }
+        if let lines = example.lines { props["lines"] = .array(lines.map { .string($0) }) }
+        return Fallback(type: "unknown", reason: .unknownType,
+                        raw: .object(["type": .string("unknown"), "props": .object(props)]))
+    }
+
     public init(_ page: PageMessage) {
         title = page.title ?? ""
         path = page.path ?? ""
@@ -113,6 +122,7 @@ public struct PagePresentation: Sendable, Equatable {
             case .option(let option): item = .option(option)
             case .form(let form): item = .form(form)
             case .confirm(let confirm): item = .confirm(confirm)
+            case .unknown(let example): item = .fallback(Self.unknownFallback(example))
             case .fallback(let fallback): item = .fallback(fallback)
             case .consoleAction: return nil  // the Console's actions: ConsoleKit, S5
             case .groups(let groups): item = .groups(groups)
