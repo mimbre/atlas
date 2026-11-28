@@ -195,6 +195,7 @@ defmodule Model.AtlasEyra do
     [id: :open_for_you, label: "Open for you", to: "/_open", section: :work],
     [id: :scenes, label: "Scenes", to: "/k/scene", section: :browse, key: "g s"],
     [id: :to_dos, label: "To-Dos", to: "/k/to_do", section: :browse, key: "g t"],
+    [id: :blocks, label: "Blocks", to: "/_blocks", section: :browse, key: "g b", icon: "blocks"],
     [
       id: :machines,
       label: "Machines",

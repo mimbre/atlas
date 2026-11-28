@@ -106,6 +106,12 @@ defmodule AtlasControl.Pages do
       {:ok, :home, _} ->
         :home
 
+      {:ok, :block_gallery, _} ->
+        :block_gallery
+
+      {:ok, :block_gallery_sample, p} ->
+        {:block_gallery_sample, p.name, p.variant}
+
       # Who views it is the session's (`AtlasControl.Session`), as for `/`.
       {:ok, screen, _} when screen in [:open_for_you, :supervised_by_you] ->
         {screen, nil}
@@ -381,6 +387,10 @@ defmodule AtlasControl.Pages do
     do: Blocks.path(:answer, kind: kind, key: key, answer: answer)
 
   def path(:home), do: Blocks.path(:home)
+  def path(:block_gallery), do: Blocks.path(:block_gallery)
+
+  def path({:block_gallery_sample, name, variant}),
+    do: Blocks.path(:block_gallery_sample, name: name, variant: variant)
 
   def path({screen, _by}) when screen in [:open_for_you, :supervised_by_you],
     do: Blocks.path(screen)
@@ -487,6 +497,8 @@ defmodule AtlasControl.Pages do
   defp list_id(relation, _from, _r), do: "list:" <> relation
 
   @doc "The reads a route needs: `[{kind, content}]`."
+  def reads(:block_gallery, _m), do: []
+  def reads({:block_gallery_sample, _, _}, _m), do: []
   def reads({:worker_page, _, _}, _m), do: []
   def reads({:machine_page, _, _}, _m), do: []
 
