@@ -80,14 +80,14 @@ defmodule Model.DescriptionTest do
     marked =
       for kind <- kinds,
           field <- kind.fields,
-          field.format == "markdown",
+          field.syntax == "markdown",
           do: {kind.name, field.name}
 
     assert Enum.sort(marked) ==
              [{"issue", "description"}, {"scene", "description"}, {"use_case", "description"}]
 
-    for kind <- kinds, field <- kind.fields, field.format != "markdown" do
-      assert field.format == nil
+    for kind <- kinds, field <- kind.fields, field.syntax != "markdown" do
+      assert field.syntax == nil
     end
   end
 

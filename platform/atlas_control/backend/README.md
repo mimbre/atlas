@@ -32,7 +32,7 @@ A block in the contract:
 
 ```elixir
 defblock :form do
-  field :title, :string, required: true
+  field :title, :string, required: true, intent: :title
   field :inputs, {:list, :input}, required: true
   field :submit_label, :string, required: true
   field :submit_to, :string, required: true
@@ -41,9 +41,17 @@ defblock :form do
 end
 ```
 
-Types are `:string`, `:integer`, `:boolean`, a model (`defmodel`), or `{:list, type}`. A mistake fails the build and points at its line:
+Types are `:string`, `:integer`, `:boolean`, a model (`defmodel`), or `{:list, type}`.
+String fields and lists of strings can declare advisory `intent: :label`, `:title`,
+or `:body`, describing short labels, concise headings, or longer prose per string
+without a numeric limit. A field with
+`syntax: :markdown` supports Markdown when its containing wire value opts in with
+`syntax: "markdown"`; the annotation itself does not make every value Markdown.
+These field annotations appear in the shared schema and generated `blocks.json`,
+not as extra properties on each wire value. Page markup is independent.
 
-- in the contract: an unknown type, a name or field defined twice, a block that holds a block, a field that holds markup, a name that is not snake_case, an option other than `required:`, a missing `version`;
+A mistake fails the build and points at its line:
+- in the contract: an unknown type, a name or field defined twice, a block that holds a block, a field that holds markup, a name that is not snake_case, invalid field options, a missing `version`;
 - in Control's code: a builder call (`Blocks.form(title: ..., ...)`) that leaves out a required prop or names one the block does not have. The builders are macros, so a caller writes `require AtlasControl.Blocks, as: Blocks`. A wrong value, or a required prop that is `nil` at run time, raises when the block is built.
 
 Change the contract and commit it. The targets are build output, not kept in git (`targets: [json: "../targets/json", swift: {"../targets/swift", package: "AtlasControlKit", version_field: "spec"}]` in `platform/atlas_control/backend/contract/config/config.exs`): `bin/generate atlas` (or `mix atlas.gen` here) writes them where a build needs them, and nothing compares them with earlier output. Every generated file starts with a header that says so and names the contract file; `mix atlas.gen` never overwrites a file without it, and removes a generated file no target writes any more. Then check the TUI still knows every block and kind of markup (`AtlasTui.View.known/0`; its tests fail otherwise).
@@ -85,9 +93,9 @@ Control sends a view model, not a data model: its **content**, a flat list of bl
 | `actions` | what else can be done with the page's subject (change it, hand it over, delete it, create under it; in the test environment `! Failures…`, icon `faults`, last), each an `action` on its key with its `icon` (edit, hand_over, delete, remove, create, open, faults; contract 0.36.0), below the answers and quieter than they are; never one of the page's own actions; none, no block (contract 0.34.0, in place of More…); the Mac app shows the opened item's in the window's toolbar | open it by key or button |
 | `option` | one option to adopt of a decision: its number, text, a badge in its tone (★ Recommended; on one its decider added when declining, `melle's alternative`), its Rule and Consequences (each only when it has a text: an alternative its proposer has not worked out yet has neither) and its own answer (`panel_answer`: Choose; the recommended `main`, another `other`); `alone` the only proposal (no badge; clients show no number), answered by the answers' Accept (contract 0.38.0: a decline is no option but the answers' Decline or Decline all) | answer it by its key or button; select options with the arrows, Enter answers the selected one; `0` the recommended one |
 
-Text blocks may carry `props.format: "markdown"`; a labelled value in an item's
-`props.fields` may carry `format: "markdown"`. Either opts that text into Markdown.
-An absent or unknown format is plain text. Markdown headings are subordinate to the
+Text blocks may carry `props.syntax: "markdown"`; a labelled value in an item's
+`props.fields` may carry `syntax: "markdown"`. Either opts that text into Markdown.
+An absent or unknown syntax is plain text. Version 0.47.0 replaces the 0.46.0 `format` key without an alias: mixed versions show Markdown as plain text until both sides are updated. Markdown headings are subordinate to the
 page title; fenced code is displayed, not executed, arbitrary HTML is not rendered,
 and links open only http or https URLs. Unmarked text remains plain.
 

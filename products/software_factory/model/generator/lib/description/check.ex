@@ -570,7 +570,7 @@ defmodule RelaDSL.Description.Check do
       create(ctx, kind, spec["create"], at.("create")) ++
       Enum.flat_map(spec["properties"] || %{}, fn {name, note} ->
         field(ctx, kind, name, at.("properties")) ++
-          keys(note, ~w(set_by multiline label cause format), at.("properties") ++ [name])
+          keys(note, ~w(set_by multiline label cause syntax), at.("properties") ++ [name])
       end) ++
       late(ctx, kind, spec["late"], at.("late")) ++
       Enum.flat_map(List.wrap(spec["counts"]), fn c ->

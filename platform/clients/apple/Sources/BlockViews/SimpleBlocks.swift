@@ -8,7 +8,7 @@ import AppKit
 /// after it ("· 3h ago"), when Control sends them.
 public enum TextLine {
     public static func isMarkdown(_ block: TextBlock) -> Bool {
-        MarkdownDocument.isMarkdown(block.format)
+        MarkdownDocument.isMarkdown(block.syntax)
     }
 
     public static func line(_ block: TextBlock, now: Date) -> String {

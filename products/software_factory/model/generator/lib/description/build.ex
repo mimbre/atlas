@@ -13,7 +13,7 @@ defmodule RelaDSL.Description.Build do
   @type_keys [:values, :labels, :descriptions, :description, :validations]
   @entity_keys [:label, :plural, :aliases, :id_type, :id_prefix, :description]
   @field_keys [:required, :unique, :default, :description]
-  @field_notes [:set_by, :multiline, :label, :cause, :format]
+  @field_notes [:set_by, :multiline, :label, :cause, :syntax]
   @relation_keys [:label, :description, :from, :to, :max_outgoing, :inverse]
   @relation_notes [
     :parent,
