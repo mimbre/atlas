@@ -200,6 +200,7 @@ struct PanelRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointingHand()
         .background(PrismDarkGap.row(scheme, selected: marker, hovering: hovering),
                     in: RoundedRectangle(cornerRadius: Prism.radius))
         .onHover { hovering = $0 }

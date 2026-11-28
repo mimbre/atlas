@@ -70,19 +70,21 @@ public struct PlanView: View {
     @ViewBuilder private var buttons: some View {
         switch plan.state {
         case "planning":
-            Button("Cancel", action: close).keyboardShortcut(.cancelAction)
+            Button("Cancel", action: close).keyboardShortcut(.cancelAction).pointingHand()
         case "proposed":
-            Button("Cancel", action: close).keyboardShortcut(.cancelAction)
+            Button("Cancel", action: close).keyboardShortcut(.cancelAction).pointingHand()
             Button(runLabel, action: run)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
+                .pointingHand()
                 .disabled(kept == 0)
         case "running":
-            Button("Stop", action: stop).keyboardShortcut(.cancelAction)
+            Button("Stop", action: stop).keyboardShortcut(.cancelAction).pointingHand()
         default:
             Button("Close", action: close)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
+                .pointingHand()
         }
     }
 
@@ -100,6 +102,7 @@ public struct PlanView: View {
             if plan.state == "proposed", let n = step.n {
                 Toggle("Keep step \(n)", isOn: Binding(get: { !isDropped }, set: { _ in toggle(n) }))
                     .labelsHidden()
+                    .pointingHand()
                     #if os(macOS)
                     .toggleStyle(.checkbox)
                     #endif
