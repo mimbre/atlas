@@ -37,6 +37,15 @@ defmodule AtlasBFFContract.TextFormatTest do
     assert %{intent: :label} = field.(schema.models, :pair, :label)
     assert %{intent: :body, syntax: :markdown} = field.(schema.blocks, :text, :text)
     assert %{intent: :body, syntax: :markdown} = field.(schema.models, :pair, :value)
+    assert %{intent: :body} = field.(schema.blocks, :list, :empty)
+    assert %{intent: :body} = field.(schema.blocks, :header, :detail)
+    assert %{intent: :label} = field.(schema.blocks, :form, :submit_label)
+    assert %{intent: :body, type: {:list, :string}} = field.(schema.blocks, :form, :errors)
+    assert %{intent: :body} = field.(schema.models, :action, :help)
+    assert %{intent: :label} = field.(schema.models, :row, :kind)
+    assert %{intent: :title} = field.(schema.markup, :section, :title)
+    refute Map.has_key?(field.(schema.models, :action, :to), :intent)
+    refute Map.has_key?(field.(schema.blocks, :header, :since), :intent)
     refute Map.has_key?(field.(schema.blocks, :text, :syntax), :intent)
   end
 end

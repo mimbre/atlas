@@ -42,8 +42,9 @@ defmodule AtlasBFF.Schema do
     version marked it so (`deprecated "why"` inside a block, model or markup marks it all).
     Types: `:string`, `:integer`, `:boolean`, a model, `{:list, type}`, or
     `{:map, primitive}` (an object of names to such values).
-    String fields may declare `intent: :label | :title | :body` as advisory expected
-    use and length, with no numeric limit. `syntax: :markdown` declares that the
+    String fields and lists of strings may declare `intent: :label | :title | :body`
+    as advisory expected use and length per string, with no numeric limit.
+    `syntax: :markdown` on a string declares that the
     field supports Markdown when its enclosing value's wire `syntax` opts in; it
     does not imply Markdown for an unmarked value. These are schema metadata, not
     additional wire fields or page markup.
@@ -283,13 +284,13 @@ defmodule AtlasBFF.Schema do
              is_boolean(Keyword.get(opts, :required, false)) and
              is_binary(Keyword.get(opts, :deprecated, "")) and
              (not Keyword.has_key?(opts, :intent) or
-                (type == :string and opts[:intent] in [:label, :title, :body])) and
+                (type in [:string, {:list, :string}] and opts[:intent] in [:label, :title, :body])) and
              (not Keyword.has_key?(opts, :syntax) or
                 (type == :string and opts[:syntax] == :markdown)) do
       __fail__(
         __CALLER__.file,
         line,
-        "field #{inspect(name)}: the options are required: true | false and deprecated: \"why\", with intent: :label | :title | :body or syntax: :markdown on strings"
+        "field #{inspect(name)}: the options are required: true | false and deprecated: \"why\", with intent: :label | :title | :body on strings or string lists, or syntax: :markdown on strings"
       )
     end
 

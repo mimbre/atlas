@@ -30,12 +30,18 @@ defmodule AtlasBFF.SchemaTest do
     assert %{"intent" => "body", "syntax" => "markdown"} =
              hd(Enum.at(data["blocks"], 1)["fields"])
     refute Map.has_key?(Enum.at(hd(data["blocks"])["fields"], 1), "intent")
+    [{module, _}] = spec("defblock :a do field :errors, {:list, :string}, intent: :body end")
+    assert %{intent: :body, type: {:list, :string}} = hd(hd(module.__schema__().blocks).fields)
+    [{"blocks.json", list_json}] = AtlasBFF.Targets.Json.files(module.__schema__())
+    assert %{"intent" => "body", "type" => "list of string"} =
+             list_json |> JSON.decode!() |> Map.fetch!("blocks") |> hd() |> Map.fetch!("fields") |> hd()
   end
 
   test "intent and syntax reject unsupported values and non-string fields" do
     for declaration <- [
           "field :x, :string, intent: :other",
           "field :x, :integer, intent: :body",
+          "field :x, {:list, :integer}, intent: :body",
           "field :x, :string, syntax: :other",
           "field :x, {:list, :string}, syntax: :markdown"
         ] do

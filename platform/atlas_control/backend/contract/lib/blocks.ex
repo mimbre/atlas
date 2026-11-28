@@ -12,9 +12,9 @@ defmodule AtlasBFFContract.Blocks do
       defblock :list do
         field :title, :string, intent: :title
         field :rows, {:list, :row}, required: true
-        field :empty, :string
+        field :empty, :string, intent: :body
         field :actions, {:list, :action}
-        field :aside, :string
+        field :aside, :string, intent: :label
       end
 
       # The groups a page's items fall into, each a filter of the page: opening a group's
@@ -38,7 +38,7 @@ defmodule AtlasBFFContract.Blocks do
         field :eyebrow, :string, intent: :label
         field :key, :string
         field :icon, :string
-        field :detail, :string
+        field :detail, :string, intent: :body
         field :since, :string
       end
 
@@ -105,7 +105,7 @@ defmodule AtlasBFFContract.Blocks do
         field :heading, :string, intent: :title, required: true
         field :title, :string, intent: :title, required: true
         field :key, :string
-        field :aside, :string
+        field :aside, :string, intent: :label
         field :icon, :string
         field :byline, {:list, :clause}
         field :items, {:list, :panel_item}
@@ -120,10 +120,10 @@ defmodule AtlasBFFContract.Blocks do
       defblock :form do
         field :title, :string, intent: :title, required: true
         field :inputs, {:list, :input}, required: true
-        field :submit_label, :string, required: true
+        field :submit_label, :string, intent: :label, required: true
         field :submit_to, :call, required: true
         field :cancel_to, :string
-        field :errors, {:list, :string}
+        field :errors, {:list, :string}, intent: :body
       end
 
       # A question before something that cannot be undone. Without `confirm_to` it only
@@ -131,7 +131,7 @@ defmodule AtlasBFFContract.Blocks do
       defblock :confirm do
         field :title, :string, intent: :title, required: true
         field :text, :string, intent: :body, required: true
-        field :confirm_label, :string
+        field :confirm_label, :string, intent: :label
         field :confirm_to, :call
         field :cancel_to, :string, required: true
         # Optional failure code from Facts; never inferred from the human explanation.
@@ -148,7 +148,7 @@ defmodule AtlasBFFContract.Blocks do
         field :state, :string, required: true
         field :summary, :string, intent: :body
         field :by, :string
-        field :before, :string
+        field :before, :string, intent: :body
         field :steps, {:list, :step}, required: true
       end
 
@@ -158,7 +158,7 @@ defmodule AtlasBFFContract.Blocks do
         field :operation, :console_operation, required: true
         field :scope, :console_scope, required: true
         field :available, :boolean, required: true
-        field :reason, :string
+        field :reason, :string, intent: :body
       end
     end
   end

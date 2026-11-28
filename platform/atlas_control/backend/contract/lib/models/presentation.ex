@@ -22,8 +22,8 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :submit_to, :call
     field :page, :boolean
     field :icon, :string
-    field :button, :string
-    field :help, :string
+    field :button, :string, intent: :label
+    field :help, :string, intent: :body
   end
 
   # A line of an `instruction` block, in order: `kind` `text` (its `text`, the lines
@@ -33,7 +33,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   defmodel :instruction_line do
     field :kind, :string, required: true
     field :text, :string, intent: :body
-    field :parts, {:list, :string}
+    field :parts, {:list, :string}, intent: :label
   end
 
   # One part of a panel's byline (`panel`): `text`, and with `since` (ISO 8601, UTC) how
@@ -89,10 +89,10 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :submit_to, :call
     field :note, :boolean
     field :weight, :string
-    field :button, :string
-    field :detail, :string
+    field :button, :string, intent: :label
+    field :detail, :string, intent: :body
     field :icon, :string
-    field :help, :string
+    field :help, :string, intent: :body
   end
 
   # A web address the user can open outside the client, in a browser: `url`. `key` is
@@ -123,14 +123,14 @@ defmodule AtlasBFFContract.Models.Presentation do
   defmodel :row do
     field :id, :string
     field :label, :string, intent: :label, required: true
-    field :detail, :string
+    field :detail, :string, intent: :body
     field :to, :string, required: true
     field :links, {:list, :link}
     field :key, :string
     field :pending, :boolean
     field :tone, :string
     field :since, :string
-    field :kind, :string
+    field :kind, :string, intent: :label
     field :icon, :string
   end
 
@@ -163,7 +163,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   defmodel :choice do
     field :value, :string, required: true
     field :label, :string, intent: :label, required: true
-    field :help, :string
+    field :help, :string, intent: :body
   end
 
   # The input and value another input depends on (`input`'s `shown_when`).
@@ -186,7 +186,7 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :kind, :string, required: true
     field :value, :string
     field :required, :boolean
-    field :hint, :string
+    field :hint, :string, intent: :body
     field :choices, {:list, :choice}
     field :shown_when, :input_condition
   end
@@ -206,8 +206,8 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :n, :integer, required: true
     field :label, :string, intent: :label, required: true
     field :state, :string, required: true
-    field :why, :string
-    field :detail, :string
+    field :why, :string, intent: :body
+    field :detail, :string, intent: :body
     field :inputs, {:list, :input}
   end
 
@@ -270,13 +270,13 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :tabs, {:list, :shell_tab}, required: true
     field :initial_to, :string, required: true
     field :active_tab, :string
-    field :greeting, :string
-    field :name, :string
-    field :assistant, :string
+    field :greeting, :string, intent: :body
+    field :name, :string, intent: :label
+    field :assistant, :string, intent: :label
   end
 
   defmodel :boot_error do
-    field :error, :string, required: true
+    field :error, :string, intent: :body, required: true
   end
 
   # A client's first message: its environment, what it is, and the contract version it
@@ -318,7 +318,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   defmodel :turn_context do
     field :key, :string
     field :on, :string
-    field :error, :string
+    field :error, :string, intent: :body
   end
 
   defmodel :turn_outcome do

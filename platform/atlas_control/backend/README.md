@@ -42,8 +42,9 @@ end
 ```
 
 Types are `:string`, `:integer`, `:boolean`, a model (`defmodel`), or `{:list, type}`.
-String fields can declare advisory `intent: :label`, `:title`, or `:body`, describing
-short labels, concise headings, or longer prose without a numeric limit. A field with
+String fields and lists of strings can declare advisory `intent: :label`, `:title`,
+or `:body`, describing short labels, concise headings, or longer prose per string
+without a numeric limit. A field with
 `syntax: :markdown` supports Markdown when its containing wire value opts in with
 `syntax: "markdown"`; the annotation itself does not make every value Markdown.
 These field annotations appear in the shared schema and generated `blocks.json`,
