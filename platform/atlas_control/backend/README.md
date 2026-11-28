@@ -85,9 +85,9 @@ Control sends a view model, not a data model: its **content**, a flat list of bl
 | `actions` | what else can be done with the page's subject (change it, hand it over, delete it, create under it; in the test environment `! Failures…`, icon `faults`, last), each an `action` on its key with its `icon` (edit, hand_over, delete, remove, create, open, faults; contract 0.36.0), below the answers and quieter than they are; never one of the page's own actions; none, no block (contract 0.34.0, in place of More…); the Mac app shows the opened item's in the window's toolbar | open it by key or button |
 | `option` | one option to adopt of a decision: its number, text, a badge in its tone (★ Recommended; on one its decider added when declining, `melle's alternative`), its Rule and Consequences (each only when it has a text: an alternative its proposer has not worked out yet has neither) and its own answer (`panel_answer`: Choose; the recommended `main`, another `other`); `alone` the only proposal (no badge; clients show no number), answered by the answers' Accept (contract 0.38.0: a decline is no option but the answers' Decline or Decline all) | answer it by its key or button; select options with the arrows, Enter answers the selected one; `0` the recommended one |
 
-Text blocks may carry `props.format: "markdown"`; a labelled value in an item's
-`props.fields` may carry `format: "markdown"`. Either opts that text into Markdown.
-An absent or unknown format is plain text. Markdown headings are subordinate to the
+Text blocks may carry `props.syntax: "markdown"`; a labelled value in an item's
+`props.fields` may carry `syntax: "markdown"`. Either opts that text into Markdown.
+An absent or unknown syntax is plain text. Version 0.47.0 replaces the 0.46.0 `format` key without an alias: mixed versions show Markdown as plain text until both sides are updated. Markdown headings are subordinate to the
 page title; fenced code is displayed, not executed, arbitrary HTML is not rendered,
 and links open only http or https URLs. Unmarked text remains plain.
 

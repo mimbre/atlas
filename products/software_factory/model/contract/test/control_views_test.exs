@@ -396,11 +396,11 @@ defmodule Model.ControlViewsTest do
     assert Enum.find(page.blocks, &(&1["id"] == "intro"))["props"]["text"] ==
              scene["values"]["description"]
 
-    assert Enum.find(page.blocks, &(&1["id"] == "intro"))["props"]["format"] == "markdown"
+    assert Enum.find(page.blocks, &(&1["id"] == "intro"))["props"]["syntax"] == "markdown"
 
     refute Map.has_key?(
              Enum.find(page.blocks, &(&1["id"] == "section-questions"))["props"],
-             "format"
+             "syntax"
            )
 
     assert Enum.find(page.blocks, &(&1["id"] == "section-questions"))["props"]["text"] ==

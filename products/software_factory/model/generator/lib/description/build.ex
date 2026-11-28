@@ -13,7 +13,7 @@ defmodule RelaDSL.Description.Build do
   @type_keys [:values, :labels, :descriptions, :description, :validations]
   @entity_keys [:label, :plural, :aliases, :id_type, :id_prefix, :description]
   @field_keys [:required, :unique, :default, :description]
-  @field_notes [:set_by, :multiline, :label, :cause, :format]
+  @field_notes [:set_by, :multiline, :label, :cause, :syntax, :intent]
   @relation_keys [:label, :description, :from, :to, :max_outgoing, :inverse]
   @relation_notes [
     :parent,
@@ -126,16 +126,19 @@ defmodule RelaDSL.Description.Build do
                 f.opts,
                 @field_keys ++ @field_notes
               ) ++
-                if is_atom(f.type) and f.type != nil,
-                  do: [],
-                  else: [
+                (if is_atom(f.type) and f.type != nil,
+                   do: [],
+                   else: [
+                     {i.file, f.line,
+                      problem(:field_type, [e.name, f.name], "field #{e.name}.#{f.name} needs a type")}
+                   ]) ++
+                if Keyword.has_key?(f.opts, :intent) and
+                     (f.type != :string or f.opts[:intent] not in [:label, :title, :body]),
+                  do: [
                     {i.file, f.line,
-                     problem(
-                       :field_type,
-                       [e.name, f.name],
-                       "field #{e.name}.#{f.name} needs a type"
-                     )}
-                  ]
+                     problem(:field_intent, [e.name, f.name], "field intent must be label, title or body on a string")}
+                  ],
+                  else: []
             end) ++ note_problems(i, e)
 
         %{kind: :relation, value: {name, opts}} = i ->

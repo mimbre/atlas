@@ -1,7 +1,7 @@
 defmodule AtlasBFFContract.Models.Presentation do
   @moduledoc "Shared block, Console and session payload models."
   use AtlasBFF.Schema
-  version "0.46.0"
+  version "0.47.0"
 
   models_from(AtlasBFFContract.Models.Workers)
 
@@ -150,11 +150,11 @@ defmodule AtlasBFFContract.Models.Presentation do
     field :cause, :string
   end
 
-  # A labelled value, with its origin and optional format (markdown; otherwise plain).
+  # A labelled value, with its origin and optional syntax (markdown; otherwise plain).
   defmodel :pair do
     field :label, :string, required: true
     field :value, :string
-    field :format, :string
+    field :syntax, :string
     field :origin, :origin
   end
 

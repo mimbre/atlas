@@ -78,12 +78,13 @@ defmodule Model.Scene do
     (Flux's meaning). The id is its code, e.g. SC-Atlas-01.
     """ do
     icon(:frame)
-    field(:title, :string, required: true, description: "Without the code (Flux: name)")
+    field(:title, :string, intent: :title, required: true, description: "Without the code (Flux: name)")
 
     field(:description, :string,
       description: "The text (Flux: description)",
       multiline: true,
-      format: "markdown"
+      syntax: "markdown",
+      intent: :body
     )
 
     field(:flux_id, :string,

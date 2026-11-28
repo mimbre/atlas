@@ -17,7 +17,7 @@ defmodule Model.AgentStep do
     One step of a request's plan: the form it filled, with what values, and
     what became of it, with the key of the item it made, changed or deleted.
     """ do
-    field(:title, :string, required: true, description: "The title of the form it filled")
+    field(:title, :string, intent: :title, required: true, description: "The title of the form it filled")
     field(:n, :integer, description: "Its number in the plan")
     field(:tool, :string, description: "put, set or delete")
     field(:state, :agent_step_state, description: "What became of it")

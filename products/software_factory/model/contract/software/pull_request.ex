@@ -72,7 +72,7 @@ defmodule Model.PullRequest do
     """ do
     icon(:merge)
     field(:url, :github_pull_url, required: true, unique: true, description: "GitHub: url")
-    field(:title, :string, description: "GitHub: title", set_by: :connector)
+    field(:title, :string, intent: :title, description: "GitHub: title", set_by: :connector)
     field(:state, :pull_request_state, description: "GitHub: state", set_by: :connector)
     field(:draft, :boolean, default: false, description: "GitHub: isDraft", set_by: :connector)
 

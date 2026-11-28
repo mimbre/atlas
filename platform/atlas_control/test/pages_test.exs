@@ -788,25 +788,25 @@ defmodule AtlasControl.PagesTest do
            }
   end
 
-  test "formatted fields remain in the item for older clients" do
+  test "syntaxted fields remain in the item for older clients" do
     notes = "# Heading\n\n- one\n- two"
     answer = %{"fact" => fact("W-01", %{"title" => "One", "notes" => notes})}
 
-    catalog = fn format ->
+    catalog = fn syntax ->
       update_in(@d, [:kinds, "widget", :fields], fn fields ->
         Enum.map(fields, fn field ->
-          if field.name == "notes", do: Map.put(field, :format, format), else: field
+          if field.name == "notes", do: Map.put(field, :syntax, syntax), else: field
         end)
       end)
     end
 
-    for format <- ["markdown", nil, "future-format"] do
-      %{blocks: blocks} = render({:item, "widget", "W-01"}, catalog.(format), [answer])
+    for syntax <- ["markdown", nil, "future-syntax"] do
+      %{blocks: blocks} = render({:item, "widget", "W-01"}, catalog.(syntax), [answer])
       item = Enum.find(blocks, &(&1["id"] == "item"))
       pair = Enum.find(item["props"]["fields"], &(&1["label"] == "Notes"))
       assert pair["value"] == notes
-      assert pair["format"] == format
-      if is_nil(format), do: refute(Map.has_key?(pair, "format"))
+      assert pair["syntax"] == syntax
+      if is_nil(syntax), do: refute(Map.has_key?(pair, "syntax"))
     end
   end
 

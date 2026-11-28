@@ -11,7 +11,7 @@ defmodule Model.Person do
     the name, e.g. melle.
     """ do
     icon(:figure)
-    field(:name, :string, required: true, description: "As it is shown")
+    field(:name, :string, intent: :label, required: true, description: "As it is shown")
     top(false)
     primary(:name)
 

@@ -37,7 +37,7 @@ defmodule Model.AgentRequest do
     of every change the agent made (SC-Atlas-04, UC-Atlas-19).
     """ do
     icon(:history)
-    field(:title, :string, required: true, description: "The request, in Melle's words")
+    field(:title, :string, intent: :title, required: true, description: "The request, in Melle's words")
     field(:page, :string, description: "The page it was asked on")
     field(:planner, :string, description: "Who planned it")
     field(:outcome, :agent_outcome, description: "What became of it")

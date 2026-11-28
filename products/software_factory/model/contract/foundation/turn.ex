@@ -57,7 +57,7 @@ defmodule Model.Turn do
       set_by: [:runtime]
     )
 
-    field(:title, :string,
+    field(:title, :string, intent: :title,
       description:
         "What the turn is about when it has no item: the first heading and line of what the agent was asked, shortened",
       set_by: [:runtime]

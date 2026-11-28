@@ -13,7 +13,7 @@ defmodule RelaDSL.Description do
   |---|---|---|
   | `type name, values:, labels:, descriptions:, description:, validations:, format:` | a type | schema; `format` to `atlas.json` `types` |
   | `entity name, label:, plural:, aliases:, id_type:, id_prefix:, description: do … end` | a kind | schema `entities` |
-  | `field name, type, required:, unique:, default:, description:, label:, multiline:, set_by:, cause:, format:` | a property, in form order | schema; the last five to `atlas.json` `properties` |
+  | `field name, type, required:, unique:, default:, description:, label:, multiline:, set_by:, cause:, syntax:, intent:` | a property, in form order | schema; presentation notes to `atlas.json` `properties` |
   | `relation name, label:, description:, from:, to:, max_outgoing:, inverse: {id, label}` and `parent:, add:, component:, set_by:, limit:, actions:, only_target:, requires_completed_children:, closes_parent:, review:` | a relation | schema; the rest to `atlas.json` `relations` |
   | inside `entity`: `top`, `primary`, `plural_label`, `icon` (the kind's one icon, a semantic name of what it shows, `:scales`, never the kind's: on its rows, its page's header and its tab), `start`, `create`, `completion`, `progress`, `connector`, `agent`, `order`, `by_hand`, `late`, `action`, `counts`, `requires`, `authority`, `frozen`, `replaces`, `layering`, `sealed`, `delete_error`, `panel`, `page` | one rule of the kind each (`panel`: per-state panel; `page`: a stack of blocks with `state` fields, an `intro` field, ordered `sections`, and an `items` relation and empty-state labels) | `atlas.json` `entities` |
   | inside `entity`: `flag field, value:, label:` | the kind's flag | `flow-runtime.json` `flags` |
@@ -21,6 +21,12 @@ defmodule RelaDSL.Description do
 
   `action`, `counts` and `requires` add one item each to the kind's list; the others
   are given once. `completion` takes one rule (a keyword list) or a list of them.
+
+  A string field may declare `intent: :label` for a short identifier shown to people,
+  `:title` for a concise heading, or `:body` for longer prose. Intent is advisory:
+  it imposes no numeric length limit or rendering rule. `syntax: "markdown"` marks
+  Markdown text; absent or unknown syntax is plain. Type-level `format: :url`
+  continues to identify web addresses independently of text syntax.
 
   ## Anywhere (a concept, a module or a composition)
 

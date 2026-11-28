@@ -36,7 +36,7 @@ defmodule Model.Guidance do
     field(:environment, :string, required: true)
     field(:actor, :string, required: true)
     field(:client_key, :string, required: true)
-    field(:body, :string, required: true)
+    field(:body, :string, intent: :body, required: true)
     field(:body_digest, :string, required: true)
     field(:worker, :string, required: true)
     field(:turn, :string, required: true)
