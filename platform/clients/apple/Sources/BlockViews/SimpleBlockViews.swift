@@ -403,17 +403,25 @@ struct OtherActionsView: View {
 public struct ItemToolbar: ToolbarContent {
     let actions: [ActionModel]
     let pending: SessionState.Pending?
+    /// Nil keeps the list's section; a page chooses its edge from its actual layout.
+    let trailing: Bool?
     let act: (ActionModel) -> Void
 
-    public init(actions: [ActionModel], pending: SessionState.Pending?, act: @escaping (ActionModel) -> Void) {
+    public init(actions: [ActionModel], pending: SessionState.Pending?, trailing: Bool?, act: @escaping (ActionModel) -> Void) {
         self.actions = actions
         self.pending = pending
+        self.trailing = trailing
         self.act = act
     }
 
     public var body: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
+            // Keep the list's toolbar section even when it has no actions, so the page
+            // section starts at the page column rather than the window's trailing edge.
+            if trailing == nil && actions.isEmpty { Spacer() }
+            if trailing == true && !actions.isEmpty { Spacer() }
             ForEach(Array(actions.enumerated()), id: \.offset) { _, action in button(action) }
+            if trailing == false && !actions.isEmpty { Spacer() }
         }
     }
 
