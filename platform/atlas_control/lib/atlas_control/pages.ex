@@ -1810,13 +1810,12 @@ defmodule AtlasControl.Pages do
 
         rows =
           Enum.flat_map(shown, fn {s, facts} ->
-            work_order(
-              for {kind, fact, work} <- facts do
-                {screen_row(m, kind, fact, work, by, false),
-                 deadline(m, [{written_on(s), work}, {kind, fact}])}
-              end
-            )
+            for {kind, fact, work} <- facts do
+              {screen_row(m, kind, fact, work, by, false),
+               deadline(m, [{written_on(s), work}, {kind, fact}])}
+            end
           end)
+          |> work_order()
 
         list = Blocks.list(rows: rows, empty: rule.empty)
         grouped_page(m, {:open_for_you, nil}, counts, active, rule.title || "", [{"list", list}])

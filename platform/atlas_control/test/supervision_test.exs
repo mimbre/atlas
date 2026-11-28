@@ -190,6 +190,22 @@ defmodule AtlasControl.SupervisionTest do
     end
   end
 
+  test "Open for you orders work across all spans" do
+    s = span()
+    other = %{s | span: "other", states: ["other"]}
+    m = put_in(@s, [:start, :open_for_you, :spans], [s, other])
+    route = {:open_for_you, "ada"}
+
+    items = [
+      work(m, "W-1", Map.put(presented(), "since", "2026-11-25T09:00:00Z")),
+      work(m, "W-2", Map.put(presented(state: "other"), "since", "2026-11-20T09:00:00Z"))
+    ]
+
+    page = Pages.render(route, m, screen_answers(route, m, items))
+    [list] = for b <- page.blocks, b["type"] == "list", do: b
+    assert keys_of(list["props"]["rows"]) == ~w(W-2 W-1)
+  end
+
   test "work lists put deadlines first, soonest on top, then the oldest waiting; browse lists keep theirs" do
     dated = fn opts, times -> Map.merge(presented(opts), times) end
 
