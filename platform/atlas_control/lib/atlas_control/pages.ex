@@ -2347,7 +2347,6 @@ defmodule AtlasControl.Pages do
                 {title, list} = child_list(m, rel, child_answer, false, form[:by])
                 id = list_id(relation, from, r)
                 rows = list["props"]["rows"]
-                list = put_in(list, ["props", "title"], title)
 
                 list =
                   if relation == item_relation do
@@ -2358,6 +2357,7 @@ defmodule AtlasControl.Pages do
                         else: list["props"]["empty"]
 
                     list
+                    |> put_in(["props", "title"], title)
                     |> put_in(["props", "empty"], empty)
                     |> put_in(
                       ["props", "aside"],
