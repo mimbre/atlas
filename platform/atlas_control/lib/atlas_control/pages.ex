@@ -2307,14 +2307,6 @@ defmodule AtlasControl.Pages do
           )
         end
 
-        details_markup =
-          [
-            Blocks.part("item", List.last(["item" | Enum.map(lists, &elem(&1, 0))]),
-              title: "Details",
-              role: "details"
-            )
-          ] ++ sections
-
         cond do
           is_map(Map.get(k, :page)) and Map.drop(k.page, ["details"]) != %{} ->
             spec = k.page
@@ -2418,7 +2410,8 @@ defmodule AtlasControl.Pages do
                 do: [],
                 else: [{"answers", answers_block(remaining_next, (todo && todo.answers) || [])}]
 
-            detail_blocks = page_detail_blocks(m, k, spec, without_page_content(item, k, spec, fact))
+            detail_blocks =
+              page_detail_blocks(m, k, spec, without_page_content(item, k, spec, fact))
 
             content =
               [{"header", header}] ++
@@ -2452,14 +2445,8 @@ defmodule AtlasControl.Pages do
                 for({id, {_title, list}} <- remaining, do: {id, list})
 
             markup =
-              if(spec["details"],
-                do: [],
-                else: [
-                  Blocks.part("item", List.last(["item" | Enum.map(remaining, &elem(&1, 0))]),
-                    title: "Details",
-                    role: "details"
-                  )
-                ]
+              details_part(
+                detail_blocks ++ for({id, {_title, list}} <- remaining, do: {id, list})
               ) ++
                 for({id, {title, _list}} <- remaining, do: Blocks.section(id, id, title: title))
 
@@ -2482,12 +2469,12 @@ defmodule AtlasControl.Pages do
               end)
               |> put_in(["props", "actions"], [])
 
-            {detail_blocks, detail_markup} =
-              if is_list(get_in(k, [:page, "details"])) do
-                {page_detail_blocks(m, k, k.page, item), sections}
-              else
-                {[{"item", item}], details_markup}
-              end
+            detail_blocks =
+              if is_list(get_in(k, [:page, "details"])),
+                do: page_detail_blocks(m, k, k.page, item),
+                else: [{"item", item}]
+
+            detail_markup = details_part(detail_blocks ++ lists) ++ sections
 
             content =
               head ++
@@ -2541,18 +2528,14 @@ defmodule AtlasControl.Pages do
 
             groups = panel && panel["detail_groups"]
 
-            {detail_content, detail_markup} =
-              cond do
-                is_list(groups) ->
-                  {panel_detail_blocks(m, k, groups, detail_item) ++
-                     detail_blocks ++ lists ++ technical, sections}
+            detail_content =
+              if is_list(groups),
+                do:
+                  panel_detail_blocks(m, k, groups, detail_item) ++
+                    detail_blocks ++ lists ++ technical,
+                else: [{"item", detail_item}] ++ detail_blocks ++ lists ++ technical
 
-                is_list(get_in(k, [:decision_options, "details"])) ->
-                  {[{"item", detail_item}] ++ detail_blocks ++ lists ++ technical, sections}
-
-                true ->
-                  {[{"item", detail_item}] ++ detail_blocks ++ lists ++ technical, details_markup}
-              end
+            detail_markup = details_part(detail_content) ++ sections
 
             content =
               iconed(head, kind_icon(m, kind)) ++
@@ -2588,6 +2571,7 @@ defmodule AtlasControl.Pages do
 
             {item, detail_blocks, technical} = decision_details(m, k, fact, item)
             content = [{"item", item} | others] ++ lists ++ detail_blocks ++ technical
+            markup = markup ++ details_part(detail_blocks ++ technical)
 
             # Its owner's part first: what to do (IS-Atlas-54).
             {content, markup} =
@@ -3697,6 +3681,14 @@ defmodule AtlasControl.Pages do
         pair["label"] in shown or (pair["label"] in absent and is_nil(pair["origin"]))
       end)
     end)
+  end
+
+  defp details_part([]), do: []
+
+  defp details_part(blocks) do
+    [{first, _} | _] = blocks
+    {last, _} = List.last(blocks)
+    [Blocks.part(first, last, title: "Details", role: "details")]
   end
 
   # A declared page may group its existing pairs; anything not named stays in the item.
@@ -4934,7 +4926,13 @@ defmodule AtlasControl.Pages do
 
       rows =
         for key <- Enum.sort_by(keys, &key_order/1), to = kind_of.(key), to != nil do
-          Blocks.row(id: key, label: singular(m, to), to: path({:item, to, key}))
+          Blocks.row(
+            id: key,
+            label: singular(m, to),
+            kind: singular(m, to),
+            icon: kind_icon(m, to),
+            to: path({:item, to, key})
+          )
         end
 
       {"parent:" <> r.name, {String.capitalize(r.label), Blocks.list(rows: rows)}}
