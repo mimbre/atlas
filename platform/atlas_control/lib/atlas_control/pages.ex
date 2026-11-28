@@ -2402,8 +2402,12 @@ defmodule AtlasControl.Pages do
                 do: [],
                 else: [{"answers", answers_block(remaining_next, (todo && todo.answers) || [])}]
 
-            detail_blocks =
-              page_details_with_actions(m, k, spec, without_page_content(item, k, spec, fact))
+            item =
+              item
+              |> without_page_content(k, spec, fact)
+              |> without_page_answers(panel, remaining_next)
+
+            detail_blocks = page_details_with_actions(m, k, spec, item)
 
             content =
               [{"header", header}] ++
@@ -3674,6 +3678,19 @@ defmodule AtlasControl.Pages do
         pair["label"] in shown or (pair["label"] in absent and is_nil(pair["origin"]))
       end)
     end)
+  end
+
+  defp without_page_answers(item, %{"choose" => true}, _next),
+    do: put_in(item, ["props", "actions"], [])
+
+  defp without_page_answers(item, _panel, next) do
+    keys = Enum.map(next, & &1["key"])
+
+    update_in(
+      item,
+      ["props", "actions"],
+      &Enum.reject(&1 || [], fn action -> action["key"] in keys end)
+    )
   end
 
   defp details_part([]), do: []

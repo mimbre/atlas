@@ -7,6 +7,39 @@ defmodule AtlasControl.PanelTest do
 
   alias AtlasControl.{FakeStore, Shop}
 
+  defmodule DeclaredPage do
+    for {name, arity} <- Shop.Paneled.__info__(:functions), name not in [:kinds, :restart] do
+      args = Macro.generate_arguments(arity, __MODULE__)
+      defdelegate unquote(name)(unquote_splicing(args)), to: Shop.Paneled
+    end
+
+    def kinds do
+      Enum.map(Shop.Paneled.kinds(), fn
+        %{name: "widget"} = kind ->
+          Map.put(kind, :page, %{
+            "state" => ["state"],
+            "items" => %{"relation" => "of_widget", "empty" => %{}},
+            "details" => [%{"title" => "Widget", "fields" => ["shade"]}]
+          })
+
+        kind ->
+          kind
+      end)
+    end
+
+    def restart(
+          "widget",
+          _fact,
+          %{"card" => %{"presentation" => %{"status" => "completed"}}},
+          %{key: "ada"},
+          _actors
+        ),
+        do: %{label: "Restart", key: "g", run: "R-1"}
+
+    def restart(kind, fact, parts, viewer, actors),
+      do: Shop.Paneled.restart(kind, fact, parts, viewer, actors)
+  end
+
   setup do
     Application.put_env(:atlas_bus, :store, "store-#{System.unique_integer([:positive])}")
     AtlasBus.drop_hints(0)
@@ -76,6 +109,7 @@ defmodule AtlasControl.PanelTest do
       "spec" => AtlasControl.Blocks.version()
     })
 
+    assert %{"op" => "welcome", "surface" => "console"} = next(s, "welcome")
     next(s, "page")
     put(s, %{"op" => "open", "to" => path})
     {s, next(s, "page")}
@@ -96,6 +130,71 @@ defmodule AtlasControl.PanelTest do
 
   defp keys(page),
     do: for(%{"type" => "console_action"} = a <- page["blocks"], do: a["props"]["keys"])
+
+  test "Console keeps action-bearing declared pages usable" do
+    name = :"declared_gateway_#{System.unique_integer([:positive])}"
+
+    start_supervised!(
+      Supervisor.child_spec({AtlasControl.Gateway, port: 0, name: name, model: DeclaredPage},
+        id: name
+      )
+    )
+
+    port = AtlasControl.Gateway.port(name)
+
+    FakeStore.put("W-1", %{"title" => "Lamp", "state" => "open"}, "widget", %{
+      "card" => ["C-W-1"]
+    })
+
+    for {state, answer_keys} <- [{"check", ~w(a n)}, {"stuck", ~w(r c)}] do
+      in_state(state)
+      {socket, page} = open(port, "/k/widget/W-1")
+      assert page["path"] == "/k/widget/W-1"
+
+      rendered_keys =
+        case state do
+          "check" ->
+            Enum.map(panel(page)["answers"], & &1["key"])
+
+          "stuck" ->
+            for %{"type" => "option", "props" => %{"answer" => answer}} <- page["blocks"],
+                do: answer["key"]
+        end
+
+      assert rendered_keys == answer_keys
+
+      for key <- answer_keys do
+        assert Enum.count(keys(page), &(&1 == [key])) == 1
+      end
+
+      item = Enum.find(page["blocks"], &(&1["id"] == "item"))
+      item_keys = Enum.map(item["props"]["actions"], & &1["key"])
+      assert item_keys == if(state == "check", do: answer_keys, else: [])
+
+      put(socket, %{"op" => "open", "to" => "/k/widget"})
+      assert %{"path" => "/k/widget"} = next(socket, "page")
+    end
+
+    FakeStore.present("card", "C-W-1", %{
+      "flow" => "review",
+      "run" => "R-1",
+      "status" => "completed",
+      "state" => "done",
+      "owner" => ["ada"]
+    })
+
+    {socket, page} = open(port, "/k/widget/W-1")
+    assert Enum.count(keys(page), &(&1 == ["g"])) == 1
+
+    assert Enum.any?(page["blocks"], fn block ->
+             block["type"] == "answers" and
+               Enum.any?(block["props"]["answers"], &(&1["key"] == "g"))
+           end)
+
+    assert Enum.find(page["blocks"], &(&1["id"] == "item"))["props"]["actions"] == []
+    put(socket, %{"op" => "open", "to" => "/k/widget"})
+    assert %{"path" => "/k/widget"} = next(socket, "page")
+  end
 
   test "to accept: the items under it in order, each with what, done and needs; a and n", %{
     port: port

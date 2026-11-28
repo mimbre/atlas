@@ -156,6 +156,9 @@ Kinds may declare a block page with state fields, an intro, ordered text section
 Fields already displayed as the page title, intro or text sections are not repeated in
 its detail blocks; unshown fields and links remain available there.
 
+Next steps in an answers block or choice are not repeated on a details item, keeping
+Console key bindings unambiguous. Panel answers retain their page actions for Console.
+
 The primary child list carries its heading; each other related list takes its heading
 from its section, not a second list title. This applies to empty and populated lists.
 
