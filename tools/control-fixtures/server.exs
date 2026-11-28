@@ -1,10 +1,12 @@
 Code.require_file("scenarios.exs", __DIR__)
+Code.require_file("product_pages.exs", __DIR__)
 
 defmodule ControlFixtures.Server do
   @moduledoc false
   alias ControlFixtures.Scenarios
 
   def run(scenario, port) do
+    :persistent_term.put({Scenarios, :pages}, ControlFixtures.ProductPages.build!())
     {:ok, listener} = :gen_tcp.listen(port, [:binary, packet: :line, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
     IO.puts("Control fixture #{scenario} listening on 127.0.0.1:#{port}")
     accept(listener, scenario)

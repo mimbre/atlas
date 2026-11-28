@@ -96,16 +96,18 @@ node --test platform/ops/ci/tested-tree.test.mjs           # CI's tested-tree re
 ### Shared Control fixtures
 
 For offline client presentation work, run the read-only JSON-lines Control endpoint from
-the repository root (Elixir/Mix and the Control dependencies are required):
+the repository root (Elixir/Mix and the software factory dependencies are required):
 
 ```sh
-(cd platform/atlas_control && MIX_ENV=test mix deps.get)
+(cd products/software_factory && MIX_ENV=test mix deps.get)
 python3 tools/control-fixtures/server.py --scenario decision --port 4747
 python3 -m unittest discover -s tools/control-fixtures -p 'test_server.py'
 ```
 
-The launcher forces Mix's `test` environment and does not start Control or other Atlas
-applications; it does not read the caller's production environment configuration.
+The launcher forces Mix's `test` environment. It starts only a local in-process Bus and
+test FakeStore to feed synthetic facts through the real product model and Control's page
+builders, then stops the store; no Control, Facts, Rela or Flow server is started and no
+production environment configuration is read.
 
 Choose `decision`, `scene`, `todo`, `lists`, or `empty`; the selected scenario is the
 initial page, and the fixture tabs link the other examples. Connect either client to
@@ -114,6 +116,11 @@ actual Console action projection; a native hello receives the same unprojected c
 The fixture implements hello, boot, open and refresh only. It explicitly rejects unknown
 pages and operations, including submits: the visible examples do not write any data and
 are not a substitute for real-server or mutation verification. Stop it with Ctrl-C.
+The To-Do routes use the product's `/k/to_do` kind. Long Scene content and the empty Issue
+list are synthetic facts rendered by the same BFF, not handwritten block JSON. Only the
+fixture's listed targets are navigable; submissions and unrelated targets are refused.
+To check the BFF pages and Console projection independently, run
+`cd products/software_factory && MIX_ENV=test mix run --no-start ../../tools/control-fixtures/product_pages_test.exs`.
 
 Four commands, each with its own purpose:
 

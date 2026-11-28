@@ -41,13 +41,16 @@ class ControlFixtureTest(unittest.TestCase):
         return json.loads(stream.readline())
 
     def test_scenarios_and_console_projection(self):
-        for scenario, path in [('decision', '/k/decision/D-7'), ('scene', '/k/scene/SC-1'), ('todo', '/k/todo/TD-12'), ('lists', '/_open'), ('empty', '/k/issue')]:
+        for scenario, path in [('decision', '/k/decision/D-7'), ('scene', '/k/scene/SC-1'), ('todo', '/k/to_do/TD-12'), ('lists', '/_open'), ('empty', '/k/issue')]:
             with self.subTest(scenario=scenario):
                 stream = self.start_server(scenario)
                 welcome = self.exchange(stream, {'op': 'hello', 'env': 'test', 'client': 'tui', 'spec': '999.0.0', 'surface': 'console'})
                 self.assertEqual(welcome['surface'], 'console')
                 first = json.loads(stream.readline())
                 self.assertEqual(first['path'], path)
+                if scenario in {'decision', 'scene', 'todo'}:
+                    title = {'decision': 'How do we store examples?', 'scene': 'Make examples easy to inspect', 'todo': 'Prepare the local examples'}[scenario]
+                    self.assertTrue(any(block.get('props', {}).get('title') == title for block in first['blocks']))
                 self.assertTrue(any(block['type'] == 'console_action' for block in first['blocks']))
                 shell = self.exchange(stream, {'op': 'boot'})
                 self.assertEqual(shell['initial_to'], path)
