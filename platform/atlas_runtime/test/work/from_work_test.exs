@@ -276,12 +276,18 @@ defmodule AtlasRuntime.Work.FromWorkTest do
 
     assert other == unknown
 
-    # read_all may read it, so it may build on it.
-    assert %F.Outcome.Accepted{} =
-             F.submit(
-               client("admin", [:read_all]),
-               from_request(source.work_id, "complete admin", "read-only")
-             )
+    # read_all may read it, so it may build on it. Finish before changing the policy:
+    # the local source accepts asynchronously and admission reads the policy again.
+    admin = client("admin", [:read_all])
+
+    assert %F.Outcome.Accepted{work: admin_work} =
+             F.submit(admin, from_request(source.work_id, "complete admin", "read-only"))
+
+    await_work(
+      admin_work.work_id,
+      &(&1.state == :completed and Enum.all?(&1.attempts, fn a -> a.quiescent end)),
+      admin
+    )
 
     # (e) resume_from with from_work.
     assert %F.Outcome.Refused{reason: :invalid} =
