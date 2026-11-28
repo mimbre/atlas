@@ -140,24 +140,37 @@ struct MarkdownText: View {
 }
 
 #if os(macOS)
-/// A cursor rectangle, without a hit-testing surface over the selectable text.
+/// Track link glyphs without intercepting selection or clicks on the text.
 private final class LinkCursorView: NSView {
+    var regions: [CGRect] = []
+    override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved], owner: self))
+        for rect in regions {
+            let visible = rect.intersection(visibleRect).intersection(bounds)
+            if !visible.isEmpty {
+                addTrackingArea(NSTrackingArea(rect: visible, options: [.activeInKeyWindow, .mouseEnteredAndExited, .mouseMoved], owner: self))
+            }
+        }
     }
     override func mouseEntered(with event: NSEvent) { NSCursor.pointingHand.set() }
     override func mouseMoved(with event: NSEvent) { NSCursor.pointingHand.set() }
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
+        for rect in regions { addCursorRect(rect, cursor: .pointingHand) }
     }
 }
 
 private struct LinkCursorRegion: NSViewRepresentable {
+    let regions: [CGRect]
     func makeNSView(context: Context) -> LinkCursorView { LinkCursorView() }
     func updateNSView(_ view: LinkCursorView, context: Context) {
+        if view.regions != regions {
+            view.regions = regions
+            view.needsLayout = true
+            view.updateTrackingAreas()
+        }
         view.window?.invalidateCursorRects(for: view)
     }
 }
@@ -178,11 +191,7 @@ private struct LinkPointer: ViewModifier {
                             }
                         }
                     }
-                    ForEach(Array(bounds.enumerated()), id: \.offset) { _, rect in
-                        LinkCursorRegion()
-                            .frame(width: rect.width, height: rect.height)
-                            .position(x: rect.midX, y: rect.midY)
-                    }
+                    LinkCursorRegion(regions: bounds)
                 }
             }
             .allowsHitTesting(false)
