@@ -62,9 +62,14 @@ defmodule AtlasTui.MarkdownTest do
           "props" => %{
             "title" => "Details",
             "fields" => [
-              %{"label" => "Description", "value" => "# Heading\n- **strong**"},
+              %{
+                "label" => "Description",
+                "value" => "# Heading\n- **strong**",
+                "syntax" => "markdown"
+              },
               %{"label" => "Plain", "value" => "**literal**"},
-              %{"label" => "Unknown", "value" => "**unknown**"}
+              %{"label" => "Unknown", "value" => "**unknown**", "syntax" => "other"},
+              %{"label" => "Legacy", "value" => "**legacy**", "format" => "markdown"}
             ]
           }
         }
@@ -73,15 +78,6 @@ defmodule AtlasTui.MarkdownTest do
     }
 
     model = PanelFixture.projected(page)
-    [item] = model.blocks
-    [marked, plain, unknown] = item.fields
-
-    item = %{
-      item
-      | fields: [Map.put(marked, :format, "markdown"), plain, Map.put(unknown, :format, "other")]
-    }
-
-    model = %{model | blocks: [item]}
 
     for width <- [24, 80] do
       output = model |> View.render(width, 40, 30) |> View.plain()
@@ -89,29 +85,37 @@ defmodule AtlasTui.MarkdownTest do
       assert output =~ "- strong"
       assert output =~ "**literal**"
       assert output =~ "**unknown**"
+      assert output =~ "**legacy**"
     end
   end
 
-  test "only the markdown format changes text blocks in either theme" do
+  test "only the markdown syntax changes text blocks in either theme" do
     page = %{
       "op" => "page",
       "path" => "/k/test",
       "title" => "Page",
       "blocks" => [
-        %{"id" => "marked", "type" => "text", "props" => %{"text" => "# Heading"}},
+        %{
+          "id" => "marked",
+          "type" => "text",
+          "props" => %{"text" => "# Heading", "syntax" => "markdown"}
+        },
         %{"id" => "plain", "type" => "text", "props" => %{"text" => "# Literal"}},
-        %{"id" => "unknown", "type" => "text", "props" => %{"text" => "**literal**"}}
+        %{
+          "id" => "unknown",
+          "type" => "text",
+          "props" => %{"text" => "**literal**", "syntax" => "other"}
+        },
+        %{
+          "id" => "legacy",
+          "type" => "text",
+          "props" => %{"text" => "**legacy**", "format" => "markdown"}
+        }
       ],
       "markup" => []
     }
 
     model = PanelFixture.projected(page)
-    [marked, plain, unknown] = model.blocks
-
-    model = %{
-      model
-      | blocks: [Map.put(marked, :format, "markdown"), plain, Map.put(unknown, :format, "other")]
-    }
 
     for width <- [24, 80] do
       rows = View.render(model, width, 40, 30)
@@ -119,6 +123,7 @@ defmodule AtlasTui.MarkdownTest do
       assert output =~ "H1 Heading"
       assert output =~ "# Literal"
       assert output =~ "**literal**"
+      assert output =~ "**legacy**"
 
       for theme <- [:light, :dark],
           do: assert(IO.iodata_to_binary(View.to_ansi(rows, theme)) =~ "Heading")

@@ -79,7 +79,7 @@ defmodule RelaDSL.Office.Letter do
     Its id is LE- and a number.
     """ do
     field(:title, :string, required: true, description: "What it is about: in short")
-    field(:body, :string, description: "The text", multiline: true, format: "markdown")
+    field(:body, :string, description: "The text", multiline: true, syntax: "markdown")
     field(:state, :letter_state, description: "on")
     field(:code, :post_code, unique: true)
     field(:urgent, :boolean, default: false, label: "Urgent")

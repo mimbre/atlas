@@ -58,7 +58,7 @@ defmodule Model.UseCase do
     field(:description, :string,
       description: "The text (Flux: description)",
       multiline: true,
-      format: "markdown"
+      syntax: "markdown"
     )
 
     field(:flux_id, :string,

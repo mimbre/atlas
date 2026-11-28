@@ -32,7 +32,7 @@ struct MarkdownDocument {
     }
 
     let parts: [Part]
-    static func isMarkdown(_ format: String?) -> Bool { format == "markdown" }
+    static func isMarkdown(_ syntax: String?) -> Bool { syntax == "markdown" }
 
 
     init(_ source: String) {
@@ -62,11 +62,11 @@ struct MarkdownDocument {
 
 struct FormattedText: View {
     let text: String
-    let format: String?
+    let syntax: String?
 
     var body: some View {
         Group {
-            if MarkdownDocument.isMarkdown(format) {
+            if MarkdownDocument.isMarkdown(syntax) {
                 MarkdownText(source: text)
             } else {
                 Text(text)

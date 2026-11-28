@@ -1,4 +1,5 @@
 import AtlasControlKit
+import ControlSession
 import Prism
 import SwiftUI
 
@@ -13,7 +14,7 @@ import SwiftUI
 /// `answers` blocks are on the page too, each `instruction` and each `option` in a card of
 /// its own. On the opened item (`header`) its other actions (its `actions` blocks) and its
 /// answers of weight `other` are not on the page but in the window's toolbar
-/// (`PageActions.toolbar`, `ItemToolbar`, put there by its container) and in its context
+/// (`PageActions.toolbar`, `ItemToolbar`) and in its context
 /// menu (`ItemActionsMenu`): its bottom keeps only the main answer and the decline. Another
 /// page shows them where Control put them.
 public struct PageView: View {
@@ -29,6 +30,7 @@ public struct PageView: View {
     let filter: (String) -> Void
     let selectedGroup: String?
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.pendingAction) private var pending
     /// Whether the list has the keys: its selected card shows Prism's tint, else calm grey.
     @FocusState private var listFocused: Bool
 
@@ -53,7 +55,14 @@ public struct PageView: View {
     /// (`RecessedCard`). What is left over is at the right, after the last column.
     public var body: some View {
         GeometryReader { room in
-            columns(WindowLayout.columns(width: room.size.width))
+            let layout = WindowLayout.columns(width: room.size.width)
+            columns(layout)
+                .toolbar {
+                    if header {
+                        ItemToolbar(actions: itemActions, pending: pending,
+                                    trailing: presentation.details == nil || layout.details == nil, act: act)
+                    }
+                }
         }
         .navigationTitle(presentation.title)
     }
@@ -484,7 +493,7 @@ struct ItemBlockView: View {
                         Text(label).prism(Prism.Typography.label)
                             .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.secondary))
                     }
-                    FormattedText(text: field.value ?? "—", format: field.format).prism(Prism.Typography.bodysmall)
+                    FormattedText(text: field.value ?? "—", syntax: field.syntax).prism(Prism.Typography.bodysmall)
                         .foregroundStyle(inDetails ? AnyShapeStyle(PrismDarkGap.muted(scheme)) : AnyShapeStyle(.primary))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -33,7 +33,7 @@ A block in the contract:
 
 ```elixir
 defblock :form do
-  field :title, :string, required: true
+  field :title, :string, required: true, intent: :title
   field :inputs, {:list, :input}, required: true
   field :submit_label, :string, required: true
   field :submit_to, :string, required: true
@@ -42,9 +42,17 @@ defblock :form do
 end
 ```
 
-Types are `:string`, `:integer`, `:boolean`, a model (`defmodel`), or `{:list, type}`. A mistake fails the build and points at its line:
+Types are `:string`, `:integer`, `:boolean`, a model (`defmodel`), or `{:list, type}`.
+String fields and lists of strings can declare advisory `intent: :label`, `:title`,
+or `:body`, describing short labels, concise headings, or longer prose per string
+without a numeric limit. A field with
+`syntax: :markdown` supports Markdown when its containing wire value opts in with
+`syntax: "markdown"`; the annotation itself does not make every value Markdown.
+These field annotations appear in the shared schema and generated `blocks.json`,
+not as extra properties on each wire value. Page markup is independent.
 
-- in the contract: an unknown type, a name or field defined twice, a block that holds a block, a field that holds markup, a name that is not snake_case, an option other than `required:`, a missing `version`;
+A mistake fails the build and points at its line:
+- in the contract: an unknown type, a name or field defined twice, a block that holds a block, a field that holds markup, a name that is not snake_case, invalid field options, a missing `version`;
 - in Control's code: a builder call (`Blocks.form(title: ..., ...)`) that leaves out a required prop or names one the block does not have. The builders are macros, so a caller writes `require AtlasControl.Blocks, as: Blocks`. A wrong value, or a required prop that is `nil` at run time, raises when the block is built.
 
 Change the contract and commit it. The targets are build output, not kept in git (`targets: [json: "../targets/json", swift: {"../targets/swift", package: "AtlasControlKit", version_field: "spec"}]` in `platform/atlas_control/backend/contract/config/config.exs`): `bin/generate atlas` (or `mix atlas.gen` here) writes them where a build needs them, and nothing compares them with earlier output. Every generated file starts with a header that says so and names the contract file; `mix atlas.gen` never overwrites a file without it, and removes a generated file no target writes any more. Then check the TUI still knows every block and kind of markup (`AtlasTui.View.known/0`; its tests fail otherwise).
@@ -86,9 +94,9 @@ Control sends a view model, not a data model: its **content**, a flat list of bl
 | `actions` | what else can be done with the page's subject (change it, hand it over, delete it, create under it; in the test environment `! Failures…`, icon `faults`, last), each an `action` on its key with its `icon` (edit, hand_over, delete, remove, create, open, faults; contract 0.36.0), below the answers and quieter than they are; never one of the page's own actions; none, no block (contract 0.34.0, in place of More…); the Mac app shows the opened item's in the window's toolbar | open it by key or button |
 | `option` | one option to adopt of a decision: its number, text, a badge in its tone (★ Recommended; on one its decider added when declining, `melle's alternative`), its Rule and Consequences (each only when it has a text: an alternative its proposer has not worked out yet has neither) and its own answer (`panel_answer`: Choose; the recommended `main`, another `other`); `alone` the only proposal (no badge; clients show no number), answered by the answers' Accept (contract 0.38.0: a decline is no option but the answers' Decline or Decline all) | answer it by its key or button; select options with the arrows, Enter answers the selected one; `0` the recommended one |
 
-Text blocks may carry `props.format: "markdown"`; a labelled value in an item's
-`props.fields` may carry `format: "markdown"`. Either opts that text into Markdown.
-An absent or unknown format is plain text. Markdown headings are subordinate to the
+Text blocks may carry `props.syntax: "markdown"`; a labelled value in an item's
+`props.fields` may carry `syntax: "markdown"`. Either opts that text into Markdown.
+An absent or unknown syntax is plain text. Version 0.47.0 replaces the 0.46.0 `format` key without an alias: mixed versions show Markdown as plain text until both sides are updated. Markdown headings are subordinate to the
 page title; fenced code is displayed, not executed, arbitrary HTML is not rendered,
 and links open only http or https URLs. Unmarked text remains plain.
 
@@ -170,6 +178,7 @@ from its section, not a second list title. This applies to empty and populated l
 The start page of what is assigned to the viewer (`/`) is calm; it is the shared convention for such overviews, in the vocabulary above (no block or markup of its own). It has no Overview: its tab and its groups carry the counts. It declares its groups (one per kind, only those with items), then the `list` (block id `list`) of calm rows: the item's key as the row's id (people and agents talk in keys; a client shows it first, in a column of its own) and a detail that says only, in this order, the review rule's label when the fact is to be reviewed, the short name of the flow its work is in (the model's `label:` of the subflow, such as Plan, while something is expected of its owner; never the sentence of what is expected, which the item's page says), whether it is blocked, and its deadline; never since when, why, or whose. A person's page (what is assigned, Open for you, Supervised by you; Open work, which only `atlas list` shows, follows the same rule) shows each item's key and no other technical details (runs, states): those are an agent's or a developer's, through `atlas get`. Open for you and Supervised by you follow the same rows; their Overview is titled with the model's count, which no pair repeats. On a group's page of either (one span of one flow) the group's name says the flow, so a row's detail says what the item belongs under (its parents' keys) in its place. On Supervised by you, a row that the viewer's running work is on (a task an agent runs for them) says that work, its kind and detail (such as `Task · Plan · Architect`), in place of the flow. Open work (the list of the kind the start's relation starts at) follows the same shape, with `Open` as the main count, `Unassigned` counted too when some are, and each row's detail starting with who it is with (the owner keys, or "unassigned"). The Workers list (`/workers`) follows the same shape: `Workers` as the main count, `Running` and `Needs attention` (the failed turns) only when some are; calm rows without ids. Its Overview carries the page action Health (key `h`), which opens the core's health (`/health`, IS-Atlas-117): an Overview (`Checks`, and `Late` when some are), then an `item` per group (Core, Syncs, Runtimes), a pair per check whose value starts `late · ` past its limit, and a `highlight` in tone `error` over each group with a late check.
 
 Control decides the order of every list; a client shows rows in the order it gets them and never re-sorts them. The work lists (Assigned to you, Open for you, Supervised by you, and each of their groups) are in work order: rows with a deadline first (the `deadline` Facts presents on the work, else the field the kind's late rule names), soonest at the top; then the rest by how long each has waited (the row's `since`), oldest first, a row without one last; ties by key. Browse lists (a kind's list) keep their own order.
+Open for you applies that order across all groups in its combined list, not separately per group.
 
 Parent relation rows carry the target's title and directly stored state when Facts can
 read it, with its kind, icon, key and link. Facts resolves at most 64 distinct linked

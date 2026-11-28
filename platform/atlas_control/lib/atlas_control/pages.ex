@@ -1810,13 +1810,12 @@ defmodule AtlasControl.Pages do
 
         rows =
           Enum.flat_map(shown, fn {s, facts} ->
-            work_order(
-              for {kind, fact, work} <- facts do
-                {screen_row(m, kind, fact, work, by, false),
-                 deadline(m, [{written_on(s), work}, {kind, fact}])}
-              end
-            )
+            for {kind, fact, work} <- facts do
+              {screen_row(m, kind, fact, work, by, false),
+               deadline(m, [{written_on(s), work}, {kind, fact}])}
+            end
           end)
+          |> work_order()
 
         list = Blocks.list(rows: rows, empty: rule.empty)
         grouped_page(m, {:open_for_you, nil}, counts, active, rule.title || "", [{"list", list}])
@@ -2409,7 +2408,7 @@ defmodule AtlasControl.Pages do
                   do: [],
                   else: [
                     {"intro",
-                     Blocks.text(text: text, format: Map.get(field(k, intro) || %{}, :format))}
+                     Blocks.text(text: text, syntax: Map.get(field(k, intro) || %{}, :syntax))}
                   ]
                 ) ++
                 for(
@@ -2423,7 +2422,7 @@ defmodule AtlasControl.Pages do
                      Blocks.text(
                        label: f.label,
                        text: to_text(value),
-                       format: Map.get(f, :format)
+                       syntax: Map.get(f, :syntax)
                      )}
                 ) ++
                 todo_blocks ++
@@ -3999,7 +3998,7 @@ defmodule AtlasControl.Pages do
           Blocks.pair(
             label: f.label,
             value: show(f, value) <> late(k, fact, f.name),
-            format: Map.get(f, :format)
+            syntax: Map.get(f, :syntax)
           )
         ],
         else: []
@@ -4162,7 +4161,7 @@ defmodule AtlasControl.Pages do
         normalize_text(to_text(value)) not in ["", "—"],
         do:
           {"decision-#{name}",
-           Blocks.text(label: f.label, text: to_text(value), format: Map.get(f, :format))}
+           Blocks.text(label: f.label, text: to_text(value), syntax: Map.get(f, :syntax))}
   end
 
   defp decision_read_option(option, n, recommended, alone?) do
