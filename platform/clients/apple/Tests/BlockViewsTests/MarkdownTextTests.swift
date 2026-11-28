@@ -63,4 +63,13 @@ final class MarkdownTextTests: XCTestCase {
         XCTAssertTrue(document.parts.contains { $0.text.runs.contains { $0.link != nil } })
         XCTAssertEqual(document.parts.filter { $0.prefix.contains("•") }.count, 2)
     }
+
+    func testAngleBracketPlaceholdersDoNotDisableHeadingsOrLists() {
+        let document = MarkdownDocument("## Notes\n\n- Scene SC-<code>-NN\n- Use case UC-<code>-NN")
+        XCTAssertEqual(document.parts.compactMap(\.headingLevel), [2])
+        let items = document.parts.filter { $0.prefix == "• " }
+        XCTAssertEqual(items.map { String($0.text.characters) }, [
+            "Scene SC-<code>-NN", "Use case UC-<code>-NN"
+        ])
+    }
 }
