@@ -128,6 +128,13 @@ The schema does not declare enum domains, action-key grammars, routable targets 
 cross-field semantics, so these are structural specimens, not operational pages or
 real-server checks.
 
+The real Console also offers **Blocks** (`g b`) as a separate browse tab. Its
+`/_blocks` page links the required-only and all-present structural specimens from
+the current BFF schema. Example destinations and keys are made safe for navigation;
+submissions are refused while viewing the gallery. These examples illustrate shape,
+not product semantics. `console_action` is protocol metadata rather than a visual
+block and is represented by the real Console projection instead of a sample card.
+
 The separate operational replay path below uses synthetic facts through the real product
 model and BFF, with a local in-process Bus and test FakeStore. It writes native pages and
 boot shells for replay; it does not use the structural specimens as production content.

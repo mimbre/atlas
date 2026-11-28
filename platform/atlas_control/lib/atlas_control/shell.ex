@@ -171,6 +171,7 @@ defmodule AtlasControl.Shell do
          (tab["section"] == "browse" and AtlasBFFContract.Console.sequence?(tab["key"]))) and
       Map.get(tab, "assigned", false) in [true, false] and
       case Pages.route(if(is_binary(to), do: to, else: "")) do
+        :block_gallery -> tab["assigned"] != true
         :home -> tab["assigned"] == true and Pages.assigned_rule(m) != nil
         {:list, kind} -> Pages.kind?(m, kind) and text?(canonical_tab(to), 2_048)
         {:worker_page, :health, _} -> tab["assigned"] != true
@@ -195,6 +196,7 @@ defmodule AtlasControl.Shell do
       # A removed overview falls back; valid detail/form targets stay canonical.
       index? =
         route == :home or match?({:list, _}, route) or
+          route == :block_gallery or
           match?({:worker_page, :health, _}, route) or
           match?({:machine_page, :machines, _}, route) or
           screen?(route)
@@ -215,6 +217,13 @@ defmodule AtlasControl.Shell do
     do: {:error, "Facts did not resolve the boot target"}
 
   defp canonical_target(:home, _m), do: {:ok, "/"}
+  defp canonical_target(:block_gallery, _m), do: {:ok, Pages.path(:block_gallery)}
+
+  defp canonical_target({:block_gallery_sample, name, variant} = route, _m) do
+    if text?(name, 128) and text?(variant, 128),
+      do: {:ok, Pages.path(route)},
+      else: {:error, "Invalid gallery sample"}
+  end
 
   defp canonical_target({screen, _} = route, _m) when screen in @screens,
     do: {:ok, Pages.path(route)}

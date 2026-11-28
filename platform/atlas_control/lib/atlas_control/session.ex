@@ -649,6 +649,11 @@ defmodule AtlasControl.Session do
   # A submit names one of the contract's submit endpoints and its params, as a form's
   # submit_to does (or its path); anything else is refused before anything is read or
   # written.
+  defp handle_op("submit", _message, %{route: route} = state)
+       when route == :block_gallery or elem(route, 0) == :block_gallery_sample do
+    {:noreply, notice(state, "error", "Gallery examples cannot submit changes.")}
+  end
+
   defp handle_op("submit", message, state) do
     raw = Map.new(message["values"] || %{}, fn {k, v} -> {k, to_string(v)} end)
     cause = if is_binary(message["cause"]) and message["cause"] != "", do: message["cause"]
@@ -1731,6 +1736,9 @@ defmodule AtlasControl.Session do
     answers = page_answers(route, state.model)
 
     case route do
+      route when route == :block_gallery or elem(route, 0) == :block_gallery_sample ->
+        {AtlasControl.BlockGallery.render(route), answers, ReadSet.none()}
+
       # The core's health: never read from Facts, so it shows while Facts is stuck.
       {:worker_page, :health, _} ->
         {health_page(state), answers, ReadSet.none()}

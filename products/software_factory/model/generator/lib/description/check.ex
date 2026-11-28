@@ -391,6 +391,9 @@ defmodule RelaDSL.Description.Check do
                     "shell.tabs: #{target} requires start.#{entry}"
                   )
 
+            target == "/_blocks" ->
+              []
+
             target == "/machines" ->
               if Map.has_key?(ctx.x, "machines"),
                 do: [],

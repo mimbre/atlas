@@ -104,7 +104,8 @@ defmodule AtlasBFFContract.Contract do
   # 0.46.0: text blocks and labelled values may explicitly declare Markdown.
   # 0.47.0: text and pair syntax replaces format; coordinated client update required.
   # 0.48.0: boot no longer claims an assistant is connected.
-  version "0.48.0"
+  # 0.49.0: the shared block gallery and its individual examples.
+  version("0.49.0")
 
   use AtlasBFFContract.Blocks
   use AtlasBFFContract.Markup
