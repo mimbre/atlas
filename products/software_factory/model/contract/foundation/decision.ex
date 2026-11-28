@@ -82,7 +82,7 @@ defmodule Model.Decision do
     is D- and a number, e.g. D-0024.
     """ do
     icon(:scales)
-    field(:title, :string, intent: :title, required: true, description: "The decision in a few words")
+    field(:title, :string, required: true, description: "The decision in a few words")
 
     field(:decision, :string,
       required: true,

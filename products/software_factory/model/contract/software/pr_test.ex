@@ -31,7 +31,7 @@ defmodule Model.PrTest do
     flow. Its outcome is reported back to the pull request.
     """ do
     icon(:flask)
-    field(:title, :string, intent: :title, required: true, description: "What is tested")
+    field(:title, :string, required: true, description: "What is tested")
     field(:verdict, :string, description: "The tester's verdict: passed or failed")
 
     field(:superseded, :boolean,

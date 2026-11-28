@@ -332,7 +332,6 @@ defmodule RelaDSL.Control.Model do
         set_by: prop["set_by"],
         multiline: prop["multiline"] == true,
         syntax: prop["syntax"],
-        intent: prop["intent"],
         url: prop["format"] == "url" or get_in(types, [prop["type"], "format"]) == "url",
         cause:
           case prop["cause"] do

@@ -43,7 +43,7 @@ defmodule Model.ToDo do
     a note. The id is TD- and a number, e.g. TD-07.
     """ do
     icon(:checklist)
-    field(:title, :string, intent: :title, required: true, description: "The work in a few words")
+    field(:title, :string, required: true, description: "The work in a few words")
 
     field(:instructions, :string, intent: :body,
       required: true,

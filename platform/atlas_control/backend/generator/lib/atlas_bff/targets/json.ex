@@ -22,6 +22,11 @@ defmodule AtlasBFF.Targets.Json do
           Enum.map(e.fields, fn f ->
             %{"name" => Atom.to_string(f.name), "type" => type(f.type), "required" => f.required}
             |> deprecated.(f)
+            |> then(fn map ->
+              Enum.reduce([:intent, :syntax], map, fn key, acc ->
+                if f[key], do: Map.put(acc, to_string(key), to_string(f[key])), else: acc
+              end)
+            end)
           end)
       }
       |> deprecated.(e)

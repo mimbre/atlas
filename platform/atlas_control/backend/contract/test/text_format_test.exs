@@ -18,12 +18,25 @@ defmodule AtlasBFFContract.TextFormatTest do
     end
   end
 
-  test "a syntaxted pair retains its labelled value for older clients" do
+  test "a pair retains its labelled value and syntax" do
     text = "# Heading"
 
     assert %{"label" => "Description", "value" => ^text, "syntax" => "markdown"} =
              Server.pair(label: "Description", value: text, syntax: "markdown")
 
     refute Map.has_key?(Server.pair(label: "Description", value: text), "syntax")
+  end
+
+  test "shared spec classifies text and identifies Markdown-capable fields" do
+    schema = AtlasBFFContract.Contract.__schema__()
+    field = fn entries, entry, name ->
+      entries |> Enum.find(&(&1.name == entry)) |> Map.fetch!(:fields) |> Enum.find(&(&1.name == name))
+    end
+
+    assert %{intent: :title} = field.(schema.blocks, :header, :title)
+    assert %{intent: :label} = field.(schema.models, :pair, :label)
+    assert %{intent: :body, syntax: :markdown} = field.(schema.blocks, :text, :text)
+    assert %{intent: :body, syntax: :markdown} = field.(schema.models, :pair, :value)
+    refute Map.has_key?(field.(schema.blocks, :text, :syntax), :intent)
   end
 end

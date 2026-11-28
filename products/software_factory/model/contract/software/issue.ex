@@ -50,13 +50,12 @@ defmodule Model.Issue do
     meaning). The id is its Atlas code, e.g. IS-Atlas-01.
     """ do
     icon(:ticket)
-    field(:title, :string, intent: :title, required: true, description: "Without the code (Flux: name)")
+    field(:title, :string, required: true, description: "Without the code (Flux: name)")
 
     field(:description, :string,
       description: "The text (Flux: description)",
       multiline: true,
-      syntax: "markdown",
-      intent: :body
+      syntax: "markdown"
     )
 
     field(:flux_id, :string,

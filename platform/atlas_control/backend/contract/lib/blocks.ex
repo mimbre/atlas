@@ -10,7 +10,7 @@ defmodule AtlasBFFContract.Blocks do
     quote do
       # A list may leave its title to its section, or show progress beside its own title.
       defblock :list do
-        field :title, :string
+        field :title, :string, intent: :title
         field :rows, {:list, :row}, required: true
         field :empty, :string
         field :actions, {:list, :action}
@@ -25,7 +25,7 @@ defmodule AtlasBFFContract.Blocks do
       end
 
       defblock :item do
-        field :title, :string, required: true
+        field :title, :string, intent: :title, required: true
         field :fields, {:list, :pair}, required: true
         field :actions, {:list, :action}
         field :links, {:list, :link}
@@ -34,8 +34,8 @@ defmodule AtlasBFFContract.Blocks do
       # A page's heading: its eyebrow, key, icon and title, with an optional state
       # detail and its ISO 8601 UTC timestamp for a current age beneath the title.
       defblock :header do
-        field :title, :string, required: true
-        field :eyebrow, :string
+        field :title, :string, intent: :title, required: true
+        field :eyebrow, :string, intent: :label
         field :key, :string
         field :icon, :string
         field :detail, :string
@@ -48,9 +48,9 @@ defmodule AtlasBFFContract.Blocks do
       # error, a tinted card or a red frame).
       # `syntax` markdown opts into Markdown; absent or unknown syntaxes are plain text.
       defblock :text do
-        field :text, :string, required: true
+        field :text, :string, intent: :body, syntax: :markdown, required: true
         field :syntax, :string
-        field :label, :string
+        field :label, :string, intent: :label
         field :since, :string
         field :role, :string
       end
@@ -86,8 +86,8 @@ defmodule AtlasBFFContract.Blocks do
       # block's Accept, so a client shows no answer on the card.
       defblock :option do
         field :n, :integer, required: true
-        field :text, :string, required: true
-        field :badge, :string
+        field :text, :string, intent: :body, required: true
+        field :badge, :string, intent: :label
         field :tone, :string
         field :fields, {:list, :pair}, required: true
         field :answer, :panel_answer, required: true
@@ -102,8 +102,8 @@ defmodule AtlasBFFContract.Blocks do
       # `actions` and `links` open what it refers to. `icon`: the icon of the fact's kind
       # (as on its rows), shown with the heading.
       defblock :panel do
-        field :heading, :string, required: true
-        field :title, :string, required: true
+        field :heading, :string, intent: :title, required: true
+        field :title, :string, intent: :title, required: true
         field :key, :string
         field :aside, :string
         field :icon, :string
@@ -118,7 +118,7 @@ defmodule AtlasBFFContract.Blocks do
 
       # Submitting sends the inputs' values to the endpoint `submit_to` names.
       defblock :form do
-        field :title, :string, required: true
+        field :title, :string, intent: :title, required: true
         field :inputs, {:list, :input}, required: true
         field :submit_label, :string, required: true
         field :submit_to, :call, required: true
@@ -129,8 +129,8 @@ defmodule AtlasBFFContract.Blocks do
       # A question before something that cannot be undone. Without `confirm_to` it only
       # explains why the thing cannot be done.
       defblock :confirm do
-        field :title, :string, required: true
-        field :text, :string, required: true
+        field :title, :string, intent: :title, required: true
+        field :text, :string, intent: :body, required: true
         field :confirm_label, :string
         field :confirm_to, :call
         field :cancel_to, :string, required: true
@@ -143,17 +143,17 @@ defmodule AtlasBFFContract.Blocks do
       # edits or drops each proposed step before any of it runs. `before` says what became
       # of the previous plan for the same request, when this one follows a refusal.
       defblock :plan do
-        field :title, :string, required: true
-        field :request, :string, required: true
+        field :title, :string, intent: :title, required: true
+        field :request, :string, intent: :body, required: true
         field :state, :string, required: true
-        field :summary, :string
+        field :summary, :string, intent: :body
         field :by, :string
         field :before, :string
         field :steps, {:list, :step}, required: true
       end
 
       defblock :console_action do
-        field :label, :string, required: true
+        field :label, :string, intent: :label, required: true
         field :keys, {:list, :string}, required: true
         field :operation, :console_operation, required: true
         field :scope, :console_scope, required: true

@@ -788,7 +788,7 @@ defmodule AtlasControl.PagesTest do
            }
   end
 
-  test "syntaxted fields remain in the item for older clients" do
+  test "fields with syntax remain in the item" do
     notes = "# Heading\n\n- one\n- two"
     answer = %{"fact" => fact("W-01", %{"title" => "One", "notes" => notes})}
 

@@ -11,7 +11,7 @@ defmodule Model.Agent do
     name, e.g. coordinator.
     """ do
     icon(:sparkles)
-    field(:name, :string, intent: :label, required: true, description: "As it is shown")
+    field(:name, :string, required: true, description: "As it is shown")
 
     field(:cannot_run, :string,
       description:

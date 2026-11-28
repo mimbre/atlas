@@ -17,6 +17,34 @@ defmodule AtlasBFF.SchemaTest do
              hd(schema.blocks).fields
   end
 
+  test "text intent and supported syntax reach schema data and the JSON target" do
+    schema = AtlasBFF.Example.__schema__()
+    assert %{intent: :label} = hd(hd(schema.models).fields)
+    assert %{intent: :title} = hd(hd(schema.blocks).fields)
+    assert %{intent: :body, syntax: :markdown} = hd(Enum.at(schema.blocks, 1).fields)
+
+    [{"blocks.json", json}] = AtlasBFF.Targets.Json.files(schema)
+    data = JSON.decode!(json)
+    assert %{"intent" => "label"} = hd(hd(data["models"])["fields"])
+    assert %{"intent" => "title"} = hd(hd(data["blocks"])["fields"])
+    assert %{"intent" => "body", "syntax" => "markdown"} =
+             hd(Enum.at(data["blocks"], 1)["fields"])
+    refute Map.has_key?(Enum.at(hd(data["blocks"])["fields"], 1), "intent")
+  end
+
+  test "intent and syntax reject unsupported values and non-string fields" do
+    for declaration <- [
+          "field :x, :string, intent: :other",
+          "field :x, :integer, intent: :body",
+          "field :x, :string, syntax: :other",
+          "field :x, {:list, :string}, syntax: :markdown"
+        ] do
+      assert_raise CompileError, ~r/the options are/, fn ->
+        spec("defblock :a do #{declaration} end")
+      end
+    end
+  end
+
   describe "a mistake fails at compile time" do
     test "shared model imports retain validation and reject duplicates" do
       assert_raise CompileError, ~r/:link is defined twice/, fn ->

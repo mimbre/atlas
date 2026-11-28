@@ -6,7 +6,7 @@ defmodule AtlasBFF.Example do
   version "1.0.0"
 
   defmodel :link do
-    field :label, :string, required: true
+    field :label, :string, required: true, intent: :label
     field :to, :string, required: true
   end
 
@@ -17,13 +17,13 @@ defmodule AtlasBFF.Example do
   end
 
   defblock :card do
-    field :title, :string, required: true
+    field :title, :string, required: true, intent: :title
     field :count, :integer
     field :links, {:list, :link}
   end
 
   defblock :note do
-    field :text, :string, required: true
+    field :text, :string, required: true, intent: :body, syntax: :markdown
     field :done, :boolean
   end
 

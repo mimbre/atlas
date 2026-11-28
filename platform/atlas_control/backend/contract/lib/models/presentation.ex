@@ -16,7 +16,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # 0.41.0): what the action does, in full, which a client shows as its tooltip (without
   # it, its label).
   defmodel :action do
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :key, :string, required: true
     field :to, :string, required: true
     field :submit_to, :call
@@ -32,7 +32,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # something in an app, `> Keychain Access > login`, without the ` > ` between them).
   defmodel :instruction_line do
     field :kind, :string, required: true
-    field :text, :string
+    field :text, :string, intent: :body
     field :parts, {:list, :string}
   end
 
@@ -40,7 +40,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # long ago that was, which a client shows after the text ("waiting 3h"; the age alone
   # when the text is empty) and keeps current.
   defmodel :clause do
-    field :text, :string, required: true
+    field :text, :string, intent: :body, required: true
     field :since, :string
   end
 
@@ -48,7 +48,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # `details`, what a client shows of the selected one.
   defmodel :panel_item do
     field :key, :string, required: true
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :to, :string, required: true
     field :details, {:list, :pair}
   end
@@ -56,15 +56,15 @@ defmodule AtlasBFFContract.Models.Presentation do
   # One check a panel is judged on: its `label`, its `state` (success, error, pending or
   # none: not known) and what it says (`text`, "—" when not known).
   defmodel :check do
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :state, :string, required: true
-    field :text, :string, required: true
+    field :text, :string, intent: :body, required: true
   end
 
   # A framed text of a panel; `tone` error: something went wrong.
   defmodel :box do
-    field :title, :string, required: true
-    field :text, :string, required: true
+    field :title, :string, intent: :title, required: true
+    field :text, :string, intent: :body, required: true
     field :tone, :string
   end
 
@@ -83,7 +83,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # (since 0.41.0): what the answer does, in full, which a client shows as its tooltip
   # (without it, its label).
   defmodel :panel_answer do
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :key, :string, required: true
     field :to, :string, required: true
     field :submit_to, :call
@@ -98,7 +98,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # A web address the user can open outside the client, in a browser: `url`. `key` is
   # the key a keyboard client binds it to. A client opens only http and https addresses.
   defmodel :link do
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :key, :string, required: true
     field :url, :string, required: true
   end
@@ -122,7 +122,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # draws as it likes and leaves out when it does not know it.
   defmodel :row do
     field :id, :string
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :detail, :string
     field :to, :string, required: true
     field :links, {:list, :link}
@@ -137,7 +137,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # One group of a `groups` block: its name, how many items it has, the page that shows
   # only them (`to`), and whether it is the one this page shows (`active`).
   defmodel :group do
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :count, :integer, required: true
     field :to, :string, required: true
     field :active, :boolean
@@ -152,8 +152,8 @@ defmodule AtlasBFFContract.Models.Presentation do
 
   # A labelled value, with its origin and optional syntax (markdown; otherwise plain).
   defmodel :pair do
-    field :label, :string, required: true
-    field :value, :string
+    field :label, :string, intent: :label, required: true
+    field :value, :string, intent: :body, syntax: :markdown
     field :syntax, :string
     field :origin, :origin
   end
@@ -162,7 +162,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # means, in full, which a client shows as its tooltip.
   defmodel :choice do
     field :value, :string, required: true
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :help, :string
   end
 
@@ -182,7 +182,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # input it names holds that value; a client sends no value for it otherwise.
   defmodel :input do
     field :name, :string, required: true
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :kind, :string, required: true
     field :value, :string
     field :required, :boolean
@@ -204,7 +204,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # refused or not_run. `detail` is what happened: the id it stored, or why not.
   defmodel :step do
     field :n, :integer, required: true
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :state, :string, required: true
     field :why, :string
     field :detail, :string
@@ -243,7 +243,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # count is what waits for the viewer (what is assigned to them), not a plain count.
   defmodel :shell_tab do
     field :id, :string, required: true
-    field :label, :string, required: true
+    field :label, :string, intent: :label, required: true
     field :to, :string, required: true
     field :section, :string, required: true
     field :key, :string
@@ -263,7 +263,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # line a client shows under that name, the agent that assists the viewer in the
   # model's words ("assistant: coordinator"); none when no such agent assists them.
   defmodel :shell do
-    field :title, :string, required: true
+    field :title, :string, intent: :title, required: true
     field :env, :string, required: true
     field :spec, :string, required: true
     field :revision, :string, required: true
@@ -300,7 +300,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # Why Control closes. Until 0.32.0, `reason` "too_old" with `spec` (Control's contract)
   # closed a client older than Control; from 0.33.0 Control welcomes any version (D-0105).
   defmodel :bye do
-    field :text, :string, required: true
+    field :text, :string, intent: :body, required: true
 
     field :reason, :string,
       deprecated: "never sent: Control closes no client for its version (D-0105)"
@@ -311,7 +311,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # A line for the status bar: pending (until Facts answers), ok, error or info.
   defmodel :notice do
     field :tone, :string, required: true
-    field :text, :string, required: true
+    field :text, :string, intent: :body, required: true
     field :at, :string
   end
 
@@ -330,7 +330,7 @@ defmodule AtlasBFFContract.Models.Presentation do
   # Control): ask for a plan made on the page at `on`, run its kept steps, cancel, stop.
   # It answers the plan block, after every change, and notices.
   defmodel :ask do
-    field :request, :string, required: true
+    field :request, :string, intent: :body, required: true
     field :on, :string, required: true
     field :intent, :string
   end

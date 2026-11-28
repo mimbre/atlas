@@ -3,8 +3,8 @@ defmodule Model.Profiles.Incident.Service do
   use RelaDSL
 
   entity :incident, label: "Incident", plural: "incidents", id_type: :manual, id_prefix: "INC-" do
-    field(:title, :string, intent: :title, required: true)
-    field(:description, :string, intent: :body)
+    field(:title, :string, required: true)
+    field(:description, :string)
     start key: "i", label: "Incidents"
     create(ask: [:title, :description], id: [prefix: "INC-", digits: 2])
     completion(by: :resolved_by)

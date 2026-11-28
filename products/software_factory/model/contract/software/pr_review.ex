@@ -33,7 +33,7 @@ defmodule Model.PrReview do
     flow. Its outcome is reported back to the pull request.
     """ do
     icon(:magnifier)
-    field(:title, :string, intent: :title, required: true, description: "What is reviewed")
+    field(:title, :string, required: true, description: "What is reviewed")
     field(:verdict, :string, description: "The reviewer's verdict: approved or changes_requested")
 
     field(:superseded, :boolean,

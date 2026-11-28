@@ -42,6 +42,11 @@ defmodule AtlasBFF.Schema do
     version marked it so (`deprecated "why"` inside a block, model or markup marks it all).
     Types: `:string`, `:integer`, `:boolean`, a model, `{:list, type}`, or
     `{:map, primitive}` (an object of names to such values).
+    String fields may declare `intent: :label | :title | :body` as advisory expected
+    use and length, with no numeric limit. `syntax: :markdown` declares that the
+    field supports Markdown when its enclosing value's wire `syntax` opts in; it
+    does not imply Markdown for an unmarked value. These are schema metadata, not
+    additional wire fields or page markup.
   - `defpage`: a page the server serves, by name and path. A segment `:name` is a
     parameter (a string); the others are literal. A page always returns a view model; it
     is fetched, never sent to. Where two pages could match one path, the one with a
@@ -79,8 +84,9 @@ defmodule AtlasBFF.Schema do
       }
 
   where an entry is `%{name: atom, fields: [%{name: atom, type: type, required: boolean}]}`
-  in the order written (an entry or field marked deprecated has `deprecated: "why"` too), and a type is `:string`, `:integer`, `:boolean`, a model's name,
-  or `{:list, type}`. Pages and endpoints are in the order written: first the pages' own
+  in the order written. Annotated fields also carry `intent` and/or `syntax`; a
+  deprecated entry or field has `deprecated: "why"`. A type is `:string`, `:integer`,
+  `:boolean`, a model's name, or `{:list, type}`. Pages and endpoints are in the order written: first the pages' own
   (call `:open`, the fetch of the page it names, replying a view model), then those of
   `defendpoint`.
   """
@@ -272,13 +278,18 @@ defmodule AtlasBFF.Schema do
     file = __CALLER__.file
     line = __CALLER__.line
 
-    unless Keyword.keyword?(opts) and Keyword.keys(opts) -- [:required, :deprecated] == [] and
+    unless Keyword.keyword?(opts) and
+             Keyword.keys(opts) -- [:required, :deprecated, :intent, :syntax] == [] and
              is_boolean(Keyword.get(opts, :required, false)) and
-             is_binary(Keyword.get(opts, :deprecated, "")) do
+             is_binary(Keyword.get(opts, :deprecated, "")) and
+             (not Keyword.has_key?(opts, :intent) or
+                (type == :string and opts[:intent] in [:label, :title, :body])) and
+             (not Keyword.has_key?(opts, :syntax) or
+                (type == :string and opts[:syntax] == :markdown)) do
       __fail__(
         __CALLER__.file,
         line,
-        "field #{inspect(name)}: the options are required: true | false and deprecated: \"why\""
+        "field #{inspect(name)}: the options are required: true | false and deprecated: \"why\", with intent: :label | :title | :body or syntax: :markdown on strings"
       )
     end
 
@@ -291,16 +302,16 @@ defmodule AtlasBFF.Schema do
         )
       end
 
-      @spec_fields AtlasBFF.Schema.__deprecated__(
-                     %{
-                       name: unquote(name),
-                       type: unquote(type),
-                       required: unquote(Keyword.get(opts, :required, false)),
-                       file: unquote(file),
-                       line: unquote(line)
-                     },
-                     unquote(opts[:deprecated])
-                   )
+      @spec_fields (%{
+                      name: unquote(name),
+                      type: unquote(type),
+                      required: unquote(Keyword.get(opts, :required, false)),
+                      file: unquote(file),
+                      line: unquote(line)
+                    }
+                    |> AtlasBFF.Schema.__deprecated__(unquote(opts[:deprecated]))
+                    |> AtlasBFF.Schema.__metadata__(:intent, unquote(opts[:intent]))
+                    |> AtlasBFF.Schema.__metadata__(:syntax, unquote(opts[:syntax])))
     end
   end
 
@@ -325,6 +336,10 @@ defmodule AtlasBFF.Schema do
   @doc false
   def __deprecated__(entry, nil), do: entry
   def __deprecated__(entry, why), do: Map.put(entry, :deprecated, why)
+
+  @doc false
+  def __metadata__(entry, _key, nil), do: entry
+  def __metadata__(entry, key, value), do: Map.put(entry, key, value)
 
   @doc false
   def __fail__(file, line, description),

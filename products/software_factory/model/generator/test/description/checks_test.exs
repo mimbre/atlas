@@ -91,19 +91,6 @@ defmodule RelaDSL.Description.ChecksTest do
     assert selects(c) == []
   end
 
-  test "text intent is advisory and only classifies string fields" do
-    for intent <- [:label, :title, :body] do
-      c = concept(entity: "field :sample, :string, intent: :#{intent}")
-      assert shape(c) == []
-      assert c.extension["entities"]["thing"]["properties"]["sample"]["intent"] == to_string(intent)
-    end
-
-    assert {:field_intent, ["thing", "sample"]} in
-             shape(concept(entity: "field :sample, :string, intent: :other"))
-    assert {:field_intent, ["thing", "sample"]} in
-             shape(concept(entity: "field :sample, :integer, intent: :body"))
-  end
-
   test "panel detail groups validate their fields and relations" do
     panel = fn groups ->
       concept(
