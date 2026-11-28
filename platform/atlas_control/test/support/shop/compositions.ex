@@ -512,7 +512,7 @@ defmodule Shop.Stepped do
 end
 
 defmodule Shop.Benched do
-  @moduledoc "The shelled shop with benches (`Shop.Benches`): the Machines tab, and an assistant."
+  @moduledoc "The shelled shop with benches (`Shop.Benches`): the Machines tab."
   use Shop.Composition,
     name: "shop-benched",
     concepts: Shop.Base.concepts() ++ [Shop.Benches]
@@ -551,7 +551,6 @@ defmodule Shop.Benched do
       [id: "assigned", label: "Assigned", to: "/", assigned: true],
       [id: "widgets", label: "Widgets", to: "/k/widget"],
       [id: "machines", label: "Machines", to: "/machines", section: :browse, key: "g m"]
-    ],
-    assistant: :helper
+    ]
   )
 end

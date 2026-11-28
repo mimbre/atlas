@@ -141,7 +141,7 @@ struct Sidebar: View {
             work: SidebarItem.rows(shell, section: "work"),
             browse: SidebarItem.rows(shell, section: "browse"),
             selection: shell.activeTab.map(SidebarItem.ID.tab),
-            stale: shell.stale, name: shell.name, assistant: shell.assistant, env: shell.env,
+            stale: shell.stale, name: shell.name, env: shell.env,
             production: shell.isProduction,
             connection: connection,
             select: { choice in

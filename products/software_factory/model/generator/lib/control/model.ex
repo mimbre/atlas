@@ -5,9 +5,7 @@ defmodule RelaDSL.Control.Model do
 
     * `shell(settings)`: the title and tabs of the native shell (`shell`), with the tabs
       the environment's settings add (`"tabs"`), and the id of the tab a client opens
-      on without a target (`"default"`, when the shell names one) and the agent whose line
-      a client shows under the viewer's name (`"assistant"`, when it names one); nil
-      without `shell`;
+      on without a target (`"default"`, when the shell names one); nil without `shell`;
     * `machines/0`: the names of the machines a Runtime runs work on (`machines`), as
       written, string-keyed; nil without `machines`;
     * `start_page/0`: what a client opens on (`start_page`): `assigned` (what is assigned

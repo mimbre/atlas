@@ -56,8 +56,7 @@ defmodule RelaDSL.Description do
   `count:` has `{count}`); Control fills it in for a viewer the relation points at.
   `shell` takes `title:`, `tabs:` (each `id:`, `label:`, `to:`, `assigned:`, and `icon:`, a
   semantic name a client may draw the tab with) and `default:`, the id of the tab a client
-  opens on without a target (else the first), and `assistant:`, the key of the agent fact
-  whose line a client shows under the viewer's name.
+  opens on without a target (else the first).
   `machines kind:, configuration:, policy_version:, upgrades:, attempts:, work:` names the
   machines a Runtime runs work on (`atlas.json` `machines`): the machine's kind and its
   configuration and applied version fields; `upgrades: [kind:, of:, build:, step:, ended:,
